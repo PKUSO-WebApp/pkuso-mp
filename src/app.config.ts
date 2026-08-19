@@ -1,5 +1,7 @@
 export default defineAppConfig({
   pages: [
+    // 首位为启动页：登录页作为入口，已登录用户启动时 reLaunch 到首页 tab
+    'pages/login/index',
     'pages/index/index',
     'pages/community/index',
     'pages/schedule/index',
