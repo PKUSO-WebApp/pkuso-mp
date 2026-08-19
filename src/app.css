@@ -39,4 +39,21 @@
   --color-warning-bg: #fffbeb;
   --color-info: #0ea5e9;
   --color-info-bg: #f0f9ff;
+
+  --color-overlay: rgb(0 0 0 / 0.4);
+}
+
+/* 底部安全区 padding：Tailwind 4.3.3 无 pb-safe utility，此处显式声明（旧机型忽略 calc 时退化为 0） */
+@utility pb-safe {
+  padding-bottom: calc(env(safe-area-inset-bottom));
+}
+
+/* 原生 button 组件默认样式重置（UI 原语里的按钮均为自绘样式） */
+button {
+  margin: 0;
+}
+
+/* 原生 button 组件默认的 ::after 细边框（UI 原语里的按钮均为自绘样式，不需要它） */
+button::after {
+  border: none;
 }
