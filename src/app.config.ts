@@ -4,14 +4,14 @@ export default defineAppConfig({
     'pages/community/index',
     'pages/schedule/index',
     'pages/members/index',
-    'pages/profile/index'
+    'pages/profile/index',
   ],
   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#ffffff',
     navigationBarTitleText: '北大交响乐团',
     navigationBarTextStyle: 'black',
-    backgroundColor: '#f4f4f5'
+    backgroundColor: '#f4f4f5',
   },
   tabBar: {
     color: '#71717a',
@@ -23,7 +23,7 @@ export default defineAppConfig({
       { pagePath: 'pages/community/index', text: '社区' },
       { pagePath: 'pages/schedule/index', text: '日程' },
       { pagePath: 'pages/members/index', text: '成员' },
-      { pagePath: 'pages/profile/index', text: '我的' }
-    ]
-  }
+      { pagePath: 'pages/profile/index', text: '我的' },
+    ],
+  },
 })

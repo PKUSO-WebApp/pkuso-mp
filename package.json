@@ -29,7 +29,13 @@
     "dev:rn": "npm run build:rn -- --watch",
     "dev:qq": "npm run build:qq -- --watch",
     "dev:jd": "npm run build:jd -- --watch",
-    "dev:harmony-hybrid": "npm run build:harmony-hybrid -- --watch"
+    "dev:harmony-hybrid": "npm run build:harmony-hybrid -- --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "test": "vitest run",
+    "verify": "pnpm format && pnpm lint && pnpm typecheck && pnpm test"
   },
   "browserslist": [
     "defaults and fully supports es6-module",
@@ -53,6 +59,7 @@
     "@tarojs/runtime": "4.2.1",
     "@tarojs/shared": "4.2.1",
     "@tarojs/taro": "4.2.1",
+    "pinyin-pro": "^3.29.2",
     "react": "^18.0.0",
     "react-dom": "^18.0.0"
   },
@@ -79,6 +86,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.1.2",
     "postcss": "^8.5.6",
+    "prettier": "^3.9.6",
     "react-refresh": "^0.14.0",
     "sass": "^1.75.0",
     "stylelint": "^16.4.0",
@@ -86,6 +94,8 @@
     "tailwindcss": "^4.3.3",
     "tsconfig-paths-webpack-plugin": "^4.1.0",
     "typescript": "^5.4.5",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.11",
     "weapp-tailwindcss": "^5.3.1",
     "webpack": "5.91.0"
   }
