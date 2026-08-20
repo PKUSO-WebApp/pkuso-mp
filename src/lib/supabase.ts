@@ -1,3 +1,8 @@
+// 必须为首个 import：小程序 JSCore 无全局 Headers，supabase-js 模块初始化
+// 会裸引用它导致启动即崩（ReferenceError: Headers is not defined），
+// 此副作用 import 按声明顺序先于 @supabase/supabase-js 求值安装 polyfill
+// （用 @/ 别名而非相对路径：import/first 规则要求绝对导入在前，别名不算相对）
+import '@/lib/weapp-polyfills'
 import Taro from '@tarojs/taro'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
