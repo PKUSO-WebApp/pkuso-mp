@@ -80,6 +80,16 @@
   --color-overlay: rgb(0 0 0 / 0.6);
 }
 
+/* 页面包裹层满高兜底：Taro 会为每个页面的 wxss 注入 .page{height:100%}
+   （PageWrapper 包裹层的类名），但空样式页会被跳过注入——首页 index.scss 为空、
+   pending/rejected 无样式文件——包裹层高度塌陷为内容高度，h-full 根节点随之
+   塌陷，短内容页面露出白色窗口背景（用户实测：暗色模式首页背景仍是白色，
+   其他页面因内容足够长看起来正常）。全局声明兜底，覆盖所有页面。 */
+page,
+.page {
+  height: 100%;
+}
+
 /* 底部安全区 padding：Tailwind 4.3.3 无 pb-safe utility，此处显式声明（旧机型忽略 calc 时退化为 0） */
 @utility pb-safe {
   padding-bottom: calc(env(safe-area-inset-bottom));
