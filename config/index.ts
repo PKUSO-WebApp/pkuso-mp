@@ -54,6 +54,10 @@ export default defineConfig<'webpack5'>(async (merge) => {
       },
       webpackChain(chain) {
         chain.resolve.plugin('tsconfig-paths').use(TsconfigPathsPlugin)
+        // 每次构建前清空 dist：防止 watch 增量构建残留旧 chunk，导致开发者工具
+        // 混合加载新旧产物（模块 ID 漂移 → 运行时 n[e] is not a function）。
+        // Taro 的 Output 类型未收录 clean 字段，用 set 绕过类型检查
+        chain.output.set('clean', true)
         chain.merge({
           plugin: {
             install: {
