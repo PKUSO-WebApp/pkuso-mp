@@ -135,4 +135,26 @@ describe('supabase 官方客户端适配', () => {
     vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', '')
     await expect(import('@/lib/supabase')).rejects.toThrow('缺少 Supabase 配置')
   })
+
+  it('taroFetch 兜底注入 apikey，已有 apikey 不重复注入', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+    request.mockResolvedValue({ statusCode: 200, header: {}, data: '{}' })
+
+    const { taroFetch } = await import('@/lib/supabase')
+    // 无 apikey：兜底注入配置的 anon key（PostgREST 否则报 No API key found）
+    await taroFetch('https://project.supabase.co/rest/v1/test')
+    expect(request.mock.calls[0][0].header.apikey).toBe('anon-key')
+    // 已有 apikey：保留原值
+    await taroFetch('https://project.supabase.co/rest/v1/test', { headers: { apikey: 'existing' } })
+    expect(request.mock.calls[1][0].header.apikey).toBe('existing')
+    // 头名大小写不敏感识别：Apikey 视为已存在，不重复注入
+    await taroFetch('https://project.supabase.co/rest/v1/test', {
+      headers: { Apikey: 'case-insensitive' },
+    })
+    expect(request.mock.calls[2][0].header.Apikey).toBe('case-insensitive')
+    expect(request.mock.calls[2][0].header.apikey).toBeUndefined()
+  })
 })

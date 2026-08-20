@@ -46,6 +46,11 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
   } else if (init.headers) {
     Object.assign(headers, init.headers)
   }
+  // 兜底注入 apikey：无论上层哪一环丢了（supabase-js 的 fetch 包装层 / Headers
+  // 构造 / 头名大小写差异），出口处强制保证 PostgREST 不报
+  // 「No API key found in request」（用户实测 RPC 出现该 400）
+  const hasApikey = Object.keys(headers).some((key) => key.toLowerCase() === 'apikey')
+  if (!hasApikey) headers.apikey = supabaseAnonKey
   const body = await toTaroBody(init.body)
   const response = await Taro.request({
     url,

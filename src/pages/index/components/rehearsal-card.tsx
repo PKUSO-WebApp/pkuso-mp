@@ -21,11 +21,20 @@ type Props = {
   /** 考勤数据加载中：不渲染签到按钮，防首屏 map 未就绪时闪错 */
   attendanceLoading?: boolean
   onSignIn?: () => void
+  /** 整卡点击打开详情弹窗（Web Issue #173 语义） */
+  onClick?: () => void
   /** 编辑过（updated_at > created_at），在标题下方展示「更新」提示 */
   isUpdated?: boolean
 }
 
-export function RehearsalCard({ item, attendance, attendanceLoading, onSignIn, isUpdated }: Props) {
+export function RehearsalCard({
+  item,
+  attendance,
+  attendanceLoading,
+  onSignIn,
+  onClick,
+  isUpdated,
+}: Props) {
   // 签到窗口判定：未开始/已结束不渲染任何按钮
   const blockReason = getSignBlockReason(item.start_time, item.end_time ?? null, new Date())
 
@@ -46,7 +55,8 @@ export function RehearsalCard({ item, attendance, attendanceLoading, onSignIn, i
   const updateLabel = isUpdated ? getUpdateBadgeLabel(item) : null
 
   return (
-    <Card>
+    /* 整卡可点击（打开详情弹窗）；签到按钮 stopPropagation 阻断冒泡不触发整卡点击 */
+    <Card onClick={onClick}>
       <View className='flex gap-3'>
         {/* 左栏：排练信息（曲目/时间/地点/更新提示 chip） */}
         <View className='min-w-0 flex-1 space-y-0.5 leading-tight'>

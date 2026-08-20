@@ -15,6 +15,7 @@ import { isRehearsalUpdated, isRehearsalEnded, sortRehearsalsForMember } from '@
 import type { RehearsalRow } from '@/types/database'
 import { RehearsalCard } from './components/rehearsal-card'
 import { CodeVerifyModal } from './components/code-verify-modal'
+import { RehearsalDetailModal } from './components/rehearsal-detail-modal'
 import './index.scss'
 
 // 签到失败错误归一化中文文案（合排签到码弹窗与分排直签共用）
@@ -75,6 +76,8 @@ export default function Index() {
   const codeSubmittingRef = useRef(false)
   // 分排直签路径防重复提交（同步 ref 阻断连点触发的第二次 RPC）
   const signingInRef = useRef(false)
+  // 详情弹窗当前展示的排练（整卡点击打开，只读）
+  const [detailRehearsal, setDetailRehearsal] = useState<RehearsalRow | null>(null)
 
   // 加载我的考勤
   useEffect(() => {
@@ -240,6 +243,7 @@ export default function Index() {
                 attendanceLoading={attendanceLoading}
                 isUpdated={isRehearsalUpdated(r) && !isRehearsalEnded(r, new Date(nowTick))}
                 onSignIn={() => handleSignIn(r)}
+                onClick={() => setDetailRehearsal(r)}
               />
             ))}
           </View>
@@ -259,6 +263,14 @@ export default function Index() {
         }}
         onConfirm={() => void handleCodeConfirm()}
         onClose={handleCodeClose}
+      />
+
+      {/* 排练详情弹窗（只读：出勤状态 + 排练信息） */}
+      <RehearsalDetailModal
+        item={detailRehearsal}
+        attendance={detailRehearsal ? (attendanceMap[detailRehearsal.id] ?? null) : null}
+        attendanceLoading={attendanceLoading}
+        onClose={() => setDetailRehearsal(null)}
       />
     </View>
   )

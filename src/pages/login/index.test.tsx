@@ -25,7 +25,7 @@ vi.mock('@tarojs/components', () => {
 })
 
 const { taroMock } = vi.hoisted(() => {
-  const taroMock = {
+  const mock = {
     reLaunch: vi.fn(),
     // 主题 Provider 依赖的系统/存储 API
     getSystemInfoSync: vi.fn(() => ({ theme: 'light' })),
@@ -36,8 +36,8 @@ const { taroMock } = vi.hoisted(() => {
     setStorage: vi.fn(() => Promise.resolve()),
   }
   // 默认导入（theme-context 的 import Taro from '@tarojs/taro'）与命名导入同源
-  ;(taroMock as unknown as Record<string, unknown>).default = taroMock
-  return { taroMock }
+  ;(mock as unknown as Record<string, unknown>).default = mock
+  return { taroMock: mock }
 })
 vi.mock('@tarojs/taro', () => taroMock)
 
