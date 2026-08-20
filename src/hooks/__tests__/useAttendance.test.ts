@@ -102,10 +102,38 @@ describe('useAttendance', () => {
   })
 
   it('signIn 走安全 RPC，不接收客户端 user_id/status/sign_in_time', async () => {
-    const c = mockClient([{ data: [], error: null }])
+    const c = mockClient([
+      {
+        data: [
+          {
+            id: 1,
+            rehearsal_id: 1,
+            user_id: 'u1',
+            status: 'present',
+            sign_in_time: '2026-01-01T10:00:00',
+          },
+        ],
+        error: null,
+      },
+    ])
     const { result } = renderHook(() => useAttendance(c as never))
-    const err = await act(() => result.current.signIn({ rehearsal_id: 1, code: '123456' }))
-    expect(err).toBeNull()
+    const res = await act(() => result.current.signIn({ rehearsal_id: 1, code: '123456' }))
+    expect(res.error).toBeNull()
+    expect(res.row).toEqual({
+      id: 1,
+      rehearsal_id: 1,
+      user_id: 'u1',
+      status: 'present',
+      sign_in_time: '2026-01-01T10:00:00',
+    })
+  })
+
+  it('signIn RPC 出错时返回错误信息', async () => {
+    const c = mockClient([{ data: null, error: { message: 'invalid sign-in code' } }])
+    const { result } = renderHook(() => useAttendance(c as never))
+    const res = await act(() => result.current.signIn({ rehearsal_id: 1, code: '0000' }))
+    expect(res.error).toBe('invalid sign-in code')
+    expect(res.row).toBeNull()
   })
 
   it('updateStatus 没有安全 RPC 时失败关闭', async () => {

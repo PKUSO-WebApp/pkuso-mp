@@ -21,20 +21,11 @@ type Props = {
   /** 考勤数据加载中：不渲染签到按钮，防首屏 map 未就绪时闪错 */
   attendanceLoading?: boolean
   onSignIn?: () => void
-  /** 该排练是否有签到码（分排无签到码时不可签到） */
-  hasCode?: boolean
   /** 编辑过（updated_at > created_at），在标题下方展示「更新」提示 */
   isUpdated?: boolean
 }
 
-export function RehearsalCard({
-  item,
-  attendance,
-  attendanceLoading,
-  onSignIn,
-  hasCode,
-  isUpdated,
-}: Props) {
+export function RehearsalCard({ item, attendance, attendanceLoading, onSignIn, isUpdated }: Props) {
   // 签到窗口判定：未开始/已结束不渲染任何按钮
   const blockReason = getSignBlockReason(item.start_time, item.end_time ?? null, new Date())
 
@@ -47,8 +38,9 @@ export function RehearsalCard({
   // 普通签到：无显式状态、未签到、签到窗口内
   const canSign = !signedIn && blockReason === null && explicitStatus === null
 
-  // 签到按钮外显条件：签到窗口内、未签到、有签到码、考勤已加载
-  const showSignButton = !attendanceLoading && canSign && hasCode && onSignIn
+  // 签到按钮外显条件：签到窗口内、未签到、考勤已加载
+  // （分排/合排都显示；合排无签到码由页面点击时提示，与 Web 端一致）
+  const showSignButton = !attendanceLoading && canSign && !!onSignIn
 
   // 更新提示文案
   const updateLabel = isUpdated ? getUpdateBadgeLabel(item) : null

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useRehearsals } from '@/hooks/useRehearsals'
-import { useAttendance } from '@/hooks/useAttendance'
+import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
+import { useLeaveRequests } from '@/hooks/useLeaveRequests'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
 import { Toggle } from '@/components/ui/Toggle'
@@ -15,6 +16,17 @@ import { RehearsalCard } from './components/rehearsal-card'
 import { CodeVerifyModal } from './components/code-verify-modal'
 import './index.scss'
 
+// 签到失败错误归一化中文文案（合排签到码弹窗与分排直签共用）
+const mapSignInError = (err: string): string => {
+  const msg = err.toLowerCase()
+  if (msg.includes('invalid sign-in code')) return '签到码错误'
+  if (msg.includes('authentication required')) return '请先登录'
+  if (msg.includes('not approved')) return '账号未通过审核'
+  if (msg.includes('outside the allowed window')) return '不在签到时间窗口内'
+  if (msg.includes('already been signed')) return '已签到，不可重复签到'
+  return '签到失败'
+}
+
 export default function Index() {
   const { data: rehearsals, loading: rehearsalsLoading, error: rehearsalsError } = useRehearsals()
   const { user } = useUser()
@@ -25,6 +37,8 @@ export default function Index() {
     signIn,
   } = useAttendance()
   const { profile: myProfile } = useMyProfile()
+  // 签到覆盖请假：签到成功后撤销该排练 pending/approved 申请（best-effort，失败不阻断签到）
+  const { cancelOnSignIn } = useLeaveRequests()
 
   const profileName = myProfile?.full_name ?? null
 
@@ -57,6 +71,8 @@ export default function Index() {
   const [codeSubmitting, setCodeSubmitting] = useState(false)
   const [codeError, setCodeError] = useState<string | null>(null)
   const codeSubmittingRef = useRef(false)
+  // 分排直签路径防重复提交（同步 ref 阻断连点触发的第二次 RPC）
+  const signingInRef = useRef(false)
 
   // 加载我的考勤
   useEffect(() => {
@@ -75,15 +91,55 @@ export default function Index() {
     return sortRehearsalsForMember(filtered, now)
   }, [rehearsals, scheduleTab, nowTick])
 
-  // 签到按钮点击：合排有签到码 → 弹出签到码弹窗；分排无签到码 → 暂不支持
+  // 签到成功后续（合排/分排共用）：按服务端返回状态提示、覆盖请假 best-effort、刷新考勤 map
+  const handleSignInSuccess = async (rehearsalId: number, row: SignInResultRow | null) => {
+    void Taro.showToast({
+      title: row?.status === 'late' ? '签到成功，已记录迟到' : '签到成功',
+      icon: 'success',
+    })
+    // 覆盖请假（与 Web 端一致）：撤销该排练 pending/approved 申请；失败不阻断已成功的签到，
+    // 仅网络/DB 失败时提示联系管理员（already-processed 为中性告知）
+    const cancelResult = await cancelOnSignIn(rehearsalId)
+    if (!cancelResult.ok && cancelResult.reason === 'network') {
+      void Taro.showToast({ title: '签到成功，但请假申请取消失败，请联系管理员', icon: 'none' })
+    }
+    if (user?.id && rehearsals) {
+      await fetchMyAttendances(
+        user.id,
+        rehearsals.map((r) => r.id)
+      )
+    }
+  }
+
+  // 签到按钮点击：合排 → 签到码弹窗（无码提示）；分排 → 直签（RPC 空码）
   const handleSignIn = (rehearsal: RehearsalRow) => {
     if (!user) return
-    if (rehearsal.sign_in_code) {
-      setCodeRehearsal(rehearsal)
-      setCodeInput('')
-      setCodeError(null)
-    } else {
-      void Taro.showToast({ title: '该排练未配置签到码', icon: 'none' })
+    if (rehearsal.type === 'full') {
+      if (rehearsal.sign_in_code) {
+        setCodeRehearsal(rehearsal)
+        setCodeInput('')
+        setCodeError(null)
+      } else {
+        void Taro.showToast({ title: '该排练未配置签到码', icon: 'none' })
+      }
+      return
+    }
+    void handleSectionSignIn(rehearsal)
+  }
+
+  // 分排直签：无签到码，直接走 sign_in_attendance RPC（服务端忽略空码）
+  const handleSectionSignIn = async (rehearsal: RehearsalRow) => {
+    if (signingInRef.current) return
+    signingInRef.current = true
+    try {
+      const { error, row } = await signIn({ rehearsal_id: rehearsal.id, code: '' })
+      if (error) {
+        void Taro.showToast({ title: mapSignInError(error), icon: 'none' })
+        return
+      }
+      await handleSignInSuccess(rehearsal.id, row)
+    } finally {
+      signingInRef.current = false
     }
   }
 
@@ -100,30 +156,15 @@ export default function Index() {
     codeSubmittingRef.current = true
     setCodeSubmitting(true)
     try {
-      const err = await signIn({
+      const { error, row } = await signIn({
         rehearsal_id: codeRehearsal.id,
         code: codeInput,
       })
-      if (!err) {
-        void Taro.showToast({ title: '签到成功', icon: 'success' })
+      if (!error) {
         setCodeRehearsal(null)
-        // 刷新考勤 map
-        const ids = rehearsals.map((r) => r.id)
-        await fetchMyAttendances(user.id, ids)
+        await handleSignInSuccess(codeRehearsal.id, row)
       } else {
-        // 错误归一化中文文案
-        const msg = err.toLowerCase().includes('invalid sign-in code')
-          ? '签到码错误'
-          : err.toLowerCase().includes('authentication required')
-            ? '请先登录'
-            : err.toLowerCase().includes('not approved')
-              ? '账号未通过审核'
-              : err.toLowerCase().includes('outside the allowed window')
-                ? '不在签到时间窗口内'
-                : err.toLowerCase().includes('already been signed')
-                  ? '已签到，不可重复签到'
-                  : '签到失败'
-        setCodeError(msg)
+        setCodeError(mapSignInError(error))
       }
     } finally {
       codeSubmittingRef.current = false
@@ -197,7 +238,6 @@ export default function Index() {
                 attendanceLoading={attendanceLoading}
                 isUpdated={isRehearsalUpdated(r) && !isRehearsalEnded(r, new Date(nowTick))}
                 onSignIn={() => handleSignIn(r)}
-                hasCode={!!r.sign_in_code}
               />
             ))}
           </View>

@@ -14,6 +14,18 @@ export type AttendanceSignInInput = {
   code: string
 }
 
+/** sign_in_attendance RPC 返回行（服务端生成 status/sign_in_time） */
+export type SignInResultRow = {
+  id: number
+  rehearsal_id: number
+  user_id: string
+  status: AttendanceStatus
+  sign_in_time: string | null
+}
+
+/** 签到结果：error 非空为失败（中文归一化由调用方负责）；成功时 row 为服务端返回行 */
+export type SignInResult = { error: string | null; row: SignInResultRow | null }
+
 const SECURE_ATTENDANCE_RPC_REQUIRED = '该操作需要服务端安全权限，当前暂不可用'
 
 export type MyAttendanceMap = Record<number, { status: string; sign_in_time: string | null }>
@@ -97,21 +109,22 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
   /** 安全签到：仅通过 sign_in_attendance SECURITY DEFINER RPC 写入，
    *  客户端不传 user_id/status/sign_in_time。 */
   const signIn = useCallback(
-    async (input: AttendanceSignInInput) => {
-      if (savingRef.current) return '请勿重复提交'
+    async (input: AttendanceSignInInput): Promise<SignInResult> => {
+      if (savingRef.current) return { error: '请勿重复提交', row: null }
       savingRef.current = true
       setSaving(true)
       setError(null)
       try {
-        const { error: dbError } = await client.rpc('sign_in_attendance', {
+        const { data, error: dbError } = await client.rpc('sign_in_attendance', {
           p_rehearsal_id: input.rehearsal_id,
           p_code: input.code,
         })
         if (dbError) {
           setError(dbError.message)
-          return dbError.message
+          return { error: dbError.message, row: null }
         }
-        return null
+        const rows = (data ?? []) as SignInResultRow[]
+        return { error: null, row: rows[0] ?? null }
       } finally {
         savingRef.current = false
         if (mountedRef.current) setSaving(false)
