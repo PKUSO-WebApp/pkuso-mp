@@ -5,12 +5,14 @@ import { Card } from '@/components/ui/Card'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useLogin } from '@/hooks/useLogin'
+import { useWechatLogin } from '@/hooks/useWechatLogin'
 import { supabase } from '@/lib/supabase'
 import './index.scss'
 
 export default function LoginPage() {
   const { ready, user, restoreFailed } = useUser()
   const { email, setEmail, password, setPassword, submitting, errorMsg, handleSubmit } = useLogin()
+  const { submitting: wechatSubmitting, loginWithWechat } = useWechatLogin()
   const darkClass = useThemeClass()
 
   // 已登录用户（含冷启动会话恢复后）直接进入首页 tab，避免看到登录页。
@@ -53,6 +55,23 @@ export default function LoginPage() {
         <View className='mb-4 text-center'>
           <Text className='text-xl font-semibold text-text'>登录</Text>
           <Text className='mt-1 block text-xs text-text-muted'>登录后进入乐团系统</Text>
+        </View>
+
+        {/* 微信登录（桥接 Edge Function wechat-auth）：新用户自动注册，等待管理员审核 */}
+        <Button
+          hoverClass='none'
+          className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
+          disabled={wechatSubmitting}
+          onClick={() => void loginWithWechat()}
+        >
+          {wechatSubmitting ? '登录中…' : '微信登录'}
+        </Button>
+
+        {/* 分隔线 */}
+        <View className='my-4 flex items-center gap-2'>
+          <View className='h-px flex-1 bg-border' />
+          <Text className='text-xs text-text-muted'>或使用邮箱登录</Text>
+          <View className='h-px flex-1 bg-border' />
         </View>
 
         {restoreFailed ? (
