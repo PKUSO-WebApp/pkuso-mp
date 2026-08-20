@@ -618,6 +618,25 @@ export type Database = {
         }[]
       }
       is_admin: { Args: never; Returns: boolean }
+      cancel_leave_on_sign_in: {
+        Args: { p_rehearsal_id: number }
+        Returns: {
+          request_id: string
+          attachment_path: string | null
+          previous_status: Database['public']['Enums']['leaveStatus']
+          status: Database['public']['Enums']['leaveStatus']
+        }[]
+      }
+      sign_in_attendance: {
+        Args: { p_code: string; p_rehearsal_id: number }
+        Returns: {
+          id: number
+          rehearsal_id: number
+          sign_in_time: string
+          status: Database['public']['Enums']['attendanceStatus']
+          user_id: string
+        }[]
+      }
       verify_and_use_invitation_code: {
         Args: { p_code: string; p_user_id: string }
         Returns: {

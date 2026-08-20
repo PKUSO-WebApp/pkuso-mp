@@ -68,9 +68,6 @@ importers:
       react-dom:
         specifier: ^18.0.0
         version: 18.0.0(react@18.0.0)
-      supabase-wechat-stable-v2:
-        specifier: 2.2.0
-        version: 2.2.0
     devDependencies:
       '@babel/core':
         specifier: ^7.24.4
@@ -6500,9 +6497,6 @@ packages:
   performance-now@2.1.0:
     resolution: {integrity: sha512-7EAHlyLHI56VEIdK57uwHdHKIaAGbnXPiw0yWbarQZOKaKpvUIgW0jWRVLiatnM+XXlSwsanIBH/hzGMJulMow==}
 
-  phoenix@1.8.11:
-    resolution: {integrity: sha512-MbS8y0+8lYNjOYRIorek1GzMFS3nKvycetLlLxB/DZOFRu0yLI0PCvvm8wg+7aEORbmWuioe95+7uoyNKlErZg==}
-
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -7831,9 +7825,6 @@ packages:
     resolution: {integrity: sha512-ZIdT8eUv8tegmqy1tTIdJv9We2DumkNZFdCF5mz/Kpq3OcTaxSuCAYZge6HKK2CmNC02G1eJig2RV7XTw5hQrA==}
     engines: {node: '>=16'}
     hasBin: true
-
-  supabase-wechat-stable-v2@2.2.0:
-    resolution: {integrity: sha512-vxDoMD5D451xpvDiqUDOzny7R0zuqKzHJ7GJu6doFxhs6DrmPvv24asLTh/NnjREuGqtrlhYdvLpQFPjMGR0+w==}
 
   supports-color@5.3.0:
     resolution: {integrity: sha512-0aP01LLIskjKs3lq52EC0aGBAJhLq7B2Rd8HC/DR/PtNNpcLilNmHC12O+hu0usQpo7wtHNRqtrhBwtDb0+dNg==}
@@ -15570,8 +15561,6 @@ snapshots:
   performance-now@2.1.0:
     optional: true
 
-  phoenix@1.8.11: {}
-
   picocolors@1.1.1: {}
 
   picomatch@2.3.2: {}
@@ -17093,10 +17082,6 @@ snapshots:
       source-map: 0.7.3
     transitivePeerDependencies:
       - supports-color
-
-  supabase-wechat-stable-v2@2.2.0:
-    dependencies:
-      phoenix: 1.8.11
 
   supports-color@5.3.0:
     dependencies:

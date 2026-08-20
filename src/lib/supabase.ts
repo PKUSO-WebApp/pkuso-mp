@@ -1,8 +1,7 @@
-import { createClient as createWebClient, type SupabaseClient } from '@supabase/supabase-js'
-import { createClient as createWeappClient } from 'supabase-wechat-stable-v2'
+import Taro from '@tarojs/taro'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
 
-// 启动校验：配置缺失直接抛错，避免静默连到错误环境导致排查困难（双端共享）
 const supabaseUrl = process.env.TARO_APP_SUPABASE_URL
 const supabaseAnonKey = process.env.TARO_APP_SUPABASE_ANON_KEY
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -11,16 +10,150 @@ if (!supabaseUrl || !supabaseAnonKey) {
   )
 }
 
-// 双端分叉：TARO_ENV 在构建期被 DefinePlugin 替换为字面量，条件表达式由 terser 常量折叠。
-// - weapp：supabase-wechat-stable-v2（内部硬编码 wx.request 与 wx storage，仅微信端可用）
-// - h5/其他：官方 @supabase/supabase-js（浏览器 fetch/localStorage）
-// 两包 Database 泛型同构（GenericSchema），对外统一以官方包类型为准
-export const supabase = (
-  process.env.TARO_ENV === 'weapp'
-    ? createWeappClient<Database>(supabaseUrl, supabaseAnonKey, {
-        auth: { detectSessionInUrl: false },
-      })
-    : createWebClient<Database>(supabaseUrl, supabaseAnonKey, {
-        auth: { detectSessionInUrl: false },
-      })
-) as SupabaseClient<Database>
+const storage = {
+  getItem: async (key: string) => {
+    try {
+      const result = await Taro.getStorage({ key })
+      return typeof result.data === 'string' ? result.data : null
+    } catch {
+      return null
+    }
+  },
+  setItem: async (key: string, value: string) => {
+    await Taro.setStorage({ key, data: value })
+  },
+  removeItem: async (key: string) => {
+    await Taro.removeStorage({ key })
+  },
+}
+
+export const taroFetch: typeof fetch = async (input, init = {}) => {
+  const url = typeof input === 'string' ? input : 'url' in input ? input.url : input.toString()
+  const method =
+    init.method ?? (typeof input === 'string' || !('method' in input) ? 'GET' : input.method)
+  const headers: Record<string, string> = {}
+  if (typeof Headers !== 'undefined' && init.headers instanceof Headers) {
+    init.headers.forEach((value, key) => {
+      headers[key] = value
+    })
+  } else if (Array.isArray(init.headers)) {
+    for (const [key, value] of init.headers) headers[key] = value
+  } else if (init.headers) {
+    Object.assign(headers, init.headers)
+  }
+  const body = await toTaroBody(init.body)
+  const response = await Taro.request({
+    url,
+    method: method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    header: headers,
+    data: body,
+    responseType: 'arraybuffer',
+  })
+  const responseData =
+    typeof response.data === 'string' ||
+    (typeof ArrayBuffer !== 'undefined' && response.data instanceof ArrayBuffer) ||
+    (typeof Blob !== 'undefined' && response.data instanceof Blob)
+      ? response.data
+      : JSON.stringify(response.data)
+  return createFetchResponse(response.statusCode, response.header, responseData)
+}
+
+type TaroBody = string | ArrayBuffer | Blob | FormData | URLSearchParams
+
+async function toTaroBody(body: BodyInit | null | undefined): Promise<TaroBody | undefined> {
+  if (body === null || body === undefined) return undefined
+  if (typeof body === 'string') return body
+  if (body instanceof ArrayBuffer) return body
+  if (typeof Blob !== 'undefined' && body instanceof Blob) return body.arrayBuffer()
+  if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+    return body.toString()
+  }
+  if (typeof FormData !== 'undefined' && body instanceof FormData) return body
+  throw new Error('微信请求暂不支持该请求体类型')
+}
+
+function createFetchResponse(
+  status: number,
+  header: Record<string, string>,
+  data: string | ArrayBuffer | Blob
+): Response {
+  if (typeof Response !== 'undefined') {
+    return new Response(data, { status, headers: header })
+  }
+  const bytes = typeof data === 'string' ? encodeText(data) : data
+  const text = async () => (typeof data === 'string' ? data : decodeBody(data))
+  const getHeader = (name: string) =>
+    Object.entries(header).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1] ?? null
+  const blob = async () => {
+    if (typeof Blob === 'undefined') throw new Error('当前环境不支持 Blob')
+    return typeof data !== 'string' && isBlob(data) ? data : new Blob([bytes])
+  }
+  return {
+    body: null,
+    bodyUsed: false,
+    headers: {
+      get: getHeader,
+      has: (name: string) => getHeader(name) !== null,
+    } as Response['headers'],
+    ok: status >= 200 && status < 300,
+    redirected: false,
+    status,
+    statusText: '',
+    type: 'basic',
+    url: '',
+    arrayBuffer: async () => (isBlob(bytes) ? bytes.arrayBuffer() : bytes),
+    blob,
+    clone: () => createFetchResponse(status, header, data),
+    formData: async () => {
+      if (typeof FormData === 'undefined') throw new Error('当前环境不支持 FormData')
+      return new FormData()
+    },
+    json: async () => JSON.parse(await text()),
+    text,
+  } as Response
+}
+
+function encodeText(value: string): ArrayBuffer {
+  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(value).buffer
+  const encoded = unescape(encodeURIComponent(value))
+  const bytes = new Uint8Array(encoded.length)
+  for (let index = 0; index < encoded.length; index += 1) {
+    bytes[index] = encoded.charCodeAt(index)
+  }
+  return bytes.buffer
+}
+
+function decodeBody(value: ArrayBuffer | Blob): string {
+  if (!isArrayBuffer(value)) return '[二进制响应]'
+  if (typeof TextDecoder !== 'undefined') return new TextDecoder().decode(value)
+  const bytes = new Uint8Array(value)
+  let encoded = ''
+  for (const byte of bytes) encoded += `%${byte.toString(16).padStart(2, '0')}`
+  try {
+    return decodeURIComponent(encoded)
+  } catch {
+    return String.fromCharCode(...bytes)
+  }
+}
+
+function isBlob(body: ArrayBuffer | Blob): body is Blob {
+  return typeof Blob !== 'undefined' && body instanceof Blob
+}
+
+function isArrayBuffer(body: ArrayBuffer | Blob): body is ArrayBuffer {
+  return typeof ArrayBuffer !== 'undefined' && body instanceof ArrayBuffer
+}
+
+export const supabase: SupabaseClient<Database> = createClient<Database>(
+  supabaseUrl,
+  supabaseAnonKey,
+  {
+    auth: {
+      detectSessionInUrl: false,
+      storage,
+    },
+    global: {
+      fetch: process.env.TARO_ENV === 'weapp' ? taroFetch : fetch,
+    },
+  }
+)
