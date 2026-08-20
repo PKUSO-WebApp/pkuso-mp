@@ -131,6 +131,48 @@ describe('useSchedule', () => {
     expect(result.current.data[0].title).toBe('明日预约')
   })
 
+  it('fetch 日期过滤用空格分隔区间（与库中存储格式一致）', async () => {
+    const c = mockClient([
+      { data: [], error: null }, // initial fetch
+      { data: [], error: null }, // fetch with date filter
+    ])
+    const { result } = renderHook(() => useSchedule(c as never))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    await act(async () => {
+      await result.current.fetch('2024-01-02')
+    })
+
+    const calls = (c as unknown as { __calls: string[] }).__calls
+    // 空格(0x20) < T(0x54)：用 T 格式过滤会把库中空格分隔行全部排在区间外（查询恒空）
+    expect(calls.filter((call) => call.startsWith('gte('))).toEqual([
+      'gte("start_time", "2024-01-02 00:00:00")',
+    ])
+    expect(calls.filter((call) => call.startsWith('lte('))).toEqual([
+      'lte("start_time", "2024-01-02 23:59:59")',
+    ])
+  })
+
+  it('fetch 归一化空格分隔时间为 T 分隔（下游 parseLocalISO/formatTime 依赖）', async () => {
+    const c = mockClient([
+      {
+        data: [
+          {
+            id: 1,
+            title: '排练',
+            start_time: '2024-01-02 14:30:00',
+            end_time: '2024-01-02 15:30:00',
+          },
+        ],
+        error: null,
+      },
+    ])
+    const { result } = renderHook(() => useSchedule(c as never))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.data[0].start_time).toBe('2024-01-02T14:30:00')
+    expect(result.current.data[0].end_time).toBe('2024-01-02T15:30:00')
+  })
+
   // 冲突检测测试
   describe('checkConflict', () => {
     it('无冲突 - 正常路径', async () => {
@@ -312,6 +354,32 @@ describe('useSchedule', () => {
       })
 
       expect(conflictResult).toBe('查询排练安排失败')
+    })
+
+    it('空格分隔的已有预约也能检出冲突（归一化后再比较）', async () => {
+      const c = mockClient([
+        { data: [], error: null }, // initial fetch
+        {
+          data: [
+            {
+              id: 1,
+              rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
+              start_time: '2024-01-01 14:30:00',
+              end_time: '2024-01-01 15:30:00',
+            },
+          ],
+          error: null,
+        }, // schedules query - 空格分隔，overlapping
+        { data: [], error: null }, // rehearsals query
+      ])
+      const { result } = renderHook(() => useSchedule(c as never))
+      await waitFor(() => expect(result.current.loading).toBe(false))
+
+      const conflictResult = await act(async () => {
+        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+      })
+
+      expect(conflictResult).toBe('该时间段已有其他预约')
     })
 
     it('时间边界不重叠 - 新预约开始等于已有结束', async () => {

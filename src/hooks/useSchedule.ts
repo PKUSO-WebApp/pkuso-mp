@@ -5,6 +5,23 @@ import type { RehearsalRow, ScheduleRow } from '@/types/database'
 // 排练房预约 hook。
 // 与 Web 版差异：无 realtime（本就是挂载查询 + 手动重取）；
 // 加载失败错误归一化为中文文案；卸载后不再 setState（mountedRef 标志位）。
+
+/**
+ * schedules.start_time 在库中为「YYYY-MM-DD HH:mm:ss」（空格分隔，触发器与
+ * 预约表单写入均为此格式），而日期工具链（parseLocalISO/formatTime）按
+ * 「YYYY-MM-DDTHH:mm:ss」解析。统一在 hook 边界归一化为 T 分隔：
+ * - 日期区间过滤用空格格式（与库中值一致，lexicographic 比较才正确——
+ *   空格(0x20) < T(0x54)，用 T 格式过滤会把所有空格行排在区间外，查询恒空）；
+ * - 查询结果归一化为 T 分隔后返回，下游时间解析/展示直接可用。
+ */
+function normalizeScheduleTime(value: string): string
+function normalizeScheduleTime(value: string | null): string | null
+function normalizeScheduleTime(value: string | null): string | null {
+  if (!value) return value
+  if (value.includes('T')) return value
+  return value.replace(' ', 'T')
+}
+
 export function useSchedule(client: typeof defaultClient = defaultClient) {
   const [data, setData] = useState<ScheduleRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -22,11 +39,10 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       let query = client.from('schedules').select('*').order('start_time', { ascending: true })
 
       if (date) {
-        // 按本地日期筛选，避免时区问题
+        // 按本地日期筛选，避免时区问题；空格分隔与库中存储格式一致
         const [year, month, day] = date.split('-').map(Number)
-        // 手动构造本地时间的 ISO 字符串，避免 toISOString() 的时区转换
-        const startOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T00:00:00`
-        const endOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T23:59:59`
+        const startOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} 00:00:00`
+        const endOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} 23:59:59`
 
         query = query.gte('start_time', startOfDay).lte('start_time', endOfDay)
       }
@@ -41,7 +57,14 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
         return
       }
       setError(null)
-      setData((rows as ScheduleRow[]) ?? [])
+      // 归一化时间格式（空格 → T 分隔）后再交给页面解析
+      setData(
+        ((rows as ScheduleRow[]) ?? []).map((row) => ({
+          ...row,
+          start_time: normalizeScheduleTime(row.start_time),
+          end_time: normalizeScheduleTime(row.end_time),
+        }))
+      )
     },
     [client]
   )
@@ -137,8 +160,11 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       excludeRehearsalId?: number
     ): Promise<string | null> => {
       const [year, month, day] = date.split('-').map(Number)
-      const startOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T00:00:00`
-      const endOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T23:59:59`
+      // 预约表空格分隔、排练表 T 分隔，区间上下界分别按各自存储格式构造
+      const scheduleStartOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} 00:00:00`
+      const scheduleEndOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} 23:59:59`
+      const rehearsalStartOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T00:00:00`
+      const rehearsalEndOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T23:59:59`
 
       const startDateTime = `${date}T${startTime}:00`
       const endDateTime = `${date}T${endTime}:00`
@@ -149,8 +175,8 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       const { data: existingSchedules, error: scheduleError } = await client
         .from('schedules')
         .select('*')
-        .gte('start_time', startOfDay)
-        .lte('start_time', endOfDay)
+        .gte('start_time', scheduleStartOfDay)
+        .lte('start_time', scheduleEndOfDay)
         .is('rehearsal_id', null)
 
       if (scheduleError) {
@@ -161,18 +187,21 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       const { data: rehearsals, error: rehearsalError } = await client
         .from('rehearsals')
         .select('*')
-        .gte('start_time', startOfDay)
-        .lte('start_time', endOfDay)
+        .gte('start_time', rehearsalStartOfDay)
+        .lte('start_time', rehearsalEndOfDay)
         .neq('id', excludeRehearsalId ?? -1)
 
       if (rehearsalError) {
         return '查询排练安排失败'
       }
 
-      // 检查与已有预约的冲突
+      // 检查与已有预约的冲突（库中空格分隔，先归一化再与 T 分隔的新预约比较）
       const scheduleConflict = (existingSchedules as ScheduleRow[])?.find((s) => {
+        const sStart = normalizeScheduleTime(s.start_time)
+        if (!sStart) return false
+        const sEnd = normalizeScheduleTime(s.end_time) || sStart
         // 时间重叠条件：新预约开始 < 已有结束，且新预约结束 > 已有开始
-        return startDateTime < (s.end_time || s.start_time) && endDateTime > s.start_time
+        return startDateTime < sEnd && endDateTime > sStart
       })
 
       if (scheduleConflict) {
