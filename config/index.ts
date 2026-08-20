@@ -58,6 +58,19 @@ export default defineConfig<'webpack5'>(async (merge) => {
         // 混合加载新旧产物（模块 ID 漂移 → 运行时 n[e] is not a function）。
         // Taro 的 Output 类型未收录 clean 字段，用 set 绕过类型检查
         chain.output.set('clean', true)
+        // 真机兼容：@supabase/* 产物含 `?.`/`??` 等现代语法（supabase-js 被解析到
+        // dist/umd 自包含包，auth-js 主产物同样含现代语法）。Taro mini 的 babel-loader
+        // 默认只转译 src 与 @tarojs/*，这里把 @supabase 目录加入 script 规则的
+        // include，经 babel 转译到 ES5（转译目标见 babel.config.js 的 targets），
+        // 避免真机 JSCore 解析失败（开发者工具 V8 能跑，真机报 SyntaxError）。
+        // 注：不能用顶层 compile.include 配置——Taro 服务层对 config 键白名单过滤，
+        // compile 键不会传到 runner；webpackChain 运行于模块规则合并之后，
+        // chain.module.rule('script') 此时已存在。
+        chain.module
+          .rule('script')
+          .include.add((filename: string) =>
+            /node_modules[\\/](@supabase|iceberg-js)/.test(filename)
+          )
         chain.merge({
           plugin: {
             install: {
