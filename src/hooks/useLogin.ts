@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
-import { reLaunch } from '@tarojs/taro'
+import { supabase as defaultClient } from '@/lib/supabase'
+import { routeAfterLogin } from '@/lib/post-auth-route'
 import { useAuth, type AuthErrorLike } from './useAuth'
 
 export type UseLoginResult = {
@@ -37,8 +38,10 @@ export function mapAuthErrorToMessage(error: unknown): string {
   return '登录失败，请稍后重试'
 }
 
-// 登录表单逻辑（输入校验/提交/错误处理），页面保持薄
-export function useLogin(): UseLoginResult {
+// 登录表单逻辑（输入校验/提交/错误处理），页面保持薄。
+// 登录成功后与微信登录共用 routeAfterLogin：按 profile 状态路由入口
+// （资料补全 / 等待审核 / 审核未通过 / 首页）
+export function useLogin(client: typeof defaultClient = defaultClient): UseLoginResult {
   const { signIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -64,8 +67,14 @@ export function useLogin(): UseLoginResult {
         setErrorMsg(mapAuthErrorToMessage(error))
         return
       }
-      // 登录成功后切到首页 tab（tab 页只能用 reLaunch 切换）
-      reLaunch({ url: '/pages/index/index' })
+      // 取会话中的 user id，按 profile 状态路由入口（tab 页只能用 reLaunch 切换）
+      const { data: sessionData } = await client.auth.getSession()
+      const userId = sessionData?.session?.user?.id
+      if (!userId) {
+        setErrorMsg('登录失败，请稍后重试')
+        return
+      }
+      await routeAfterLogin(client, userId)
     } catch (err) {
       // 兜底：signIn reject（SDK 网络/超时异常）归一化为中文文案
       setErrorMsg(mapAuthErrorToMessage(err))
@@ -74,7 +83,7 @@ export function useLogin(): UseLoginResult {
       submittingRef.current = false
       setSubmitting(false)
     }
-  }, [email, password, submitting, signIn])
+  }, [email, password, submitting, signIn, client])
 
   return { email, setEmail, password, setPassword, submitting, errorMsg, handleSubmit }
 }

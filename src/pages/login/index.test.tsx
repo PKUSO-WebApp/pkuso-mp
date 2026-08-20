@@ -27,9 +27,11 @@ vi.mock('@tarojs/components', () => {
 const { taroMock } = vi.hoisted(() => {
   const mock = {
     reLaunch: vi.fn(),
-    // 主题 Provider 依赖的系统/存储 API
+    // 主题 Provider 依赖的系统/存储/窗口 API
     getSystemInfoSync: vi.fn(() => ({ theme: 'light' })),
-    setNavigationBarColor: vi.fn(),
+    setNavigationBarColor: vi.fn(() => Promise.resolve()),
+    setBackgroundColor: vi.fn(() => Promise.resolve()),
+    setTabBarStyle: vi.fn(() => Promise.resolve()),
     onThemeChange: vi.fn(),
     offThemeChange: vi.fn(),
     getStorage: vi.fn(() => Promise.resolve({ data: null })),
@@ -41,6 +43,10 @@ const { taroMock } = vi.hoisted(() => {
 })
 vi.mock('@tarojs/taro', () => taroMock)
 
+// 已登录用户跳转由 routeAfterLogin 承担（其行为另有单测），此处断言「委托了路由」
+const { routeAfterLoginMock } = vi.hoisted(() => ({ routeAfterLoginMock: vi.fn() }))
+vi.mock('@/lib/post-auth-route', () => ({ routeAfterLogin: routeAfterLoginMock }))
+
 // 可变的 useUser mock
 const { ctx } = vi.hoisted(() => {
   const state: UserContextValue = { session: null, user: null, ready: true, restoreFailed: false }
@@ -48,16 +54,17 @@ const { ctx } = vi.hoisted(() => {
 })
 vi.mock('@/context/user-context', () => ({ useUser: () => ctx }))
 
-const { authMock } = vi.hoisted(() => ({
-  authMock: {
+const { authMock, supabaseMock } = vi.hoisted(() => {
+  const auth = {
     getSession: vi.fn(),
     onAuthStateChange: vi.fn(),
     getUser: vi.fn(),
     signInWithPassword: vi.fn(),
     signOut: vi.fn(),
-  },
-}))
-vi.mock('@/lib/supabase', () => ({ supabase: { auth: authMock } }))
+  }
+  return { authMock: auth, supabaseMock: { auth } }
+})
+vi.mock('@/lib/supabase', () => ({ supabase: supabaseMock }))
 
 const makeUser = (id: string) => ({
   id,
@@ -85,7 +92,14 @@ describe('LoginPage', () => {
     authMock.signOut.mockResolvedValue({ error: null })
     authMock.signInWithPassword.mockReset()
     authMock.signInWithPassword.mockResolvedValue({ data: { session: null }, error: null })
+    authMock.getSession.mockReset()
+    authMock.getSession.mockResolvedValue({
+      data: { session: { user: { id: 'u1' } } },
+      error: null,
+    })
     taroMock.reLaunch.mockClear()
+    routeAfterLoginMock.mockReset()
+    routeAfterLoginMock.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -108,16 +122,14 @@ describe('LoginPage', () => {
     expect(screen.queryByPlaceholderText('name@example.com')).toBeNull()
   })
 
-  it('已登录用户访问登录页 reLaunch 到首页 tab', async () => {
+  it('已登录用户访问登录页：校验会话后按 profile 状态路由入口', async () => {
     ctx.user = makeUser('u1')
     // 页面只消费 user，session 仅作上下文形态占位
     ctx.session = {} as UserContextValue['session']
     renderPage()
-    // 先经 getUser 校验会话真实性，成功后跳转
+    // 先经 getUser 校验会话真实性，成功后委托 routeAfterLogin
     expect(authMock.getUser).toHaveBeenCalled()
-    await waitFor(() =>
-      expect(taroMock.reLaunch).toHaveBeenCalledWith({ url: '/pages/index/index' })
-    )
+    await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalledWith(supabaseMock, 'u1'))
   })
 
   it('已登录但 getUser 失败（会话已吊销）：不跳转且静默登出', async () => {
@@ -126,7 +138,7 @@ describe('LoginPage', () => {
     ctx.session = {} as UserContextValue['session']
     renderPage()
     await waitFor(() => expect(authMock.signOut).toHaveBeenCalled())
-    expect(taroMock.reLaunch).not.toHaveBeenCalled()
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
   })
 
   it('会话恢复失败时显示网络异常提示', () => {
@@ -140,7 +152,7 @@ describe('LoginPage', () => {
     expect(taroMock.reLaunch).not.toHaveBeenCalled()
   })
 
-  it('提交路径冒烟：输入邮箱密码并点击登录，调用 signInWithPassword 后 reLaunch', async () => {
+  it('提交路径冒烟：输入邮箱密码并点击登录，调用 signInWithPassword 后按 profile 状态路由入口', async () => {
     renderPage()
     fireEvent.input(screen.getByPlaceholderText('name@example.com'), {
       target: { value: 'test@example.com' },
@@ -155,9 +167,7 @@ describe('LoginPage', () => {
         password: 'password123',
       })
     )
-    await waitFor(() =>
-      expect(taroMock.reLaunch).toHaveBeenCalledWith({ url: '/pages/index/index' })
-    )
+    await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalledWith(supabaseMock, 'u1'))
   })
 
   it('密码错误时显示映射后的页内错误文案', async () => {

@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
-import { reLaunch } from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useLogin } from '@/hooks/useLogin'
 import { useWechatLogin } from '@/hooks/useWechatLogin'
+import { routeAfterLogin } from '@/lib/post-auth-route'
 import { supabase } from '@/lib/supabase'
 import './index.scss'
 
@@ -15,7 +15,7 @@ export default function LoginPage() {
   const { submitting: wechatSubmitting, loginWithWechat } = useWechatLogin()
   const darkClass = useThemeClass()
 
-  // 已登录用户（含冷启动会话恢复后）直接进入首页 tab，避免看到登录页。
+  // 已登录用户（含冷启动会话恢复后）按 profile 状态路由，避免看到登录页。
   // 先经 getUser 校验会话真实性：storage 有 stale session 但服务端已吊销时
   // （如账号被禁用），静默清除本地会话留在登录页，避免无守卫地跳进首页
   useEffect(() => {
@@ -25,8 +25,8 @@ export default function LoginPage() {
       try {
         await supabase.auth.getUser()
         if (cancelled) return
-        // 与提交成功后的 reLaunch 双触发：幂等（同一目标页），可接受
-        reLaunch({ url: '/pages/index/index' })
+        // 资料补全 / 等待审核 / 审核未通过 / 首页，与提交成功后的路由双触发：幂等，可接受
+        await routeAfterLogin(supabase, user.id)
       } catch {
         // 会话无效：静默登出清理本地残留，停留登录页
         if (!cancelled) void supabase.auth.signOut()

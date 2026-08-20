@@ -1,7 +1,11 @@
 export default defineAppConfig({
   pages: [
-    // 首位为启动页：登录页作为入口，已登录用户启动时 reLaunch 到首页 tab
+    // 首位为启动页：登录页作为入口，已登录用户启动时按 profile 状态路由
+    // （资料补全 → 等待审核 → 审核未通过 → 首页 tab）
     'pages/login/index',
+    'pages/setup/index',
+    'pages/pending/index',
+    'pages/rejected/index',
     'pages/index/index',
     'pages/community/index',
     'pages/schedule/index',

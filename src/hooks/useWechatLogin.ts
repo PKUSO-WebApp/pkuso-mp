@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import Taro from '@tarojs/taro'
 import { supabase as defaultClient } from '@/lib/supabase'
+import { routeAfterLogin } from '@/lib/post-auth-route'
 
 export type WechatLoginResult = { error: string | null }
 
@@ -10,7 +11,9 @@ export type WechatLoginResult = { error: string | null }
  * 2. functions.invoke('wechat-auth')：服务端 code2session 换 openid → 找/建账号
  *    → 轮换随机密码 → password grant 换 session token 返回；
  * 3. auth.setSession 建立本地会话；
- * 4. 新注册用户提示「账号已创建，等待管理员审核」并 reLaunch 进入首页。
+ * 4. 按 profile 状态路由入口（routeAfterLogin 统一处理）：
+ *    资料不完整 → 资料补全页；pending → 等待审核；rejected → 审核未通过；
+ *    approved → 首页。新注册用户因 full_name 为空自然落到补全页。
  * 双重 guard 防重复提交（ref 同步阻断 + state 异步兜底）。
  */
 export function useWechatLogin(client: typeof defaultClient = defaultClient) {
@@ -61,19 +64,20 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
       }
 
       // 3. 建立本地会话
-      const { error: sessionError } = await client.auth.setSession({
+      const { data: sessionData, error: sessionError } = await client.auth.setSession({
         access_token: payload.access_token,
         refresh_token: payload.refresh_token,
       })
       if (sessionError) {
         return { error: '微信登录失败，请重试' }
       }
-
-      // 4. 新注册提示 + 进入首页（tab 页只能用 reLaunch 切换）
-      if (payload.is_new) {
-        void Taro.showToast({ title: '账号已创建，等待管理员审核', icon: 'none' })
+      const userId = sessionData?.session?.user?.id
+      if (!userId) {
+        return { error: '微信登录失败，请重试' }
       }
-      void Taro.reLaunch({ url: '/pages/index/index' })
+
+      // 4. 按 profile 状态路由入口（资料补全 / 等待审核 / 审核未通过 / 首页）
+      await routeAfterLogin(client, userId)
       return { error: null }
     } finally {
       // 无论成败都复位：避免异常时 submitting 卡 true
