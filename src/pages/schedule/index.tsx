@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import { useSchedule } from '@/hooks/useSchedule'
 import { useMyProfile } from '@/hooks/useMyProfile'
+import { useThemeClass } from '@/context/theme-context'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { getLocalDateString, parseLocalISO, formatDisplayDate } from '@/lib/date-utils'
 import { DateSelector } from './components/date-selector'
@@ -17,6 +18,7 @@ import './index.scss'
 export default function Schedule() {
   const { data: schedules, loading, error, fetch } = useSchedule()
   const { profile: myProfile } = useMyProfile()
+  const darkClass = useThemeClass()
   const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString)
 
   // 日期变化时重新获取数据
@@ -42,7 +44,7 @@ export default function Schedule() {
   }
 
   return (
-    <View className='flex h-full min-h-0 flex-col px-4 pb-safe'>
+    <View className={`${darkClass} flex h-full min-h-0 flex-col px-4 pb-safe`}>
       {/* 头部 */}
       <View className='mt-1 mb-3'>
         <Text className='text-lg font-semibold text-text'>日程预约</Text>

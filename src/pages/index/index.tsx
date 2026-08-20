@@ -6,6 +6,7 @@ import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
 import { useLeaveRequests } from '@/hooks/useLeaveRequests'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
+import { useThemeClass } from '@/context/theme-context'
 import { Toggle } from '@/components/ui/Toggle'
 import { Card } from '@/components/ui/Card'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
@@ -37,6 +38,7 @@ export default function Index() {
     signIn,
   } = useAttendance()
   const { profile: myProfile } = useMyProfile()
+  const darkClass = useThemeClass()
   // 签到覆盖请假：签到成功后撤销该排练 pending/approved 申请（best-effort，失败不阻断签到）
   const { cancelOnSignIn } = useLeaveRequests()
 
@@ -183,7 +185,7 @@ export default function Index() {
   }
 
   return (
-    <View className='flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe'>
+    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       {/* 欢迎语（5 秒后淡出消失） */}
       {user && welcomeMounted && (
         <View

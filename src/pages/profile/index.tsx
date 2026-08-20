@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
+import { useThemeClass } from '@/context/theme-context'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useAuth } from '@/hooks/useAuth'
 import { useNotifications } from '@/hooks/useNotifications'
@@ -9,10 +10,12 @@ import { supabase } from '@/lib/supabase'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
-import { isValidPhoneNumber } from '@/lib/validation'
+import { isValidEmail, isValidPhoneNumber } from '@/lib/validation'
 import type { NotificationCategory } from '@/types/database'
 import { AttendanceHistoryModal } from './components/attendance-history-modal'
 import { NotificationInboxModal } from './components/notification-inbox-modal'
+import { ThemeModal } from './components/theme-modal'
+import { FeedbackModal } from './components/feedback-modal'
 import './index.scss'
 
 // 隐私开关选项：各字段行尾的「公开 / 隐藏」分段开关，随表单一起保存
@@ -27,6 +30,11 @@ const notificationItems: { label: string; category: NotificationCategory }[] = [
   { label: '系统', category: 'system' },
 ]
 
+// 账号与密码弹窗 tab（Issue #214 语义）：修改密码 / 换绑邮箱 两个区块
+const ACCOUNT_TAB_OPTIONS = ['password', 'email'] as const
+type AccountTab = (typeof ACCOUNT_TAB_OPTIONS)[number]
+const accountTabLabel = (v: AccountTab) => (v === 'password' ? '修改密码' : '换绑邮箱')
+
 /** 是否为标准 YYYY-MM-DD 日期格式（Picker 可表示的格式；历史数据可能为「2024秋」等学期格式） */
 const isStandardDateString = (v: string | null | undefined): boolean =>
   typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
@@ -35,13 +43,15 @@ const isStandardDateString = (v: string | null | undefined): boolean =>
  * 我的页：
  * - 头像卡（姓名/声部/邮箱）
  * - 通知信箱：三分类未读徽章 + 信箱列表（打开即标已读）
- * - 设置列表：个人信息编辑 / 账号与密码（改密）/ 考勤查看 / 退出登录
- * - 问题与反馈、外观、已发布的活动、换绑邮箱暂缓（后续任务补）
+ * - 设置列表：个人信息编辑 / 账号与密码（改密 + 换绑邮箱双 tab）/
+ *   考勤查看 / 外观（亮色·暗色·跟随系统）/ 问题与反馈（匿名提交）/ 退出登录
+ * - 已发布的活动暂缓（后续任务补）
  * - 管理端登录显示阻断页（规划 §1：admin 留在 Web）
  */
 export default function Profile() {
   const { user } = useUser()
   const { signOut } = useAuth()
+  const darkClass = useThemeClass()
 
   // 编辑个人信息（联系方式 + 入团时间 + 学院 + 隐私开关）
   const { data: profileData, update: updateProfile } = useProfiles({ userId: user?.id })
@@ -68,16 +78,32 @@ export default function Profile() {
   // Picker 无法表示，未改动时保存不写 join_date 字段，保留原值防误清空
   const [isJoinDateTouched, setIsJoinDateTouched] = useState(false)
 
-  // ---- 账号与密码弹窗（demo 范围：仅修改密码）----
+  // ---- 账号与密码弹窗（Issue #214 语义：修改密码 / 换绑邮箱 双 tab）----
+  // 重开弹窗默认回到「修改密码」tab；切换 tab 不清空各自输入（输入 state 在组件层，
+  // 条件渲染仅影响显示）；提交中允许切换（两区块提交各自独立双重 guard 互不干扰），
+  // 弹窗关闭守卫同时检查两个提交态——任一提交进行中都无法关窗
   const [isPwdModalOpen, setIsPwdModalOpen] = useState(false)
+  const [accountTab, setAccountTab] = useState<AccountTab>('password')
   const [newPwd, setNewPwd] = useState('')
   const [confirmPwd, setConfirmPwd] = useState('')
   const [pwdError, setPwdError] = useState<string | null>(null)
   const [isUpdatingPwd, setIsUpdatingPwd] = useState(false)
   const pwdSubmittingRef = useRef(false) // 同步 guard，阻断竞态窗口
+  // 换绑邮箱（Issue #199 语义）：新邮箱输入 + 提交中状态 + 同步 guard
+  const [newEmail, setNewEmail] = useState('')
+  const [isRebindingEmail, setIsRebindingEmail] = useState(false)
+  const rebindSubmittingRef = useRef(false) // 同步 guard，阻断竞态窗口
+  // 换绑输入最新值 ref：async 闭包读 state 是提交时的旧值，改密成功关窗需判断
+  // 「换绑是否有未提交输入」，在 onChange 中与 state 同步更新（render 期写 ref
+  // 被 react-hooks/refs 规则禁止），供改密成功关窗逻辑同步读取
+  const newEmailRef = useRef('')
 
   // ---- 考勤查看（打开时才条件挂载查询组件，见下方渲染）----
   const [isAttendanceOpen, setIsAttendanceOpen] = useState(false)
+
+  // ---- 外观 / 问题与反馈 ----
+  const [isThemeOpen, setIsThemeOpen] = useState(false)
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
 
   // ---- 通知信箱 ----
   // 未读数与标记已读收敛在 useNotifications；挂载时拉取一次未读数，
@@ -93,6 +119,29 @@ export default function Profile() {
   useEffect(() => {
     void refreshNotifications()
   }, [refreshNotifications])
+
+  // 换绑邮箱后同步 profiles.email（Issue #199 语义）：
+  // user-context 的 user.email 来自 profiles_roster 视图（profiles 表值），
+  // 与 myProfile.email 同源——换绑只改 auth.users.email，必须用 supabase.auth.getUser()
+  // 取真实 auth email 与 profiles email 对比，不同则补写 email 字段。
+  // 防循环：仅在值不同时调用一次 update；成功后 useProfiles 内部把新值合并进
+  // 本地 data，依赖变化后再次对比已相同，不再触发。
+  useEffect(() => {
+    const userId = user?.id
+    const profileEmail = myProfile?.email
+    if (!userId || !profileEmail) return
+    void supabase.auth
+      .getUser()
+      .then(({ data }) => {
+        const authEmail = data.user?.email
+        if (!authEmail) return
+        if (profileEmail.toLowerCase() === authEmail.toLowerCase()) return
+        void updateProfile(userId, { email: authEmail })
+      })
+      .catch((err: unknown) => {
+        console.warn('[Profile] 获取 auth 邮箱失败，跳过 profiles.email 同步', err)
+      })
+  }, [myProfile?.email, user?.id, updateProfile])
 
   // 打开弹窗时用最新 profile 预填
   const handleOpenEditModal = () => {
@@ -186,11 +235,59 @@ export default function Profile() {
       void Taro.showToast({ title: '密码修改成功', icon: 'success' })
       setNewPwd('')
       setConfirmPwd('')
-      setIsPwdModalOpen(false)
+      // 换绑提交进行中不关闭弹窗；换绑区块存在未提交输入时也不关闭
+      // （与当前 tab 无关——「提交中允许切换」使「改密飞行中切到换绑填输入」合法）。
+      // newEmailRef 为 latest ref：本闭包里的 newEmail state 是提交时的旧值（空），
+      // 直接判断会误关，必须同步读最新值
+      if (!rebindSubmittingRef.current && !newEmailRef.current.trim()) {
+        setIsPwdModalOpen(false)
+      }
     } finally {
       // 无论成败都复位：避免抛异常时 isUpdatingPwd 卡 true，弹窗被守卫锁死无法关闭
       pwdSubmittingRef.current = false
       setIsUpdatingPwd(false)
+    }
+  }
+
+  // 换绑邮箱（Issue #199 语义）：提交后 Supabase 向新邮箱发确认邮件，
+  // 点击邮件内链接才完成换绑；未确认前 auth 仍用旧邮箱，因此只清空输入、不关闭弹窗
+  const handleRebindEmail = async () => {
+    if (!user) return
+    const emailInput = newEmail.trim()
+    if (!emailInput) {
+      void Taro.showToast({ title: '请输入新邮箱', icon: 'none' })
+      return
+    }
+    if (!isValidEmail(emailInput)) {
+      void Taro.showToast({ title: '邮箱格式不正确', icon: 'none' })
+      return
+    }
+    if (emailInput.toLowerCase() === (user.email ?? '').toLowerCase()) {
+      void Taro.showToast({ title: '新邮箱与当前邮箱相同', icon: 'none' })
+      return
+    }
+    // 双重 guard 防重复提交：ref 同步阻断 + state 异步兜底
+    if (rebindSubmittingRef.current || isRebindingEmail) return
+    rebindSubmittingRef.current = true
+    setIsRebindingEmail(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ email: emailInput })
+      if (error) {
+        void Taro.showToast({ title: error.message, icon: 'none' })
+        return
+      }
+      void Taro.showToast({
+        title: '确认邮件已发送至新邮箱，请点击邮件内链接完成换绑（未确认前仍使用旧邮箱）',
+        icon: 'none',
+      })
+      setNewEmail('')
+      // 与 onChange 同步逻辑对称：清空 state 时同步清空 ref，
+      // 否则 newEmailRef 残留旧值，后续改密成功关窗条件误判「存在未提交输入」不关窗
+      newEmailRef.current = ''
+    } finally {
+      // 无论成败都复位：避免抛异常时 isRebindingEmail 卡 true，输入被永久禁用
+      rebindSubmittingRef.current = false
+      setIsRebindingEmail(false)
     }
   }
 
@@ -207,7 +304,7 @@ export default function Profile() {
 
   return (
     /* 本页豁免：整页滚动（page 根节点自身为滚动容器，tab bar 固定），与 Web 端 profile 页一致 */
-    <View className='h-full overflow-y-auto overscroll-contain px-4 pb-safe'>
+    <View className={`${darkClass} h-full overflow-y-auto overscroll-contain px-4 pb-safe`}>
       <View className='space-y-6 pt-4'>
         {/* 头像卡 */}
         <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
@@ -259,6 +356,8 @@ export default function Profile() {
             <View
               className='border-b border-border px-4 py-3'
               onClick={() => {
+                // 重开弹窗默认回到「修改密码」tab（accountTab 是组件层 state，不重置会残留上次选择）
+                setAccountTab('password')
                 setNewPwd('')
                 setConfirmPwd('')
                 setPwdError(null)
@@ -275,6 +374,17 @@ export default function Profile() {
               }}
             >
               <Text className='text-sm font-medium text-text'>考勤</Text>
+            </View>
+            {/* 外观：亮色 / 暗色 / 跟随系统 三态主题切换 */}
+            <View className='border-b border-border px-4 py-3' onClick={() => setIsThemeOpen(true)}>
+              <Text className='text-sm font-medium text-text'>外观</Text>
+            </View>
+            {/* 问题与反馈：匿名提交，底部弹窗 */}
+            <View
+              className='border-b border-border px-4 py-3'
+              onClick={() => setIsFeedbackOpen(true)}
+            >
+              <Text className='text-sm font-medium text-text'>问题与反馈</Text>
             </View>
             <View className='px-4 py-3' onClick={() => void handleLogout()}>
               <Text className='text-sm font-medium text-danger'>退出登录</Text>
@@ -396,68 +506,112 @@ export default function Profile() {
         </View>
       </Modal>
 
-      {/* 账号与密码 Modal（demo 范围：仅修改密码；换绑邮箱后续任务补） */}
+      {/* 账号与密码 Modal（Issue #214 语义 tab 化）：标题下方、内容上方左对齐
+          放置「修改密码 / 换绑邮箱」tab，激活 tab 显示对应区块；切换 tab 不清空
+          各自输入；关闭守卫仍含两个提交态（任一提交进行中不允许关闭） */}
       <Modal
         open={isPwdModalOpen}
         onClose={() => {
-          // 提交中不允许关闭
-          if (isUpdatingPwd) {
+          // 任一提交进行中不允许关闭（改密/换绑各自守卫，互不干扰）
+          if (isUpdatingPwd || isRebindingEmail) {
             void Taro.showToast({ title: '提交进行中，请稍候再关闭', icon: 'none' })
             return
           }
           setIsPwdModalOpen(false)
         }}
-        title='修改密码'
+        title='账号与密码'
         position='bottom'
-        closeOnOverlay={!isUpdatingPwd}
+        closeOnOverlay={!isUpdatingPwd && !isRebindingEmail}
       >
-        <View className='mt-4 space-y-3'>
-          <View>
-            <Text className='mb-1 block text-xs font-medium text-text-muted'>新密码</Text>
-            <Input
-              password
-              className='h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
-              placeholder='至少 6 位'
-              value={newPwd}
-              onInput={(e) => {
-                setNewPwd(e.detail.value)
-                setPwdError(null)
-              }}
-            />
-          </View>
-          <View>
-            <Text className='mb-1 block text-xs font-medium text-text-muted'>确认新密码</Text>
-            <Input
-              password
-              className='h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
-              placeholder='再次输入'
-              value={confirmPwd}
-              onInput={(e) => {
-                setConfirmPwd(e.detail.value)
-                setPwdError(null)
-              }}
-            />
-          </View>
-          {pwdError && <Text className='block text-xs text-danger'>{pwdError}</Text>}
-          {/* 双按钮操作行右下角（取消 + 确认修改） */}
-          <View className='flex justify-end gap-2'>
-            <View
-              className={`rounded-full border border-border bg-card px-4 py-2 text-xs font-medium text-text-muted ${
-                isUpdatingPwd ? 'opacity-60' : ''
-              }`}
-              onClick={isUpdatingPwd ? undefined : () => setIsPwdModalOpen(false)}
-            >
-              取消
+        <View className='mt-4'>
+          <Toggle
+            options={ACCOUNT_TAB_OPTIONS}
+            value={accountTab}
+            onChange={(v) => setAccountTab(v as AccountTab)}
+            getLabel={accountTabLabel}
+          />
+
+          {accountTab === 'password' ? (
+            <View className='mt-4 space-y-3'>
+              <View>
+                <Text className='mb-1 block text-xs font-medium text-text-muted'>新密码</Text>
+                <Input
+                  password
+                  className='h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
+                  placeholder='至少 6 位'
+                  value={newPwd}
+                  onInput={(e) => {
+                    setNewPwd(e.detail.value)
+                    setPwdError(null)
+                  }}
+                />
+              </View>
+              <View>
+                <Text className='mb-1 block text-xs font-medium text-text-muted'>确认新密码</Text>
+                <Input
+                  password
+                  className='h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
+                  placeholder='再次输入'
+                  value={confirmPwd}
+                  onInput={(e) => {
+                    setConfirmPwd(e.detail.value)
+                    setPwdError(null)
+                  }}
+                />
+              </View>
+              {pwdError && <Text className='block text-xs text-danger'>{pwdError}</Text>}
+              {/* 双按钮操作行右下角（取消 + 确认修改）；取消按钮任一提交飞行中禁用 */}
+              <View className='flex justify-end gap-2'>
+                <View
+                  className={`rounded-full border border-border bg-card px-4 py-2 text-xs font-medium text-text-muted ${
+                    isUpdatingPwd || isRebindingEmail ? 'opacity-60' : ''
+                  }`}
+                  onClick={
+                    isUpdatingPwd || isRebindingEmail ? undefined : () => setIsPwdModalOpen(false)
+                  }
+                >
+                  取消
+                </View>
+                <View
+                  className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
+                    isUpdatingPwd ? 'opacity-60' : ''
+                  }`}
+                  onClick={isUpdatingPwd ? undefined : () => void handleUpdatePassword()}
+                >
+                  {isUpdatingPwd ? '提交中…' : '确认修改'}
+                </View>
+              </View>
             </View>
-            <View
-              className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
-                isUpdatingPwd ? 'opacity-60' : ''
-              }`}
-              onClick={isUpdatingPwd ? undefined : () => void handleUpdatePassword()}
-            >
-              {isUpdatingPwd ? '提交中…' : '确认修改'}
+          ) : (
+            <View className='mt-4 space-y-3'>
+              {/* 当前邮箱只读展示（Issue #199 语义）；「换绑邮箱」小标题由 tab 承担 */}
+              <Text className='block text-xs text-text-subtle'>当前邮箱：{email}</Text>
+              <View>
+                <Text className='mb-1 block text-xs font-medium text-text-muted'>新邮箱</Text>
+                <Input
+                  className='h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
+                  placeholder='输入新邮箱'
+                  value={newEmail}
+                  disabled={isRebindingEmail}
+                  onInput={(e) => {
+                    setNewEmail(e.detail.value)
+                    newEmailRef.current = e.detail.value // 同步最新值（async 闭包读 ref）
+                  }}
+                />
+              </View>
+              {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
+              <View className='flex justify-end gap-2'>
+                <View
+                  className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
+                    isRebindingEmail ? 'opacity-60' : ''
+                  }`}
+                  onClick={isRebindingEmail ? undefined : () => void handleRebindEmail()}
+                >
+                  {isRebindingEmail ? '发送中…' : '发送确认邮件'}
+                </View>
+              </View>
             </View>
-          </View>
+          )}
         </View>
       </Modal>
 
@@ -476,6 +630,12 @@ export default function Profile() {
           onClose={() => setInbox(null)}
         />
       )}
+
+      {/* 外观 Modal：亮色 / 暗色 / 跟随系统 三态主题切换 */}
+      <ThemeModal open={isThemeOpen} onClose={() => setIsThemeOpen(false)} />
+
+      {/* 问题与反馈 Modal：多行输入匿名提交 */}
+      <FeedbackModal open={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
     </View>
   )
 }

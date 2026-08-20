@@ -3,6 +3,7 @@ import { Button, Input, Text, View } from '@tarojs/components'
 import { reLaunch } from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
 import { useUser } from '@/context/user-context'
+import { useThemeClass } from '@/context/theme-context'
 import { useLogin } from '@/hooks/useLogin'
 import { supabase } from '@/lib/supabase'
 import './index.scss'
@@ -10,6 +11,7 @@ import './index.scss'
 export default function LoginPage() {
   const { ready, user, restoreFailed } = useUser()
   const { email, setEmail, password, setPassword, submitting, errorMsg, handleSubmit } = useLogin()
+  const darkClass = useThemeClass()
 
   // 已登录用户（含冷启动会话恢复后）直接进入首页 tab，避免看到登录页。
   // 先经 getUser 校验会话真实性：storage 有 stale session 但服务端已吊销时
@@ -37,14 +39,16 @@ export default function LoginPage() {
   // 会话恢复完成前渲染占位，防止登录页闪烁
   if (!ready) {
     return (
-      <View className='flex h-full items-center justify-center bg-page-bg'>
+      <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
         <Text className='text-sm text-text-muted'>加载中…</Text>
       </View>
     )
   }
 
   return (
-    <View className='flex h-full flex-col items-center justify-center bg-page-bg px-5'>
+    <View
+      className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}
+    >
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
           <Text className='text-xl font-semibold text-text'>登录</Text>
