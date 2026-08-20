@@ -42,8 +42,8 @@ describe('Card', () => {
     expect(container.firstElementChild!.tagName).toBe('DIV')
   })
 
-  it('有 onClick 时渲染 Button（button）', () => {
+  it('有 onClick 时仍渲染 View（div）——原生 Button 的事件模型会吞掉子元素 catchtap，改用 View', () => {
     const { container } = render(<Card onClick={vi.fn()}>btn</Card>)
-    expect(container.firstElementChild!.tagName).toBe('BUTTON')
+    expect(container.firstElementChild!.tagName).toBe('DIV')
   })
 })
