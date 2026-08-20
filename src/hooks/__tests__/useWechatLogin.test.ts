@@ -66,8 +66,9 @@ describe('useWechatLogin', () => {
       access_token: 'at',
       refresh_token: 'rt',
     })
-    // 路由委托给 routeAfterLogin（资料补全/等待审核/审核未通过/首页判定在其内部）
-    expect(routeAfterLoginMock).toHaveBeenCalledWith(c, 'u1')
+    // 路由委托给 routeAfterLogin（资料补全/等待审核/审核未通过/首页判定在其内部；
+    // RPC 以会话 JWT 的 auth.uid() 为准，无需传 userId）
+    expect(routeAfterLoginMock).toHaveBeenCalledWith(c)
   })
 
   it('新注册用户登录成功：同样走统一入口路由（full_name 为空自然落补全页）', async () => {
@@ -79,7 +80,7 @@ describe('useWechatLogin', () => {
     const { result } = renderHook(() => useWechatLogin(c as never))
     const res = await act(() => result.current.loginWithWechat())
     expect(res.error).toBeNull()
-    expect(routeAfterLoginMock).toHaveBeenCalledWith(c, 'u-new')
+    expect(routeAfterLoginMock).toHaveBeenCalledWith(c)
   })
 
   it('code2session 失败：映射专属文案', async () => {

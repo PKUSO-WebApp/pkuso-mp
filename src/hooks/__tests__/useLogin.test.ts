@@ -17,17 +17,8 @@ vi.mock('@/lib/supabase', () => ({ supabase: {} }))
 const { routeAfterLoginMock } = vi.hoisted(() => ({ routeAfterLoginMock: vi.fn() }))
 vi.mock('@/lib/post-auth-route', () => ({ routeAfterLogin: routeAfterLoginMock }))
 
-/** 测试专用 client：登录成功后经 getSession 取 user id 再委托路由 */
-function makeClient(session: { id: string } | null) {
-  return {
-    auth: {
-      getSession: vi.fn().mockResolvedValue({
-        data: { session: session ? { user: session } : null },
-        error: null,
-      }),
-    },
-  }
-}
+/** 测试专用 client：登录成功后仅转发给 routeAfterLogin（已 mock），无需真实方法 */
+const makeClient = () => ({})
 
 describe('mapAuthErrorToMessage', () => {
   it('invalid_credentials / 401 / Invalid login credentials → 邮箱或密码错误', () => {
@@ -68,7 +59,7 @@ describe('useLogin', () => {
   })
 
   it('空输入校验：邮箱密码均未填，不调用 signIn', async () => {
-    const client = makeClient({ id: 'u1' })
+    const client = makeClient()
     const { result } = renderHook(() => useLogin(client as never))
     await act(async () => {
       await result.current.handleSubmit()
@@ -79,7 +70,7 @@ describe('useLogin', () => {
   })
 
   it('空输入校验：仅密码未填，不调用 signIn', async () => {
-    const client = makeClient({ id: 'u1' })
+    const client = makeClient()
     const { result } = renderHook(() => useLogin(client as never))
     act(() => result.current.setEmail('a@b.com'))
     await act(async () => {
@@ -89,8 +80,8 @@ describe('useLogin', () => {
     expect(signInMock).not.toHaveBeenCalled()
   })
 
-  it('登录成功：trim 邮箱后调用 signIn，取会话 user id 委托入口路由', async () => {
-    const client = makeClient({ id: 'u1' })
+  it('登录成功：trim 邮箱后调用 signIn，委托入口路由（RPC 以会话 JWT 为准）', async () => {
+    const client = makeClient()
     const { result } = renderHook(() => useLogin(client as never))
     act(() => result.current.setEmail(' a@b.com '))
     act(() => result.current.setPassword('pw123'))
@@ -99,25 +90,12 @@ describe('useLogin', () => {
     })
     expect(signInMock).toHaveBeenCalledWith('a@b.com', 'pw123')
     expect(result.current.errorMsg).toBe('')
-    expect(client.auth.getSession).toHaveBeenCalled()
-    expect(routeAfterLoginMock).toHaveBeenCalledWith(client, 'u1')
-  })
-
-  it('登录成功但会话缺 user id：报错且不路由', async () => {
-    const client = makeClient(null)
-    const { result } = renderHook(() => useLogin(client as never))
-    act(() => result.current.setEmail('a@b.com'))
-    act(() => result.current.setPassword('pw123'))
-    await act(async () => {
-      await result.current.handleSubmit()
-    })
-    expect(result.current.errorMsg).toBe('登录失败，请稍后重试')
-    expect(routeAfterLoginMock).not.toHaveBeenCalled()
+    expect(routeAfterLoginMock).toHaveBeenCalledWith(client)
   })
 
   it('密码错误：显示映射后的中文文案且不跳转', async () => {
     signInMock.mockResolvedValue({ error: { message: 'Invalid login credentials' } })
-    const client = makeClient({ id: 'u1' })
+    const client = makeClient()
     const { result } = renderHook(() => useLogin(client as never))
     act(() => result.current.setEmail('a@b.com'))
     act(() => result.current.setPassword('wrong'))
@@ -130,7 +108,7 @@ describe('useLogin', () => {
 
   it('signIn reject（AuthError）：submitting 复位且文案走映射表', async () => {
     signInMock.mockRejectedValue(new Error('Invalid login credentials'))
-    const client = makeClient({ id: 'u1' })
+    const client = makeClient()
     const { result } = renderHook(() => useLogin(client as never))
     act(() => result.current.setEmail('a@b.com'))
     act(() => result.current.setPassword('wrong'))
@@ -144,7 +122,7 @@ describe('useLogin', () => {
 
   it('signIn reject（网络异常）：归一化为网络错误且 submitting 复位', async () => {
     signInMock.mockRejectedValue(new TypeError('fetch failed'))
-    const client = makeClient({ id: 'u1' })
+    const client = makeClient()
     const { result } = renderHook(() => useLogin(client as never))
     act(() => result.current.setEmail('a@b.com'))
     act(() => result.current.setPassword('pw'))
@@ -163,7 +141,7 @@ describe('useLogin', () => {
         resolveSignIn = resolve
       })
     )
-    const client = makeClient({ id: 'u1' })
+    const client = makeClient()
     const { result } = renderHook(() => useLogin(client as never))
     act(() => result.current.setEmail('a@b.com'))
     act(() => result.current.setPassword('pw'))
@@ -186,7 +164,7 @@ describe('useLogin', () => {
         resolveSignIn = resolve
       })
     )
-    const client = makeClient({ id: 'u1' })
+    const client = makeClient()
     const { result } = renderHook(() => useLogin(client as never))
     act(() => result.current.setEmail('a@b.com'))
     act(() => result.current.setPassword('pw'))

@@ -86,7 +86,7 @@ export default function SetupPage() {
       }
       void Taro.showToast({ title: '资料已提交，等待管理员审核', icon: 'none' })
       // 重新走入口路由：正常落到「等待管理员审核」守卫页
-      await routeAfterLogin(supabase, user.id)
+      await routeAfterLogin(supabase)
     } finally {
       submittingRef.current = false
       setSubmitting(false)

@@ -67,14 +67,9 @@ export function useLogin(client: typeof defaultClient = defaultClient): UseLogin
         setErrorMsg(mapAuthErrorToMessage(error))
         return
       }
-      // 取会话中的 user id，按 profile 状态路由入口（tab 页只能用 reLaunch 切换）
-      const { data: sessionData } = await client.auth.getSession()
-      const userId = sessionData?.session?.user?.id
-      if (!userId) {
-        setErrorMsg('登录失败，请稍后重试')
-        return
-      }
-      await routeAfterLogin(client, userId)
+      // 按 profile 状态路由入口（tab 页只能用 reLaunch 切换；
+      //    RPC 以会话 JWT 的 auth.uid() 为准，无需传 userId）
+      await routeAfterLogin(client)
     } catch (err) {
       // 兜底：signIn reject（SDK 网络/超时异常）归一化为中文文案
       setErrorMsg(mapAuthErrorToMessage(err))

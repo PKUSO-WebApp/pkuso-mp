@@ -637,6 +637,17 @@ export type Database = {
           user_id: string
         }[]
       }
+      // 手补（2026-08-21，gen-types 下次运行会重新生成并覆盖本节）：
+      // get_my_profile_entry 迁移 20260821110000 已应用到远端，本地 CLI 未 link，
+      // 无法重跑 gen-types，按迁移文件手工补类型。
+      get_my_profile_entry: {
+        Args: Record<string, never>
+        Returns: {
+          full_name: string | null
+          email: string | null
+          status: Database['public']['Enums']['profileStatus'] | null
+        }[]
+      }
       verify_and_use_invitation_code: {
         Args: { p_code: string; p_user_id: string }
         Returns: {

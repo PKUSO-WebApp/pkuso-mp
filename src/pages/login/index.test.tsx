@@ -129,7 +129,7 @@ describe('LoginPage', () => {
     renderPage()
     // 先经 getUser 校验会话真实性，成功后委托 routeAfterLogin
     expect(authMock.getUser).toHaveBeenCalled()
-    await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalledWith(supabaseMock, 'u1'))
+    await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalledWith(supabaseMock))
   })
 
   it('已登录但 getUser 失败（会话已吊销）：不跳转且静默登出', async () => {
@@ -167,7 +167,7 @@ describe('LoginPage', () => {
         password: 'password123',
       })
     )
-    await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalledWith(supabaseMock, 'u1'))
+    await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalledWith(supabaseMock))
   })
 
   it('密码错误时显示映射后的页内错误文案', async () => {

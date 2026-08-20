@@ -63,21 +63,18 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         return { error: '微信登录失败，请重试' }
       }
 
-      // 3. 建立本地会话
+      // 3. 建立本地会话（会话形态校验：token 成功交换但缺 user 视为失败）
       const { data: sessionData, error: sessionError } = await client.auth.setSession({
         access_token: payload.access_token,
         refresh_token: payload.refresh_token,
       })
-      if (sessionError) {
-        return { error: '微信登录失败，请重试' }
-      }
-      const userId = sessionData?.session?.user?.id
-      if (!userId) {
+      if (sessionError || !sessionData?.session?.user?.id) {
         return { error: '微信登录失败，请重试' }
       }
 
-      // 4. 按 profile 状态路由入口（资料补全 / 等待审核 / 审核未通过 / 首页）
-      await routeAfterLogin(client, userId)
+      // 4. 按 profile 状态路由入口（资料补全 / 等待审核 / 审核未通过 / 首页；
+      //    RPC 以会话 JWT 的 auth.uid() 为准，无需传 userId）
+      await routeAfterLogin(client)
       return { error: null }
     } finally {
       // 无论成败都复位：避免异常时 submitting 卡 true

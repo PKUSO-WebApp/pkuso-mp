@@ -26,7 +26,7 @@ export default function LoginPage() {
         await supabase.auth.getUser()
         if (cancelled) return
         // 资料补全 / 等待审核 / 审核未通过 / 首页，与提交成功后的路由双触发：幂等，可接受
-        await routeAfterLogin(supabase, user.id)
+        await routeAfterLogin(supabase)
       } catch {
         // 会话无效：静默登出清理本地残留，停留登录页
         if (!cancelled) void supabase.auth.signOut()
