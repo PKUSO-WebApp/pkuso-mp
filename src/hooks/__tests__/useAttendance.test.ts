@@ -14,6 +14,8 @@ function mockClient<T>(responses: T[]) {
   const c = (r: T) => ({
     eq: () => c(r),
     in: () => c(r),
+    gte: () => c(r),
+    lt: () => c(r),
     select: () => c(r),
     order: () => c(r),
     then: (resolve: (v: T) => void) => resolve(r),
@@ -141,6 +143,42 @@ describe('useAttendance', () => {
     const { result } = renderHook(() => useAttendance(c as never))
     const err = await act(() => result.current.updateStatus(1, 'u1', 'present'))
     expect(err).toContain('服务端安全权限')
+  })
+
+  it('fetchMyHistory 查询本人考勤历史并返回 join 行', async () => {
+    const rows = [
+      {
+        id: 1,
+        rehearsal_id: 1,
+        user_id: 'u1',
+        status: 'present',
+        sign_in_time: '2026-01-01T10:00:00',
+        rehearsals: { start_time: '2026-01-01T09:00:00', location: '排练厅' },
+      },
+    ]
+    const c = mockClient([{ data: rows, error: null }])
+    const { result } = renderHook(() => useAttendance(c as never))
+    const res = await act(() => result.current.fetchMyHistory('u1', {}))
+    expect(res.error).toBeNull()
+    expect(res.rows).toEqual(rows)
+  })
+
+  it('fetchMyHistory 带日期过滤查询（gte/lt 链式构建不报错）', async () => {
+    const c = mockClient([{ data: [], error: null }])
+    const { result } = renderHook(() => useAttendance(c as never))
+    const res = await act(() =>
+      result.current.fetchMyHistory('u1', { startDate: '2026-01-01', endDate: '2026-01-31' })
+    )
+    expect(res.error).toBeNull()
+    expect(res.rows).toEqual([])
+  })
+
+  it('fetchMyHistory 查询失败返回空 rows 与错误信息', async () => {
+    const c = mockClient([{ data: null, error: { message: '查询失败' } }])
+    const { result } = renderHook(() => useAttendance(c as never))
+    const res = await act(() => result.current.fetchMyHistory('u1', {}))
+    expect(res.error).toBe('查询失败')
+    expect(res.rows).toEqual([])
   })
 
   it('batchInsert 不执行客户端 INSERT，避免伪造成员考勤', async () => {

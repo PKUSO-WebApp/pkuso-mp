@@ -9,6 +9,7 @@ import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
 import { isValidPhoneNumber } from '@/lib/validation'
+import { AttendanceHistoryModal } from './components/attendance-history-modal'
 import './index.scss'
 
 // 隐私开关选项：各字段行尾的「公开 / 隐藏」分段开关，随表单一起保存
@@ -62,6 +63,9 @@ export default function Profile() {
   const [pwdError, setPwdError] = useState<string | null>(null)
   const [isUpdatingPwd, setIsUpdatingPwd] = useState(false)
   const pwdSubmittingRef = useRef(false) // 同步 guard，阻断竞态窗口
+
+  // ---- 考勤查看（打开时才条件挂载查询组件，见下方渲染）----
+  const [isAttendanceOpen, setIsAttendanceOpen] = useState(false)
 
   // 打开弹窗时用最新 profile 预填
   const handleOpenEditModal = () => {
@@ -207,6 +211,15 @@ export default function Profile() {
               }}
             >
               <Text className='text-sm font-medium text-text'>账号与密码</Text>
+            </View>
+            {/* 考勤：本人考勤历史，起止日期过滤（打开时才挂载查询组件） */}
+            <View
+              className='border-b border-border px-4 py-3'
+              onClick={() => {
+                if (user) setIsAttendanceOpen(true)
+              }}
+            >
+              <Text className='text-sm font-medium text-text'>考勤</Text>
             </View>
             <View className='px-4 py-3' onClick={() => void handleLogout()}>
               <Text className='text-sm font-medium text-danger'>退出登录</Text>
@@ -392,6 +405,11 @@ export default function Profile() {
           </View>
         </View>
       </Modal>
+
+      {/* 考勤查看 Modal：条件渲染挂载——打开时才挂载并查询，关闭即卸载清态 */}
+      {isAttendanceOpen && user && (
+        <AttendanceHistoryModal userId={user.id} onClose={() => setIsAttendanceOpen(false)} />
+      )}
     </View>
   )
 }

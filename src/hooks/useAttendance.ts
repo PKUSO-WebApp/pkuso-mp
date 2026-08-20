@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
-import type { AttendanceRowWithUser, AttendanceStatus } from '@/types/database'
+import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
+import type { AttendanceRow, AttendanceRowWithUser, AttendanceStatus } from '@/types/database'
 
 export type AttendanceEntry = {
   rehearsal_id: number
@@ -25,6 +26,33 @@ export type SignInResultRow = {
 
 /** 签到结果：error 非空为失败（中文归一化由调用方负责）；成功时 row 为服务端返回行 */
 export type SignInResult = { error: string | null; row: SignInResultRow | null }
+
+/** 考勤历史查询过滤：两端都空查全部；只填一端按该端开放过滤 */
+export type AttendanceHistoryFilter = {
+  startDate?: string
+  endDate?: string
+}
+
+/** 考勤 join 排练的返回行（仅取展示所需排练列，不含 profiles 敏感列） */
+export type AttendanceHistoryRow = AttendanceRow & {
+  rehearsals?: {
+    start_time?: string | null
+    end_time?: string | null
+    location?: string | null
+    repertoire?: string | null
+  } | null
+}
+
+/** 考勤历史查询结果：error 非空为失败（rows 为空数组） */
+export type AttendanceHistoryResult = { rows: AttendanceHistoryRow[]; error: string | null }
+
+/** 日期字符串的次日（YYYY-MM-DD）：区间上界用开区间（< 次日），
+ *  结束当天 23:59 开始的排练也算在区间内 */
+const nextDayString = (dateStr: string): string => {
+  const d = parseLocalISO(dateStr)
+  d.setDate(d.getDate() + 1)
+  return getLocalDateString(d)
+}
 
 const SECURE_ATTENDANCE_RPC_REQUIRED = '该操作需要服务端安全权限，当前暂不可用'
 
@@ -156,6 +184,31 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
     return []
   }, [])
 
+  /**
+   * 查询本人考勤历史（join 排练展示信息，按起止日期过滤，按排练开始时间倒序）。
+   * 两端都空查全部；只填一端按该端开放过滤（另一端不设界）；
+   * 结束日期上界取次日开区间（< 次日），结束当天深夜开始的排练也算在区间内。
+   */
+  const fetchMyHistory = useCallback(
+    async (userId: string, filter: AttendanceHistoryFilter): Promise<AttendanceHistoryResult> => {
+      let query = client
+        .from('attendances')
+        .select('*, rehearsals!inner(start_time, end_time, location, repertoire)')
+        .eq('user_id', userId)
+      if (filter.startDate) query = query.gte('rehearsals.start_time', filter.startDate)
+      if (filter.endDate) query = query.lt('rehearsals.start_time', nextDayString(filter.endDate))
+      query = query.order('start_time', { referencedTable: 'rehearsals', ascending: false })
+
+      const { data: rows, error: dbError } = await query
+      if (dbError) {
+        if (mountedRef.current) setError(dbError.message)
+        return { rows: [], error: dbError.message }
+      }
+      return { rows: (rows as AttendanceHistoryRow[]) ?? [], error: null }
+    },
+    [client]
+  )
+
   return {
     map,
     list,
@@ -164,6 +217,7 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
     saving,
     fetchMyAttendances,
     fetchByRehearsal,
+    fetchMyHistory,
     upsert,
     signIn,
     updateStatus,
