@@ -30,7 +30,10 @@ const { taroMock } = vi.hoisted(() => {
 vi.mock('@tarojs/taro', () => taroMock)
 
 const { userCtx } = vi.hoisted(() => ({
-  userCtx: { user: { id: 'u1' } as { id: string } | null, ready: true },
+  userCtx: {
+    user: { id: 'u1' } as { id: string; email?: string | null } | null,
+    ready: true,
+  },
 }))
 vi.mock('@/context/user-context', () => ({ useUser: () => userCtx }))
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
@@ -38,23 +41,33 @@ vi.mock('@/hooks/useLogout', () => ({
   useLogout: () => ({ signingOut: false, logout: logoutMock }),
 }))
 
-const { logoutMock, routeAfterLoginMock, updateSelectMock, updateMock, eqMock, supabaseFromMock } =
-  vi.hoisted(() => {
-    const updateSelect = vi.fn()
-    const eq = vi.fn(() => ({ select: updateSelect }))
-    const update = vi.fn(() => ({ eq }))
-    const from = vi.fn(() => ({ update }))
-    return {
-      logoutMock: vi.fn(),
-      routeAfterLoginMock: vi.fn(),
-      updateSelectMock: updateSelect,
-      updateMock: update,
-      eqMock: eq,
-      supabaseFromMock: from,
-    }
-  })
+const {
+  logoutMock,
+  routeAfterLoginMock,
+  updateSelectMock,
+  updateMock,
+  eqMock,
+  supabaseFromMock,
+  authUpdateUserMock,
+} = vi.hoisted(() => {
+  const updateSelect = vi.fn()
+  const eq = vi.fn(() => ({ select: updateSelect }))
+  const update = vi.fn(() => ({ eq }))
+  const from = vi.fn(() => ({ update }))
+  return {
+    logoutMock: vi.fn(),
+    routeAfterLoginMock: vi.fn(),
+    updateSelectMock: updateSelect,
+    updateMock: update,
+    eqMock: eq,
+    supabaseFromMock: from,
+    authUpdateUserMock: vi.fn(),
+  }
+})
 vi.mock('@/lib/post-auth-route', () => ({ routeAfterLogin: routeAfterLoginMock }))
-vi.mock('@/lib/supabase', () => ({ supabase: { from: supabaseFromMock } }))
+vi.mock('@/lib/supabase', () => ({
+  supabase: { from: supabaseFromMock, auth: { updateUser: authUpdateUserMock } },
+}))
 
 // 预填来源（可变）
 const profileCtx = { profile: null as EntryProfile | null }
@@ -90,6 +103,8 @@ describe('SetupPage', () => {
     updateMock.mockClear()
     eqMock.mockClear()
     supabaseFromMock.mockClear()
+    authUpdateUserMock.mockReset()
+    authUpdateUserMock.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
   })
 
   afterEach(() => {
@@ -121,7 +136,7 @@ describe('SetupPage', () => {
     expect(supabaseFromMock).not.toHaveBeenCalled()
   })
 
-  it('提交成功：trim 后更新 profiles + toast + 重新走入口路由', async () => {
+  it('提交成功：trim 后更新 profiles + 同步 auth 邮箱 + toast + 重新走入口路由', async () => {
     render(<SetupPage />)
     fillForm(' 张三 ', 'zhangsan@example.com')
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
@@ -129,12 +144,47 @@ describe('SetupPage', () => {
       expect(updateMock).toHaveBeenCalledWith({ full_name: '张三', email: 'zhangsan@example.com' })
     )
     expect(eqMock).toHaveBeenCalledWith('id', 'u1')
+    expect(authUpdateUserMock).toHaveBeenCalledWith({ email: 'zhangsan@example.com' })
     await waitFor(() => expect(taroMock.showToast).toHaveBeenCalled())
     expect(taroMock.showToast).toHaveBeenCalledWith({
       title: '资料已提交，等待管理员审核',
       icon: 'none',
     })
     expect(routeAfterLoginMock).toHaveBeenCalled()
+  })
+
+  it('auth 邮箱与输入相同（重试幂等）：跳过 updateUser', async () => {
+    userCtx.user = { id: 'u1', email: 'zhangsan@example.com' }
+    render(<SetupPage />)
+    fillForm('张三', 'zhangsan@example.com')
+    fireEvent.click(screen.getByRole('button', { name: '提交' }))
+    await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalled())
+    expect(authUpdateUserMock).not.toHaveBeenCalled()
+  })
+
+  it('auth 邮箱已被注册：提示更换邮箱且不路由', async () => {
+    authUpdateUserMock.mockResolvedValue({
+      data: { user: null },
+      error: {
+        code: 'email_exists',
+        message: 'A user with this email address has already been registered',
+      },
+    })
+    render(<SetupPage />)
+    fillForm('张三', 'zhangsan@example.com')
+    fireEvent.click(screen.getByRole('button', { name: '提交' }))
+    expect(await screen.findByText('该邮箱已被注册，请更换邮箱')).toBeTruthy()
+    expect(taroMock.showToast).not.toHaveBeenCalled()
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
+  })
+
+  it('auth 邮箱同步失败（其他错误）：提示保存失败且不路由', async () => {
+    authUpdateUserMock.mockResolvedValue({ data: { user: null }, error: { message: 'boom' } })
+    render(<SetupPage />)
+    fillForm('张三', 'zhangsan@example.com')
+    fireEvent.click(screen.getByRole('button', { name: '提交' }))
+    expect(await screen.findByText('保存失败，请重试')).toBeTruthy()
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
   })
 
   it('0 行更新（RLS 静默失败/记录不存在）：提示保存失败且不路由', async () => {

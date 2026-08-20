@@ -5,6 +5,7 @@ import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useAuth } from '@/hooks/useAuth'
+import { isSyntheticEmail } from '@/lib/profile-gate'
 import { useNotifications } from '@/hooks/useNotifications'
 import { supabase } from '@/lib/supabase'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
@@ -60,7 +61,10 @@ export default function Profile() {
   // 头像卡展示信息
   const fullName = myProfile?.full_name ?? '—'
   const instrument = myProfile?.instrument ?? '—'
-  const email = user?.email ?? '—'
+  // 邮箱优先显示 profiles.email：微信注册用户的 auth 邮箱是合成占位地址
+  // （wechat_<openid>@placeholder.local），资料补全写入的真实邮箱在 profiles.email；
+  // 邮箱注册用户两者一致（换绑邮箱确认后由同步 effect 对齐），无感知差异
+  const email = myProfile?.email ?? user?.email ?? '—'
   const initials = fullName !== '—' ? fullName.slice(0, 2) || fullName.slice(0, 1) || '--' : '--'
 
   // ---- 个人信息编辑弹窗 ----
@@ -121,11 +125,13 @@ export default function Profile() {
   }, [refreshNotifications])
 
   // 换绑邮箱后同步 profiles.email（Issue #199 语义）：
-  // user-context 的 user.email 来自 profiles_roster 视图（profiles 表值），
-  // 与 myProfile.email 同源——换绑只改 auth.users.email，必须用 supabase.auth.getUser()
-  // 取真实 auth email 与 profiles email 对比，不同则补写 email 字段。
+  // 换绑只改 auth.users.email，必须用 supabase.auth.getUser() 取真实 auth email
+  // 与 profiles email 对比，不同则补写 email 字段。
   // 防循环：仅在值不同时调用一次 update；成功后 useProfiles 内部把新值合并进
   // 本地 data，依赖变化后再次对比已相同，不再触发。
+  // 微信注册用户例外：auth 邮箱是合成占位地址（wechat_<openid>@placeholder.local），
+  // 永远不可能等于补全页写入的真实邮箱——不能反向同步，否则每次打开本页都会
+  // 把真实邮箱覆盖回占位地址（用户实测：补全后邮箱变回 placeholder.local）。
   useEffect(() => {
     const userId = user?.id
     const profileEmail = myProfile?.email
@@ -135,6 +141,7 @@ export default function Profile() {
       .then(({ data }) => {
         const authEmail = data.user?.email
         if (!authEmail) return
+        if (isSyntheticEmail(authEmail)) return
         if (profileEmail.toLowerCase() === authEmail.toLowerCase()) return
         void updateProfile(userId, { email: authEmail })
       })

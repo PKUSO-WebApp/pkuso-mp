@@ -15,7 +15,8 @@ import './index.scss'
 // ============================================================
 // 资料补全页状态机（微信登录后 profile 缺姓名/邮箱时路由至此）：
 //   [提交] 姓名+邮箱均必填 → 更新 profiles（RLS 仅限本人行，列白名单
-//          含 full_name/email）→ 0 行更新视为失败 → 成功重新走入口路由
+//          含 full_name/email）→ 0 行更新视为失败 → 同步 auth 邮箱
+//          （updateUser 发确认邮件，与换绑邮箱同流程）→ 重新走入口路由
 //          （正常进「等待管理员审核」守卫页）
 //   [取消] 登出回登录页（下次微信登录仍会回到本页）
 // 双重 guard 防重复提交（ref 同步阻断 + state 异步兜底）。
@@ -23,6 +24,15 @@ import './index.scss'
 
 /** 姓名最大长度（与 Web 端注册一致） */
 const MAX_NAME_LENGTH = 30
+
+/** auth.updateUser 换邮箱错误归一化（主要场景：邮箱已被其他账号注册） */
+const mapAuthEmailError = (err: { message?: string; code?: string } | null): string => {
+  const text = `${err?.code ?? ''} ${err?.message ?? ''}`.toLowerCase()
+  if (text.includes('already been registered') || text.includes('email_exists')) {
+    return '该邮箱已被注册，请更换邮箱'
+  }
+  return '保存失败，请重试'
+}
 
 export default function SetupPage() {
   const { user, ready } = useUser()
@@ -83,6 +93,17 @@ export default function SetupPage() {
       if (error || !data || data.length === 0) {
         setErrorMsg('保存失败，请重试')
         return
+      }
+      // 同步 auth 邮箱（与换绑邮箱同流程：发确认邮件，确认后 auth 才生效）。
+      // 显示端以 profiles.email 为准，此步保证长期数据一致；
+      // 与当前 auth 邮箱相同则跳过（重试幂等）。失败不静默：邮箱已被注册等场景
+      // 给出可操作的文案，用户留在本页换邮箱重试。
+      if (trimmedEmail.toLowerCase() !== (user.email ?? '').toLowerCase()) {
+        const { error: authError } = await supabase.auth.updateUser({ email: trimmedEmail })
+        if (authError) {
+          setErrorMsg(mapAuthEmailError(authError))
+          return
+        }
       }
       void Taro.showToast({ title: '资料已提交，等待管理员审核', icon: 'none' })
       // 重新走入口路由：正常落到「等待管理员审核」守卫页
