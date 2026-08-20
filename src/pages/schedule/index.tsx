@@ -44,7 +44,7 @@ export default function Schedule() {
   }
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 flex-col px-4 pb-safe`}>
+    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       {/* 头部 */}
       <View className='mt-1 mb-3'>
         <Text className='text-lg font-semibold text-text'>日程预约</Text>

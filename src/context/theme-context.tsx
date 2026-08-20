@@ -34,6 +34,26 @@ const NAV_BAR_COLORS: Record<ThemeMode, { frontColor: string; backgroundColor: s
   dark: { frontColor: '#ffffff', backgroundColor: '#09090b' },
 }
 
+/** 页面窗口（page 元素）与 tabBar 配色：页面根 View 只覆盖内容区，
+    滚动阻尼/下拉露出的窗口底色与原生 tabBar 需随模式同步，
+    否则暗色模式下背景仍是白色（app.config 的 backgroundColor 是静态的） */
+const WINDOW_COLORS: Record<
+  ThemeMode,
+  {
+    backgroundColor: string
+    tabBar: { backgroundColor: string; color: string; selectedColor: string }
+  }
+> = {
+  light: {
+    backgroundColor: '#f4f4f5',
+    tabBar: { backgroundColor: '#ffffff', color: '#71717a', selectedColor: '#18181b' },
+  },
+  dark: {
+    backgroundColor: '#09090b',
+    tabBar: { backgroundColor: '#09090b', color: '#a1a1aa', selectedColor: '#f4f4f5' },
+  },
+}
+
 /**
  * 全局主题 Provider：全站共享一份主题状态与系统外观监听（Web Issue #203 语义）。
  * 默认（无存储 = 跟随系统）；系统外观变化实时跟随（Taro.onThemeChange）。
@@ -58,11 +78,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // 导航栏配色跟随实际模式
+  // 导航栏/窗口底色/tabBar 配色跟随实际模式
   useEffect(() => {
     const colors = NAV_BAR_COLORS[mode]
+    const windowColors = WINDOW_COLORS[mode]
+    // 非 tab 页调 setTabBarStyle 会 reject，统一 catch 静默（非页面环境如测试同样跳过）
+    const noop = () => {}
     try {
-      void Taro.setNavigationBarColor(colors)
+      void Taro.setNavigationBarColor(colors).catch(noop)
+      // page 元素背景（窗口底色）：页面根 View 盖不到滚动阻尼露出的区域
+      void Taro.setBackgroundColor({ backgroundColor: windowColors.backgroundColor }).catch(noop)
+      // 原生 tabBar 静态配置不会随主题切换，需运行时同步
+      void Taro.setTabBarStyle({
+        backgroundColor: windowColors.tabBar.backgroundColor,
+        color: windowColors.tabBar.color,
+        selectedColor: windowColors.tabBar.selectedColor,
+        borderStyle: 'black',
+      }).catch(noop)
     } catch {
       // 非页面环境（如测试）静默跳过
     }

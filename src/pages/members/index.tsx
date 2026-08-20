@@ -49,7 +49,7 @@ export default function Members() {
 
   return (
     /* 根容器 flex 化（矮屏布局）：头部固定，搜索框 + 列表整体独立滚动 */
-    <View className={`${darkClass} flex h-full min-h-0 flex-col px-4 pb-safe`}>
+    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       <View className='mt-1 mb-3'>
         <Text className='text-lg font-semibold text-text'>全团成员</Text>
         <Text className='mt-1 block text-xs text-text-muted'>查看乐团最新花名册</Text>

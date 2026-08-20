@@ -304,7 +304,9 @@ export default function Profile() {
 
   return (
     /* 本页豁免：整页滚动（page 根节点自身为滚动容器，tab bar 固定），与 Web 端 profile 页一致 */
-    <View className={`${darkClass} h-full overflow-y-auto overscroll-contain px-4 pb-safe`}>
+    <View
+      className={`${darkClass} h-full overflow-y-auto overscroll-contain bg-page-bg px-4 pb-safe`}
+    >
       <View className='space-y-6 pt-4'>
         {/* 头像卡 */}
         <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
