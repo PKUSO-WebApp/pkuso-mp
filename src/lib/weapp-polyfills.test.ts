@@ -67,4 +67,46 @@ describe('weapp-polyfills', () => {
     const g = globalThis as unknown as Record<string, unknown>
     expect(g.Headers).toBeUndefined()
   })
+
+  it('patchUrlProtocolSetterForWs 把 ws/wss 协议降级为 http/https 存储', async () => {
+    const { patchUrlProtocolSetterForWs } = await import('@/lib/weapp-polyfills')
+    // 仿 TaroURL：构造器仅接受 http/https，protocol 为 accessor
+    class FakeTaroURL {
+      private protocolValue = ''
+      constructor(url: string, base?: string) {
+        const VALID = /^(https?:)\/\//i
+        if (base === undefined && !VALID.test(url)) {
+          throw new TypeError("Failed to construct 'URL': Invalid URL")
+        }
+        this.protocolValue = /^(https?:|wss?:)/i.exec(url)?.[1].toLowerCase() + ':' ?? ''
+      }
+      get protocol() {
+        return this.protocolValue
+      }
+      set protocol(v: string) {
+        this.protocolValue = v
+      }
+      get href() {
+        return `${this.protocolValue}//host/`
+      }
+    }
+    patchUrlProtocolSetterForWs(FakeTaroURL)
+    const u = new FakeTaroURL('https://x.co/realtime/v1')
+    u.protocol = 'wss:'
+    expect(u.protocol).toBe('https:')
+    expect(u.href).toBe('https://host/')
+    u.protocol = 'ws:'
+    expect(u.protocol).toBe('http:')
+    u.protocol = 'https:'
+    expect(u.protocol).toBe('https:')
+  })
+
+  it('patchUrlProtocolSetterForWs 对无 protocol accessor 的类为无操作', async () => {
+    const { patchUrlProtocolSetterForWs } = await import('@/lib/weapp-polyfills')
+    class PlainClass {
+      field = ''
+    }
+    // 不抛错即为通过
+    patchUrlProtocolSetterForWs(PlainClass)
+  })
 })

@@ -200,9 +200,62 @@ export class URLSearchParamsPolyfill {
 const hasNativeHeaders = typeof Headers !== 'undefined'
 const hasNativeURLSearchParams = typeof URLSearchParams !== 'undefined'
 
+/**
+ * 给「仅支持 http/https 的 URL 实现」打 ws 协议补丁。
+ *
+ * 背景：Taro 运行时注入的 URL 实现（TaroURL）构造器只接受 http/https 绝对 URL
+ * （`VALID_URL = /^(https?:)\/\//`），而 supabase-js 会把 realtime 端点协议置为
+ * wss（`realtimeUrl.protocol = protocol.replace("http", "ws")`），realtime-js 再
+ * 对它 `new URL(wss://...)`——启动即抛 `Failed to construct 'URL': Invalid URL`。
+ * 小程序端不建立 realtime 连接，只需 URL 构造与 href 读取不抛错：
+ * 拦截 protocol setter，把 ws:/wss: 降级为 http:/https: 存储（href 随之保持 http(s)）。
+ *
+ * 自守卫：探测 `new URL('wss://…')` 成功（Node/浏览器原生实现）时不打补丁。
+ */
+export function patchUrlProtocolSetterForWs(UrlClass: unknown): void {
+  const proto = (UrlClass as { prototype?: Record<string, unknown> }).prototype
+  if (!proto) return
+  const descriptor = Object.getOwnPropertyDescriptor(proto, 'protocol') as
+    PropertyDescriptor | undefined
+  if (!descriptor || typeof descriptor.set !== 'function' || typeof descriptor.get !== 'function') {
+    return
+  }
+  const originalSet = descriptor.set as (value: string) => void
+  Object.defineProperty(proto, 'protocol', {
+    get: descriptor.get,
+    set(value: string) {
+      const p = String(value).trim().toLowerCase()
+      if (p === 'wss:' || p === 'ws:') {
+        originalSet.call(this, p === 'wss:' ? 'https:' : 'http:')
+        return
+      }
+      originalSet.call(this, value)
+    },
+    enumerable: descriptor.enumerable,
+    configurable: descriptor.configurable,
+  })
+}
+
+/** 探测当前 URL 实现是否支持 ws/wss 构造；不支持时打 protocol setter 补丁 */
+function ensureUrlSupportsWs(): void {
+  try {
+    void new URL('wss://probe.invalid')
+    return // 构造成功：原生实现（Node/浏览器），无需补丁
+  } catch {
+    // 不支持 wss：继续打补丁
+  }
+  try {
+    const probe = new URL('https://probe.invalid')
+    patchUrlProtocolSetterForWs(probe.constructor)
+  } catch {
+    // URL 全局缺失且无法构造：留待调用方报错
+  }
+}
+
 if (process.env.TARO_ENV === 'weapp') {
   const g = globalThis as unknown as Record<string, unknown>
   // 显式挂到 globalThis：supabase-js 以裸标识符解析 Headers，走作用域链到全局
   if (!hasNativeHeaders) g.Headers = HeadersPolyfill
   if (!hasNativeURLSearchParams) g.URLSearchParams = URLSearchParamsPolyfill
+  ensureUrlSupportsWs()
 }
