@@ -149,6 +149,19 @@ function isArrayBuffer(body: ArrayBuffer | Blob): body is ArrayBuffer {
   return typeof ArrayBuffer !== 'undefined' && body instanceof ArrayBuffer
 }
 
+/**
+ * 占位 WebSocket transport：小程序 JSCore 无全局 WebSocket，realtime-js 在
+ * createClient 时会立即检测并抛「Unknown JavaScript runtime without WebSocket
+ * support」（app 启动即崩）。member 端不使用 realtime（全部挂载查询 + 手动重取），
+ * 传入本占位类跳过检测；若未来接入 realtime，需改为基于 wx.connectSocket 的适配实现。
+ * 占位类被实例化（即有人真的去 connect）时抛错——fail-loud，而非静默无反应。
+ */
+class UnsupportedWebSocketTransport {
+  constructor() {
+    throw new Error('小程序端未接入 Realtime（wx.connectSocket 适配未实现），请改用轮询或手动刷新')
+  }
+}
+
 export const supabase: SupabaseClient<Database> = createClient<Database>(
   supabaseUrl,
   supabaseAnonKey,
@@ -160,5 +173,14 @@ export const supabase: SupabaseClient<Database> = createClient<Database>(
     global: {
       fetch: process.env.TARO_ENV === 'weapp' ? taroFetch : fetch,
     },
+    // 仅 weapp 端注入（h5 构建期常量折叠为 undefined，走浏览器原生 WebSocket）
+    realtime:
+      process.env.TARO_ENV === 'weapp'
+        ? {
+            // realtime-js 期望 WebSocketLikeConstructor；占位类仅在 connect 时实例化并抛错，
+            // 用宽松构造器签名满足类型（realtime-js 为传递依赖，无法 type-only 导入其类型）
+            transport: UnsupportedWebSocketTransport as unknown as new (...args: any[]) => any,
+          }
+        : undefined,
   }
 )

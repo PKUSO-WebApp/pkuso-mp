@@ -33,17 +33,20 @@ describe('supabase 官方客户端适配', () => {
       expect.objectContaining({
         auth: expect.objectContaining({ detectSessionInUrl: false, storage: expect.any(Object) }),
         global: expect.objectContaining({ fetch: expect.any(Function) }),
+        // 小程序无全局 WebSocket：注入占位 transport 跳过 realtime-js 的运行时检测
+        realtime: expect.objectContaining({ transport: expect.any(Function) }),
       })
     )
   })
 
-  it('H5 端仍使用官方 fetch', async () => {
+  it('H5 端仍使用官方 fetch，且不注入占位 transport（走原生 WebSocket）', async () => {
     vi.stubEnv('TARO_ENV', 'h5')
     vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
     vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
     vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
     await import('@/lib/supabase')
     expect(webCreate.mock.calls[0][2].global.fetch).toBe(fetch)
+    expect(webCreate.mock.calls[0][2].realtime).toBeUndefined()
   })
 
   it('Taro response 与多种请求体可转换，错误会透传', async () => {
