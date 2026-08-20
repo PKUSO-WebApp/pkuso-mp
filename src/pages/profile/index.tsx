@@ -1,15 +1,18 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useAuth } from '@/hooks/useAuth'
+import { useNotifications } from '@/hooks/useNotifications'
 import { supabase } from '@/lib/supabase'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
 import { isValidPhoneNumber } from '@/lib/validation'
+import type { NotificationCategory } from '@/types/database'
 import { AttendanceHistoryModal } from './components/attendance-history-modal'
+import { NotificationInboxModal } from './components/notification-inbox-modal'
 import './index.scss'
 
 // 隐私开关选项：各字段行尾的「公开 / 隐藏」分段开关，随表单一起保存
@@ -17,14 +20,23 @@ const PRIVACY_OPTIONS = ['public', 'hidden'] as const
 const privacyLabel = (v: (typeof PRIVACY_OPTIONS)[number]) => (v === 'hidden' ? '隐藏' : '公开')
 const privacyValue = (hide: boolean) => (hide ? 'hidden' : 'public')
 
+// 通知栏目：信箱按钮 → 通知分类映射（Issue #188 语义）
+const notificationItems: { label: string; category: NotificationCategory }[] = [
+  { label: '考勤与请假', category: 'attendance' },
+  { label: '活动', category: 'activity' },
+  { label: '系统', category: 'system' },
+]
+
 /** 是否为标准 YYYY-MM-DD 日期格式（Picker 可表示的格式；历史数据可能为「2024秋」等学期格式） */
 const isStandardDateString = (v: string | null | undefined): boolean =>
   typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
 
 /**
- * 我的页（demo 范围）：
- * - 头像卡（姓名/声部/邮箱）+ 设置列表（个人信息 / 账号与密码 / 退出登录）
- * - 通知信箱、考勤查看、问题与反馈、外观、已发布的活动暂缓（后续任务补）
+ * 我的页：
+ * - 头像卡（姓名/声部/邮箱）
+ * - 通知信箱：三分类未读徽章 + 信箱列表（打开即标已读）
+ * - 设置列表：个人信息编辑 / 账号与密码（改密）/ 考勤查看 / 退出登录
+ * - 问题与反馈、外观、已发布的活动、换绑邮箱暂缓（后续任务补）
  * - 管理端登录显示阻断页（规划 §1：admin 留在 Web）
  */
 export default function Profile() {
@@ -66,6 +78,21 @@ export default function Profile() {
 
   // ---- 考勤查看（打开时才条件挂载查询组件，见下方渲染）----
   const [isAttendanceOpen, setIsAttendanceOpen] = useState(false)
+
+  // ---- 通知信箱 ----
+  // 未读数与标记已读收敛在 useNotifications；挂载时拉取一次未读数，
+  // 打开信箱后由 markCategoryRead 归零该分类计数（与 DB 同源）
+  const {
+    unreadCounts,
+    refresh: refreshNotifications,
+    fetchByCategory,
+    markCategoryRead,
+  } = useNotifications()
+  const [inbox, setInbox] = useState<{ label: string; category: NotificationCategory } | null>(null)
+
+  useEffect(() => {
+    void refreshNotifications()
+  }, [refreshNotifications])
 
   // 打开弹窗时用最新 profile 预填
   const handleOpenEditModal = () => {
@@ -191,6 +218,34 @@ export default function Profile() {
             <Text className='block text-lg font-semibold text-text'>{fullName}</Text>
             <Text className='block text-sm text-text-muted'>声部 {instrument}</Text>
             <Text className='block text-xs text-text-muted'>邮箱 {email}</Text>
+          </View>
+        </View>
+
+        {/* 通知栏目：三个信箱按钮，右侧未读数字徽章（>0 时显示） */}
+        <View>
+          <Text className='text-xs font-medium text-text-muted'>通知</Text>
+          <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
+            {notificationItems.map(({ label, category }) => {
+              const count = unreadCounts[category]
+              return (
+                <View
+                  key={category}
+                  className={`px-4 py-3 ${category !== 'system' ? 'border-b border-border' : ''}`}
+                  onClick={() => setInbox({ label, category })}
+                >
+                  <View className='flex items-center'>
+                    <Text className='text-sm font-medium text-text'>{label}</Text>
+                    {count > 0 && (
+                      <View className='ml-auto rounded-full bg-danger px-1.5 py-0.5'>
+                        <Text className='text-xs font-medium leading-none text-danger-foreground'>
+                          {count}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              )
+            })}
           </View>
         </View>
 
@@ -409,6 +464,17 @@ export default function Profile() {
       {/* 考勤查看 Modal：条件渲染挂载——打开时才挂载并查询，关闭即卸载清态 */}
       {isAttendanceOpen && user && (
         <AttendanceHistoryModal userId={user.id} onClose={() => setIsAttendanceOpen(false)} />
+      )}
+
+      {/* 通知信箱 Modal：条件渲染挂载——打开时才拉取列表并标已读，关闭即卸载清态 */}
+      {inbox && (
+        <NotificationInboxModal
+          category={inbox.category}
+          label={inbox.label}
+          fetchMessages={fetchByCategory}
+          markCategoryRead={markCategoryRead}
+          onClose={() => setInbox(null)}
+        />
       )}
     </View>
   )
