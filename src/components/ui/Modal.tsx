@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+import Taro from '@tarojs/taro'
 import { Button, View } from '@tarojs/components'
 import type { ReactNode } from 'react'
 
@@ -23,10 +25,23 @@ export function Modal({
   position = 'bottom',
   closeOnOverlay = true,
 }: ModalProps) {
-  if (!open) return null
-
   const align = position === 'center' ? 'items-center' : 'items-end'
   const radius = position === 'center' ? 'rounded-2xl' : 'rounded-t-3xl'
+  const isBottomSheet = position === 'bottom'
+
+  // 小程序 tabBar 为原生组件，webview 底边止于 tabBar 顶边；底部弹窗需隐藏原生
+  // tabBar，遮罩才能铺满到设备屏幕底边（关闭/卸载时还原）。仅 weapp 端生效，
+  // H5 / 非 tabBar 页为 no-op。
+  useEffect(() => {
+    if (!open || !isBottomSheet) return
+    if (process.env.TARO_ENV !== 'weapp') return
+    Taro.hideTabBar({ animation: false }).catch(() => {})
+    return () => {
+      Taro.showTabBar({ animation: false }).catch(() => {})
+    }
+  }, [open, isBottomSheet])
+
+  if (!open) return null
 
   return (
     // 遮罩层：fixed 全屏 + 点击关闭（Taro 无 React portal，用条件渲染挂载）。
@@ -37,7 +52,7 @@ export function Modal({
       ariaRole='dialog'
       aria-modal='true'
       catchMove
-      className={`fixed left-0 right-0 top-0 bottom-0 z-[60] flex ${align} justify-center bg-overlay px-4 pb-safe`}
+      className={`fixed left-0 right-0 top-0 bottom-0 z-[60] flex ${align} justify-center bg-overlay px-4 pb-[env(safe-area-inset-bottom)]`}
       onClick={closeOnOverlay ? onClose : undefined}
     >
       <View
