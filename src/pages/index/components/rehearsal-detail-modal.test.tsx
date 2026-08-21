@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
 import React from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
 import type { RehearsalRow } from '@/types/database'
-import { getAttendanceDisplay } from './rehearsal-detail-modal'
+import { getAttendanceDisplay, RehearsalDetailModal } from './rehearsal-detail-modal'
 
 vi.mock('@tarojs/components', () => {
   const create = (tag: string) => (props: any) => {
@@ -11,6 +12,14 @@ vi.mock('@tarojs/components', () => {
     return React.createElement(tag, rest)
   }
   return { View: create('div'), Text: create('span'), Button: create('button') }
+})
+
+vi.mock('@/components/ui/Modal', () => ({
+  Modal: ({ open, children }: any) => (open ? React.createElement('div', null, children) : null),
+}))
+
+afterEach(() => {
+  cleanup()
 })
 
 // 用固定「很久以前」的排练构造已结束场景（getSignBlockReason 取运行时刻）
@@ -80,5 +89,23 @@ describe('getAttendanceDisplay 出勤状态五行映射', () => {
     const r = getAttendanceDisplay(upcomingRehearsal, null, false)
     expect(r.label).toBe('未签到')
     expect(r.className).toBe('')
+  })
+})
+
+describe('请假入口文案（Issue #175）', () => {
+  it('已结束排练显示「我要补请假 ＞」', () => {
+    render(
+      <RehearsalDetailModal item={endedRehearsal} onClose={() => {}} onRequestLeave={() => {}} />
+    )
+    expect(screen.getByText('我要补请假 ＞')).toBeTruthy()
+    expect(screen.queryByText('我要请假 ＞')).toBeNull()
+  })
+
+  it('未结束排练显示「我要请假 ＞」', () => {
+    render(
+      <RehearsalDetailModal item={upcomingRehearsal} onClose={() => {}} onRequestLeave={() => {}} />
+    )
+    expect(screen.getByText('我要请假 ＞')).toBeTruthy()
+    expect(screen.queryByText('我要补请假 ＞')).toBeNull()
   })
 })

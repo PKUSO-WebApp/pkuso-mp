@@ -48,74 +48,80 @@ export default function LoginPage() {
   }
 
   return (
-    <View
-      className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}
-    >
-      <Card className='w-full px-5 py-6'>
-        <View className='mb-4 text-center'>
-          <Text className='text-xl font-semibold text-text'>登录</Text>
-          <Text className='mt-1 block text-xs text-text-muted'>登录后进入乐团系统</Text>
+  <View
+    className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}
+  >
+    <Card className='w-full px-5 py-6'>
+      <View className='mb-4 text-center'>
+        <Text className='text-xl font-semibold text-text'>登录</Text>
+        <Text className='mt-1 block text-xs text-text-muted'>登录后进入乐团系统</Text>
+      </View>
+
+      {/* 微信登录 */}
+      <Button
+        hoverClass='none'
+        className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
+        disabled={wechatSubmitting}
+        onClick={() => void loginWithWechat()}
+      >
+        {wechatSubmitting ? '登录中…' : '微信登录'}
+      </Button>
+
+      {/* 分隔线 */}
+      <View className='my-4 flex items-center gap-2'>
+        <View className='h-px flex-1 bg-border' />
+        <Text className='text-xs text-text-muted'>或使用邮箱登录</Text>
+        <View className='h-px flex-1 bg-border' />
+      </View>
+
+      {restoreFailed ? (
+        <View className='mb-3 rounded-xl bg-warning-bg px-3 py-2 text-center text-sm text-warning'>
+          网络异常，请重试
         </View>
+      ) : null}
 
-        {/* 微信登录（桥接 Edge Function wechat-auth）：新用户自动注册，等待管理员审核 */}
-        <Button
-          hoverClass='none'
-          className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
-          disabled={wechatSubmitting}
-          onClick={() => void loginWithWechat()}
-        >
-          {wechatSubmitting ? '登录中…' : '微信登录'}
-        </Button>
-
-        {/* 分隔线 */}
-        <View className='my-4 flex items-center gap-2'>
-          <View className='h-px flex-1 bg-border' />
-          <Text className='text-xs text-text-muted'>或使用邮箱登录</Text>
-          <View className='h-px flex-1 bg-border' />
-        </View>
-
-        {restoreFailed ? (
-          <View className='mb-3 rounded-xl bg-warning-bg px-3 py-2 text-center text-sm text-warning'>
-            网络异常，请重试
-          </View>
-        ) : null}
-
-        <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>邮箱</Text>
+      {/* ✅ 邮箱 - 修复溢出 */}
+      <View className='mb-3'>
+        <Text className='text-sm font-medium text-text-muted'>邮箱</Text>
+        <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
           <Input
-            className='mt-1 h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
+            className='h-10 w-full bg-transparent px-3 text-sm text-text'
             placeholder='name@example.com'
             value={email}
             onInput={(e) => setEmail(e.detail.value)}
           />
         </View>
+      </View>
 
-        <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>密码</Text>
+      {/* ✅ 密码 - 修复溢出 */}
+      <View className='mb-3'>
+        <Text className='text-sm font-medium text-text-muted'>密码</Text>
+        <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
           <Input
-            className='mt-1 h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
+            className='h-10 w-full bg-transparent px-3 text-sm text-text'
             placeholder='请输入密码'
             password
             value={password}
             onInput={(e) => setPassword(e.detail.value)}
           />
         </View>
+      </View>
 
-        {errorMsg ? (
-          <View className='mb-3 rounded-xl bg-danger-bg px-3 py-2 text-center text-sm text-danger'>
-            {errorMsg}
-          </View>
-        ) : null}
+      {errorMsg ? (
+        <View className='mb-3 rounded-xl bg-danger-bg px-3 py-2 text-center text-sm text-danger'>
+          {errorMsg}
+        </View>
+      ) : null}
 
-        <Button
-          hoverClass='none'
-          className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
-          disabled={submitting}
-          onClick={() => void handleSubmit()}
-        >
-          {submitting ? '登录中…' : '登录'}
-        </Button>
-      </Card>
-    </View>
+      <Button
+        hoverClass='none'
+        className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
+        disabled={submitting}
+        onClick={() => void handleSubmit()}
+      >
+        {submitting ? '登录中…' : '登录'}
+      </Button>
+    </Card>
+  </View>
   )
 }

@@ -10,12 +10,19 @@ import { useThemeClass } from '@/context/theme-context'
 import { Toggle } from '@/components/ui/Toggle'
 import { Card } from '@/components/ui/Card'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
+import { useTabBarBadgeSync } from '@/components/badge-sync-context'
 import { isRehearsalWithinNextWeek } from '@/lib/rehearsal-utils'
-import { isRehearsalUpdated, isRehearsalEnded, sortRehearsalsForMember } from '@/lib/rehearsal-sort'
+import {
+  isRehearsalUpdated,
+  isRehearsalEnded,
+  sortRehearsalsForMember,
+  sortEndedFullRehearsals,
+} from '@/lib/rehearsal-sort'
 import type { RehearsalRow } from '@/types/database'
 import { RehearsalCard } from './components/rehearsal-card'
 import { CodeVerifyModal } from './components/code-verify-modal'
 import { RehearsalDetailModal } from './components/rehearsal-detail-modal'
+import { LeaveRequestModal } from './components/leave-request-modal'
 import './index.scss'
 
 // 签到失败错误归一化中文文案（合排签到码弹窗与分排直签共用）
@@ -40,12 +47,13 @@ export default function Index() {
   } = useAttendance()
   const { profile: myProfile } = useMyProfile()
   const darkClass = useThemeClass()
+  useTabBarBadgeSync()
   // 签到覆盖请假：签到成功后撤销该排练 pending/approved 申请（best-effort，失败不阻断签到）
   const { cancelOnSignIn } = useLeaveRequests()
 
   const profileName = myProfile?.full_name ?? null
 
-  const [scheduleTab, setScheduleTab] = useState<'full' | 'section'>('full')
+  const [scheduleTab, setScheduleTab] = useState<'full' | 'section' | 'history'>('full')
   const [nowTick, setNowTick] = useState(() => Date.now())
 
   // 欢迎语：显示 5 秒后淡出
@@ -78,6 +86,8 @@ export default function Index() {
   const signingInRef = useRef(false)
   // 详情弹窗当前展示的排练（整卡点击打开，只读）
   const [detailRehearsal, setDetailRehearsal] = useState<RehearsalRow | null>(null)
+  // 请假面板当前绑定的排练（详情弹窗「我要请假 ＞」打开，叠加在详情之上）
+  const [leaveRehearsal, setLeaveRehearsal] = useState<RehearsalRow | null>(null)
 
   // 加载我的考勤
   useEffect(() => {
@@ -90,6 +100,10 @@ export default function Index() {
   const list = useMemo(() => {
     if (!rehearsals) return []
     const now = new Date(nowTick)
+    // 历史合排（Issue #154）：全部已结束的合排，不限一周窗口
+    if (scheduleTab === 'history') {
+      return sortEndedFullRehearsals(rehearsals, now)
+    }
     const filtered = rehearsals.filter(
       (r) => r.type === scheduleTab && isRehearsalWithinNextWeek(r.start_time, now)
     )
@@ -206,17 +220,25 @@ export default function Index() {
       <View className='mb-3'>
         <View className='flex items-center justify-between'>
           <View>
-            <Text className='text-lg font-semibold text-text'>本周排练日程</Text>
-            <Text className='mt-1 block text-xs text-text-muted'>查看乐团合排与分排安排</Text>
+            <Text className='text-lg font-semibold text-text'>
+              {scheduleTab === 'history' ? '历史合排' : '本周排练日程'}
+            </Text>
+            <Text className='mt-1 block text-xs text-text-muted'>
+              {scheduleTab === 'history' ? '查看已结束的合排排练' : '查看乐团合排与分排安排'}
+            </Text>
           </View>
         </View>
         <View className='mt-2'>
           <Toggle
-            options={['full', 'section']}
+            options={['full', 'section', 'history']}
             value={scheduleTab}
-            onChange={(v) => setScheduleTab(v as 'full' | 'section')}
+            onChange={(v) => setScheduleTab(v as 'full' | 'section' | 'history')}
             getLabel={(k) => {
-              const labels: Record<string, string> = { full: '合排', section: '分排' }
+              const labels: Record<string, string> = {
+                full: '合排',
+                section: '分排',
+                history: '历史合排',
+              }
               return labels[k] ?? k
             }}
           />
@@ -265,12 +287,28 @@ export default function Index() {
         onClose={handleCodeClose}
       />
 
-      {/* 排练详情弹窗（只读：出勤状态 + 排练信息） */}
+      {/* 排练详情弹窗（只读：出勤状态 + 排练信息 + 请假入口） */}
       <RehearsalDetailModal
         item={detailRehearsal}
         attendance={detailRehearsal ? (attendanceMap[detailRehearsal.id] ?? null) : null}
         attendanceLoading={attendanceLoading}
+        onRequestLeave={detailRehearsal ? () => setLeaveRehearsal(detailRehearsal) : undefined}
         onClose={() => setDetailRehearsal(null)}
+      />
+
+      {/* 请假/补请假面板（叠加在详情弹窗之上） */}
+      <LeaveRequestModal
+        open={!!leaveRehearsal}
+        rehearsal={leaveRehearsal}
+        onClose={() => setLeaveRehearsal(null)}
+        onSaved={() => {
+          if (user?.id && rehearsals) {
+            void fetchMyAttendances(
+              user.id,
+              rehearsals.map((r) => r.id)
+            )
+          }
+        }}
       />
     </View>
   )

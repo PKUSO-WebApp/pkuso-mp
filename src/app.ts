@@ -1,19 +1,44 @@
 import { createElement, PropsWithChildren } from 'react'
-import { useLaunch } from '@tarojs/taro'
+import Taro, { useLaunch } from '@tarojs/taro'
 import { UserProvider } from './context/user-context'
 import { ThemeProvider } from './context/theme-context'
+import { NotificationBadgeSync } from './components/notification-badge-sync'
+import { ErrorBoundary } from './components/error-boundary'
 
 import './app.css'
 import './app.scss'
 
+const IGNORE_ERRORS = [/not TabBar page/i]
+
 function App({ children }: PropsWithChildren<any>) {
   useLaunch(() => {
-    console.log('App launched.')
+    const report = (err: unknown) => {
+      const e = err as { message?: string; stack?: string }
+      const message = typeof err === 'string' ? err : (e?.message ?? '未知错误')
+      if (IGNORE_ERRORS.some((re) => re.test(message))) return
+      const pages = Taro.getCurrentPages?.() ?? []
+      const cur = pages[pages.length - 1]?.route ?? ''
+      if (cur.endsWith('/error/index')) return
+      const stack = typeof err === 'string' ? '' : (e?.stack ?? '')
+      const url = `/pages/error/index?msg=${encodeURIComponent(message)}&stack=${encodeURIComponent(stack)}`
+      Taro.redirectTo({ url }).catch(() => {})
+    }
+    Taro.onError(report)
+    Taro.onUnhandledRejection((res) => report(res?.reason ?? res))
   })
 
   // children 是将要会渲染的页面；Provider 在冷启动恢复会话/主题并供各页面使用。
   // 注：app.ts 是 .ts 文件不能写 JSX，此处用 createElement 包 Provider
-  return createElement(UserProvider, null, createElement(ThemeProvider, null, children))
+  // ErrorBoundary 在最外层捕获渲染错误；NotificationBadgeSync 挂载于 App 根维护「我的」tab 红点
+  return createElement(
+    ErrorBoundary,
+    null,
+    createElement(
+      UserProvider,
+      null,
+      createElement(ThemeProvider, null, createElement(NotificationBadgeSync, null, children))
+    )
+  )
 }
 
 export default App

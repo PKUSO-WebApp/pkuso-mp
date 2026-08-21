@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { View, Text } from '@tarojs/components'
+import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { Modal } from '@/components/ui/Modal'
 import { parseLocalISO, formatTime } from '@/lib/date-utils'
@@ -8,6 +9,10 @@ import type { ScheduleRow } from '@/types/database'
 type Props = {
   schedules: ScheduleRow[]
   selectedDate: string
+  /** 当前用户（用于判定是否为预约创建者，仅创建者可删除） */
+  user?: { id: string | undefined } | null
+  /** 删除预约（仅创建者本人可删除自己添加的预约） */
+  remove: (id: number, date?: string) => Promise<boolean>
 }
 
 // 7 个预约色 token（按 id 哈希分配）。
@@ -38,12 +43,36 @@ export function parseTimeToHours(timeStr: string | null): number {
 /** 只读甘特图：24 小时时间轴 + 预约块（demo 阶段只读，无添加/删除）。
  *  点击预约块打开详情弹窗；预约人姓名经 profiles_roster 查询，
  *  竞态守卫用 ref 记录当前选中 id（快速连点时丢弃过期响应）。 */
-export function ScheduleGantt({ schedules, selectedDate }: Props) {
+export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) {
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleRow | null>(null)
   const [authorName, setAuthorName] = useState<string | null>(null)
   const [loadingAuthor, setLoadingAuthor] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   // 追踪当前查询的 schedule id，用于竞态条件判断
   const queryingScheduleId = useRef<number | null>(null)
+
+  // 当前用户是否为该预约的创建者（仅创建者可删除，Issue #142 移植）
+  const isAuthor = selectedSchedule?.author_id === user?.id
+
+  // 删除预约：先确认，再调用 remove，成功后关闭弹窗；失败保留弹窗并提示
+  const handleDelete = async () => {
+    if (!selectedSchedule) return
+    const res = await Taro.showModal({
+      title: '删除预约',
+      content: `确定要删除预约「${selectedSchedule.title || '未命名预约'}」吗？`,
+    })
+    if (!res.confirm) return
+    setDeleting(true)
+    setDeleteError(null)
+    const success = await remove(selectedSchedule.id, selectedDate)
+    setDeleting(false)
+    if (success) {
+      handleCloseModal()
+    } else {
+      setDeleteError('删除失败，请稍后重试')
+    }
+  }
 
   // 计算每个预约的位置和高度（百分比定位，容器高度 480px 对应 24 小时）
   const scheduleItems = schedules.map((schedule) => {
@@ -189,6 +218,22 @@ export function ScheduleGantt({ schedules, selectedDate }: Props) {
                 {loadingAuthor ? '加载中…' : authorName || '未知'}
               </Text>
             </View>
+            {/* 仅创建者可删除自己添加的预约（Issue #142 移植） */}
+            {isAuthor && (
+              <View className='mt-2 border-t border-border pt-2'>
+                <View
+                  className={`rounded-lg border border-danger py-2 text-center text-sm font-medium text-danger ${
+                    deleting ? 'opacity-50' : ''
+                  }`}
+                  onClick={deleting ? undefined : () => void handleDelete()}
+                >
+                  {deleting ? '删除中…' : '删除预约'}
+                </View>
+                {deleteError && (
+                  <Text className='mt-2 block text-center text-sm text-danger'>{deleteError}</Text>
+                )}
+              </View>
+            )}
           </View>
         )}
       </Modal>

@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it, vi } from 'vitest'
-import { getScheduleColorClass, parseTimeToHours } from './schedule-gantt'
+import React from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { getScheduleColorClass, parseTimeToHours, ScheduleGantt } from './schedule-gantt'
+
+const { taroMock } = vi.hoisted(() => ({
+  taroMock: { showModal: vi.fn(() => Promise.resolve({ confirm: true })) },
+}))
 
 vi.mock('@tarojs/components', () => {
-  const React = require('react')
   const create = (tag: string) => (props: any) => {
     const { hoverClass, catchMove, ...rest } = props
     return React.createElement(tag, rest)
@@ -12,9 +17,36 @@ vi.mock('@tarojs/components', () => {
   return { View: create('div'), Text: create('span') }
 })
 
-vi.mock('@/lib/supabase', () => ({
-  supabase: {},
+vi.mock('@tarojs/taro', () => ({ default: taroMock }))
+
+vi.mock('@/components/ui/Modal', () => ({
+  Modal: ({ open, children }: any) => (open ? React.createElement('div', null, children) : null),
 }))
+
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => Promise.resolve({ data: { full_name: '张三' }, error: null }),
+        }),
+      }),
+    }),
+  },
+}))
+
+afterEach(() => {
+  cleanup()
+})
+
+const makeSchedule = (overrides: any = {}) => ({
+  id: 1,
+  title: '我的预约',
+  start_time: '2026-01-01T10:00:00',
+  end_time: '2026-01-01T11:00:00',
+  author_id: 'u1',
+  ...overrides,
+})
 
 describe('schedule-gantt 纯函数', () => {
   it('getScheduleColorClass 按 id 哈希循环分配 7 色', () => {
@@ -22,7 +54,6 @@ describe('schedule-gantt 纯函数', () => {
     expect(getScheduleColorClass(1)).toBe('bg-schedule-2')
     expect(getScheduleColorClass(6)).toBe('bg-schedule-7')
     expect(getScheduleColorClass(7)).toBe('bg-schedule-1')
-    // 负数 id 不越界
     expect(getScheduleColorClass(-3)).toBe('bg-schedule-4')
   })
 
@@ -34,5 +65,56 @@ describe('schedule-gantt 纯函数', () => {
   it('parseTimeToHours 空值与无效时间返回 0', () => {
     expect(parseTimeToHours(null)).toBe(0)
     expect(parseTimeToHours('无效时间')).toBe(0)
+  })
+})
+
+describe('ScheduleGantt 删除预约', () => {
+  it('创建者可删除：点击预约块 → 显示「删除预约」→ 确认后调用 remove', async () => {
+    const remove = vi.fn(async () => true)
+    render(
+      <ScheduleGantt
+        schedules={[makeSchedule()]}
+        selectedDate='2026-01-01'
+        user={{ id: 'u1' }}
+        remove={remove}
+      />
+    )
+    fireEvent.click(screen.getByText('我的预约'))
+    expect(screen.getByText('删除预约')).toBeTruthy()
+    fireEvent.click(screen.getByText('删除预约'))
+    await waitFor(() => expect(taroMock.showModal).toHaveBeenCalled())
+    await waitFor(() => expect(remove).toHaveBeenCalledWith(1, '2026-01-01'))
+    expect(screen.queryByText('删除预约')).toBeNull()
+  })
+
+  it('非创建者不显示「删除预约」', () => {
+    const remove = vi.fn(async () => true)
+    render(
+      <ScheduleGantt
+        schedules={[makeSchedule({ author_id: 'u2' })]}
+        selectedDate='2026-01-01'
+        user={{ id: 'u1' }}
+        remove={remove}
+      />
+    )
+    fireEvent.click(screen.getByText('我的预约'))
+    expect(screen.queryByText('删除预约')).toBeNull()
+  })
+
+  it('确认弹窗取消时不调用 remove', async () => {
+    taroMock.showModal.mockResolvedValueOnce({ confirm: false })
+    const remove = vi.fn(async () => true)
+    render(
+      <ScheduleGantt
+        schedules={[makeSchedule()]}
+        selectedDate='2026-01-01'
+        user={{ id: 'u1' }}
+        remove={remove}
+      />
+    )
+    fireEvent.click(screen.getByText('我的预约'))
+    fireEvent.click(screen.getByText('删除预约'))
+    await waitFor(() => expect(taroMock.showModal).toHaveBeenCalled())
+    expect(remove).not.toHaveBeenCalled()
   })
 })

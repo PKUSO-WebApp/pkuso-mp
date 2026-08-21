@@ -11,6 +11,7 @@ export default defineAppConfig({
     'pages/schedule/index',
     'pages/members/index',
     'pages/profile/index',
+    'pages/error/index',
   ],
   window: {
     backgroundTextStyle: 'light',
@@ -25,11 +26,36 @@ export default defineAppConfig({
     backgroundColor: '#ffffff',
     borderStyle: 'black',
     list: [
-      { pagePath: 'pages/index/index', text: '首页' },
-      { pagePath: 'pages/community/index', text: '社区' },
-      { pagePath: 'pages/schedule/index', text: '日程' },
-      { pagePath: 'pages/members/index', text: '成员' },
-      { pagePath: 'pages/profile/index', text: '我的' },
+      {
+        pagePath: 'pages/index/index',
+        text: '首页',
+        iconPath: 'assets/icons/house.png',
+        selectedIconPath: 'assets/icons/house.png',
+      },
+      {
+        pagePath: 'pages/community/index',
+        text: '社区',
+        iconPath: 'assets/icons/message-square.png',
+        selectedIconPath: 'assets/icons/message-square.png',
+      },
+      {
+        pagePath: 'pages/schedule/index',
+        text: '日程',
+        iconPath: 'assets/icons/calendar.png',
+        selectedIconPath: 'assets/icons/calendar.png',
+      },
+      {
+        pagePath: 'pages/members/index',
+        text: '成员',
+        iconPath: 'assets/icons/users.png',
+        selectedIconPath: 'assets/icons/users.png',
+      },
+      {
+        pagePath: 'pages/profile/index',
+        text: '我的',
+        iconPath: 'assets/icons/user.png',
+        selectedIconPath: 'assets/icons/user.png',
+      },
     ],
   },
 })

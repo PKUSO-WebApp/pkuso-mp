@@ -33,7 +33,7 @@ export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetai
           <View className='flex flex-wrap items-center gap-2'>
             <Text className='text-base font-semibold text-text'>{user.full_name ?? '—'}</Text>
             {user.is_section_leader && (
-              <Text className='rounded-full bg-warning-bg px-2 py-0.5 text-xs text-warning'>
+              <Text className='rounded-full bg-warning-bg px-2 py-1 text-xs text-warning'>
                 🏅 声部长
               </Text>
             )}

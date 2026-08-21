@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
 import { View, Text, Input } from '@tarojs/components'
+import { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
+import { useTabBarBadgeSync } from '@/components/badge-sync-context'
 import { Card } from '@/components/ui/Card'
 import { groupProfilesByInstrument } from '@/lib/roster-utils'
 import { filterByName } from '@/lib/name-search'
@@ -20,9 +22,17 @@ export default function Members() {
     data: allProfiles,
     loading: rosterLoading,
     error: rosterError,
+    fetch,
   } = useProfiles({ status: 'approved' })
 
   const darkClass = useThemeClass()
+  useTabBarBadgeSync()
+
+  // 切回本 tab 时重新拉取花名册（Taro tab 页常驻内存不卸载，仅靠挂载时一次
+  // 拉取会导致「改完资料回来仍是旧数据」；回到本页静默刷新，旧数据仍展示不闪加载）
+  useDidShow(() => {
+    void fetch()
+  })
 
   // 拼音/首字母搜索：输入为空时显示全部
   const [searchQuery, setSearchQuery] = useState('')
@@ -56,14 +66,16 @@ export default function Members() {
       </View>
 
       <View className='flex-1 min-h-0 space-y-4 overflow-y-auto'>
-        <Input
-          className='h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
-          placeholder='搜索姓名（支持中文/拼音/首字母）'
-          value={searchQuery}
-          onInput={(e) => setSearchQuery(e.detail.value)}
-        />
+        <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+            <Input
+            className='h-10 w-full bg-transparent px-3 text-sm text-text'
+            placeholder='搜索姓名（支持中文/拼音/首字母）'
+            value={searchQuery}
+            onInput={(e) => setSearchQuery(e.detail.value)}
+          />
+        </View>
 
-        {rosterLoading ? (
+        {rosterLoading && (allProfiles ?? []).length === 0 ? (
           <Text className='block py-8 text-center text-xs text-text-subtle'>加载中…</Text>
         ) : rosterError ? (
           <Card className='border-danger-bg bg-danger-bg/80'>
@@ -95,18 +107,18 @@ export default function Members() {
                             {(u.instrument ?? '—') + ' - ' + (u.full_name ?? '—')}
                           </Text>
                           {u.is_section_leader && (
-                            <Text className='rounded-full bg-warning-bg px-1.5 py-0.5 text-xs text-warning'>
+                            <Text className='rounded-full bg-warning-bg px-1.5 py-1 text-xs text-warning'>
                               🏅 声部长
                             </Text>
                           )}
                         </View>
-                        <Text className='mt-0.5 block text-text-muted'>
+                        <Text className='mt-1 block text-text-muted'>
                           学院：{u.college?.trim() || '—'}
                         </Text>
-                        <Text className='mt-0.5 block text-text-muted'>
+                        <Text className='mt-1 block text-text-muted'>
                           邮箱：{maskedValue(!isSelf && u.hide_email, u.email)}
                         </Text>
-                        <Text className='mt-0.5 block text-text-subtle'>
+                        <Text className='mt-1 block text-text-subtle'>
                           入团时间：{maskedValue(!isSelf && u.hide_join_date, u.join_date)}
                         </Text>
                       </View>

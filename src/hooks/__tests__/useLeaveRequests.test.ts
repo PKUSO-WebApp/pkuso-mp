@@ -9,6 +9,17 @@ vi.mock('@/lib/supabase', () => ({
   supabase: {},
 }))
 
+// uploadAttachment 现需经 getFileSystemManager 读出字节后上传；mock 返回占位字节
+vi.mock('@tarojs/taro', () => ({
+  default: {
+    getFileSystemManager: () => ({
+      readFile: (opts: { success: (res: { data: ArrayBuffer }) => void }) => {
+        opts.success({ data: new ArrayBuffer(8) })
+      },
+    }),
+  },
+}))
+
 /**
  * 链式 mock 客户端：依次消费 responses（含挂载时的初始 fetch）。
  * 记录每次 update 的表名与载荷（calls），供断言状态变更；

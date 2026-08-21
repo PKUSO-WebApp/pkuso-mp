@@ -63,14 +63,16 @@ export function FeedbackModal({ open, onClose }: Props) {
     >
       <View className='mt-4 space-y-3'>
         <Text className='block text-xs text-text-muted'>匿名提交，管理员可在后台查看</Text>
-        <Textarea
-          value={content}
-          onInput={(e) => setContent(e.detail.value)}
-          maxlength={2000}
-          disabled={submitting}
-          className='h-32 w-full rounded-xl border border-border bg-muted px-3 py-3 text-xs leading-relaxed text-text'
-          placeholder='写下你的问题或建议'
-        />
+        <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+          <Textarea
+            value={content}
+            onInput={(e) => setContent(e.detail.value)}
+            maxlength={2000}
+            disabled={submitting}
+            className='h-32 bg-transparent px-3 py-3 text-xs leading-relaxed text-text'
+            placeholder='写下你的问题或建议'
+          />
+        </View>
         {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
         <View className='flex justify-end gap-2'>
           <View

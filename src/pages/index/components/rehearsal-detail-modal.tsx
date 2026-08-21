@@ -17,6 +17,8 @@ type Props = {
   attendance?: AttendanceInfo | null
   /** 考勤加载中：出勤状态行显示占位符（防未签到误判） */
   attendanceLoading?: boolean
+  /** 点击「我要请假 ＞」：打开请假面板（请假入口，Issue #142 移植） */
+  onRequestLeave?: () => void
   onClose: () => void
 }
 
@@ -64,8 +66,20 @@ export function getAttendanceDisplay(
  * - 左上第一行大字出勤状态（未签到/出席/迟到/缺勤/请假）
  * - 排练信息只读（类型/时间/地点/曲目）
  */
-export function RehearsalDetailModal({ item, attendance, attendanceLoading, onClose }: Props) {
+export function RehearsalDetailModal({
+  item,
+  attendance,
+  attendanceLoading,
+  onRequestLeave,
+  onClose,
+}: Props) {
   const display = item ? getAttendanceDisplay(item, attendance, !!attendanceLoading) : null
+  // 请假入口文案（Issue #175）：排练已结束 → 「我要补请假 ＞」，否则「我要请假 ＞」
+  // （判定与出勤状态同源，沿用 getSignBlockReason，与 Web 端一致）
+  const blockReason = item
+    ? getSignBlockReason(item.start_time, item.end_time ?? null, new Date())
+    : null
+  const leaveLabel = blockReason === 'ended' ? '我要补请假 ＞' : '我要请假 ＞'
 
   return (
     <Modal open={!!item} onClose={onClose} title='排练详情' position='bottom'>
@@ -102,6 +116,13 @@ export function RehearsalDetailModal({ item, attendance, attendanceLoading, onCl
             {item?.repertoire ?? '—'}
           </Text>
         </View>
+
+        {/* 请假入口（Issue #142 移植）：点击打开请假面板，查看已有申请或提交 */}
+        {onRequestLeave && (
+          <View className='mt-1 flex items-center justify-end' onClick={onRequestLeave}>
+            <Text className='text-label text-primary'>{leaveLabel}</Text>
+          </View>
+        )}
       </View>
     </Modal>
   )

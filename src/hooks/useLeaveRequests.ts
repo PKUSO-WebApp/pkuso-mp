@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import type { LeaveRequestRow, LeaveRequestWithDetails } from '@/types/database'
+import { guessContentType, uploadLocalFile } from '@/lib/uploadLocalFile'
+
+// 小程序文件入参为 { tempFilePath, name? }（Taro.chooseMedia 返回的本地路径，非 DOM File），
+// 必须由 uploadLocalFile 读出字节后再上传，否则 storage-js 会判定为非法上传体。
 
 function extractAttachmentPath(attachmentUrl: string): string | null {
   const marker = 'leave-attachments/'
@@ -333,11 +337,15 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
       const safeName = rawName.replace(/[^A-Za-z0-9._-]/g, '-') || 'image'
       const path = `${userId}/${Date.now()}-${safeName}`
       try {
-        const { error: uploadError } = await client.storage
-          .from('leave-attachments')
-          .upload(path, file as never, { upsert: false })
-        if (uploadError) return { error: uploadError.message }
-        return { url: path }
+        const up = await uploadLocalFile(
+          client,
+          'leave-attachments',
+          path,
+          file.tempFilePath,
+          guessContentType(safeName)
+        )
+        if (up.error) return { error: up.error.message }
+        return { url: (up.data as { path: string }).path }
       } finally {
         savingRef.current = false
       }

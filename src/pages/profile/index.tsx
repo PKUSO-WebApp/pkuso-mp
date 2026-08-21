@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
@@ -13,6 +13,9 @@ import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
 import { isValidEmail, isValidPhoneNumber } from '@/lib/validation'
 import type { NotificationCategory } from '@/types/database'
+import { INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP } from '@/constants/instruments'
+import { notifyNotificationsUpdated } from '@/components/notification-badge-sync'
+import { useTabBarBadgeSync } from '@/components/badge-sync-context'
 import { AttendanceHistoryModal } from './components/attendance-history-modal'
 import { NotificationInboxModal } from './components/notification-inbox-modal'
 import { ThemeModal } from './components/theme-modal'
@@ -75,9 +78,21 @@ export default function Profile() {
   const [hideEmail, setHideEmail] = useState(false)
   const [hidePhone, setHidePhone] = useState(false)
   const [hideJoinDate, setHideJoinDate] = useState(false)
+  // 乐器（不可隐藏）：从声部列表中选择，保存写入 profiles.instrument
+  const [editInstrument, setEditInstrument] = useState('')
   const [editError, setEditError] = useState<string | null>(null)
   const [isEditSubmitting, setIsEditSubmitting] = useState(false)
   const editSubmittingRef = useRef(false) // 同步 guard，阻断竞态窗口
+  // 乐器下拉选项：声部顺序 + 「其他」，若当前值不在列表中也加入，避免值丢失（对齐 Web admin）
+  const instrumentOptions = useMemo(() => {
+    const list = [...INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP]
+    if (editInstrument && !list.includes(editInstrument)) {
+      return [editInstrument, ...list]
+    }
+    return list
+  }, [editInstrument])
+  // Picker selector 的 value 为选项索引；当前值不在列表时回退到 0，避免非法索引
+  const selectedInstrumentIndex = Math.max(0, instrumentOptions.indexOf(editInstrument))
   // join_date 是否被用户改动过：历史数据可能为学期格式（如「2024秋」），
   // Picker 无法表示，未改动时保存不写 join_date 字段，保留原值防误清空
   const [isJoinDateTouched, setIsJoinDateTouched] = useState(false)
@@ -120,9 +135,20 @@ export default function Profile() {
   } = useNotifications()
   const [inbox, setInbox] = useState<{ label: string; category: NotificationCategory } | null>(null)
 
+  // 「我的」tab 红点：由 App 根 NotificationBadgeSync 统一维护未读数，本页进入时按当前
+  // 未读数重设红点（冷启动停在登录页导致首次 show 失败，这里在切到本 tab 时补设）。
+  useTabBarBadgeSync()
+
   useEffect(() => {
     void refreshNotifications()
   }, [refreshNotifications])
+
+  // 本页标记已读成功后广播事件，App 根重新拉取未读数，红点同步消失。
+  const handleMarkCategoryRead = async (category: NotificationCategory, ids: string[]) => {
+    const ok = await markCategoryRead(category, ids)
+    notifyNotificationsUpdated()
+    return ok
+  }
 
   // 换绑邮箱后同步 profiles.email（Issue #199 语义）：
   // 换绑只改 auth.users.email，必须用 supabase.auth.getUser() 取真实 auth email
@@ -160,6 +186,7 @@ export default function Profile() {
     setEditPhone(myProfile.phone_number ?? '')
     setEditJoinDate(myProfile.join_date ?? '')
     setEditCollege(myProfile.college ?? '')
+    setEditInstrument(myProfile.instrument ?? '')
     setHideEmail(myProfile.hide_email)
     setHidePhone(myProfile.hide_phone)
     setHideJoinDate(myProfile.hide_join_date)
@@ -201,6 +228,7 @@ export default function Profile() {
       const ok = await updateProfile(user.id, {
         phone_number: phone || null,
         college: editCollege.trim() || null,
+        instrument: editInstrument.trim() || null,
         hide_email: hideEmail,
         hide_phone: hidePhone,
         hide_join_date: hideJoinDate,
@@ -342,7 +370,7 @@ export default function Profile() {
                   <View className='flex items-center'>
                     <Text className='text-sm font-medium text-text'>{label}</Text>
                     {count > 0 && (
-                      <View className='ml-auto rounded-full bg-danger px-1.5 py-0.5'>
+                      <View className='ml-auto rounded-full bg-danger px-1.5 py-1'>
                         <Text className='text-xs font-medium leading-none text-danger-foreground'>
                           {count}
                         </Text>
@@ -428,6 +456,23 @@ export default function Profile() {
               {myProfile?.email ?? '—'}
             </Text>
           </View>
+          {/* 乐器（不可隐藏，从声部列表中选择） */}
+          <View>
+            <Text className='text-xs font-medium text-text-muted'>乐器</Text>
+            <Picker
+              mode='selector'
+              range={instrumentOptions}
+              value={selectedInstrumentIndex}
+              onChange={(e) => {
+                setEditInstrument(instrumentOptions[Number(e.detail.value)] ?? '')
+                setEditError(null)
+              }}
+            >
+              <View className='mt-1 flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
+                <Text className='text-sm text-text'>{editInstrument || '选择乐器'}</Text>
+              </View>
+            </Picker>
+          </View>
           {/* 联系方式 + 隐藏手机号开关 */}
           <View>
             <View className='flex items-center justify-between gap-2'>
@@ -439,15 +484,17 @@ export default function Profile() {
                 getLabel={privacyLabel}
               />
             </View>
-            <Input
-              className='mt-1 h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
-              placeholder='11 位手机号'
-              value={editPhone}
-              onInput={(e) => {
-                setEditPhone(e.detail.value)
-                setEditError(null)
-              }}
-            />
+            <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+              <Input
+                className='h-10 w-full bg-transparent px-3 text-sm text-text'
+                placeholder='11 位手机号'
+                value={editPhone}
+                onInput={(e) => {
+                  setEditPhone(e.detail.value)
+                  setEditError(null)
+                }}
+              />
+            </View>
           </View>
           {/* 入团时间 + 隐藏入团时间开关（TEXT 列，Picker 输出 YYYY-MM-DD 与列存文本一致） */}
           <View>
@@ -482,15 +529,17 @@ export default function Profile() {
           </View>
           <View>
             <Text className='text-xs font-medium text-text-muted'>学院</Text>
-            <Input
-              className='mt-1 h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
-              placeholder='所在学院'
-              value={editCollege}
-              onInput={(e) => {
-                setEditCollege(e.detail.value)
-                setEditError(null)
-              }}
-            />
+            <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+              <Input
+                className='h-10 w-full bg-transparent px-3 text-sm text-text'
+                placeholder='所在学院'
+                value={editCollege}
+                onInput={(e) => {
+                  setEditCollege(e.detail.value)
+                  setEditError(null)
+                }}
+              />
+            </View>
           </View>
           {editError && <Text className='block text-xs text-danger'>{editError}</Text>}
           {/* 双按钮操作行右下角（取消 + 保存） */}
@@ -544,29 +593,33 @@ export default function Profile() {
             <View className='mt-4 space-y-3'>
               <View>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>新密码</Text>
-                <Input
-                  password
-                  className='h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
-                  placeholder='至少 6 位'
-                  value={newPwd}
-                  onInput={(e) => {
-                    setNewPwd(e.detail.value)
-                    setPwdError(null)
-                  }}
-                />
+                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+                  <Input
+                    className='h-10 w-full bg-transparent px-3 text-sm text-text'
+                    password
+                    placeholder='至少 6 位'
+                    value={newPwd}
+                    onInput={(e) => {
+                      setNewPwd(e.detail.value)
+                      setPwdError(null)
+                    }}
+                  />
+                </View>
               </View>
               <View>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>确认新密码</Text>
-                <Input
-                  password
-                  className='h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
-                  placeholder='再次输入'
-                  value={confirmPwd}
-                  onInput={(e) => {
-                    setConfirmPwd(e.detail.value)
-                    setPwdError(null)
-                  }}
-                />
+                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+                  <Input
+                    className='h-10 w-full bg-transparent px-3 text-sm text-text'
+                    password
+                    placeholder='再次输入'
+                    value={confirmPwd}
+                    onInput={(e) => {
+                      setConfirmPwd(e.detail.value)
+                      setPwdError(null)
+                    }}
+                  />
+                </View>
               </View>
               {pwdError && <Text className='block text-xs text-danger'>{pwdError}</Text>}
               {/* 双按钮操作行右下角（取消 + 确认修改）；取消按钮任一提交飞行中禁用 */}
@@ -597,16 +650,18 @@ export default function Profile() {
               <Text className='block text-xs text-text-subtle'>当前邮箱：{email}</Text>
               <View>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>新邮箱</Text>
-                <Input
-                  className='h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
-                  placeholder='输入新邮箱'
-                  value={newEmail}
-                  disabled={isRebindingEmail}
-                  onInput={(e) => {
-                    setNewEmail(e.detail.value)
-                    newEmailRef.current = e.detail.value // 同步最新值（async 闭包读 ref）
-                  }}
-                />
+                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+                  <Input
+                    className='h-10 w-full bg-transparent px-3 text-sm text-text'
+                    placeholder='输入新邮箱'
+                    value={newEmail}
+                    disabled={isRebindingEmail}
+                    onInput={(e) => {
+                      setNewEmail(e.detail.value)
+                      newEmailRef.current = e.detail.value // 同步最新值（async 闭包读 ref）
+                    }}
+                  />
+                </View>
               </View>
               {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
               <View className='flex justify-end gap-2'>
@@ -635,7 +690,7 @@ export default function Profile() {
           category={inbox.category}
           label={inbox.label}
           fetchMessages={fetchByCategory}
-          markCategoryRead={markCategoryRead}
+          markCategoryRead={handleMarkCategoryRead}
           onClose={() => setInbox(null)}
         />
       )}

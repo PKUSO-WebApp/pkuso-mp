@@ -59,7 +59,7 @@ export function RehearsalCard({
     <Card onClick={onClick}>
       <View className='flex gap-3'>
         {/* 左栏：排练信息（曲目/时间/地点/更新提示 chip） */}
-        <View className='min-w-0 flex-1 space-y-0.5 leading-tight'>
+        <View className='min-w-0 flex-1 space-y-1 leading-tight'>
           <Text className='block truncate text-sm text-text-muted'>
             {item.repertoire || '排练'}
             {item.type === 'section' && item.target_section ? ` · ${item.target_section}` : ''}
@@ -70,7 +70,7 @@ export function RehearsalCard({
               : '时间未设置'}
           </Text>
           {updateLabel && (
-            <Text className='inline-block rounded bg-warning-bg/80 px-1.5 py-0.5 text-xs text-warning'>
+            <Text className='inline-block rounded bg-warning-bg/80 px-1.5 py-1 text-xs text-warning'>
               {updateLabel}
             </Text>
           )}

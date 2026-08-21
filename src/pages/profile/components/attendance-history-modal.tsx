@@ -175,7 +175,7 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
                   <Text className='mt-1 block text-xs text-text-muted'>
                     地点：{row.rehearsals?.location ?? '—'}
                   </Text>
-                  <Text className='mt-0.5 block text-xs text-text-muted'>
+                  <Text className='mt-1 block text-xs text-text-muted'>
                     曲目：{row.rehearsals?.repertoire ?? '—'}
                   </Text>
                 </View>

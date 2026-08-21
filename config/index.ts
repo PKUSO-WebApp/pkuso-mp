@@ -128,6 +128,8 @@ export default defineConfig<'webpack5'>(async (merge) => {
     },
   }
 
+  
+
   if (process.env.NODE_ENV === 'development') {
     // 本地开发构建配置（不混淆压缩）
     return merge({}, baseConfig, devConfig)

@@ -2,24 +2,39 @@ import { useEffect, useMemo, useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import { useSchedule } from '@/hooks/useSchedule'
 import { useMyProfile } from '@/hooks/useMyProfile'
+import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
+import { useTabBarBadgeSync } from '@/components/badge-sync-context'
 import { getLocalDateString, parseLocalISO, formatDisplayDate } from '@/lib/date-utils'
 import { DateSelector } from './components/date-selector'
 import { ScheduleGantt } from './components/schedule-gantt'
+import { CreateScheduleModal } from './components/create-schedule-modal'
 import './index.scss'
 
 /**
- * 日程预约页（demo 范围：只读甘特图）。
+ * 日程预约页。
  * 查看排练房预约：今天起 8 天日期条 + 24 小时甘特图（预约块点击查看详情）。
- * 添加/删除预约暂缓（demo 后补，规划 §8.5「demo 阶段可先只读」）。
+ * 成员可新增预约（排练房申请写入，RLS 约束本人可见），并可删除自己创建的预约。
  * 管理端登录显示阻断页（规划 §1：admin 留在 Web）。
  */
 export default function Schedule() {
-  const { data: schedules, loading, error, fetch } = useSchedule()
+  const {
+    data: schedules,
+    loading,
+    error,
+    fetch,
+    saving,
+    create,
+    checkConflict,
+    remove,
+  } = useSchedule()
   const { profile: myProfile } = useMyProfile()
+  const { user } = useUser()
   const darkClass = useThemeClass()
+  useTabBarBadgeSync()
   const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString)
+  const [createOpen, setCreateOpen] = useState(false)
 
   // 日期变化时重新获取数据
   useEffect(() => {
@@ -46,9 +61,17 @@ export default function Schedule() {
   return (
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       {/* 头部 */}
-      <View className='mt-1 mb-3'>
-        <Text className='text-lg font-semibold text-text'>日程预约</Text>
-        <Text className='mt-1 block text-xs text-text-muted'>查看排练房预约（只读）</Text>
+      <View className='mb-3 mt-1 flex items-center justify-between'>
+        <View>
+          <Text className='text-lg font-semibold text-text'>日程预约</Text>
+          <Text className='mt-1 block text-xs text-text-muted'>查看与申请排练房预约</Text>
+        </View>
+        <View
+          className='rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'
+          onClick={() => setCreateOpen(true)}
+        >
+          添加预约
+        </View>
       </View>
 
       {/* 日期选择器 */}
@@ -68,9 +91,24 @@ export default function Schedule() {
         ) : error ? (
           <Text className='block px-3 py-16 text-center text-sm text-danger'>{error}</Text>
         ) : (
-          <ScheduleGantt schedules={filteredSchedules} selectedDate={selectedDate} />
+          <ScheduleGantt
+            schedules={filteredSchedules}
+            selectedDate={selectedDate}
+            user={user}
+            remove={remove}
+          />
         )}
       </View>
+
+      {/* 添加预约弹窗（成员写入排练房申请） */}
+      <CreateScheduleModal
+        open={createOpen}
+        defaultDate={selectedDate}
+        saving={saving}
+        onCreate={async (p) => create({ ...p, author_id: user?.id ?? null }, selectedDate)}
+        onCheckConflict={(d, s, e) => checkConflict(d, s, e)}
+        onClose={() => setCreateOpen(false)}
+      />
     </View>
   )
 }

@@ -137,28 +137,32 @@ export default function SetupPage() {
 
         <View className='mb-3'>
           <Text className='text-sm font-medium text-text-muted'>姓名</Text>
-          <Input
-            className='mt-1 h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
-            placeholder='请输入真实姓名'
-            value={name}
-            onInput={(e) => {
-              setErrorMsg(null)
-              setName(e.detail.value)
-            }}
-          />
+          <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+            <Input
+              className='h-10 px-3 text-sm text-text'
+              placeholder='请输入真实姓名'
+              value={name}
+              onInput={(e) => {
+                setErrorMsg(null)
+                setName(e.detail.value)
+              }}
+            />
+          </View>
         </View>
 
         <View className='mb-3'>
           <Text className='text-sm font-medium text-text-muted'>邮箱</Text>
-          <Input
-            className='mt-1 h-10 w-full rounded-xl border border-border bg-muted px-3 text-sm text-text'
-            placeholder='name@example.com'
-            value={email}
-            onInput={(e) => {
-              setErrorMsg(null)
-              setEmail(e.detail.value)
-            }}
-          />
+          <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+            <Input
+              className='h-10 px-3 text-sm text-text'
+              placeholder='name@example.com'
+              value={email}
+              onInput={(e) => {
+                setErrorMsg(null)
+                setEmail(e.detail.value)
+              }}
+            />
+          </View>
         </View>
 
         {errorMsg ? (
