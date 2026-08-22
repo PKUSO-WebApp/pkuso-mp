@@ -74,6 +74,12 @@ async function toTaroBody(body: BodyInit | null | undefined): Promise<TaroBody |
   if (body === null || body === undefined) return undefined
   if (typeof body === 'string') return body
   if (body instanceof ArrayBuffer) return body
+  // 微信 readFile 等接口可能返回 Uint8Array 等 ArrayBufferView，统一取其底层 ArrayBuffer，
+  // 否则会被判为「不支持该请求体类型」
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(body)) {
+    const view = body as ArrayBufferView
+    return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength)
+  }
   if (typeof Blob !== 'undefined' && body instanceof Blob) return body.arrayBuffer()
   if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
     return body.toString()

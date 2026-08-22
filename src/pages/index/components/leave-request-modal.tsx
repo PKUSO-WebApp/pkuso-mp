@@ -110,10 +110,15 @@ export function LeaveRequestModal({ open, rehearsal, onClose, onSaved }: Props) 
     }
   }, [open, rehearsal, fetchMine])
 
-  // 查看模式附件签名 URL（60s 临时链接）
+  // 查看模式 / 编辑模式（保留旧附件）下加载附件签名 URL（60s 临时链接）
   useEffect(() => {
-    if (!open || mode !== 'view' || !current?.attachment_url) {
+    const needLoad =
+      open &&
+      !!current?.attachment_url &&
+      (mode === 'view' || (mode === 'form' && keepOldAttachment))
+    if (!needLoad) {
       setViewAttachmentUrl(null)
+      setAttachmentLoading(false)
       return
     }
     let cancelled = false
@@ -127,7 +132,7 @@ export function LeaveRequestModal({ open, rehearsal, onClose, onSaved }: Props) 
     return () => {
       cancelled = true
     }
-  }, [open, mode, current?.id, current?.attachment_url, getSignedUrl])
+  }, [open, mode, keepOldAttachment, current?.id, current?.attachment_url, getSignedUrl])
 
   const handleClose = () => {
     if (isSubmitting || isCanceling) return
