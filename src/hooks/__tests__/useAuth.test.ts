@@ -7,8 +7,24 @@ import { useAuth } from '../useAuth'
 
 // 可变的 useUser mock：改写状态后 rerender 即可读到最新值
 const { ctx } = vi.hoisted(() => {
-  const state: UserContextValue = { session: null, user: null, ready: false, restoreFailed: false }
+  const state: UserContextValue = {
+    session: null,
+    user: null,
+    ready: false,
+    restoreFailed: false,
+    forcedOfflineAt: null,
+  }
   return { ctx: state }
+})
+
+// useAuth 现依赖 single-session（import Taro from '@tarojs/taro'），mock 掉 Taro 避免加载真实运行时
+vi.mock('@tarojs/taro', () => {
+  const mock = {
+    getStorageSync: vi.fn(),
+    setStorageSync: vi.fn(),
+    removeStorageSync: vi.fn(),
+  }
+  return { ...mock, default: mock }
 })
 
 vi.mock('@/context/user-context', () => ({

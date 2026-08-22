@@ -319,7 +319,10 @@ export type Database = {
           join_date: string | null
           phone_number: string | null
           role: Database['public']['Enums']['profileRole'] | null
+          session_started_at: string | null
+          session_token: string | null
           status: Database['public']['Enums']['profileStatus'] | null
+          wechat_openid: string | null
         }
         Insert: {
           college?: string | null
@@ -335,7 +338,10 @@ export type Database = {
           join_date?: string | null
           phone_number?: string | null
           role?: Database['public']['Enums']['profileRole'] | null
+          session_started_at?: string | null
+          session_token?: string | null
           status?: Database['public']['Enums']['profileStatus'] | null
+          wechat_openid?: string | null
         }
         Update: {
           college?: string | null
@@ -351,7 +357,10 @@ export type Database = {
           join_date?: string | null
           phone_number?: string | null
           role?: Database['public']['Enums']['profileRole'] | null
+          session_started_at?: string | null
+          session_token?: string | null
           status?: Database['public']['Enums']['profileStatus'] | null
+          wechat_openid?: string | null
         }
         Relationships: []
       }
@@ -607,6 +616,15 @@ export type Database = {
       }
     }
     Functions: {
+      cancel_leave_on_sign_in: {
+        Args: { p_rehearsal_id: number }
+        Returns: {
+          attachment_path: string
+          previous_status: Database['public']['Enums']['leaveStatus']
+          request_id: string
+          status: Database['public']['Enums']['leaveStatus']
+        }[]
+      }
       check_invitation_code: {
         Args: { p_code: string }
         Returns: {
@@ -617,16 +635,22 @@ export type Database = {
           used_count: number
         }[]
       }
-      is_admin: { Args: never; Returns: boolean }
-      cancel_leave_on_sign_in: {
-        Args: { p_rehearsal_id: number }
+      get_my_profile_entry: {
+        Args: never
         Returns: {
-          request_id: string
-          attachment_path: string | null
-          previous_status: Database['public']['Enums']['leaveStatus']
-          status: Database['public']['Enums']['leaveStatus']
+          email: string
+          full_name: string
+          status: Database['public']['Enums']['profileStatus']
         }[]
       }
+      get_my_session: {
+        Args: never
+        Returns: {
+          session_started_at: string
+          session_token: string
+        }[]
+      }
+      is_admin: { Args: never; Returns: boolean }
       sign_in_attendance: {
         Args: { p_code: string; p_rehearsal_id: number }
         Returns: {
@@ -637,15 +661,11 @@ export type Database = {
           user_id: string
         }[]
       }
-      // 手补（2026-08-21，gen-types 下次运行会重新生成并覆盖本节）：
-      // get_my_profile_entry 迁移 20260821110000 已应用到远端，本地 CLI 未 link，
-      // 无法重跑 gen-types，按迁移文件手工补类型。
-      get_my_profile_entry: {
-        Args: Record<string, never>
+      touch_session: {
+        Args: never
         Returns: {
-          full_name: string | null
-          email: string | null
-          status: Database['public']['Enums']['profileStatus'] | null
+          session_started_at: string
+          session_token: string
         }[]
       }
       verify_and_use_invitation_code: {

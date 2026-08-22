@@ -370,7 +370,7 @@ export default function Profile() {
                   <View className='flex items-center'>
                     <Text className='text-sm font-medium text-text'>{label}</Text>
                     {count > 0 && (
-                      <View className='ml-auto rounded-full bg-danger px-1.5 py-1'>
+                      <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1'>
                         <Text className='text-xs font-medium leading-none text-danger-foreground'>
                           {count}
                         </Text>

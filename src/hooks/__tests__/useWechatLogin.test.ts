@@ -36,6 +36,10 @@ function mockClient(
     auth: {
       setSession: vi.fn().mockResolvedValue(setSessionResult),
     },
+    rpc: vi.fn().mockResolvedValue({
+      data: [{ session_token: 't-local', session_started_at: '2026-08-22T10:00:00Z' }],
+      error: null,
+    }),
   }
 }
 

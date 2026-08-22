@@ -1,19 +1,53 @@
 // @vitest-environment jsdom
 
+import React from 'react'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UserProvider, useUser } from './user-context'
 
-// hoisted mock：测试中直接改写 auth 行为
-const { authMock } = vi.hoisted(() => ({
+// hoisted mock：测试中直接改写 auth / rpc / Taro 行为
+const { authMock, supabaseRpcMock } = vi.hoisted(() => ({
   authMock: {
     getSession: vi.fn(),
     onAuthStateChange: vi.fn(),
+    signOut: vi.fn(),
   },
+  supabaseRpcMock: vi.fn(),
 }))
 
-vi.mock('@/lib/supabase', () => ({
-  supabase: { auth: authMock },
+const { taroMock, store, didShowCbs } = vi.hoisted(() => {
+  const localStore: Record<string, string> = {}
+  const localDidShowCbs: Array<() => void> = []
+  const localTaroMock = {
+    getStorageSync: vi.fn((k: string) => (k in localStore ? localStore[k] : '')),
+    setStorageSync: vi.fn((k: string, v: string) => {
+      localStore[k] = v
+    }),
+    removeStorageSync: vi.fn((k: string) => {
+      delete localStore[k]
+    }),
+    // 仅保留最新回调（模拟真实 Taro 行为），便于测试触发前台检测
+    useDidShow: vi.fn((cb: () => void) => {
+      localDidShowCbs.length = 0
+      localDidShowCbs.push(cb)
+    }),
+  }
+  return { taroMock: localTaroMock, store: localStore, didShowCbs: localDidShowCbs }
+})
+
+// 默认导入（single-session 的 import Taro from '@tarojs/taro'）与命名导入同源
+vi.mock('@tarojs/taro', () => ({ ...taroMock, default: taroMock }))
+vi.mock('@/lib/supabase', () => ({ supabase: { auth: authMock, rpc: supabaseRpcMock } }))
+vi.mock('@tarojs/components', () => {
+  const create = (tag: string) => (props: any) => {
+    const { hoverClass, catchMove, ...rest } = props
+    return React.createElement(tag, rest)
+  }
+  return { View: create('div'), Text: create('span'), Button: create('button') }
+})
+vi.mock('@/components/ui/Modal', () => ({
+  Modal: ({ opened, children }: any) =>
+    opened ? React.createElement('div', { 'data-testid': 'modal' }, children) : null,
 }))
 
 const makeSession = (userId: string) => ({
@@ -39,6 +73,20 @@ describe('UserProvider', () => {
   beforeEach(() => {
     authMock.getSession.mockReset()
     authMock.onAuthStateChange.mockReset()
+    authMock.signOut.mockReset().mockResolvedValue({ error: null })
+    supabaseRpcMock.mockReset()
+    Object.keys(store).forEach((k) => delete store[k])
+    didShowCbs.length = 0
+    // 默认：touch_session 写入本机令牌；其余 RPC 返回空（不影响既有断言）
+    supabaseRpcMock.mockImplementation((fn: string) => {
+      if (fn === 'touch_session') {
+        return Promise.resolve({
+          data: [{ session_token: 't-local', session_started_at: '2026-08-22T10:00:00Z' }],
+          error: null,
+        })
+      }
+      return Promise.resolve({ data: [], error: null })
+    })
     authMock.getSession.mockResolvedValue({ data: { session: null }, error: null })
     authMock.onAuthStateChange.mockReturnValue(stubSubscription)
   })
@@ -50,7 +98,6 @@ describe('UserProvider', () => {
   it('getSession 恢复会话后 ready 为 true 且 user 可见', async () => {
     authMock.getSession.mockResolvedValue({ data: { session: makeSession('u1') }, error: null })
     const { result } = renderWithProvider()
-    // 恢复完成前 ready 为 false
     expect(result.current.ready).toBe(false)
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(result.current.user?.id).toBe('u1')
@@ -132,12 +179,10 @@ describe('UserProvider', () => {
       return stubSubscription
     })
     const { result } = renderWithProvider()
-    // SDK 真实时序：订阅后 INITIAL_SESSION 事件先行
     act(() => {
       onChangeCb('SIGNED_IN', makeSession('u2'))
     })
     expect(result.current.user?.id).toBe('u2')
-    // getSession 后到且返回 null（storage 与事件不一致的极端场景），不得把已登录回退
     act(() => {
       resolveSession({ data: { session: null }, error: null })
     })
@@ -149,7 +194,6 @@ describe('UserProvider', () => {
   it('getSession 超时降级：10s 后 ready 为 true 且 restoreFailed 为 true', async () => {
     vi.useFakeTimers()
     try {
-      // 永不 settle 的 getSession，模拟弱网挂起
       authMock.getSession.mockReturnValue(new Promise(() => {}))
       const { result } = renderWithProvider()
       expect(result.current.ready).toBe(false)
@@ -178,5 +222,51 @@ describe('UserProvider', () => {
 
   it('useUser 在 Provider 外抛错', () => {
     expect(() => renderHook(() => useUser())).toThrow('useUser 必须在 UserProvider 内部使用')
+  })
+
+  it('恢复会话后调用 touch_session 把本机登记为活跃会话', async () => {
+    authMock.getSession.mockResolvedValue({ data: { session: makeSession('u1') }, error: null })
+    const { result } = renderWithProvider()
+    await waitFor(() => expect(result.current.user?.id).toBe('u1'))
+    expect(supabaseRpcMock).toHaveBeenCalledWith('touch_session')
+    // 本地令牌已写入，verify 比对基础成立
+    await waitFor(() =>
+      expect(taroMock.setStorageSync).toHaveBeenCalledWith('pkuso_single_session_token', 't-local')
+    )
+  })
+
+  it('被其他设备挤下线：前台检测令牌不一致 → 弹窗 + 清会话 + 强制下线通知', async () => {
+    authMock.getSession.mockResolvedValue({ data: { session: makeSession('u1') }, error: null })
+    supabaseRpcMock.mockImplementation((fn: string) => {
+      if (fn === 'touch_session') {
+        return Promise.resolve({
+          data: [{ session_token: 't-local', session_started_at: '2026-08-22T10:00:00Z' }],
+          error: null,
+        })
+      }
+      if (fn === 'get_my_session') {
+        // 另一设备登录后 DB 令牌已变
+        return Promise.resolve({
+          data: [{ session_token: 't-other', session_started_at: '2026-08-22T11:00:00Z' }],
+          error: null,
+        })
+      }
+      return Promise.resolve({ data: [], error: null })
+    })
+    const { result } = renderWithProvider()
+    await waitFor(() => expect(result.current.user?.id).toBe('u1'))
+    // 确保本机令牌已落地（establishSession 异步写入）
+    await waitFor(() =>
+      expect(taroMock.setStorageSync).toHaveBeenCalledWith('pkuso_single_session_token', 't-local')
+    )
+    // 触发前台检测（设备 A 回到前台）
+    await act(async () => {
+      didShowCbs[didShowCbs.length - 1]()
+    })
+    await waitFor(() => expect(result.current.forcedOfflineAt).toBe('2026-08-22T11:00:00Z'))
+    expect(result.current.session).toBeNull()
+    expect(result.current.user).toBeNull()
+    expect(supabaseRpcMock).toHaveBeenCalledWith('get_my_session')
+    expect(authMock.signOut).toHaveBeenCalled()
   })
 })

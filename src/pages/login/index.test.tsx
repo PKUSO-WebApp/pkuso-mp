@@ -49,7 +49,13 @@ vi.mock('@/lib/post-auth-route', () => ({ routeAfterLogin: routeAfterLoginMock }
 
 // 可变的 useUser mock
 const { ctx } = vi.hoisted(() => {
-  const state: UserContextValue = { session: null, user: null, ready: true, restoreFailed: false }
+  const state: UserContextValue = {
+    session: null,
+    user: null,
+    ready: true,
+    restoreFailed: false,
+    forcedOfflineAt: null,
+  }
   return { ctx: state }
 })
 vi.mock('@/context/user-context', () => ({ useUser: () => ctx }))

@@ -54,7 +54,8 @@ function normalizeToArrayBuffer(data: unknown): ArrayBuffer {
   if (data instanceof ArrayBuffer) return data
   const anyData = data as any
   if (
-    data && typeof data === 'object' &&
+    data &&
+    typeof data === 'object' &&
     typeof anyData.byteLength === 'number' &&
     anyData.byteOffset === undefined &&
     !ArrayBuffer.isView(data)
@@ -68,7 +69,11 @@ function normalizeToArrayBuffer(data: unknown): ArrayBuffer {
   // 3) TypedArray / Buffer / 跨 realm 视图：有 byteOffset 或底层 buffer
   if (
     (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(data)) ||
-    (data && typeof data === 'object' && typeof anyData.byteLength === 'number' && anyData.byteOffset !== undefined && anyData.buffer)
+    (data &&
+      typeof data === 'object' &&
+      typeof anyData.byteLength === 'number' &&
+      anyData.byteOffset !== undefined &&
+      anyData.buffer)
   ) {
     const view = data as ArrayBufferView
     const u = new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
@@ -94,14 +99,17 @@ export function readTempFileBytes(tempFilePath: string): Promise<ArrayBuffer> {
         try {
           resolve(normalizeToArrayBuffer(res.data))
         } catch {
-          console.warn('[uploadLocalFile] 无法识别的 readFile 返回类型（请在电脑预览调试时反馈此日志）:', {
-            type: typeof res.data,
-            constructor: (res.data as any)?.constructor?.name,
-            isView: typeof ArrayBuffer !== 'undefined' ? ArrayBuffer.isView(res.data) : 'n/a',
-            byteLength: (res.data as any)?.byteLength,
-            byteOffset: (res.data as any)?.byteOffset,
-            sample: safeSample(res.data),
-          })
+          console.warn(
+            '[uploadLocalFile] 无法识别的 readFile 返回类型（请在电脑预览调试时反馈此日志）:',
+            {
+              type: typeof res.data,
+              constructor: (res.data as any)?.constructor?.name,
+              isView: typeof ArrayBuffer !== 'undefined' ? ArrayBuffer.isView(res.data) : 'n/a',
+              byteLength: (res.data as any)?.byteLength,
+              byteOffset: (res.data as any)?.byteOffset,
+              sample: safeSample(res.data),
+            }
+          )
           reject(new Error('读取本地附件失败：未知数据格式'))
         }
       },

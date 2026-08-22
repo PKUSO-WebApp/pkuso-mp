@@ -61,7 +61,13 @@ describe('uploadLocalFile（端到端）', () => {
     const upload = vi.fn().mockResolvedValue({ data: { path: 'u1/1-a.png' }, error: null })
     const client: any = { storage: { from: () => ({ upload }) } }
 
-    const res = await uploadLocalFile(client, 'leave-attachments', 'u1/1-a.png', 'wxfile://tmp/a.png', 'image/png')
+    const res = await uploadLocalFile(
+      client,
+      'leave-attachments',
+      'u1/1-a.png',
+      'wxfile://tmp/a.png',
+      'image/png'
+    )
 
     expect(res.error).toBeNull()
     expect(res.data).toEqual({ path: 'u1/1-a.png' })
