@@ -8,6 +8,7 @@ import { useMyProfile } from '@/hooks/useMyProfile'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { useTabBarBadgeSync } from '@/components/badge-sync-context'
 import { Card } from '@/components/ui/Card'
+import { PageHeader } from '@/components/page-header'
 import { groupProfilesByInstrument } from '@/lib/roster-utils'
 import { filterByName } from '@/lib/name-search'
 import { maskedValue } from '@/lib/privacy'
@@ -61,13 +62,12 @@ export default function Members() {
     /* 根容器 flex 化（矮屏布局）：头部固定，搜索框 + 列表整体独立滚动 */
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       <View className='mt-1 mb-3'>
-        <Text className='text-lg font-semibold text-text'>全团成员</Text>
-        <Text className='mt-1 block text-xs text-text-muted'>查看乐团最新花名册</Text>
+        <PageHeader title='全团成员' subtitle='查看乐团最新花名册' />
       </View>
 
       <View className='flex-1 min-h-0 space-y-4 overflow-y-auto'>
         <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
-            <Input
+          <Input
             className='h-10 w-full bg-transparent px-3 text-sm text-text'
             placeholder='搜索姓名（支持中文/拼音/首字母）'
             value={searchQuery}

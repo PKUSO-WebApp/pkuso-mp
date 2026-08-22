@@ -6,6 +6,7 @@ import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { useTabBarBadgeSync } from '@/components/badge-sync-context'
+import { PageHeader } from '@/components/page-header'
 import { getLocalDateString, parseLocalISO, formatDisplayDate } from '@/lib/date-utils'
 import { DateSelector } from './components/date-selector'
 import { ScheduleGantt } from './components/schedule-gantt'
@@ -61,17 +62,19 @@ export default function Schedule() {
   return (
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       {/* 头部 */}
-      <View className='mb-3 mt-1 flex items-center justify-between'>
-        <View>
-          <Text className='text-lg font-semibold text-text'>日程预约</Text>
-          <Text className='mt-1 block text-xs text-text-muted'>查看与申请排练房预约</Text>
-        </View>
-        <View
-          className='rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'
-          onClick={() => setCreateOpen(true)}
-        >
-          添加预约
-        </View>
+      <View className='mb-3 mt-1'>
+        <PageHeader
+          title='日程预约'
+          subtitle='查看与申请排练房预约'
+          rightButton={
+            <View
+              className='rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'
+              onClick={() => setCreateOpen(true)}
+            >
+              添加预约
+            </View>
+          }
+        />
       </View>
 
       {/* 日期选择器 */}

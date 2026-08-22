@@ -10,6 +10,7 @@ import { useThemeClass } from '@/context/theme-context'
 import { Toggle } from '@/components/ui/Toggle'
 import { Card } from '@/components/ui/Card'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
+import { PageHeader } from '@/components/page-header'
 import { useTabBarBadgeSync } from '@/components/badge-sync-context'
 import { isRehearsalWithinNextWeek } from '@/lib/rehearsal-utils'
 import {
@@ -217,17 +218,11 @@ export default function Index() {
       )}
 
       {/* 排练日程标题 + Toggle */}
-      <View className='mb-3'>
-        <View className='flex items-center justify-between'>
-          <View>
-            <Text className='text-lg font-semibold text-text'>
-              {scheduleTab === 'history' ? '历史合排' : '本周排练日程'}
-            </Text>
-            <Text className='mt-1 block text-xs text-text-muted'>
-              {scheduleTab === 'history' ? '查看已结束的合排排练' : '查看乐团合排与分排安排'}
-            </Text>
-          </View>
-        </View>
+      <View className='mb-3 mt-1'>
+        <PageHeader
+          title={scheduleTab === 'history' ? '历史合排' : '本周排练日程'}
+          subtitle={scheduleTab === 'history' ? '查看已结束的合排排练' : '查看乐团合排与分排安排'}
+        />
         <View className='mt-2'>
           <Toggle
             options={['full', 'section', 'history']}

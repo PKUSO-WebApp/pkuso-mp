@@ -7,6 +7,7 @@ import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { useTabBarBadgeSync } from '@/components/badge-sync-context'
 import { Toggle } from '@/components/ui/Toggle'
 import { Card } from '@/components/ui/Card'
+import { PageHeader } from '@/components/page-header'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
 import { PostDetailModal } from './components/post-detail-modal'
@@ -56,12 +57,7 @@ export default function Community() {
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       {/* 头部 */}
       <View className='mt-1 mb-3'>
-        <View className='flex items-center justify-between gap-2'>
-          <View>
-            <Text className='text-lg font-semibold text-text'>公告板</Text>
-            <Text className='mt-1 block text-xs text-text-muted'>重奏与团建信息</Text>
-          </View>
-        </View>
+        <PageHeader title='公告板' subtitle='重奏与团建信息' />
         <View className='mt-2'>
           <Toggle
             options={['ensemble', 'gathering']}
