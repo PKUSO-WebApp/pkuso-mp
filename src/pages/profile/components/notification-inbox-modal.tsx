@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text } from '@tarojs/components'
+import { ScrollView, View, Text } from '@tarojs/components'
 import type { NotificationCategory, NotificationRow } from '@/types/database'
 import type { NotificationListResult } from '@/hooks/useNotifications'
 import { Modal } from '@/components/ui/Modal'
@@ -56,7 +56,7 @@ export function NotificationInboxModal({
 
   return (
     <Modal open onClose={onClose} title={label} position='bottom'>
-      <View className='mt-4 max-h-[60vh] space-y-3 overflow-y-auto'>
+      <ScrollView scrollY className='mt-4 space-y-3' style={{ maxHeight: '60vh' }}>
         {loading ? (
           <Text className='block py-6 text-center text-xs text-text-muted'>加载中…</Text>
         ) : failed ? (
@@ -80,7 +80,7 @@ export function NotificationInboxModal({
             </View>
           ))
         )}
-      </View>
+      </ScrollView>
     </Modal>
   )
 }

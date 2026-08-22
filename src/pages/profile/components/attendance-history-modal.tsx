@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, Picker } from '@tarojs/components'
+import { ScrollView, View, Text, Picker } from '@tarojs/components'
 import { useAttendance, type AttendanceHistoryRow } from '@/hooks/useAttendance'
 import { Modal } from '@/components/ui/Modal'
 import { formatRehearsalRange } from '@/lib/date-utils'
@@ -135,8 +135,8 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
           <Text className='block text-xs text-danger'>开始日期不能晚于结束日期</Text>
         )}
 
-        {/* 考勤列表：罗列内容可滚动（max-h 容器） */}
-        <View className='max-h-[60vh] space-y-3 overflow-y-auto pb-1'>
+        {/* 考勤列表：罗列内容可滚动（max-h 容器，改用原生 ScrollView 以兼容真机） */}
+        <ScrollView scrollY className='space-y-3 pb-1' style={{ maxHeight: '60vh' }}>
           {loading ? (
             <Text className='block py-6 text-center text-xs text-text-muted'>加载中…</Text>
           ) : queryFailed ? (
@@ -182,7 +182,7 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
               )
             })
           )}
-        </View>
+        </ScrollView>
 
         {/* 区间统计：固定于列表滚动容器下方；加载中/失败时隐藏（数据未就绪不展示可能误导的统计） */}
         {!loading && !queryFailed && (
