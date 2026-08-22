@@ -31,6 +31,14 @@ describe('readTempFileBytes', () => {
     expect(result.byteLength).toBe(3)
   })
 
+  it('DataView（ArrayBufferView）取底层 buffer', async () => {
+    const dv = new DataView(new Uint8Array([11, 12, 13]).buffer)
+    readFileMock.mockImplementation((opts: any) => opts.success({ data: dv }))
+    const result = await readTempFileBytes('wxfile://tmp/d.png')
+    expect(result).toBeInstanceOf(ArrayBuffer)
+    expect(new Uint8Array(result)[0]).toBe(11)
+  })
+
   it('base64 字符串解码为 ArrayBuffer（微信实测返回类型）', async () => {
     // 'QQ==' 是 'A' (0x41) 的 base64
     readFileMock.mockImplementation((opts: any) => opts.success({ data: 'QQ==' }))

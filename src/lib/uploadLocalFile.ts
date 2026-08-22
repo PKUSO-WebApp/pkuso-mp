@@ -24,30 +24,86 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer
 }
 
+/** 调试用：把无法识别的 readFile 返回裁剪为可打印摘要，避免日志过大。 */
+function safeSample(data: unknown): string {
+  try {
+    if (typeof data === 'string') return data.slice(0, 64)
+    if (data && typeof data === 'object') {
+      const anyData = data as any
+      if (typeof anyData.byteLength === 'number') {
+        const head = Array.from(new Uint8Array(anyData.buffer || anyData).slice?.(0, 8) || [])
+        return `byteLength=${anyData.byteLength}${head.length ? ` head=${head.join(',')}` : ''}`
+      }
+      return JSON.stringify(data).slice(0, 64)
+    }
+    return String(data)
+  } catch {
+    return '<unprintable>'
+  }
+}
+
+/**
+ * 把 readFile 返回的任意二进制形态归一化为真正同 realm 的 ArrayBuffer。
+ * 覆盖：base64 字符串、ArrayBuffer、TypedArray/Buffer（含跨 realm 时 ArrayBuffer.isView 为假的情况）。
+ */
+function normalizeToArrayBuffer(data: unknown): ArrayBuffer {
+  // 1) base64 字符串（微信部分基础库/真机的默认返回）
+  if (typeof data === 'string') return base64ToArrayBuffer(data)
+
+  // 2) 真正的 ArrayBuffer（含跨 realm 时 instanceof 为假，但无 byteOffset）
+  if (data instanceof ArrayBuffer) return data
+  const anyData = data as any
+  if (
+    data && typeof data === 'object' &&
+    typeof anyData.byteLength === 'number' &&
+    anyData.byteOffset === undefined &&
+    !ArrayBuffer.isView(data)
+  ) {
+    const u = new Uint8Array(data as ArrayBuffer)
+    const out = new Uint8Array(u.byteLength)
+    out.set(u)
+    return out.buffer
+  }
+
+  // 3) TypedArray / Buffer / 跨 realm 视图：有 byteOffset 或底层 buffer
+  if (
+    (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(data)) ||
+    (data && typeof data === 'object' && typeof anyData.byteLength === 'number' && anyData.byteOffset !== undefined && anyData.buffer)
+  ) {
+    const view = data as ArrayBufferView
+    const u = new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
+    const out = new Uint8Array(u.byteLength)
+    out.set(u)
+    return out.buffer
+  }
+
+  throw new Error('未知数据格式')
+}
+
 /** 微信小程序：tempFilePath 为本地临时文件路径（非 DOM File），必须用 API 读出字节后上传；
  * 直接把 { tempFilePath } 对象作为上传体，storage-js 会判定为非法上传体而上传失败/上传非图片内容。
- * 注意：readFile 成功回调的 res.data 在不同基础库下可能是 ArrayBuffer、Uint8Array（ArrayBufferView）
- * 或 base64 字符串，这里统一归一化为真正的 ArrayBuffer，否则 storage-js 发出的请求体是 typed array，
- * 会被 Taro fetch 适配层（toTaroBody）判为「不支持该请求体类型」而抛错。 */
+ * 注意：readFile 成功回调的 res.data 在不同基础库 / 开发者工具下形态不一（ArrayBuffer、Uint8Array、
+ * Buffer、或 base64 字符串），这里统一归一化为真正的 ArrayBuffer，否则 storage-js 发出的请求体是
+ * typed array，会被 Taro fetch 适配层（toTaroBody）判为「不支持该请求体类型」而抛错。
+ * 若仍无法识别，会 console.warn 打印 res.data 的类型信息，便于在开发者工具里定位。 */
 export function readTempFileBytes(tempFilePath: string): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     Taro.getFileSystemManager().readFile({
       filePath: tempFilePath,
       success: (res) => {
-        const data = res.data
-        if (data instanceof ArrayBuffer) return resolve(data)
-        if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(data)) {
-          const view = data as ArrayBufferView
-          return resolve(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength))
+        try {
+          resolve(normalizeToArrayBuffer(res.data))
+        } catch {
+          console.warn('[uploadLocalFile] 无法识别的 readFile 返回类型（请在电脑预览调试时反馈此日志）:', {
+            type: typeof res.data,
+            constructor: (res.data as any)?.constructor?.name,
+            isView: typeof ArrayBuffer !== 'undefined' ? ArrayBuffer.isView(res.data) : 'n/a',
+            byteLength: (res.data as any)?.byteLength,
+            byteOffset: (res.data as any)?.byteOffset,
+            sample: safeSample(res.data),
+          })
+          reject(new Error('读取本地附件失败：未知数据格式'))
         }
-        if (typeof data === 'string') {
-          try {
-            return resolve(base64ToArrayBuffer(data))
-          } catch {
-            return reject(new Error('读取本地附件失败：base64 解析失败'))
-          }
-        }
-        reject(new Error('读取本地附件失败：未知数据格式'))
       },
       fail: (err) => reject(new Error(err?.errMsg || '读取本地附件失败')),
     })
