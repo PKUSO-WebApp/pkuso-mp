@@ -9,3 +9,4 @@ node_modules/
 .env.development
 .env.production
 project.private.config.json
+*.key

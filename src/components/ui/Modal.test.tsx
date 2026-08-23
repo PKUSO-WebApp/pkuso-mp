@@ -13,8 +13,8 @@ vi.mock('@tarojs/components', () => {
   return { View: create('div'), Text: create('span'), Button: create('button') }
 })
 
-// Modal 在底部弹窗打开时会调用 Taro.hideTabBar/showTabBar；测试环境无 Taro 运行时
-// （ENABLE_INNER_HTML 等编译期常量未注入），mock 掉避免引入真实 runtime。
+// Modal 不再调用原生 tabBar API（custom tabBar 由 webview 渲染、位于 Modal 之下）；
+// 此处仍 stub 掉 Taro，避免测试环境无 Taro 运行时时引入真实 runtime。
 vi.mock('@tarojs/taro', () => ({
   default: {
     hideTabBar: vi.fn(() => Promise.resolve()),

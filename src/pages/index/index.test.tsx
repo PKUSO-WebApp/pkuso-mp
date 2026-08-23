@@ -30,8 +30,12 @@ vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 vi.mock('@/context/user-context', () => ({ useUser: () => ({ user: { id: 'u1' } }) }))
 vi.mock('@/hooks/useMyProfile', () => ({ useMyProfile: () => ({ profile: { role: 'member' } }) }))
 vi.mock('@/hooks/useLeaveRequests', () => ({
-  useLeaveRequests: () => ({ cancelOnSignIn: vi.fn() }),
+  useLeaveRequests: () => ({ data: [], cancelOnSignIn: vi.fn(), fetchMine: vi.fn() }),
 }))
+vi.mock('@/hooks/useAnnouncements', () => ({
+  useAnnouncements: () => ({ data: null, loading: false, error: null, fetch: vi.fn() }),
+}))
+vi.mock('@/lib/dataSync', () => ({ dataSyncBump: vi.fn() }))
 vi.mock('@/components/admin-blocked-page', () => ({ AdminBlockedPage: () => null }))
 vi.mock('@/components/ui/Card', () => ({
   Card: ({ children, ...rest }: any) => React.createElement('div', rest, children),

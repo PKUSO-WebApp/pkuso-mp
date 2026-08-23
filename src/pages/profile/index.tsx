@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, Input, Picker } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useProfiles } from '@/hooks/useProfiles'
@@ -15,7 +15,8 @@ import { isValidEmail, isValidPhoneNumber } from '@/lib/validation'
 import type { NotificationCategory } from '@/types/database'
 import { INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP } from '@/constants/instruments'
 import { notifyNotificationsUpdated } from '@/components/notification-badge-sync'
-import { useTabBarBadgeSync } from '@/components/badge-sync-context'
+import { dataSyncBump } from '@/lib/dataSync'
+
 import { AttendanceHistoryModal } from './components/attendance-history-modal'
 import { NotificationInboxModal } from './components/notification-inbox-modal'
 import { ThemeModal } from './components/theme-modal'
@@ -137,11 +138,17 @@ export default function Profile() {
 
   // 「我的」tab 红点：由 App 根 NotificationBadgeSync 统一维护未读数，本页进入时按当前
   // 未读数重设红点（冷启动停在登录页导致首次 show 失败，这里在切到本 tab 时补设）。
-  useTabBarBadgeSync()
+
 
   useEffect(() => {
     void refreshNotifications()
   }, [refreshNotifications])
+
+  // A：每次切回「我的」tab 重新拉未读数，并重置全局轮询计时器
+  useDidShow(() => {
+    void refreshNotifications()
+    dataSyncBump()
+  })
 
   // 本页标记已读成功后广播事件，App 根重新拉取未读数，红点同步消失。
   const handleMarkCategoryRead = async (category: NotificationCategory, ids: string[]) => {
@@ -370,9 +377,9 @@ export default function Profile() {
                   <View className='flex items-center'>
                     <Text className='text-sm font-medium text-text'>{label}</Text>
                     {count > 0 && (
-                      <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1'>
+                      <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5'>
                         <Text className='text-xs font-medium leading-none text-danger-foreground'>
-                          {count}
+                          {count > 99 ? '99+' : count}
                         </Text>
                       </View>
                     )}
@@ -484,9 +491,9 @@ export default function Profile() {
                 getLabel={privacyLabel}
               />
             </View>
-            <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+            <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
               <Input
-                className='h-10 w-full bg-transparent px-3 text-sm text-text'
+                className='h-10 w-full bg-transparent text-sm text-text'
                 placeholder='11 位手机号'
                 value={editPhone}
                 onInput={(e) => {
@@ -529,9 +536,9 @@ export default function Profile() {
           </View>
           <View>
             <Text className='text-xs font-medium text-text-muted'>学院</Text>
-            <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+            <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
               <Input
-                className='h-10 w-full bg-transparent px-3 text-sm text-text'
+                className='h-10 w-full bg-transparent text-sm text-text'
                 placeholder='所在学院'
                 value={editCollege}
                 onInput={(e) => {
@@ -593,9 +600,9 @@ export default function Profile() {
             <View className='mt-4 space-y-3'>
               <View>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>新密码</Text>
-                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
                   <Input
-                    className='h-10 w-full bg-transparent px-3 text-sm text-text'
+                    className='h-10 w-full bg-transparent text-sm text-text'
                     password
                     placeholder='至少 6 位'
                     value={newPwd}
@@ -608,9 +615,9 @@ export default function Profile() {
               </View>
               <View>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>确认新密码</Text>
-                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
                   <Input
-                    className='h-10 w-full bg-transparent px-3 text-sm text-text'
+                    className='h-10 w-full bg-transparent text-sm text-text'
                     password
                     placeholder='再次输入'
                     value={confirmPwd}
@@ -650,9 +657,9 @@ export default function Profile() {
               <Text className='block text-xs text-text-subtle'>当前邮箱：{email}</Text>
               <View>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>新邮箱</Text>
-                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
                   <Input
-                    className='h-10 w-full bg-transparent px-3 text-sm text-text'
+                    className='h-10 w-full bg-transparent text-sm text-text'
                     placeholder='输入新邮箱'
                     value={newEmail}
                     disabled={isRebindingEmail}

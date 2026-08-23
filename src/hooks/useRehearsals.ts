@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
+import { dataSyncBump, subscribeSync } from '@/lib/dataSync'
 import type { RehearsalRow } from '@/types/database'
 
 // 排练管理 hook（成员端列表 / 管理员增删改）。
@@ -15,10 +16,10 @@ export function useRehearsals(client: typeof defaultClient = defaultClient) {
   const savingRef = useRef(false)
   const fetchSeqRef = useRef(0)
 
-  const fetch = useCallback(async () => {
+  const fetch = useCallback(async (opts?: { silent?: boolean }) => {
     if (!mountedRef.current) return
     const seq = ++fetchSeqRef.current
-    setLoading(true)
+    if (!opts?.silent) setLoading(true)
     const { data: rows, error: dbError } = await client
       .from('rehearsals')
       .select('*')
@@ -43,6 +44,14 @@ export function useRehearsals(client: typeof defaultClient = defaultClient) {
     }
   }, [fetch])
 
+  // 心跳检测到「我的可见排练」版本变化后静默重取（不翻 loading，避免闪烁）
+  useEffect(() => {
+    const handler = () => {
+      void fetch({ silent: true })
+    }
+    return subscribeSync('rehearsals', handler)
+  }, [fetch])
+
   const create = useCallback(
     async (payload: Record<string, unknown>) => {
       if (savingRef.current) return null
@@ -59,6 +68,7 @@ export function useRehearsals(client: typeof defaultClient = defaultClient) {
           return null
         }
         await fetch()
+        dataSyncBump()
         return (inserted as { id: number }).id
       } finally {
         savingRef.current = false
@@ -90,6 +100,7 @@ export function useRehearsals(client: typeof defaultClient = defaultClient) {
           return false
         }
         await fetch()
+        dataSyncBump()
         return true
       } finally {
         savingRef.current = false
@@ -111,6 +122,7 @@ export function useRehearsals(client: typeof defaultClient = defaultClient) {
           return false
         }
         await fetch()
+        dataSyncBump()
         return true
       } finally {
         savingRef.current = false

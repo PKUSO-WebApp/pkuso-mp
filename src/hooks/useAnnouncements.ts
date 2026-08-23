@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
+import { subscribeSync } from '@/lib/dataSync'
 import type { AnnouncementRow } from '@/types/database'
 
 // 公告 hook（成员端）：获取最新一条公告。
@@ -15,10 +16,10 @@ export function useAnnouncements(client: typeof defaultClient = defaultClient) {
   const fetchSeqRef = useRef(0)
 
   // 获取最新一条公告（供成员端展示）
-  const fetch = useCallback(async () => {
+  const fetch = useCallback(async (opts?: { silent?: boolean }) => {
     if (!mountedRef.current) return
     const seq = ++fetchSeqRef.current
-    setLoading(true)
+    if (!opts?.silent) setLoading(true)
     setError(null)
     const { data: rows, error: dbError } = await client
       .from('announcements')
@@ -43,6 +44,14 @@ export function useAnnouncements(client: typeof defaultClient = defaultClient) {
     return () => {
       mountedRef.current = false
     }
+  }, [fetch])
+
+  // 心跳检测到「最新公告」版本变化后静默重取（公告后续会展示在成员主页，届时即自动生效）
+  useEffect(() => {
+    const handler = () => {
+      void fetch({ silent: true })
+    }
+    return subscribeSync('announcements', handler)
   }, [fetch])
 
   return { data, loading, error, fetch }

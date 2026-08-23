@@ -114,10 +114,11 @@ describe('我的页', () => {
     vi.clearAllMocks()
   })
 
-  it('挂载时通过 useTabBarBadgeSync 注册「我的」红点同步（进入 tab 页即重设）', () => {
+  it('挂载后正常渲染（「我的」红点同步已迁移至全局 NotificationBadgeSync）', () => {
     notif.totalUnread = 3
     render(<Profile />)
-    expect(taroMock.useDidShow).toHaveBeenCalled()
+    // 页面能正常挂载并渲染关键区块
+    expect(screen.getByText('个人信息')).toBeTruthy()
   })
 
   it('编辑个人信息弹窗含乐器下拉，选择后保存写入 profiles.instrument', async () => {

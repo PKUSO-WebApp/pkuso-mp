@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { useRehearsals } from '@/hooks/useRehearsals'
 import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
 import { useLeaveRequests } from '@/hooks/useLeaveRequests'
+import { useAnnouncements } from '@/hooks/useAnnouncements'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
+import { dataSyncBump } from '@/lib/dataSync'
+import { formatDateTimeInChina } from '@/lib/date-utils'
 import { Toggle } from '@/components/ui/Toggle'
 import { Card } from '@/components/ui/Card'
+import { Modal } from '@/components/ui/Modal'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { PageHeader } from '@/components/page-header'
-import { useTabBarBadgeSync } from '@/components/badge-sync-context'
+
 import { isRehearsalWithinNextWeek } from '@/lib/rehearsal-utils'
 import {
   isRehearsalUpdated,
@@ -19,7 +23,7 @@ import {
   sortRehearsalsForMember,
   sortEndedFullRehearsals,
 } from '@/lib/rehearsal-sort'
-import type { RehearsalRow } from '@/types/database'
+import type { RehearsalRow, LeaveRequestRow } from '@/types/database'
 import { RehearsalCard } from './components/rehearsal-card'
 import { CodeVerifyModal } from './components/code-verify-modal'
 import { RehearsalDetailModal } from './components/rehearsal-detail-modal'
@@ -38,7 +42,13 @@ const mapSignInError = (err: string): string => {
 }
 
 export default function Index() {
-  const { data: rehearsals, loading: rehearsalsLoading, error: rehearsalsError } = useRehearsals()
+  const { data: rehearsals, loading: rehearsalsLoading, error: rehearsalsError, fetch: fetchRehearsals } =
+    useRehearsals()
+  const {
+    data: announcement,
+    loading: announcementLoading,
+    fetch: fetchAnnouncement,
+  } = useAnnouncements()
   const { user } = useUser()
   const {
     map: attendanceMap,
@@ -48,9 +58,17 @@ export default function Index() {
   } = useAttendance()
   const { profile: myProfile } = useMyProfile()
   const darkClass = useThemeClass()
-  useTabBarBadgeSync()
+
   // 签到覆盖请假：签到成功后撤销该排练 pending/approved 申请（best-effort，失败不阻断签到）
-  const { cancelOnSignIn } = useLeaveRequests()
+  const { data: leaveRequests, cancelOnSignIn, fetchMine: fetchLeaveMine } = useLeaveRequests()
+
+  // A：每次切回首页重新拉取排练与请假，并重置全局轮询计时器
+  useDidShow(() => {
+    void fetchRehearsals()
+    void fetchLeaveMine()
+    void fetchAnnouncement()
+    dataSyncBump()
+  })
 
   const profileName = myProfile?.full_name ?? null
 
@@ -89,6 +107,8 @@ export default function Index() {
   const [detailRehearsal, setDetailRehearsal] = useState<RehearsalRow | null>(null)
   // 请假面板当前绑定的排练（详情弹窗「我要请假 ＞」打开，叠加在详情之上）
   const [leaveRehearsal, setLeaveRehearsal] = useState<RehearsalRow | null>(null)
+  // 公告详情弹窗（成员主页顶部公告条点击打开）
+  const [showAnnouncementDetail, setShowAnnouncementDetail] = useState(false)
 
   // 加载我的考勤
   useEffect(() => {
@@ -110,6 +130,28 @@ export default function Index() {
     )
     return sortRehearsalsForMember(filtered, now)
   }, [rehearsals, scheduleTab, nowTick])
+
+  // 每场排练最近的「有效」（未撤回/未取消）申请（fetchMine 已按 created_at 倒序，首个命中即最新；
+  // 已取消视同无申请，卡片显示「请假」可重新提交，Issue #149）
+  const leaveRequestMap = useMemo(() => {
+    const m: Record<number, LeaveRequestRow> = {}
+    for (const r of leaveRequests) {
+      if (r.status === 'withdrawn' || r.status === 'canceled') continue
+      if (!(r.rehearsal_id in m)) m[r.rehearsal_id] = r
+    }
+    return m
+  }, [leaveRequests])
+
+  // 覆盖请假提醒（Issue #155）：该排练存在 pending/approved 申请时，
+  // 签到码弹窗提示「签到会覆盖请假状态」；已驳回维持不变（不提示）
+  const codeOverrideHint = useMemo(() => {
+    if (!codeRehearsal) return null
+    const req = leaveRequestMap[codeRehearsal.id]
+    if (req && (req.status === 'pending' || req.status === 'approved')) {
+      return '请假后签到会覆盖请假状态，并记录实际出勤'
+    }
+    return null
+  }, [codeRehearsal, leaveRequestMap])
 
   // 签到成功后续（合排/分排共用）：按服务端返回状态提示、覆盖请假 best-effort、刷新考勤 map
   const handleSignInSuccess = async (rehearsalId: number, row: SignInResultRow | null) => {
@@ -207,7 +249,7 @@ export default function Index() {
       {/* 欢迎语（5 秒后淡出消失） */}
       {user && welcomeMounted && (
         <View
-          className={`mb-4 transition-opacity duration-500 ${
+          className={`mt-4 transition-opacity py-2 duration-300 ${
             welcomeVisible ? 'opacity-100' : 'opacity-0'
           }`}
         >
@@ -218,6 +260,18 @@ export default function Index() {
       )}
 
       {/* 排练日程标题 + Toggle */}
+      {/* 公告（点击查看详情） */}
+      {!announcementLoading && announcement?.content ? (
+        <View className='mt-4 mb-4' onClick={() => setShowAnnouncementDetail(true)}>
+          <View className='flex items-center gap-2 rounded-xl border border-warning-bg bg-warning-bg/80 px-3 py-2'>
+            <Text className='shrink-0 text-warning'>📢</Text>
+            <View className='min-w-0 flex-1 max-h-[60px] overflow-hidden'>
+              <Text className='text-xs leading-relaxed text-warning'>{announcement.content}</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       <View className='mb-3 mt-1'>
         <PageHeader
           title={scheduleTab === 'history' ? '历史合排' : '本周排练日程'}
@@ -259,6 +313,7 @@ export default function Index() {
                 attendance={attendanceMap[r.id] ?? null}
                 attendanceLoading={attendanceLoading}
                 isUpdated={isRehearsalUpdated(r) && !isRehearsalEnded(r, new Date(nowTick))}
+                leaveRequest={leaveRequestMap[r.id] ?? null}
                 onSignIn={() => handleSignIn(r)}
                 onClick={() => setDetailRehearsal(r)}
               />
@@ -274,6 +329,7 @@ export default function Index() {
         submitting={codeSubmitting}
         codeInput={codeInput}
         codeError={codeError}
+        hint={codeOverrideHint}
         onCodeChange={(v) => {
           setCodeError(null)
           setCodeInput(v)
@@ -305,6 +361,25 @@ export default function Index() {
           }
         }}
       />
+
+      {/* 公告详情弹窗（顶部公告条点击打开，只读） */}
+      <Modal
+        open={showAnnouncementDetail}
+        onClose={() => setShowAnnouncementDetail(false)}
+        title='公告详情'
+        position='bottom'
+      >
+        <View>
+          <Text className='mb-3 block text-xs text-text-muted'>
+            发布时间：{formatDateTimeInChina(announcement?.created_at ?? null)}
+          </Text>
+          <View className='max-h-[60vh] overflow-y-auto'>
+            <Text className='whitespace-pre-wrap break-words text-sm leading-relaxed text-text'>
+              {announcement?.content}
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }

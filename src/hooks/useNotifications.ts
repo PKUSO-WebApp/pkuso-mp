@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
+import { dataSyncBump, subscribeSync } from '@/lib/dataSync'
 import type { NotificationCategory, NotificationRow } from '@/types/database'
 
 /** 三个信箱分类（profile 页按钮共用） */
@@ -39,8 +40,8 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
   }, [])
 
   /** 重新拉取未读数（挂载时调用） */
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true)
     const { data, error } = await client
       .from('notifications')
       .select('category')
@@ -57,6 +58,14 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
     }
     setUnreadCounts(counts)
   }, [client])
+
+  // 心跳检测到未读数变化后静默重取（不翻 loading；红点由 NotificationBadgeSync 统一刷新）
+  useEffect(() => {
+    const handler = () => {
+      void refresh({ silent: true })
+    }
+    return subscribeSync('notifications', handler)
+  }, [refresh])
 
   /** 拉取某分类的消息列表（created_at 倒序） */
   const fetchByCategory = useCallback(
@@ -86,6 +95,7 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
       if (ids.length === 0) {
         // 无未读行可标（fetch 已确认该分类无未读）：直接归零
         setUnreadCounts((prev) => ({ ...prev, [category]: 0 }))
+        dataSyncBump()
         return true
       }
       try {

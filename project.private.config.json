@@ -1,6 +1,6 @@
 {
   "libVersion": "3.17.1",
-  "projectname": "pkuso-webapp-test",
+  "projectname": "pkuso-mp",
   "setting": {
     "urlCheck": true,
     "coverView": false,

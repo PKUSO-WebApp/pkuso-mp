@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
+import { dataSyncBump, subscribeSync } from '@/lib/dataSync'
 import type { LeaveRequestRow, LeaveRequestWithDetails } from '@/types/database'
 import { guessContentType, uploadLocalFile } from '@/lib/uploadLocalFile'
 
@@ -70,10 +71,10 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
   const fetchSeqRef = useRef(0)
 
   /** 查当前用户全部申请（含排练信息 join），按 created_at 倒序 */
-  const fetchMine = useCallback(async () => {
+  const fetchMine = useCallback(async (opts?: { silent?: boolean }) => {
     if (!mountedRef.current) return null
     const seq = ++fetchSeqRef.current
-    setLoading(true)
+    if (!opts?.silent) setLoading(true)
     setError(null)
     const { data: rows, error: dbError } = await client
       .from('leave_requests')
@@ -100,6 +101,14 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
     }
   }, [fetchMine])
 
+  // 心跳检测到「我的请假」版本变化后静默重取（状态被管理员审批/驳回时即时可见）
+  useEffect(() => {
+    const handler = () => {
+      void fetchMine({ silent: true })
+    }
+    return subscribeSync('leave', handler)
+  }, [fetchMine])
+
   /** 新建申请（RLS 校验 user_id 必须是本人；目标状态固定为 excused）。 */
   const create = useCallback(
     async (payload: LeaveRequestPayload) => {
@@ -116,10 +125,17 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
           target_status: 'excused',
         } as never)
         if (dbError) {
-          if (mountedRef.current) setError(dbError.message)
+          if (mountedRef.current) {
+            setError(
+              dbError.message.includes('cannot request leave after signing in')
+                ? '已签到，无法再提交请假申请'
+                : dbError.message
+            )
+          }
           return false
         }
         await fetchMine()
+        dataSyncBump()
         return true
       } finally {
         savingRef.current = false
@@ -172,6 +188,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
         }
         await cleanupOldAttachment(payload.old_attachment_url, payload.attachment_url)
         await fetchMine()
+        dataSyncBump()
         return true
       } finally {
         savingRef.current = false
@@ -213,6 +230,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
         }
         await cleanupOldAttachment(payload.old_attachment_url, payload.attachment_url)
         await fetchMine()
+        dataSyncBump()
         return true
       } finally {
         savingRef.current = false
@@ -259,6 +277,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
           if (safePath) await client.storage.from('leave-attachments').remove([safePath])
         }
         await fetchMine()
+        dataSyncBump()
         return true
       } finally {
         savingRef.current = false
@@ -315,6 +334,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
           }
         }
         await fetchMine()
+        dataSyncBump()
         return { ok: true }
       } finally {
         savingRef.current = false

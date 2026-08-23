@@ -56,7 +56,7 @@ export function NotificationInboxModal({
 
   return (
     <Modal open onClose={onClose} title={label} position='bottom'>
-      <ScrollView scrollY className='mt-4 space-y-3' style={{ maxHeight: '60vh' }}>
+      <ScrollView scrollY className='mt-4 pt-0.5 pb-0' style={{ maxHeight: '60vh' }}>
         {loading ? (
           <Text className='block py-6 text-center text-xs text-text-muted'>加载中…</Text>
         ) : failed ? (
@@ -67,7 +67,7 @@ export function NotificationInboxModal({
           <Text className='block py-6 text-center text-sm text-text-muted'>暂无消息</Text>
         ) : (
           messages.map((msg) => (
-            <View key={msg.id} className='rounded-xl border border-border bg-card p-3'>
+            <View key={msg.id} className='rounded-xl border border-border bg-card p-3 mb-0.5'>
               <View className='flex items-start justify-between gap-2'>
                 <Text className='min-w-0 flex-1 text-sm font-medium text-text'>{msg.title}</Text>
                 <Text className='flex-shrink-0 text-xs text-text-muted'>

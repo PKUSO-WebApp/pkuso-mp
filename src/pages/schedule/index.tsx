@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text } from '@tarojs/components'
+import { useDidShow } from '@tarojs/taro'
+import { dataSyncBump } from '@/lib/dataSync'
 import { useSchedule } from '@/hooks/useSchedule'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
-import { useTabBarBadgeSync } from '@/components/badge-sync-context'
+
 import { PageHeader } from '@/components/page-header'
 import { getLocalDateString, parseLocalISO, formatDisplayDate } from '@/lib/date-utils'
 import { DateSelector } from './components/date-selector'
@@ -33,14 +35,22 @@ export default function Schedule() {
   const { profile: myProfile } = useMyProfile()
   const { user } = useUser()
   const darkClass = useThemeClass()
-  useTabBarBadgeSync()
+
   const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString)
   const [createOpen, setCreateOpen] = useState(false)
+  const selectedDateRef = useRef(selectedDate)
+  selectedDateRef.current = selectedDate
 
   // 日期变化时重新获取数据
   useEffect(() => {
     void fetch(selectedDate)
   }, [selectedDate, fetch])
+
+  // A：每次切回本 tab 重新拉取当前日期预约，并重置全局轮询计时器
+  useDidShow(() => {
+    void fetch(selectedDateRef.current)
+    dataSyncBump()
+  })
 
   // 过滤当前日期的预约（后端已按日期筛选，这里做二次过滤确保准确）
   const filteredSchedules = useMemo(

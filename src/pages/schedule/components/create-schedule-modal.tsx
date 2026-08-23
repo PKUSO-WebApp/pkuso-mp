@@ -3,6 +3,24 @@ import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { Modal } from '@/components/ui/Modal'
 
+// 时间选择最小单位 15 分钟：分钟列仅提供 00/15/30/45 四档。
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+const MINUTES = ['00', '15', '30', '45']
+
+function timeToIndices(time: string): [number, number] {
+  if (!time || !/^\d{1,2}:\d{2}$/.test(time)) return [9, 0]
+  const [h, m] = time.split(':')
+  const hi = HOURS.indexOf(h.padStart(2, '0'))
+  const mi = Math.min(MINUTES.length - 1, Math.max(0, Math.round(Number(m) / 15)))
+  return [hi < 0 ? 9 : hi, mi]
+}
+
+function indicesToTime(indices: number[]): string {
+  const h = HOURS[indices?.[0] ?? 9] ?? '09'
+  const m = MINUTES[indices?.[1] ?? 0] ?? '00'
+  return `${h}:${m}`
+}
+
 type Props = {
   open: boolean
   /** 默认预约日期（取自日程页当前选中日） */
@@ -18,7 +36,7 @@ type Props = {
 
 /**
  * 添加排练房预约弹窗（Web create-schedule-modal 小程序移植）。
- * 标题 + 日期（Picker）+ 开始/结束时间（Picker，半小时间隔校验由父级 checkConflict 负责）。
+ * 标题 + 日期（Picker）+ 开始/结束时间（multiSelector，分钟列仅 00/15/30/45，最小单位 15 分钟）。
  * 写入的 start_time/end_time 用空格分隔（YYYY-MM-DD HH:mm:ss），与库内存储格式一致
  * （useSchedule 读取后再归一化为 T 分隔）。
  * 双重 guard 防重复提交；提交前先 checkConflict 阻止时间重叠。
@@ -113,7 +131,7 @@ export function CreateScheduleModal({
       <View className='mt-2 space-y-3'>
         <View className='space-y-1'>
           <Text className='block text-label text-text-muted'>预约标题</Text>
-          <View className='w-full overflow-hidden rounded-xl border border-border bg-muted'>
+          <View className='w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               value={title}
               onInput={(e) => {
@@ -121,7 +139,7 @@ export function CreateScheduleModal({
                 setError(null)
               }}
               disabled={busy}
-              className='bg-transparent px-3 py-2 text-xs text-text'
+              className='bg-transparent py-2 text-xs text-text'
               placeholder='如：排练房A预约'
             />
           </View>
@@ -140,10 +158,11 @@ export function CreateScheduleModal({
           <Text className='block text-label text-text-muted'>开始时间</Text>
           <View className='rounded-xl border border-border bg-muted px-3 py-2'>
             <Picker
-              mode='time'
-              value={startTime}
+              mode='multiSelector'
+              range={[HOURS, MINUTES]}
+              value={timeToIndices(startTime)}
               onChange={(e) => {
-                setStartTime(e.detail.value)
+                setStartTime(indicesToTime(e.detail.value))
                 setError(null)
               }}
             >
@@ -156,10 +175,11 @@ export function CreateScheduleModal({
           <Text className='block text-label text-text-muted'>结束时间</Text>
           <View className='rounded-xl border border-border bg-muted px-3 py-2'>
             <Picker
-              mode='time'
-              value={endTime}
+              mode='multiSelector'
+              range={[HOURS, MINUTES]}
+              value={timeToIndices(endTime)}
               onChange={(e) => {
-                setEndTime(e.detail.value)
+                setEndTime(indicesToTime(e.detail.value))
                 setError(null)
               }}
             >

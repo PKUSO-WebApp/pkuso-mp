@@ -11,9 +11,10 @@ export default defineAppConfig({
     'pages/schedule/index',
     'pages/members/index',
     'pages/profile/index',
-    'pages/error/index',
-  ],
-  window: {
+     'pages/error/index',
+   ],
+   lazyCodeLoading: 'requiredComponents',
+   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#ffffff',
     navigationBarTitleText: '北大交响乐团',
@@ -21,6 +22,7 @@ export default defineAppConfig({
     backgroundColor: '#f4f4f5',
   },
   tabBar: {
+    custom: true,
     color: '#71717a',
     selectedColor: '#18181b',
     backgroundColor: '#ffffff',

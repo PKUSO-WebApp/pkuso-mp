@@ -2,12 +2,11 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
+import { getTabBarUnread, setTabBarUnread } from '@/lib/tabBarBadge'
 import { NotificationBadgeSync, NOTIFICATION_UPDATED_EVENT } from './notification-badge-sync'
 
 const { taroMock, notif, userMock } = vi.hoisted(() => ({
   taroMock: {
-    showTabBarRedDot: vi.fn(() => Promise.resolve()),
-    hideTabBarRedDot: vi.fn(() => Promise.resolve()),
     useDidShow: vi.fn(),
     eventCenter: { on: vi.fn(), off: vi.fn(), trigger: vi.fn() },
   },
@@ -24,6 +23,8 @@ vi.mock('@/hooks/useNotifications', () => ({
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  // 复位模块级红点 store，避免用例间串扰
+  setTabBarUnread(0)
 })
 
 describe('NotificationBadgeSync 红点', () => {
@@ -36,26 +37,24 @@ describe('NotificationBadgeSync 红点', () => {
     expect(notif.refresh).toHaveBeenCalled()
   })
 
-  it('未读数 > 0 显示纯红点（无数字）', () => {
+  it('未读数 > 0 写入模块 store（custom tabBar 据此渲染红点）', () => {
     notif.totalUnread = 3
     render(
       <NotificationBadgeSync>
         <div />
       </NotificationBadgeSync>
     )
-    expect(taroMock.showTabBarRedDot).toHaveBeenCalledWith({ index: 4 })
-    expect(taroMock.hideTabBarRedDot).not.toHaveBeenCalled()
+    expect(getTabBarUnread()).toBe(3)
   })
 
-  it('未读数为 0 隐藏红点', () => {
+  it('未读数为 0 时 store 为 0（无红点）', () => {
     notif.totalUnread = 0
     render(
       <NotificationBadgeSync>
         <div />
       </NotificationBadgeSync>
     )
-    expect(taroMock.hideTabBarRedDot).toHaveBeenCalledWith({ index: 4 })
-    expect(taroMock.showTabBarRedDot).not.toHaveBeenCalled()
+    expect(getTabBarUnread()).toBe(0)
   })
 
   it('监听通知更新事件，profile 标记已读后重新拉取', () => {

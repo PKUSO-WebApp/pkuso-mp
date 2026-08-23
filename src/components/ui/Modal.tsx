@@ -1,7 +1,7 @@
-import { useEffect } from 'react'
-import Taro from '@tarojs/taro'
 import { Button, View } from '@tarojs/components'
 import type { ReactNode } from 'react'
+import { useLayoutEffect } from 'react'
+import { setOverlayOpen } from '@/lib/overlayStore'
 
 type ModalProps = {
   open: boolean
@@ -25,21 +25,21 @@ export function Modal({
   position = 'bottom',
   closeOnOverlay = true,
 }: ModalProps) {
+  // 打开时通知 custom tabBar 隐藏自身，确保弹窗盖在 tabBar 之上。
+  // 用 useLayoutEffect（而非 useEffect）在「绘制前」同步隐藏底边栏，
+  // 避免底边栏(CoverView，原生层恒在 Modal 之上)在 Modal 出现后、display:none 生效前的那一帧覆盖 Modal 造成闪烁。
+  useLayoutEffect(() => {
+    if (!open) return
+    setOverlayOpen(true)
+    return () => setOverlayOpen(false)
+  }, [open])
+
   const align = position === 'center' ? 'items-center' : 'items-end'
   const radius = position === 'center' ? 'rounded-2xl' : 'rounded-t-3xl'
-  const isBottomSheet = position === 'bottom'
 
-  // 小程序 tabBar 为原生组件，webview 底边止于 tabBar 顶边；底部弹窗需隐藏原生
-  // tabBar，遮罩才能铺满到设备屏幕底边（关闭/卸载时还原）。仅 weapp 端生效，
-  // H5 / 非 tabBar 页为 no-op。
-  useEffect(() => {
-    if (!open || !isBottomSheet) return
-    if (process.env.TARO_ENV !== 'weapp') return
-    Taro.hideTabBar({ animation: false }).catch(() => {})
-    return () => {
-      Taro.showTabBar({ animation: false }).catch(() => {})
-    }
-  }, [open, isBottomSheet])
+  // custom tabBar 是 CoverView（原生层恒在页面 Modal 之上），故打开弹窗时需主动将其
+  // display:none 隐藏；上述 useLayoutEffect 保证隐藏与弹窗出现发生在同一帧，避免闪烁。
+  // 弹窗遮罩自然铺满到设备屏幕底边（同时解决原 hideTabBar 闪白条问题）。
 
   if (!open) return null
 

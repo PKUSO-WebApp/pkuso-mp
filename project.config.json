@@ -2,7 +2,7 @@
   "miniprogramRoot": "dist/",
   "projectname": "pkuso-miniprogram",
   "description": "PKUSO wechat miniprogram (member end)",
-  "appid": "wx1c1251fb88349024",
+  "appid": "wx4813b0549427f8c3",
   "setting": {
     "urlCheck": true,
     "es6": false,

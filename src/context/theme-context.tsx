@@ -16,6 +16,7 @@ import {
   type ThemePreference,
   type ThemeMode,
 } from '@/lib/theme'
+import { setThemeMode } from '@/lib/themeStore'
 
 export type ThemeContextValue = {
   /** 用户三态选择（亮色 / 暗色 / 跟随系统） */
@@ -78,26 +79,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // 导航栏/窗口底色/tabBar 配色跟随实际模式
+  // 导航栏/窗口底色跟随实际模式；custom tabBar 自管主题（见 themeStore），不再调用 setTabBarStyle
   useEffect(() => {
     const colors = NAV_BAR_COLORS[mode]
     const windowColors = WINDOW_COLORS[mode]
-    // 非 tab 页调 setTabBarStyle 会 reject，统一 catch 静默（非页面环境如测试同样跳过）
+    // 非 tab 页调部分 API 会 reject，统一 catch 静默（非页面环境如测试同样跳过）
     const noop = () => {}
     try {
       void Taro.setNavigationBarColor(colors).catch(noop)
       // page 元素背景（窗口底色）：页面根 View 盖不到滚动阻尼露出的区域
       void Taro.setBackgroundColor({ backgroundColor: windowColors.backgroundColor }).catch(noop)
-      // 原生 tabBar 静态配置不会随主题切换，需运行时同步
-      void Taro.setTabBarStyle({
-        backgroundColor: windowColors.tabBar.backgroundColor,
-        color: windowColors.tabBar.color,
-        selectedColor: windowColors.tabBar.selectedColor,
-        borderStyle: 'black',
-      }).catch(noop)
+      // custom tabBar 通过 themeStore 订阅 mode 自行套 .dark 类与语义 token，无需同步原生 tabBar
     } catch {
       // 非页面环境（如测试）静默跳过
     }
+  }, [mode])
+
+  // 推送当前模式到模块级 themeStore，供 custom tabBar 订阅（其不继承 theme-context）
+  useEffect(() => {
+    setThemeMode(mode)
   }, [mode])
 
   // system 模式下监听系统外观变化实时跟随；切到 light/dark 时清理监听

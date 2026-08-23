@@ -4,7 +4,7 @@ import { usePosts } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useThemeClass } from '@/context/theme-context'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
-import { useTabBarBadgeSync } from '@/components/badge-sync-context'
+
 import { Toggle } from '@/components/ui/Toggle'
 import { Card } from '@/components/ui/Card'
 import { PageHeader } from '@/components/page-header'
@@ -38,7 +38,7 @@ export default function Community() {
   const { data: posts, loading, error } = usePosts()
   const { profile: myProfile } = useMyProfile()
   const darkClass = useThemeClass()
-  useTabBarBadgeSync()
+
   const [view, setView] = useState<PostType>('ensemble')
   const [detailPost, setDetailPost] = useState<PostRowWithAuthor | null>(null)
 

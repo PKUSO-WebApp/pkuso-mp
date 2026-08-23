@@ -6,7 +6,7 @@ import { useThemeClass } from '@/context/theme-context'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
-import { useTabBarBadgeSync } from '@/components/badge-sync-context'
+
 import { Card } from '@/components/ui/Card'
 import { PageHeader } from '@/components/page-header'
 import { groupProfilesByInstrument } from '@/lib/roster-utils'
@@ -27,7 +27,7 @@ export default function Members() {
   } = useProfiles({ status: 'approved' })
 
   const darkClass = useThemeClass()
-  useTabBarBadgeSync()
+
 
   // 切回本 tab 时重新拉取花名册（Taro tab 页常驻内存不卸载，仅靠挂载时一次
   // 拉取会导致「改完资料回来仍是旧数据」；回到本页静默刷新，旧数据仍展示不闪加载）
@@ -66,9 +66,9 @@ export default function Members() {
       </View>
 
       <View className='flex-1 min-h-0 space-y-4 overflow-y-auto'>
-        <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+        <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
           <Input
-            className='h-10 w-full bg-transparent px-3 text-sm text-text'
+            className='h-10 w-full bg-transparent text-sm text-text'
             placeholder='搜索姓名（支持中文/拼音/首字母）'
             value={searchQuery}
             onInput={(e) => setSearchQuery(e.detail.value)}

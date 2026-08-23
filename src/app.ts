@@ -1,8 +1,9 @@
-import { createElement, PropsWithChildren } from 'react'
+import { createElement, Fragment, PropsWithChildren } from 'react'
 import Taro, { useLaunch } from '@tarojs/taro'
 import { UserProvider } from './context/user-context'
 import { ThemeProvider } from './context/theme-context'
 import { NotificationBadgeSync } from './components/notification-badge-sync'
+import { DataSyncProvider } from './components/data-sync-provider'
 import { ErrorBoundary } from './components/error-boundary'
 
 import './app.css'
@@ -29,14 +30,23 @@ function App({ children }: PropsWithChildren<any>) {
 
   // children 是将要会渲染的页面；Provider 在冷启动恢复会话/主题并供各页面使用。
   // 注：app.ts 是 .ts 文件不能写 JSX，此处用 createElement 包 Provider
-  // ErrorBoundary 在最外层捕获渲染错误；NotificationBadgeSync 挂载于 App 根维护「我的」tab 红点
+  // ErrorBoundary 在最外层捕获渲染错误；NotificationBadgeSync 挂载于 App 根维护「我的」tab 红点。
+  // 底边栏 UI 由框架专用槽位组件 src/custom-tab-bar 渲染（custom:true），不在 App 根渲染。
   return createElement(
     ErrorBoundary,
     null,
     createElement(
       UserProvider,
       null,
-      createElement(ThemeProvider, null, createElement(NotificationBadgeSync, null, children))
+        createElement(
+          ThemeProvider,
+          null,
+          createElement(
+            DataSyncProvider,
+            null,
+            createElement(NotificationBadgeSync, null, createElement(Fragment, null, children))
+          )
+        )
     )
   )
 }

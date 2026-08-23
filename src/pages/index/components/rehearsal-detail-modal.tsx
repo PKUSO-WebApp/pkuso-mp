@@ -80,6 +80,9 @@ export function RehearsalDetailModal({
     ? getSignBlockReason(item.start_time, item.end_time ?? null, new Date())
     : null
   const leaveLabel = blockReason === 'ended' ? '我要补请假 ＞' : '我要请假 ＞'
+  // 签到（出席/迟到）后不可再请假（与 cancel_leave_on_sign_in 对称，Issue #155 衍生）；
+  // attendance 未加载时为 undefined，不拦截，加载到 present/late 即隐藏入口。
+  const canRequestLeave = attendance?.status !== 'present' && attendance?.status !== 'late'
 
   return (
     <Modal open={!!item} onClose={onClose} title='排练详情' position='bottom'>
@@ -117,8 +120,9 @@ export function RehearsalDetailModal({
           </Text>
         </View>
 
-        {/* 请假入口（Issue #142 移植）：点击打开请假面板，查看已有申请或提交 */}
-        {onRequestLeave && (
+        {/* 请假入口（Issue #142 移植）：点击打开请假面板，查看已有申请或提交；
+            已签到（出席/迟到）时隐藏，由 guard_leave_request_after_sign_in 服务端兜底 */}
+        {onRequestLeave && canRequestLeave && (
           <View className='mt-1 flex items-center justify-end' onClick={onRequestLeave}>
             <Text className='text-label text-primary'>{leaveLabel}</Text>
           </View>

@@ -137,9 +137,9 @@ export default function SetupPage() {
 
         <View className='mb-3'>
           <Text className='text-sm font-medium text-text-muted'>姓名</Text>
-          <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+          <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
-              className='h-10 px-3 text-sm text-text'
+              className='h-10 text-sm text-text'
               placeholder='请输入真实姓名'
               value={name}
               onInput={(e) => {
@@ -152,9 +152,9 @@ export default function SetupPage() {
 
         <View className='mb-3'>
           <Text className='text-sm font-medium text-text-muted'>邮箱</Text>
-          <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+          <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
-              className='h-10 px-3 text-sm text-text'
+              className='h-10 text-sm text-text'
               placeholder='name@example.com'
               value={email}
               onInput={(e) => {

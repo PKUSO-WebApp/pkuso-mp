@@ -73,4 +73,81 @@ describe('RehearsalCard', () => {
     // 不抛错即为通过
     expect(container.firstElementChild).toBeTruthy()
   })
+
+  it('进行中 + 待审批申请：签到按钮变黄「覆盖请假」（warning 色系）', () => {
+    const { getByText } = render(
+      <RehearsalCard
+        item={inWindowRehearsal}
+        attendanceLoading={false}
+        leaveRequest={{ status: 'pending' }}
+        onSignIn={vi.fn()}
+      />
+    )
+    const btn = getByText('覆盖请假')
+    expect(btn.className).toContain('bg-warning-bg')
+    expect(btn.className).toContain('text-warning')
+  })
+
+  it('进行中 + 已通过申请：同样变黄「覆盖请假」', () => {
+    const { getByText } = render(
+      <RehearsalCard
+        item={inWindowRehearsal}
+        attendanceLoading={false}
+        leaveRequest={{ status: 'approved' }}
+        onSignIn={vi.fn()}
+      />
+    )
+    expect(getByText('覆盖请假')).toBeTruthy()
+  })
+
+  it('进行中 + 已驳回申请：不提示覆盖、显示普通「签到」', () => {
+    const { getByText } = render(
+      <RehearsalCard
+        item={inWindowRehearsal}
+        attendanceLoading={false}
+        leaveRequest={{ status: 'rejected' }}
+        onSignIn={vi.fn()}
+      />
+    )
+    const btn = getByText('签到')
+    expect(btn.className).not.toContain('bg-warning-bg')
+  })
+
+  it('进行中 + 出勤为请假(excused)未签到 + 无进行中申请：仍显示普通「签到」（修复死局，Issue #159）', () => {
+    const { getByText } = render(
+      <RehearsalCard
+        item={inWindowRehearsal}
+        attendance={{ status: 'excused', sign_in_time: null } as never}
+        attendanceLoading={false}
+        onSignIn={vi.fn()}
+      />
+    )
+    expect(getByText('签到')).toBeTruthy()
+  })
+
+  it('进行中 + 出勤为请假(excused)未签到 + 有进行中申请：黄色「覆盖请假」（优先级高于 excused 普通签到）', () => {
+    const { getByText } = render(
+      <RehearsalCard
+        item={inWindowRehearsal}
+        attendance={{ status: 'excused', sign_in_time: null } as never}
+        attendanceLoading={false}
+        leaveRequest={{ status: 'pending' }}
+        onSignIn={vi.fn()}
+      />
+    )
+    expect(getByText('覆盖请假')).toBeTruthy()
+  })
+
+  it('签到窗口外 + 待审批申请：不渲染任何按钮（覆盖请假仅窗口内）', () => {
+    const { queryByText } = render(
+      <RehearsalCard
+        item={upcomingRehearsal}
+        attendanceLoading={false}
+        leaveRequest={{ status: 'pending' }}
+        onSignIn={vi.fn()}
+      />
+    )
+    expect(queryByText('覆盖请假')).toBeNull()
+    expect(queryByText('签到')).toBeNull()
+  })
 })

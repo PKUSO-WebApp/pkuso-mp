@@ -25,6 +25,8 @@ type Props = {
   onClick?: () => void
   /** 编辑过（updated_at > created_at），在标题下方展示「更新」提示 */
   isUpdated?: boolean
+  /** 该排练当前有效（未撤回/未取消）的请假申请；无则 null（Issue #142，供覆盖请假按钮判定） */
+  leaveRequest?: { status: string } | null
 }
 
 export function RehearsalCard({
@@ -34,6 +36,7 @@ export function RehearsalCard({
   onSignIn,
   onClick,
   isUpdated,
+  leaveRequest,
 }: Props) {
   // 签到窗口判定：未开始/已结束不渲染任何按钮
   const blockReason = getSignBlockReason(item.start_time, item.end_time ?? null, new Date())
@@ -41,15 +44,29 @@ export function RehearsalCard({
   // 签到锁定：sign_in_time 非空即已签到，出勤状态固定，不可再签到/修改
   const signedIn = hasSignedIn(attendance?.sign_in_time)
 
-  // 管理员显式设置的非默认状态（出席/迟到/请假，或签到后被改状态）：状态已确定
+  // 管理员显式设置的非默认状态（出席/迟到/请假，或签到后被改状态）：状态已确定；
+  // 其中「请假未签到且无有效申请」仍可签到覆盖（见 canSignOverrideExcused，Issue #159 返工）
   const explicitStatus = attendance && attendance.status !== 'absent' ? attendance.status : null
+
+  // 进行中申请（待审批/已通过）：拦截普通签到，需黄色「覆盖请假」按钮；已驳回/已撤回/已取消视同无申请
+  const leaveStatus = leaveRequest?.status ?? null
+  const hasActiveLeaveRequest = leaveStatus === 'pending' || leaveStatus === 'approved'
+
+  // 覆盖请假（Issue #155）：签到窗口内且存在 pending/approved 申请时，按钮变黄色「覆盖请假」
+  const canOverrideLeave = !signedIn && blockReason === null && hasActiveLeaveRequest
+
+  // 覆盖签到（Issue #159 返工）：出勤为请假（excused）未签到、且无进行中申请时，
+  // 签到窗口内仍显示普通「签到」按钮——到场可签覆盖请假状态，修复撤回已通过申请后的死局
+  const canSignOverrideExcused =
+    explicitStatus === 'excused' && !signedIn && !hasActiveLeaveRequest && blockReason === null
 
   // 普通签到：无显式状态、未签到、签到窗口内
   const canSign = !signedIn && blockReason === null && explicitStatus === null
 
   // 签到按钮外显条件：签到窗口内、未签到、考勤已加载
-  // （分排/合排都显示；合排无签到码由页面点击时提示，与 Web 端一致）
-  const showSignButton = !attendanceLoading && canSign && !!onSignIn
+  // （普通签到、黄色覆盖请假、excused 覆盖签到 三种情况渲染按钮）
+  const showSignButton =
+    !attendanceLoading && (canSign || canOverrideLeave || canSignOverrideExcused) && !!onSignIn
 
   // 更新提示文案
   const updateLabel = isUpdated ? getUpdateBadgeLabel(item) : null
@@ -92,13 +109,17 @@ export function RehearsalCard({
         ) : showSignButton ? (
           <View className='flex w-32 flex-shrink-0 flex-col gap-2 border-l border-border pl-3'>
             <View
-              className={`${BUTTON_BASE_CLASS} border border-border bg-surface text-text`}
+              className={`${BUTTON_BASE_CLASS} ${
+                canOverrideLeave
+                  ? 'bg-warning-bg text-warning'
+                  : 'border border-border bg-surface text-text'
+              }`}
               onClick={(e) => {
                 e.stopPropagation()
                 onSignIn?.()
               }}
             >
-              签到
+              {canOverrideLeave ? '覆盖请假' : '签到'}
             </View>
           </View>
         ) : null}
