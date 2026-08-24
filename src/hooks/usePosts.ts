@@ -17,6 +17,17 @@ export type CreatePostInput = {
 
 export type CreatePostResult = { ok: true } | { ok: false; error: string }
 
+/** 编辑帖子载荷；imageFile: undefined=保留原图 | null=删除原图 | UploadFileLike=新图替换。 */
+export type EditPostInput = {
+  type: PostType
+  title: string
+  content: string
+  current_sections?: string
+  missing_sections?: string
+  contact_info?: string
+  imageFile?: UploadFileLike | null
+}
+
 /**
  * 公告 hook（读 + 发布）。
  * 与 Web 版差异：无 realtime（挂载查询 + 手动重取 + 心跳 'post' 事件）；
@@ -30,6 +41,9 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
   const [data, setData] = useState<PostRowWithAuthor[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [mine, setMine] = useState<PostRowWithAuthor[]>([])
+  const [mineLoading, setMineLoading] = useState(false)
+  const [mineError, setMineError] = useState<string | null>(null)
   const savingRef = useRef(false)
   const [saving, setSaving] = useState(false)
   const mountedRef = useRef(true)
@@ -192,6 +206,161 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
     [client, fetch]
   )
 
+  /** 拉取「我发布的活动」（作者=当前用户，含已锁定，便于解锁），归一化 author join。 */
+  const fetchMine = useCallback(
+    async (opts?: { silent?: boolean }): Promise<PostRowWithAuthor[]> => {
+      const uid = (await client.auth.getUser()).data.user?.id
+      if (!uid) {
+        if (!opts?.silent) setMineLoading(false)
+        setMineError('未登录')
+        setMine([])
+        return []
+      }
+      if (!opts?.silent) setMineLoading(true)
+      setMineError(null)
+      const { data: rows, error: dbError } = await client
+        .from('posts')
+        .select(
+          'id, title, type, content, image_url, author_id, created_at, contact_info, current_sections, missing_sections, is_locked, profiles(full_name, instrument)'
+        )
+        .eq('author_id', uid)
+        .order('created_at', { ascending: false })
+      if (!opts?.silent) setMineLoading(false)
+      if (dbError) {
+        setMineError('加载失败，请重试')
+        setMine([])
+        return []
+      }
+      const list = (rows as unknown[] ?? []).map((row) => {
+        const r = row as PostRow & { profiles?: unknown }
+        const p = r.profiles as Record<string, unknown> | undefined
+        const profiles =
+          Array.isArray(p) && p.length > 0
+            ? {
+                full_name: (p[0] as Record<string, string | null>).full_name,
+                instrument: (p[0] as Record<string, string | null>).instrument,
+              }
+            : p && typeof p === 'object' && !Array.isArray(p)
+              ? (p as { full_name: string | null; instrument: string | null })
+              : null
+        return { ...r, profiles }
+      }) as PostRowWithAuthor[]
+      setMine(list)
+      return list
+    },
+    [client]
+  )
+
+  /** 锁定/解锁自己的帖子（与社区过滤 is_locked 联动）。 */
+  const setLocked = useCallback(
+    async (id: string, value: boolean): Promise<{ ok: true } | { ok: false; error: string }> => {
+      const { error: dbError } = await client.from('posts').update({ is_locked: value }).eq('id', id)
+      if (dbError) return { ok: false, error: dbError.message }
+      setMine((prev) => prev.map((p) => (p.id === id ? { ...p, is_locked: value } : p)))
+      emitSync('post')
+      return { ok: true }
+    },
+    [client]
+  )
+
+  /** 删除自己发布的帖子。 */
+  const deletePost = useCallback(
+    async (id: string): Promise<{ ok: true } | { ok: false; error: string }> => {
+      const { error: dbError } = await client.from('posts').delete().eq('id', id)
+      if (dbError) return { ok: false, error: dbError.message }
+      setMine((prev) => prev.filter((p) => p.id !== id))
+      emitSync('post')
+      return { ok: true }
+    },
+    [client]
+  )
+
+  /** 编辑帖子：内容安全（文本+可选新图）→ 写库（imageFile: undefined 保留 / null 删除 / file 替换）。 */
+  const updatePost = useCallback(
+    async (id: string, input: EditPostInput): Promise<CreatePostResult> => {
+      if (savingRef.current) return { ok: false, error: '请勿重复提交' }
+      savingRef.current = true
+      setSaving(true)
+      setError(null)
+      try {
+        const title = input.title.trim()
+        const content = input.content.trim()
+        if (!title || !content) return { ok: false, error: '请填写标题与内容' }
+
+        // 1) 文本审核（标题 + 内容）
+        const textRes = await client.functions.invoke('wechat-content-check', {
+          body: { kind: 'text', content: `${title}\n${content}` },
+        })
+        if (textRes.error) {
+          console.warn('[usePosts] 文本审核调用失败，放行：', textRes.error)
+        } else if ((textRes.data as { result?: string })?.result === 'block') {
+          return { ok: false, error: '内容包含违规信息，发布失败' }
+        }
+
+        // 2) 图片：undefined=保留原图；null=删除；file=上传替换
+        let imageUrl: string | null | undefined
+        if (input.imageFile === null) {
+          imageUrl = null
+        } else if (input.imageFile) {
+          const uid = (await client.auth.getUser()).data.user?.id
+          if (!uid) return { ok: false, error: '登录状态失效，请重新登录' }
+          const { uploadLocalFile, guessContentType } = await import('@/lib/uploadLocalFile')
+          const f = input.imageFile
+          const rawName = f.name || f.tempFilePath.split('/').pop() || 'image'
+          const safeName = rawName.replace(/[^A-Za-z0-9._-]/g, '-') || 'image'
+          const path = `${uid}/${Date.now()}-${safeName}`
+          const up = await uploadLocalFile(
+            client,
+            'community-images',
+            path,
+            f.tempFilePath,
+            guessContentType(safeName)
+          )
+          if (up.error) return { ok: false, error: `图片上传失败：${up.error.message}` }
+          imageUrl = client.storage.from('community-images').getPublicUrl(path).data.publicUrl
+
+          const imgRes = await client.functions.invoke('wechat-content-check', {
+            body: { kind: 'image', imageUrl },
+          })
+          const imgData = imgRes.data as { result?: string; ok?: boolean; error?: string } | null
+          if (imgRes.error) {
+            console.warn('[usePosts] 图片审核调用失败，放行：', imgRes.error)
+          } else if (imgData?.result === 'block') {
+            return { ok: false, error: '图片包含违规内容，发布失败' }
+          } else if (imgData?.ok === false) {
+            return { ok: false, error: imgData.error || '图片审核未通过' }
+          }
+        }
+
+        // 3) 写库
+        const patch: Record<string, unknown> = {
+          title,
+          content,
+          contact_info: input.contact_info?.trim() || null,
+        }
+        if (input.type === 'ensemble') {
+          patch.current_sections = input.current_sections?.trim() || null
+          patch.missing_sections = input.missing_sections?.trim() || null
+        } else {
+          patch.current_sections = null
+          patch.missing_sections = null
+        }
+        if (imageUrl !== undefined) patch.image_url = imageUrl
+
+        const { error: dbError } = await client.from('posts').update(patch as never).eq('id', id)
+        if (dbError) return { ok: false, error: dbError.message }
+
+        await fetchMine({ silent: true })
+        emitSync('post')
+        return { ok: true }
+      } finally {
+        savingRef.current = false
+        if (mountedRef.current) setSaving(false)
+      }
+    },
+    [client, fetchMine]
+  )
+
   useEffect(() => {
     mountedRef.current = true
     void fetch()
@@ -204,5 +373,20 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
     }
   }, [fetch])
 
-  return { data, loading, error, saving, fetch, fetchOne, create }
+  return {
+    data,
+    loading,
+    error,
+    saving,
+    fetch,
+    fetchOne,
+    create,
+    mine,
+    mineLoading,
+    mineError,
+    fetchMine,
+    updatePost,
+    setLocked,
+    deletePost,
+  }
 }

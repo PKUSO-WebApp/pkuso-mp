@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, Input } from '@tarojs/components'
+import { View, Text, Input, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -220,11 +220,10 @@ export default function Profile() {
   }
 
   return (
-    /* 本页豁免：整页滚动（page 根节点自身为滚动容器，tab bar 固定），与 Web 端 profile 页一致 */
-    <View
-      className={`${darkClass} h-full overflow-y-auto overscroll-contain bg-page-bg px-4 pb-safe`}
-    >
-      <View className='space-y-6 pt-4'>
+    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
+      <ScrollView scrollY className='flex-1 min-h-0'>
+        {/* 底部留白 = 自定义底边栏高(50px)，避免末行被遮挡、滚不到底（横屏同样稳健） */}
+        <View className='space-y-6 pt-4 pb-[50px]'>
         {/* 头像卡 */}
         <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
           <View className='flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-base font-medium text-primary-foreground'>
@@ -307,6 +306,13 @@ export default function Profile() {
             >
               <Text className='text-sm font-medium text-text'>考勤</Text>
             </View>
+            {/* 我的活动：我发布的活动管理（锁定/删除/编辑） */}
+            <View
+              className='border-b border-border px-4 py-3'
+              onClick={() => void Taro.navigateTo({ url: '/pages/my-activities/index' })}
+            >
+              <Text className='text-sm font-medium text-text'>我的活动</Text>
+            </View>
             {/* 外观：亮色 / 暗色 / 跟随系统 三态主题切换 */}
             <View className='border-b border-border px-4 py-3' onClick={() => setIsThemeOpen(true)}>
               <Text className='text-sm font-medium text-text'>外观</Text>
@@ -323,7 +329,12 @@ export default function Profile() {
             </View>
           </View>
         </View>
+        {/* 版本号：随时可查，报障时便于核对 */}
+        <View className='mt-8 text-center'>
+          <Text className='text-xs text-text-subtle'>北大交响乐团 · {getAppVersionLabel()}</Text>
+        </View>
       </View>
+      </ScrollView>
 
       {/* 账号与密码 Modal（Issue #214 语义 tab 化）：标题下方、内容上方左对齐
            放置「修改密码 / 换绑邮箱」tab，激活 tab 显示对应区块；切换 tab 不清空
@@ -451,10 +462,6 @@ export default function Profile() {
       {/* 问题与反馈 Modal：多行输入匿名提交 */}
       <FeedbackModal open={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
 
-      {/* 版本号：随时可查，报障时便于核对 */}
-      <View className='mt-8 pb-10 text-center'>
-        <Text className='text-xs text-text-subtle'>北大交响乐团 · {getAppVersionLabel()}</Text>
-      </View>
     </View>
   )
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
 import { View, Text } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useThemeClass } from '@/context/theme-context'
@@ -36,11 +36,16 @@ function hasSectionText(value: string | null | undefined): boolean {
  * 管理端登录显示阻断页（规划 §1：admin 留在 Web）。
  */
 export default function Community() {
-  const { data: posts, loading, error } = usePosts()
+  const { data: posts, loading, error, fetch } = usePosts()
   const { profile: myProfile } = useMyProfile()
   const darkClass = useThemeClass()
 
   const [view, setView] = useState<PostType>('ensemble')
+
+  // 切回社区 tab 时立即刷新公告（镜像 rehearsal 的 useDidShow 刷新，保证红点/列表即最新）
+  useDidShow(() => {
+    void fetch()
+  })
 
   const handleCreate = () => {
     Taro.navigateTo({ url: `/pages/post-create/index?type=${view}` })
@@ -109,7 +114,7 @@ export default function Community() {
             {list.map((post) => (
               <Card
                 key={post.id}
-                className='mb-3'
+                className='relative mb-3'
                 onClick={() => void Taro.navigateTo({ url: `/pages/post-detail/index?id=${post.id}` })}
               >
                 <View className='flex items-start justify-between gap-2'>
@@ -131,6 +136,13 @@ export default function Community() {
                     )}
                   </View>
                 </View>
+                {/* 未查看红气泡：打开详情页（markPostSeen）后消失，与首页排练卡一致 */}
+                {!isPostSeen(post.id) && (
+                  <View
+                    className='absolute right-0 top-0'
+                    style={{ width: '8px', height: '8px', borderRadius: '4px', background: '#de2626' }}
+                  />
+                )}
               </Card>
             ))}
           </View>

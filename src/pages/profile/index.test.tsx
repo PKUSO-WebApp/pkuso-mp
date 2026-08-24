@@ -36,7 +36,7 @@ vi.mock('@tarojs/components', () => {
     )
   }
   const Input = (props: any) => React.createElement('input', props)
-  return { View: create('div'), Text: create('span'), Button: create('button'), Picker, Input }
+  return { View: create('div'), Text: create('span'), Button: create('button'), Picker, Input, ScrollView: create('div') }
 })
 
 vi.mock('@tarojs/taro', () => ({ default: taroMock, useDidShow: taroMock.useDidShow }))

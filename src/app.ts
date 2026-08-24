@@ -3,6 +3,7 @@ import Taro, { useLaunch } from '@tarojs/taro'
 import { UserProvider } from './context/user-context'
 import { ThemeProvider } from './context/theme-context'
 import { NotificationBadgeSync } from './components/notification-badge-sync'
+import { PostUnviewedSync } from './components/post-unviewed-sync'
 import { DataSyncProvider } from './components/data-sync-provider'
 import { ErrorBoundary } from './components/error-boundary'
 
@@ -44,7 +45,16 @@ function App({ children }: PropsWithChildren<any>) {
           createElement(
             DataSyncProvider,
             null,
-            createElement(NotificationBadgeSync, null, createElement(Fragment, null, children))
+            createElement(
+              NotificationBadgeSync,
+              null,
+              createElement(
+                Fragment,
+                null,
+                createElement(PostUnviewedSync, null),
+                children
+              )
+            )
           )
         )
     )
