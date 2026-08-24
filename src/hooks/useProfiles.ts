@@ -30,6 +30,7 @@ export type ProfileUpdatePayload = Partial<
     | 'hide_email'
     | 'hide_phone'
     | 'hide_join_date'
+    | 'hide_college'
     | 'is_section_leader'
   >
 >

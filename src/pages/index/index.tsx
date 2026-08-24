@@ -156,7 +156,7 @@ export default function Index() {
       <ScrollView scrollY className='flex-1 min-h-0'>
         {/* 底部留白：自定义 tabBar 固定覆盖页面底部（高 50px + 安全区），
             历史合排多时末行会被遮挡、无法滚到底，故内容底部补足留白（与成员页一致） */}
-        <View className='pb-16'>
+        <View className='pb-8'>
         {rehearsalsLoading ? (
           <Text className='block py-12 text-center text-xs text-text-muted'>加载中…</Text>
         ) : rehearsalsError ? (

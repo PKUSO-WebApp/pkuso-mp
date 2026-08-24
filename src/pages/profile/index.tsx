@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, Input, Picker } from '@tarojs/components'
+import { useEffect, useRef, useState } from 'react'
+import { View, Text, Input } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -11,21 +11,15 @@ import { supabase } from '@/lib/supabase'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
-import { isValidEmail, isValidPhoneNumber } from '@/lib/validation'
+import { isValidEmail } from '@/lib/validation'
 import { getAppVersionLabel } from '@/lib/version'
 import type { NotificationCategory } from '@/types/database'
-import { INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP } from '@/constants/instruments'
 import { dataSyncBump } from '@/lib/dataSync'
 
 import { AttendanceHistoryModal } from './components/attendance-history-modal'
 import { ThemeModal } from './components/theme-modal'
 import { FeedbackModal } from './components/feedback-modal'
 import './index.scss'
-
-// 隐私开关选项：各字段行尾的「公开 / 隐藏」分段开关，随表单一起保存
-const PRIVACY_OPTIONS = ['public', 'hidden'] as const
-const privacyLabel = (v: (typeof PRIVACY_OPTIONS)[number]) => (v === 'hidden' ? '隐藏' : '公开')
-const privacyValue = (hide: boolean) => (hide ? 'hidden' : 'public')
 
 // 通知栏目：信箱按钮 → 通知分类映射（Issue #188 语义）
 const notificationItems: { label: string; category: NotificationCategory }[] = [
@@ -39,15 +33,11 @@ const ACCOUNT_TAB_OPTIONS = ['password', 'email'] as const
 type AccountTab = (typeof ACCOUNT_TAB_OPTIONS)[number]
 const accountTabLabel = (v: AccountTab) => (v === 'password' ? '修改密码' : '换绑邮箱')
 
-/** 是否为标准 YYYY-MM-DD 日期格式（Picker 可表示的格式；历史数据可能为「2024秋」等学期格式） */
-const isStandardDateString = (v: string | null | undefined): boolean =>
-  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
-
 /**
  * 我的页：
  * - 头像卡（姓名/声部/邮箱）
  * - 通知信箱：三分类未读徽章 + 信箱列表（打开即标已读）
- * - 设置列表：个人信息编辑 / 账号与密码（改密 + 换绑邮箱双 tab）/
+ * - 设置列表：个人信息编辑（独立页面 pages/profile-info） / 账号与密码（改密 + 换绑邮箱双 tab）/
  *   考勤查看 / 外观（亮色·暗色·跟随系统）/ 问题与反馈（匿名提交）/ 退出登录
  * - 已发布的活动暂缓（后续任务补）
  * - 管理端登录显示阻断页（规划 §1：admin 留在 Web）
@@ -57,7 +47,7 @@ export default function Profile() {
   const { signOut } = useAuth()
   const darkClass = useThemeClass()
 
-  // 编辑个人信息（联系方式 + 入团时间 + 学院 + 隐私开关）
+  // 资料：头像卡 / 邮箱展示 / 换绑邮箱同步
   const { data: profileData, update: updateProfile } = useProfiles({ userId: user?.id })
   const myProfile = profileData[0]
 
@@ -69,33 +59,6 @@ export default function Profile() {
   // 邮箱注册用户两者一致（换绑邮箱确认后由同步 effect 对齐），无感知差异
   const email = myProfile?.email ?? user?.email ?? '—'
   const initials = fullName !== '—' ? fullName.slice(0, 2) || fullName.slice(0, 1) || '--' : '--'
-
-  // ---- 个人信息编辑弹窗 ----
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [editPhone, setEditPhone] = useState('')
-  const [editJoinDate, setEditJoinDate] = useState('')
-  const [editCollege, setEditCollege] = useState('')
-  const [hideEmail, setHideEmail] = useState(false)
-  const [hidePhone, setHidePhone] = useState(false)
-  const [hideJoinDate, setHideJoinDate] = useState(false)
-  // 乐器（不可隐藏）：从声部列表中选择，保存写入 profiles.instrument
-  const [editInstrument, setEditInstrument] = useState('')
-  const [editError, setEditError] = useState<string | null>(null)
-  const [isEditSubmitting, setIsEditSubmitting] = useState(false)
-  const editSubmittingRef = useRef(false) // 同步 guard，阻断竞态窗口
-  // 乐器下拉选项：声部顺序 + 「其他」，若当前值不在列表中也加入，避免值丢失（对齐 Web admin）
-  const instrumentOptions = useMemo(() => {
-    const list = [...INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP]
-    if (editInstrument && !list.includes(editInstrument)) {
-      return [editInstrument, ...list]
-    }
-    return list
-  }, [editInstrument])
-  // Picker selector 的 value 为选项索引；当前值不在列表时回退到 0，避免非法索引
-  const selectedInstrumentIndex = Math.max(0, instrumentOptions.indexOf(editInstrument))
-  // join_date 是否被用户改动过：历史数据可能为学期格式（如「2024秋」），
-  // Picker 无法表示，未改动时保存不写 join_date 字段，保留原值防误清空
-  const [isJoinDateTouched, setIsJoinDateTouched] = useState(false)
 
   // ---- 账号与密码弹窗（Issue #214 语义：修改密码 / 换绑邮箱 双 tab）----
   // 重开弹窗默认回到「修改密码」tab；切换 tab 不清空各自输入（输入 state 在组件层，
@@ -125,7 +88,7 @@ export default function Profile() {
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
 
   // ---- 通知信箱 ----
-  // 未读数与标记已读收敛在 useNotifications；挂载时拉取一次未读数，
+  // 未读数和标记已读收敛在 useNotifications；挂载时拉取一次未读数，
   // 「我的」tab 红点：由 App 根 NotificationBadgeSync 统一维护未读数，本页进入时按当前
   // 未读数重设红点（冷启动停在登录页导致首次 show 失败，这里在切到本 tab 时补设）。
   const { unreadCounts, refresh: refreshNotifications } = useNotifications()
@@ -165,77 +128,6 @@ export default function Profile() {
         console.warn('[Profile] 获取 auth 邮箱失败，跳过 profiles.email 同步', err)
       })
   }, [myProfile?.email, user?.id, updateProfile])
-
-  // 打开弹窗时用最新 profile 预填
-  const handleOpenEditModal = () => {
-    // myProfile 未加载完成时为 undefined，预填会得到空值，保存会清空数据
-    if (!myProfile) {
-      void Taro.showToast({ title: '个人信息加载中，请稍候再试', icon: 'none' })
-      return
-    }
-    setEditPhone(myProfile.phone_number ?? '')
-    setEditJoinDate(myProfile.join_date ?? '')
-    setEditCollege(myProfile.college ?? '')
-    setEditInstrument(myProfile.instrument ?? '')
-    setHideEmail(myProfile.hide_email)
-    setHidePhone(myProfile.hide_phone)
-    setHideJoinDate(myProfile.hide_join_date)
-    setIsJoinDateTouched(false)
-    setEditError(null)
-    setIsEditModalOpen(true)
-  }
-
-  const handleEditSubmit = async () => {
-    if (!user) return
-    // 双重 guard 防重复提交：ref 同步阻断 + state 异步兜底
-    if (editSubmittingRef.current || isEditSubmitting) return
-
-    const phone = editPhone.trim()
-    if (phone && !isValidPhoneNumber(phone)) {
-      setEditError('手机号格式不正确（11 位数字，以 1 开头）')
-      return
-    }
-
-    // join_date 写入条件：用户改动过且值与原值不同（手滑点到同一天不写，保留原值）。
-    // 任何实际变化（含标准 YYYY-MM-DD 原值）都需用户确认——Picker 打开默认
-    // 停在「今天」，若不确认会静默覆盖原日期
-    const originalJoinDate = myProfile?.join_date ?? ''
-    const willWriteJoinDate = isJoinDateTouched && editJoinDate.trim() !== originalJoinDate.trim()
-    if (willWriteJoinDate) {
-      const source = originalJoinDate.trim() || '当前为空'
-      const target = editJoinDate.trim() || '（空）'
-      const res = await Taro.showModal({
-        title: '确认修改入团时间',
-        content: `保存将把入团时间从「${source}」变更为「${target}」，确认？`,
-      })
-      if (!res.confirm) return
-    }
-
-    editSubmittingRef.current = true
-    setIsEditSubmitting(true)
-    setEditError(null)
-    try {
-      const ok = await updateProfile(user.id, {
-        phone_number: phone || null,
-        college: editCollege.trim() || null,
-        instrument: editInstrument.trim() || null,
-        hide_email: hideEmail,
-        hide_phone: hidePhone,
-        hide_join_date: hideJoinDate,
-        // 未改动过 join_date（如历史学期格式）或值未变化时不写入，保留原值
-        ...(willWriteJoinDate ? { join_date: editJoinDate || null } : {}),
-      })
-      if (ok) {
-        setIsEditModalOpen(false)
-        void Taro.showToast({ title: '个人信息已更新', icon: 'success' })
-      } else {
-        setEditError('保存失败，请重试')
-      }
-    } finally {
-      editSubmittingRef.current = false
-      setIsEditSubmitting(false)
-    }
-  }
 
   const handleUpdatePassword = async () => {
     if (newPwd.trim() !== confirmPwd.trim()) {
@@ -387,7 +279,10 @@ export default function Profile() {
         <View>
           <Text className='text-xs font-medium text-text-muted'>设置</Text>
           <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
-            <View className='border-b border-border px-4 py-3' onClick={handleOpenEditModal}>
+            <View
+              className='border-b border-border px-4 py-3'
+              onClick={() => void Taro.navigateTo({ url: '/pages/profile-info/index' })}
+            >
               <Text className='text-sm font-medium text-text'>个人信息</Text>
             </View>
             <View
@@ -430,143 +325,9 @@ export default function Profile() {
         </View>
       </View>
 
-      {/* 编辑个人信息 Modal */}
-      <Modal
-        open={isEditModalOpen}
-        onClose={() => {
-          if (!isEditSubmitting) setIsEditModalOpen(false)
-        }}
-        title='编辑个人信息'
-        position='bottom'
-        closeOnOverlay={!isEditSubmitting}
-      >
-        <View className='mt-4 space-y-3'>
-          {/* 邮箱：不可编辑，仅提供隐藏开关 */}
-          <View>
-            <View className='flex items-center justify-between gap-2'>
-              <Text className='text-xs font-medium text-text-muted'>邮箱</Text>
-              <Toggle
-                options={PRIVACY_OPTIONS}
-                value={privacyValue(hideEmail)}
-                onChange={(v) => setHideEmail(v === 'hidden')}
-                getLabel={privacyLabel}
-              />
-            </View>
-            <Text className='mt-1 block truncate text-xs text-text-subtle'>
-              {myProfile?.email ?? '—'}
-            </Text>
-          </View>
-          {/* 乐器（不可隐藏，从声部列表中选择） */}
-          <View>
-            <Text className='text-xs font-medium text-text-muted'>乐器</Text>
-            <Picker
-              mode='selector'
-              range={instrumentOptions}
-              value={selectedInstrumentIndex}
-              onChange={(e) => {
-                setEditInstrument(instrumentOptions[Number(e.detail.value)] ?? '')
-                setEditError(null)
-              }}
-            >
-              <View className='mt-1 flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
-                <Text className='text-sm text-text'>{editInstrument || '选择乐器'}</Text>
-              </View>
-            </Picker>
-          </View>
-          {/* 联系方式 + 隐藏手机号开关 */}
-          <View>
-            <View className='flex items-center justify-between gap-2'>
-              <Text className='text-xs font-medium text-text-muted'>联系方式</Text>
-              <Toggle
-                options={PRIVACY_OPTIONS}
-                value={privacyValue(hidePhone)}
-                onChange={(v) => setHidePhone(v === 'hidden')}
-                getLabel={privacyLabel}
-              />
-            </View>
-            <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-              <Input
-                className='h-10 w-full bg-transparent text-sm text-text'
-                placeholder='11 位手机号'
-                value={editPhone}
-                onInput={(e) => {
-                  setEditPhone(e.detail.value)
-                  setEditError(null)
-                }}
-              />
-            </View>
-          </View>
-          {/* 入团时间 + 隐藏入团时间开关（TEXT 列，Picker 输出 YYYY-MM-DD 与列存文本一致） */}
-          <View>
-            <View className='flex items-center justify-between gap-2'>
-              <Text className='text-xs font-medium text-text-muted'>入团时间</Text>
-              <Toggle
-                options={PRIVACY_OPTIONS}
-                value={privacyValue(hideJoinDate)}
-                onChange={(v) => setHideJoinDate(v === 'hidden')}
-                getLabel={privacyLabel}
-              />
-            </View>
-            <Picker
-              mode='date'
-              value={isStandardDateString(editJoinDate) ? editJoinDate : ''}
-              onChange={(e) => {
-                setEditJoinDate(String(e.detail.value))
-                setIsJoinDateTouched(true)
-                setEditError(null)
-              }}
-            >
-              <View className='mt-1 flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
-                <Text className='text-sm text-text'>{editJoinDate || '选择日期'}</Text>
-              </View>
-            </Picker>
-            {/* 原值非标准日期格式（Picker 无法显示）时提示当前值，未修改则保存时保留 */}
-            {myProfile?.join_date && !isStandardDateString(myProfile.join_date) && (
-              <Text className='mt-1 block text-xs text-text-subtle'>
-                当前值：{myProfile.join_date}（非日期格式，未修改则保留）
-              </Text>
-            )}
-          </View>
-          <View>
-            <Text className='text-xs font-medium text-text-muted'>学院</Text>
-            <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-              <Input
-                className='h-10 w-full bg-transparent text-sm text-text'
-                placeholder='所在学院'
-                value={editCollege}
-                onInput={(e) => {
-                  setEditCollege(e.detail.value)
-                  setEditError(null)
-                }}
-              />
-            </View>
-          </View>
-          {editError && <Text className='block text-xs text-danger'>{editError}</Text>}
-          {/* 双按钮操作行右下角（取消 + 保存） */}
-          <View className='flex justify-end gap-2'>
-            <View
-              className={`rounded-full border border-border bg-card px-4 py-2 text-xs font-medium text-text-muted ${
-                isEditSubmitting ? 'opacity-60' : ''
-              }`}
-              onClick={isEditSubmitting ? undefined : () => setIsEditModalOpen(false)}
-            >
-              取消
-            </View>
-            <View
-              className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
-                isEditSubmitting ? 'opacity-60' : ''
-              }`}
-              onClick={isEditSubmitting ? undefined : () => void handleEditSubmit()}
-            >
-              {isEditSubmitting ? '保存中…' : '保存'}
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       {/* 账号与密码 Modal（Issue #214 语义 tab 化）：标题下方、内容上方左对齐
-          放置「修改密码 / 换绑邮箱」tab，激活 tab 显示对应区块；切换 tab 不清空
-          各自输入；关闭守卫仍含两个提交态（任一提交进行中不允许关闭） */}
+           放置「修改密码 / 换绑邮箱」tab，激活 tab 显示对应区块；切换 tab 不清空
+           各自输入；关闭守卫仍含两个提交态（任一提交进行中不允许关闭） */}
       <Modal
         open={isPwdModalOpen}
         onClose={() => {

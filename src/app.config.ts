@@ -13,6 +13,7 @@ export default defineAppConfig({
      'pages/schedule/index',
      'pages/members/index',
      'pages/profile/index',
+     'pages/profile-info/index',
      'pages/error/index',
      'pages/rehearsal-detail/index',
       'pages/leave-request/index',

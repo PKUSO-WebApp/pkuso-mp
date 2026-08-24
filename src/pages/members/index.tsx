@@ -68,7 +68,7 @@ export default function Members() {
       <ScrollView scrollY className='flex-1 min-h-0'>
         {/* 底部留白：底边栏固定覆盖在页面底部（高 50px + 安全区），
             花名册成员多时 ScrollView 末行会被底边栏遮挡、无法滚到底，故内容底部补足留白 */}
-        <View className='pb-16'>
+        <View className='pb-8'>
         <View className='mb-4 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
           <Input
             className='h-10 w-full bg-transparent text-sm text-text'

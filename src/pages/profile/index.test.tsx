@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import Profile from './index'
 
 const { taroMock, updateProfileMock, notif, pickerProps } = vi.hoisted(() => ({
@@ -10,6 +10,7 @@ const { taroMock, updateProfileMock, notif, pickerProps } = vi.hoisted(() => ({
     showToast: vi.fn(),
     showModal: vi.fn(() => Promise.resolve({ confirm: true })),
     reLaunch: vi.fn(),
+    navigateTo: vi.fn(),
     setTabBarBadge: vi.fn(),
     removeTabBarBadge: vi.fn(),
     showTabBarRedDot: vi.fn(() => Promise.resolve()),
@@ -118,18 +119,10 @@ describe('我的页', () => {
     expect(screen.getByText('个人信息')).toBeTruthy()
   })
 
-  it('编辑个人信息弹窗含乐器下拉，选择后保存写入 profiles.instrument', async () => {
+  it('点击「个人信息」跳转到独立个人信息页', () => {
     notif.totalUnread = 0
     render(<Profile />)
     fireEvent.click(screen.getByText('个人信息'))
-    expect(screen.getByText('乐器')).toBeTruthy()
-    expect(pickerProps.range).toContain('第一小提琴')
-    // 点击乐器 Picker（当前显示「长笛」）选中首项「第一小提琴」
-    fireEvent.click(screen.getByText('长笛'))
-    await waitFor(() => expect(screen.getByText('第一小提琴')).toBeTruthy())
-    fireEvent.click(screen.getByText('保存'))
-    await waitFor(() => expect(updateProfileMock).toHaveBeenCalled())
-    const payload = updateProfileMock.mock.calls[0][1]
-    expect(payload.instrument).toBe('第一小提琴')
+    expect(taroMock.navigateTo).toHaveBeenCalledWith({ url: '/pages/profile-info/index' })
   })
 })
