@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useRehearsals } from '../useRehearsals'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useRehearsals, __resetRehearsalsCache } from '../useRehearsals'
 
 // 模块加载即校验环境变量，直接 mock 掉 supabase 模块（测试显式传 client，默认值不被使用）
 vi.mock('@/lib/supabase', () => ({
@@ -32,6 +32,10 @@ function mockClient<T>(responses: T[]) {
 }
 
 describe('useRehearsals', () => {
+  beforeEach(() => {
+    __resetRehearsalsCache()
+  })
+
   afterEach(() => {
     cleanup()
   })

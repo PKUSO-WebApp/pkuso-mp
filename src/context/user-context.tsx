@@ -11,7 +11,11 @@ import {
 import { useDidShow } from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import type { Session } from '@supabase/supabase-js'
-import { clearSessionToken, establishSession, verifySession } from '@/lib/single-session'
+import {
+  clearSessionToken,
+  establishSession,
+  verifySession,
+} from '@/lib/single-session'
 import { ForceOfflineModal } from '@/components/force-offline-modal'
 
 // 会话恢复超时阈值：弱网/挂起时不再无限等待（SDK 默认等待较长），超时降级为「未登录 + 恢复失败」
@@ -52,21 +56,37 @@ export function UserProvider({ children }: { children: ReactNode }) {
     if (next) void establishSession(supabase)
   }, [])
 
+  // 本设备被挤下线的统一处理：记录时刻、弹通知、清本机会话令牌、本地登出
+  const forcedOfflineAtRef = useRef<string | null>(null)
+  const kick = useCallback(
+    (startedAt: string | null) => {
+      if (forcedOfflineAtRef.current) return
+      forcedOfflineAtRef.current = startedAt
+      setForcedOfflineAt(startedAt)
+      clearSessionToken()
+      applySession(null)
+      void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+    },
+    [applySession]
+  )
+
   // 比对本地令牌与 DB 当前令牌；被挤下线则清会话 + 弹通知
   const checkNow = useCallback(async () => {
-    if (!session || forcedOfflineAt) return
+    if (!session || forcedOfflineAtRef.current) return
+    // 主动续期：临近过期（≤2 分钟）时刷新令牌。挂机久了微信会节流 JS 定时器，
+    // supabase 自带刷新也可能不触发；这里在我们的 60s 心跳里兜底续期，避免 access
+    // token 静默失效导致请求拿到空数据 / 静默登出。续期成功会触发 TOKEN_REFRESHED。
+    const exp = session?.expires_at
+    if (typeof exp === 'number' && Date.now() / 1000 >= exp - 120) {
+      void supabase.auth.refreshSession().catch(() => {})
+    }
     try {
       const { kicked, startedAt } = await verifySession(supabase)
-      if (kicked) {
-        setForcedOfflineAt(startedAt)
-        setSession(null)
-        clearSessionToken()
-        void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
-      }
+      if (kicked) kick(startedAt)
     } catch {
       // 查询异常不判定为被踢，避免误伤
     }
-  }, [session, forcedOfflineAt])
+  }, [session, kick])
 
   // 始终指向最新 checkNow，供定时器的闭包读取
   const checkNowRef = useRef(checkNow)
@@ -116,6 +136,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!mounted) return
       eventArrived = true
+      // 会话结束（SIGNED_OUT）只清本地状态，不再弹「已在其他设备登录」：
+      // 自然过期 / 被服务端清理与会话被其他设备注销难以区分——而本模型下「被其他设备登录」
+      // 只会覆写 profiles.session_token、auth.sessions 仍存活，可由 checkNow 的 verifySession
+      // 走「有效令牌 + DB 令牌不符」分支精确判定并弹窗。此处若对已失效会话再调 signOut，
+      // 会触发 session_not_found（JWT 的 session_id 已无对应记录）报错。
       applySession(nextSession)
     })
 
@@ -129,7 +154,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       clearInterval(intervalId)
       sub.subscription.unsubscribe()
     }
-  }, [applySession])
+  }, [applySession, kick])
 
   const user = useMemo<User | null>(() => {
     const authUser = session?.user

@@ -3,6 +3,7 @@
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import Taro from '@tarojs/taro'
 import type { PostRowWithAuthor } from '@/types/database'
 import Community from './index'
 
@@ -64,31 +65,30 @@ vi.mock('@/components/admin-blocked-page', () => ({
   AdminBlockedPage: () => null,
 }))
 
-vi.mock('./components/post-detail-modal', () => ({
-  PostDetailModal: ({ post }: { post: PostRowWithAuthor | null }) =>
-    post ? React.createElement('span', null, `DETAIL:${post.title}`) : null,
-}))
-
 describe('Community 公告页（只读）', () => {
   afterEach(() => {
     cleanup()
   })
 
-  it('默认显示重奏分类，分类切换正确过滤', () => {
+  it('默认显示重奏，切换分类正确过滤', () => {
     render(<Community />)
     expect(screen.getByText('公告板')).toBeTruthy()
-    // 默认 ensemble：重奏A 可见，团建B 不可见
+    // 默认重奏：重奏A 可见，团建B 隐藏
     expect(screen.getByText('重奏A')).toBeTruthy()
     expect(screen.queryByText('团建B')).toBeNull()
     // 切到团建：重奏A 隐藏，团建B 显示
     fireEvent.click(screen.getByText('团建'))
     expect(screen.queryByText('重奏A')).toBeNull()
     expect(screen.getByText('团建B')).toBeTruthy()
+    // 切回重奏：重奏A 显示，团建B 隐藏
+    fireEvent.click(screen.getByText('重奏'))
+    expect(screen.getByText('重奏A')).toBeTruthy()
+    expect(screen.queryByText('团建B')).toBeNull()
   })
 
-  it('点击卡片打开详情弹窗', () => {
+  it('点击卡片跳转到公告详情页', () => {
     render(<Community />)
     fireEvent.click(screen.getByText('重奏A'))
-    expect(screen.getByText('DETAIL:重奏A')).toBeTruthy()
+    expect(Taro.navigateTo).toHaveBeenCalledWith({ url: '/pages/post-detail/index?id=1' })
   })
 })

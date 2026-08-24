@@ -3,6 +3,7 @@
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import Taro from '@tarojs/taro'
 import Index from './index'
 
 vi.mock('@tarojs/components', () => {
@@ -12,7 +13,7 @@ vi.mock('@tarojs/components', () => {
   }
   const Picker = (props: any) => React.createElement('div', props)
   const Input = (props: any) => React.createElement('input', props)
-  return { View: create('div'), Text: create('span'), Button: create('button'), Picker, Input }
+  return { View: create('div'), Text: create('span'), Button: create('button'), ScrollView: create('div'), Picker, Input }
 })
 
 vi.mock('@tarojs/taro', () => ({
@@ -20,6 +21,7 @@ vi.mock('@tarojs/taro', () => ({
     showToast: vi.fn(),
     showModal: vi.fn(),
     reLaunch: vi.fn(),
+    navigateTo: vi.fn(),
     setTabBarBadge: vi.fn(),
     removeTabBarBadge: vi.fn(),
   },
@@ -55,14 +57,10 @@ vi.mock('@/components/ui/Toggle', () => ({
     ),
 }))
 vi.mock('@/pages/index/components/rehearsal-card', () => ({
-  RehearsalCard: ({ item }: any) =>
-    React.createElement('div', { 'data-testid': `card-${item.id}` }, item.repertoire),
+  RehearsalCard: ({ item, onClick }: any) =>
+    React.createElement('div', { 'data-testid': `card-${item.id}`, onClick }, item.repertoire),
 }))
 vi.mock('@/pages/index/components/code-verify-modal', () => ({ CodeVerifyModal: () => null }))
-vi.mock('@/pages/index/components/rehearsal-detail-modal', () => ({
-  RehearsalDetailModal: () => null,
-}))
-vi.mock('@/pages/index/components/leave-request-modal', () => ({ LeaveRequestModal: () => null }))
 
 const mk = (id: number, type: string, repertoire: string, offsetDays: number) => {
   const start = new Date(Date.now() + offsetDays * 86400000)
@@ -114,5 +112,13 @@ describe('首页排练页', () => {
     expect(screen.getByText('历史合排1')).toBeTruthy()
     expect(screen.queryByText('未来合排')).toBeNull()
     expect(screen.queryByText('分排排练')).toBeNull()
+  })
+
+  it('点击排练卡片跳转到详情页', () => {
+    const { getByTestId } = render(<Index />)
+    fireEvent.click(getByTestId('card-1'))
+    expect(vi.mocked(Taro.navigateTo).mock.calls[0][0]).toMatchObject({
+      url: '/pages/rehearsal-detail/index?id=1',
+    })
   })
 })

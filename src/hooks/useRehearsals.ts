@@ -3,12 +3,21 @@ import { supabase as defaultClient } from '@/lib/supabase'
 import { dataSyncBump, subscribeSync } from '@/lib/dataSync'
 import type { RehearsalRow } from '@/types/database'
 
+// 跨页面共享缓存：首页加载后，详情页/请假页无需重新拉取即可立即拿到数据，
+// 也避免「会话失效导致重取失败 → 列表被清空 → 排练不存在/未找到」的误判（Issue #…）。
+let rehearsalsCache: RehearsalRow[] | null = null
+
+// 仅供测试重置跨用例的模块级缓存；生产代码不应调用
+export function __resetRehearsalsCache() {
+  rehearsalsCache = null
+}
+
 // 排练管理 hook（成员端列表 / 管理员增删改）。
 // 与 Web 版差异：小程序不用 realtime，仅挂载时查询 + 手动重取；
 // 加载失败错误归一化为中文文案；卸载后不再 setState（mountedRef 标志位）。
 export function useRehearsals(client: typeof defaultClient = defaultClient) {
-  const [data, setData] = useState<RehearsalRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<RehearsalRow[]>(rehearsalsCache ?? [])
+  const [loading, setLoading] = useState(rehearsalsCache === null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   // 卸载标志位：请求返回时组件已卸载则跳过 setState（防内存泄漏/告警）
@@ -27,13 +36,15 @@ export function useRehearsals(client: typeof defaultClient = defaultClient) {
     if (!mountedRef.current || seq !== fetchSeqRef.current) return
     setLoading(false)
     if (dbError) {
-      // 错误归一化：加载失败统一中文文案（不抛，由页面展示 error）
+      // 失败（网络/会话失效）时仍上报错误，但保留已有缓存、不把列表清空，
+      // 否则单设备会话被踢等场景下页面会误显示「排练不存在/未找到」
       setError('数据加载失败，请重试')
-      setData([])
       return
     }
     setError(null)
-    setData((rows as RehearsalRow[]) ?? [])
+    const next = (rows as RehearsalRow[]) ?? []
+    rehearsalsCache = next
+    setData(next)
   }, [client])
 
   useEffect(() => {

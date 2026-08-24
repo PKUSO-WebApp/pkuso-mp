@@ -12,13 +12,12 @@ import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
 import { isValidEmail, isValidPhoneNumber } from '@/lib/validation'
+import { getAppVersionLabel } from '@/lib/version'
 import type { NotificationCategory } from '@/types/database'
 import { INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP } from '@/constants/instruments'
-import { notifyNotificationsUpdated } from '@/components/notification-badge-sync'
 import { dataSyncBump } from '@/lib/dataSync'
 
 import { AttendanceHistoryModal } from './components/attendance-history-modal'
-import { NotificationInboxModal } from './components/notification-inbox-modal'
 import { ThemeModal } from './components/theme-modal'
 import { FeedbackModal } from './components/feedback-modal'
 import './index.scss'
@@ -127,18 +126,9 @@ export default function Profile() {
 
   // ---- 通知信箱 ----
   // 未读数与标记已读收敛在 useNotifications；挂载时拉取一次未读数，
-  // 打开信箱后由 markCategoryRead 归零该分类计数（与 DB 同源）
-  const {
-    unreadCounts,
-    refresh: refreshNotifications,
-    fetchByCategory,
-    markCategoryRead,
-  } = useNotifications()
-  const [inbox, setInbox] = useState<{ label: string; category: NotificationCategory } | null>(null)
-
   // 「我的」tab 红点：由 App 根 NotificationBadgeSync 统一维护未读数，本页进入时按当前
   // 未读数重设红点（冷启动停在登录页导致首次 show 失败，这里在切到本 tab 时补设）。
-
+  const { unreadCounts, refresh: refreshNotifications } = useNotifications()
 
   useEffect(() => {
     void refreshNotifications()
@@ -149,13 +139,6 @@ export default function Profile() {
     void refreshNotifications()
     dataSyncBump()
   })
-
-  // 本页标记已读成功后广播事件，App 根重新拉取未读数，红点同步消失。
-  const handleMarkCategoryRead = async (category: NotificationCategory, ids: string[]) => {
-    const ok = await markCategoryRead(category, ids)
-    notifyNotificationsUpdated()
-    return ok
-  }
 
   // 换绑邮箱后同步 profiles.email（Issue #199 语义）：
   // 换绑只改 auth.users.email，必须用 supabase.auth.getUser() 取真实 auth email
@@ -372,7 +355,17 @@ export default function Profile() {
                 <View
                   key={category}
                   className={`px-4 py-3 ${category !== 'system' ? 'border-b border-border' : ''}`}
-                  onClick={() => setInbox({ label, category })}
+                  onClick={() => {
+                    // 「考勤与请假」改用全屏请假详情页（结构化卡片 + 状态筛选），
+                    // 活动 / 系统通知改用独立信箱页，均不再弹通用通知 Modal
+                    if (category === 'attendance') {
+                      void Taro.navigateTo({ url: '/pages/leave-requests/index' })
+                    } else if (category === 'activity') {
+                      void Taro.navigateTo({ url: '/pages/notification-activity/index' })
+                    } else {
+                      void Taro.navigateTo({ url: '/pages/notification-system/index' })
+                    }
+                  }}
                 >
                   <View className='flex items-center'>
                     <Text className='text-sm font-medium text-text'>{label}</Text>
@@ -691,22 +684,16 @@ export default function Profile() {
         <AttendanceHistoryModal userId={user.id} onClose={() => setIsAttendanceOpen(false)} />
       )}
 
-      {/* 通知信箱 Modal：条件渲染挂载——打开时才拉取列表并标已读，关闭即卸载清态 */}
-      {inbox && (
-        <NotificationInboxModal
-          category={inbox.category}
-          label={inbox.label}
-          fetchMessages={fetchByCategory}
-          markCategoryRead={handleMarkCategoryRead}
-          onClose={() => setInbox(null)}
-        />
-      )}
-
       {/* 外观 Modal：亮色 / 暗色 / 跟随系统 三态主题切换 */}
       <ThemeModal open={isThemeOpen} onClose={() => setIsThemeOpen(false)} />
 
       {/* 问题与反馈 Modal：多行输入匿名提交 */}
       <FeedbackModal open={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
+
+      {/* 版本号：随时可查，报障时便于核对 */}
+      <View className='mt-8 pb-10 text-center'>
+        <Text className='text-xs text-text-subtle'>北大交响乐团 · {getAppVersionLabel()}</Text>
+      </View>
     </View>
   )
 }

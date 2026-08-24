@@ -136,7 +136,7 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
         )}
 
         {/* 考勤列表：罗列内容可滚动（max-h 容器，改用原生 ScrollView 以兼容真机） */}
-        <ScrollView scrollY className='pt-0.5 pb-0' style={{ maxHeight: '60vh' }}>
+        <ScrollView scrollY style={{ maxHeight: '60vh' }}>
           {loading ? (
             <Text className='block py-6 text-center text-xs text-text-muted'>加载中…</Text>
           ) : queryFailed ? (

@@ -7,26 +7,20 @@ import type { UserContextValue } from '@/context/user-context'
 import { ThemeProvider } from '@/context/theme-context'
 import LoginPage from './index'
 
-// @tarojs/components mock：Input 需把 DOM input 事件桥接成 Taro 的 { detail: { value } }
+// @tarojs/components mock
 vi.mock('@tarojs/components', () => {
-  const create = (tag: 'div' | 'span' | 'button') => (props: any) => {
+  const create = (tag: 'div' | 'span' | 'button' | 'input') => (props: any) => {
     const { hoverClass, catchMove, ...rest } = props
     return React.createElement(tag, rest)
   }
-  const Input = (props: any) => {
-    // password 是 Taro 专有布尔属性，桥接时丢弃避免 DOM 告警
-    const { onInput, password: _password, ...rest } = props
-    return React.createElement('input', {
-      ...rest,
-      onInput: (e: any) => onInput?.({ detail: { value: e.target.value } }),
-    })
-  }
-  return { View: create('div'), Text: create('span'), Button: create('button'), Input }
+  return { View: create('div'), Text: create('span'), Button: create('button'), Input: create('input') }
 })
 
 const { taroMock } = vi.hoisted(() => {
   const mock = {
     reLaunch: vi.fn(),
+    navigateTo: vi.fn(),
+    navigateBack: vi.fn(),
     // 主题 Provider 依赖的系统/存储/窗口 API
     getSystemInfoSync: vi.fn(() => ({ theme: 'light' })),
     setNavigationBarColor: vi.fn(() => Promise.resolve()),
@@ -47,6 +41,12 @@ vi.mock('@tarojs/taro', () => taroMock)
 const { routeAfterLoginMock } = vi.hoisted(() => ({ routeAfterLoginMock: vi.fn() }))
 vi.mock('@/lib/post-auth-route', () => ({ routeAfterLogin: routeAfterLoginMock }))
 
+// 微信登录逻辑整体 mock：仅断言入口页「委托」了登录，具体桥接逻辑另有单测
+const { loginWithWechatMock } = vi.hoisted(() => ({ loginWithWechatMock: vi.fn() }))
+vi.mock('@/hooks/useWechatLogin', () => ({
+  useWechatLogin: () => ({ submitting: false, loginWithWechat: loginWithWechatMock }),
+}))
+
 // 可变的 useUser mock
 const { ctx } = vi.hoisted(() => {
   const state: UserContextValue = {
@@ -65,7 +65,6 @@ const { authMock, supabaseMock } = vi.hoisted(() => {
     getSession: vi.fn(),
     onAuthStateChange: vi.fn(),
     getUser: vi.fn(),
-    signInWithPassword: vi.fn(),
     signOut: vi.fn(),
   }
   return { authMock: auth, supabaseMock: { auth } }
@@ -86,7 +85,7 @@ const renderPage = () =>
     </ThemeProvider>
   )
 
-describe('LoginPage', () => {
+describe('LoginPage（入口）', () => {
   beforeEach(() => {
     ctx.ready = true
     ctx.user = null
@@ -96,44 +95,52 @@ describe('LoginPage', () => {
     authMock.getUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
     authMock.signOut.mockReset()
     authMock.signOut.mockResolvedValue({ error: null })
-    authMock.signInWithPassword.mockReset()
-    authMock.signInWithPassword.mockResolvedValue({ data: { session: null }, error: null })
     authMock.getSession.mockReset()
     authMock.getSession.mockResolvedValue({
       data: { session: { user: { id: 'u1' } } },
       error: null,
     })
     taroMock.reLaunch.mockClear()
+    taroMock.navigateTo.mockClear()
     routeAfterLoginMock.mockReset()
     routeAfterLoginMock.mockResolvedValue(undefined)
+    loginWithWechatMock.mockReset()
+    loginWithWechatMock.mockResolvedValue({ error: null })
   })
 
   afterEach(() => {
     cleanup()
   })
 
-  it('渲染邮箱密码表单与登录按钮', () => {
+  it('渲染两个入口按钮：微信授权登录/注册 与 使用邮箱登录/注册', () => {
     renderPage()
-    expect(screen.getByPlaceholderText('name@example.com')).toBeTruthy()
-    expect(screen.getByPlaceholderText('请输入密码')).toBeTruthy()
-    // 标题与按钮均含「登录」，分别断言
-    expect(screen.getAllByText('登录')).toHaveLength(2)
-    expect(screen.getByRole('button', { name: '登录' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '微信授权登录/注册' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '使用邮箱登录/注册' })).toBeTruthy()
+  })
+
+  it('点击「使用邮箱登录/注册」路由到邮箱登录页', () => {
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '使用邮箱登录/注册' }))
+    expect(taroMock.navigateTo).toHaveBeenCalledWith({ url: '/pages/email-login/index' })
+  })
+
+  it('点击「微信授权登录/注册」委托微信登录逻辑', () => {
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '微信授权登录/注册' }))
+    expect(loginWithWechatMock).toHaveBeenCalled()
   })
 
   it('会话恢复完成前显示加载占位', () => {
     ctx.ready = false
     renderPage()
     expect(screen.getByText('加载中…')).toBeTruthy()
-    expect(screen.queryByPlaceholderText('name@example.com')).toBeNull()
+    expect(screen.queryByRole('button', { name: '微信授权登录/注册' })).toBeNull()
   })
 
   it('已登录用户访问登录页：校验会话后按 profile 状态路由入口', async () => {
     ctx.user = makeUser('u1')
-    // 页面只消费 user，session 仅作上下文形态占位
     ctx.session = {} as UserContextValue['session']
     renderPage()
-    // 先经 getUser 校验会话真实性，成功后委托 routeAfterLogin
     expect(authMock.getUser).toHaveBeenCalled()
     await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalledWith(supabaseMock))
   })
@@ -151,52 +158,5 @@ describe('LoginPage', () => {
     ctx.restoreFailed = true
     renderPage()
     expect(screen.getByText('网络异常，请重试')).toBeTruthy()
-  })
-
-  it('未登录不触发 reLaunch', () => {
-    renderPage()
-    expect(taroMock.reLaunch).not.toHaveBeenCalled()
-  })
-
-  it('提交路径冒烟：输入邮箱密码并点击登录，调用 signInWithPassword 后按 profile 状态路由入口', async () => {
-    renderPage()
-    fireEvent.input(screen.getByPlaceholderText('name@example.com'), {
-      target: { value: 'test@example.com' },
-    })
-    fireEvent.input(screen.getByPlaceholderText('请输入密码'), {
-      target: { value: 'password123' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: '登录' }))
-    await waitFor(() =>
-      expect(authMock.signInWithPassword).toHaveBeenCalledWith({
-        email: 'test@example.com',
-        password: 'password123',
-      })
-    )
-    await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalledWith(supabaseMock))
-  })
-
-  it('密码错误时显示映射后的页内错误文案', async () => {
-    authMock.signInWithPassword.mockResolvedValue({
-      data: { session: null },
-      error: { message: 'Invalid login credentials' },
-    })
-    renderPage()
-    fireEvent.input(screen.getByPlaceholderText('name@example.com'), {
-      target: { value: 'test@example.com' },
-    })
-    fireEvent.input(screen.getByPlaceholderText('请输入密码'), {
-      target: { value: 'wrong' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: '登录' }))
-    await waitFor(() => expect(screen.getByText('邮箱或密码错误')).toBeTruthy())
-    expect(taroMock.reLaunch).not.toHaveBeenCalled()
-  })
-
-  it('空输入校验：点击登录显示提示且不调用接口', async () => {
-    renderPage()
-    fireEvent.click(screen.getByRole('button', { name: '登录' }))
-    await waitFor(() => expect(screen.getByText('请输入邮箱和密码。')).toBeTruthy())
-    expect(authMock.signInWithPassword).not.toHaveBeenCalled()
   })
 })

@@ -5,6 +5,14 @@ import {
   getTabBarUnread,
   subscribeTabBarUnread,
 } from '@/lib/tabBarBadge'
+import {
+  getRehearsalUnviewedFlag,
+  subscribeRehearsalUnviewed,
+} from '@/lib/rehearsalSeen'
+import {
+  getPostUnviewedFlag,
+  subscribePostUnviewed,
+} from '@/lib/postSeen'
 import { getThemeMode, subscribeThemeMode } from '@/lib/themeStore'
 import { getOverlayOpen, subscribeOverlayOpen } from '@/lib/overlayStore'
 import {
@@ -54,6 +62,8 @@ export default class CustomTabBar extends Component {
   state = {
     selected: getTabBarSelected(),
     unread: getTabBarUnread(),
+    rehearsalUnviewed: getRehearsalUnviewedFlag(),
+    postUnviewed: getPostUnviewedFlag(),
     dark: getThemeMode() === 'dark',
     overlay: getOverlayOpen(),
   }
@@ -64,6 +74,12 @@ export default class CustomTabBar extends Component {
       this.setState({ selected })
     })
     this.unsubUnread = subscribeTabBarUnread(() => this.setState({ unread: getTabBarUnread() }))
+    this.unsubRehearsal = subscribeRehearsalUnviewed(() =>
+      this.setState({ rehearsalUnviewed: getRehearsalUnviewedFlag() })
+    )
+    this.unsubPost = subscribePostUnviewed(() =>
+      this.setState({ postUnviewed: getPostUnviewedFlag() })
+    )
     this.unsubTheme = subscribeThemeMode(() =>
       this.setState({ dark: getThemeMode() === 'dark' })
     )
@@ -73,12 +89,16 @@ export default class CustomTabBar extends Component {
   componentWillUnmount() {
     this.unsubSelected?.()
     this.unsubUnread?.()
+    this.unsubRehearsal?.()
+    this.unsubPost?.()
     this.unsubTheme?.()
     this.unsubOverlay?.()
   }
 
   unsubSelected?: () => void
   unsubUnread?: () => void
+  unsubRehearsal?: () => void
+  unsubPost?: () => void
   unsubTheme?: () => void
   unsubOverlay?: () => void
 
@@ -88,7 +108,7 @@ export default class CustomTabBar extends Component {
   }
 
   render() {
-    const { selected, unread, dark, overlay } = this.state
+    const { selected, unread, rehearsalUnviewed, postUnviewed, dark, overlay } = this.state
     const c = dark ? DARK : LIGHT
     return (
       <View
@@ -128,6 +148,36 @@ export default class CustomTabBar extends Component {
                   style={{ width: '24px', height: '24px' }}
                 />
                 {idx === 4 && unread > 0 && (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      top: '-1px',
+                      right: '-1px',
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '9999px',
+                      background: '#dc2626',
+                      borderWidth: '1px',
+                      borderColor: c.bg,
+                    }}
+                  />
+                )}
+                {idx === 0 && rehearsalUnviewed && (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      top: '-1px',
+                      right: '-1px',
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '9999px',
+                      background: '#dc2626',
+                      borderWidth: '1px',
+                      borderColor: c.bg,
+                    }}
+                  />
+                )}
+                {idx === 1 && postUnviewed && (
                   <View
                     style={{
                       position: 'absolute',

@@ -36,6 +36,18 @@ export function clearSessionToken(): void {
   storeSessionToken(null)
 }
 
+// 主动登出标志：useAuth 调用 supabase.auth.signOut 前置位，供 onAuthStateChange
+// 区分「本人主动登出」与「被其他设备挤下线」，避免误弹强制下线通知。
+let intentionalSignOut = false
+export function markIntentionalSignOut(): void {
+  intentionalSignOut = true
+}
+export function consumeIntentionalSignOut(): boolean {
+  const v = intentionalSignOut
+  intentionalSignOut = false
+  return v
+}
+
 export type EstablishResult = { token: string; startedAt: string } | null
 
 /**
@@ -67,7 +79,13 @@ export async function verifySession(client: SupabaseClient<Database>): Promise<V
   if (!localToken) return { kicked: false, startedAt: null }
 
   const { data, error } = await client.rpc('get_my_session')
-  if (error) return { kicked: false, startedAt: null }
+  if (error) {
+    // 查询失败（网络抖动 / 本机令牌过期 / 瞬时鉴权错误）一律保守判为「未被踢」，
+    // 交由 supabase 自身的刷新/登出流程处理——避免把挂机久了自然过期的瞬时 401
+    // 误判成「被其他设备挤下线」而误杀会话（表现为 profile 全「-」、无通知、设置失效）。
+    // 真正的设备踢由「JWT 仍有效但 DB 令牌不符」这一分支判定（见下）。
+    return { kicked: false, startedAt: null }
+  }
   const row = toRows(data)[0]
   const dbToken = row?.session_token ?? null
   const startedAt = row?.session_started_at ?? null

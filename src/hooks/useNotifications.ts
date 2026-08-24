@@ -124,7 +124,49 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
     [client]
   )
 
+  /**
+   * 标记单条通知已读（系统通知页逐条「标记已读」按钮用，Issue #188 语义扩展）：
+   * 服务端 update read_at，带 .is("read_at", null) 守卫 + .select("id") 0 行检测
+   * （RLS 静默失败/并发已读时 0 行无 error，返回 false 且不减量）；
+   * 成功后把本地该分类未读数 -1（clamp 0），与 markCategoryRead 的「整类归零」互补。
+   */
+  const markItemRead = useCallback(
+    async (category: NotificationCategory, id: string): Promise<boolean> => {
+      try {
+        const { data, error } = await client
+          .from('notifications')
+          .update({ read_at: new Date().toISOString() })
+          .eq('id', id)
+          .is('read_at', null)
+          .select('id')
+        if (error) {
+          console.error('[Notifications] 标记已读失败', error.message)
+          return false
+        }
+        if (!data || data.length === 0) {
+          // 0 行：已被并发标已读或 RLS 静默失败，不执行本地减量
+          return false
+        }
+      } catch (err) {
+        console.error('[Notifications] 标记已读失败', err)
+        return false
+      }
+      if (!mountedRef.current) return true
+      setUnreadCounts((prev) => ({ ...prev, [category]: Math.max(0, prev[category] - 1) }))
+      return true
+    },
+    [client]
+  )
+
   const totalUnread = NOTIFICATION_CATEGORIES.reduce((sum, c) => sum + unreadCounts[c], 0)
 
-  return { unreadCounts, totalUnread, loading, refresh, fetchByCategory, markCategoryRead }
+  return {
+    unreadCounts,
+    totalUnread,
+    loading,
+    refresh,
+    fetchByCategory,
+    markCategoryRead,
+    markItemRead,
+  }
 }

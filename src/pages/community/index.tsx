@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { View, Text } from '@tarojs/components'
+import Taro from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useThemeClass } from '@/context/theme-context'
@@ -9,8 +10,8 @@ import { Toggle } from '@/components/ui/Toggle'
 import { Card } from '@/components/ui/Card'
 import { PageHeader } from '@/components/page-header'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
-import type { PostRowWithAuthor, PostType } from '@/types/database'
-import { PostDetailModal } from './components/post-detail-modal'
+import { isPostSeen, subscribePostSeen, setPostUnviewedFlag } from '@/lib/postSeen'
+import type { PostType } from '@/types/database'
 import './index.scss'
 
 const TYPE_LABEL: Record<PostType, string> = {
@@ -40,24 +41,47 @@ export default function Community() {
   const darkClass = useThemeClass()
 
   const [view, setView] = useState<PostType>('ensemble')
-  const [detailPost, setDetailPost] = useState<PostRowWithAuthor | null>(null)
+
+  const handleCreate = () => {
+    Taro.navigateTo({ url: `/pages/post-create/index?type=${view}` })
+  }
 
   const list = useMemo(() => posts.filter((p) => (p.type as PostType) === view), [posts, view])
+
+  // 社区 tabBar 未查看红点：列表中存在尚未打开详情页（markPostSeen）过的公告时点亮
+  const [seenTick, setSeenTick] = useState(0)
+  useEffect(() => subscribePostSeen(() => setSeenTick((n) => n + 1)), [])
+  const hasUnviewed = useMemo(
+    () => posts.some((p) => !isPostSeen(p.id)),
+    // seenTick 用于强制在「标记已查看」事件后重算未查看红点
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [posts, seenTick]
+  )
+  useEffect(() => {
+    setPostUnviewedFlag(hasUnviewed)
+  }, [hasUnviewed])
 
   // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
   if (myProfile?.role === 'admin') {
     return <AdminBlockedPage />
   }
 
-  if (detailPost) {
-    return <PostDetailModal post={detailPost} onClose={() => setDetailPost(null)} />
-  }
-
   return (
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       {/* 头部 */}
       <View className='mt-1 mb-3'>
-        <PageHeader title='公告板' subtitle='重奏与团建信息' />
+        <PageHeader
+          title='公告板'
+          subtitle='重奏与团建信息'
+          rightButton={
+            <View
+              className='inline-flex items-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'
+              onClick={handleCreate}
+            >
+              发布
+            </View>
+          }
+        />
         <View className='mt-2'>
           <Toggle
             options={['ensemble', 'gathering']}
@@ -78,12 +102,16 @@ export default function Community() {
           </Card>
         ) : list.length === 0 ? (
           <Text className='block py-12 text-center text-xs text-text-muted'>
-            暂无「{TYPE_LABEL[view]}」公告。
+            暂无「{TYPE_LABEL[view]}」。
           </Text>
         ) : (
-          <View className='space-y-3'>
+          <View>
             {list.map((post) => (
-              <Card key={post.id} onClick={() => setDetailPost(post)}>
+              <Card
+                key={post.id}
+                className='mb-3'
+                onClick={() => void Taro.navigateTo({ url: `/pages/post-detail/index?id=${post.id}` })}
+              >
                 <View className='flex items-start justify-between gap-2'>
                   <View className='min-w-0 flex-1'>
                     <Text className='block text-sm font-semibold text-text'>{post.title}</Text>

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { View, Text, Textarea } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
+import { getAppVersionLabel } from '@/lib/version'
 import { Modal } from '@/components/ui/Modal'
 
 type Props = {
@@ -63,6 +64,7 @@ export function FeedbackModal({ open, onClose }: Props) {
     >
       <View className='mt-4 space-y-3'>
         <Text className='block text-xs text-text-muted'>匿名提交，管理员可在后台查看</Text>
+        <Text className='mt-1 block text-xs text-text-subtle'>当前版本：{getAppVersionLabel()}</Text>
         <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
           <Textarea
             value={content}

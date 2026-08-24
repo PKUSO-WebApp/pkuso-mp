@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useUser, type User } from '@/context/user-context'
 import { supabase as defaultClient } from '@/lib/supabase'
-import { clearSessionToken } from '@/lib/single-session'
+import { clearSessionToken, markIntentionalSignOut } from '@/lib/single-session'
 import type { Session } from '@supabase/supabase-js'
 
 // 与 SDK AuthError 结构兼容的最小错误类型（message 必填，code/status 可选）
@@ -39,6 +39,8 @@ export function useAuth(client: typeof defaultClient = defaultClient): UseAuthRe
   )
 
   const signOut = useCallback(async (): Promise<void> => {
+    // 标记为主动登出，避免 onAuthStateChange 的 SIGNED_OUT 被误判为「被其他设备挤下线」
+    markIntentionalSignOut()
     const { error: authError } = await client.auth.signOut()
     // 清空本机单设备会话令牌，避免残留令牌干扰下次登录的挤下线判定
     clearSessionToken()

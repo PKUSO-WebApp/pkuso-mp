@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { View, Text, Input } from '@tarojs/components'
+import { View, Text, Input, ScrollView } from '@tarojs/components'
 import { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -65,8 +65,11 @@ export default function Members() {
         <PageHeader title='全团成员' subtitle='查看乐团最新花名册' />
       </View>
 
-      <View className='flex-1 min-h-0 space-y-4 overflow-y-auto'>
-        <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
+      <ScrollView scrollY className='flex-1 min-h-0'>
+        {/* 底部留白：底边栏固定覆盖在页面底部（高 50px + 安全区），
+            花名册成员多时 ScrollView 末行会被底边栏遮挡、无法滚到底，故内容底部补足留白 */}
+        <View className='pb-16'>
+        <View className='mb-4 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
           <Input
             className='h-10 w-full bg-transparent text-sm text-text'
             placeholder='搜索姓名（支持中文/拼音/首字母）'
@@ -86,20 +89,20 @@ export default function Members() {
         ) : grouped.length === 0 ? (
           <Text className='block py-8 text-center text-xs text-text-muted'>未找到匹配的成员</Text>
         ) : (
-          <View className='space-y-5'>
+          <View>
             {grouped.map(({ group, users }) => (
-              <View key={group}>
+              <View key={group} className='mb-5'>
                 <Text className='mb-2 block text-xs font-medium uppercase tracking-wide text-text-muted'>
                   {group}
                 </Text>
-                <View className='space-y-2'>
+                <View>
                   {users.map((u) => {
                     // 查看自己时隐私开关不生效，显示原值；查看他人按对方开关掩码
                     const isSelf = u.id === currentUser?.id
                     return (
                       <View
                         key={u.id}
-                        className='rounded-xl border border-border bg-card px-3 py-2'
+                        className='mb-2 rounded-xl border border-border bg-card px-3 py-2'
                         onClick={() => setSelectedUser(u)}
                       >
                         <View className='flex flex-wrap items-center gap-1.5'>
@@ -129,7 +132,8 @@ export default function Members() {
             ))}
           </View>
         )}
-      </View>
+        </View>
+      </ScrollView>
 
       <MemberDetailModal
         open={!!selectedUser}

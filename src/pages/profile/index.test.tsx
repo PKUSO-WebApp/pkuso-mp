@@ -102,9 +102,6 @@ vi.mock('@/lib/validation', () => ({ isValidEmail: () => true, isValidPhoneNumbe
 vi.mock('@/pages/profile/components/attendance-history-modal', () => ({
   AttendanceHistoryModal: () => null,
 }))
-vi.mock('@/pages/profile/components/notification-inbox-modal', () => ({
-  NotificationInboxModal: () => null,
-}))
 vi.mock('@/pages/profile/components/theme-modal', () => ({ ThemeModal: () => null }))
 vi.mock('@/pages/profile/components/feedback-modal', () => ({ FeedbackModal: () => null }))
 

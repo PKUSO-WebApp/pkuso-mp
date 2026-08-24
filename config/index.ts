@@ -1,9 +1,19 @@
 import { defineConfig, type UserConfigExport } from '@tarojs/cli'
 import TsconfigPathsPlugin from 'tsconfig-paths-webpack-plugin'
+import fs from 'node:fs'
 import path from 'node:path'
 import { WeappTailwindcss } from 'weapp-tailwindcss/webpack'
 import devConfig from './dev'
 import prodConfig from './prod'
+
+// 版本号单一来源：package.json 的 version，编译期注入为全局常量 APP_VERSION，
+// 页面「我的」页脚与「问题与反馈」弹窗始终展示（如「开发版 v1.0.0」），
+// 不再依赖微信上传后才填充的 miniProgram.version（开发版为空 → 只显示「开发版」）。
+const appVersion = (
+  JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8')) as {
+    version: string
+  }
+).version
 
 // https://taro-docs.jd.com/docs/next/config#defineconfig-辅助函数
 export default defineConfig<'webpack5'>(async (merge) => {
@@ -28,7 +38,7 @@ export default defineConfig<'webpack5'>(async (merge) => {
     sourceRoot: 'src',
     outputRoot: 'dist',
     plugins: ['@tarojs/plugin-generator'],
-    defineConstants: {},
+    defineConstants: { APP_VERSION: JSON.stringify(appVersion) },
     copy: {
       patterns: [],
       options: {},

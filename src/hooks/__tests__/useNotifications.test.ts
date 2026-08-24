@@ -114,6 +114,53 @@ describe('useNotifications', () => {
     expect(ok).toBe(false)
   })
 
+  // markItemRead 专用 mock：支持 refresh（select('category').is()）与
+  // 单条标记（update().eq().is().select('id')）两种调用链
+  function mockClient2(refreshRows: { category: string }[], markResult: { data: unknown[] | null; error: unknown }) {
+    return {
+      from: () => ({
+        select: (cols?: string) =>
+          cols === 'category'
+            ? { is: () => ({ then: (res: (v: unknown) => void) => res({ data: refreshRows, error: null }) }) }
+            : { then: (res: (v: unknown) => void) => res({ data: [], error: null }) },
+        update: () => ({
+          eq: () => ({
+            is: () => ({ select: () => ({ then: (res: (v: unknown) => void) => res(markResult) }) }),
+          }),
+        }),
+      }),
+    }
+  }
+
+  it('markItemRead 单条标记成功且未读数 -1', async () => {
+    const c = mockClient2(
+      [{ category: 'system' }, { category: 'system' }],
+      { data: [{ id: '1' }], error: null }
+    )
+    const { result } = renderHook(() => useNotifications(c as never))
+    await act(async () => {
+      await result.current.refresh()
+    })
+    expect(result.current.unreadCounts.system).toBe(2)
+    const ok = await act(() => result.current.markItemRead('system', '1'))
+    expect(ok).toBe(true)
+    expect(result.current.unreadCounts.system).toBe(1)
+  })
+
+  it('markItemRead 0 行（已读/并发）返回 false 且不减量', async () => {
+    const c = mockClient2([{ category: 'system' }, { category: 'system' }], {
+      data: [],
+      error: null,
+    })
+    const { result } = renderHook(() => useNotifications(c as never))
+    await act(async () => {
+      await result.current.refresh()
+    })
+    const ok = await act(() => result.current.markItemRead('system', '1'))
+    expect(ok).toBe(false)
+    expect(result.current.unreadCounts.system).toBe(2)
+  })
+
   it('卸载后 refresh 不再 setState（mountedRef 拦截）', async () => {
     let resolveQuery: (v: unknown) => void = () => {}
     const pending = new Promise((resolve) => {

@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase'
 
-export type SyncEntity = 'rehearsals' | 'announcements' | 'notifications' | 'leave'
+export type SyncEntity = 'rehearsals' | 'announcements' | 'notifications' | 'leave' | 'post'
 
 // 模块内轻量事件总线：心跳检测到某实体版本变化后通知订阅者（各数据 hook 挂载时订阅，
 // 收到即静默重取）。刻意不依赖 Taro.eventCenter，避免把 @tarojs/taro 引入纯逻辑 hook
@@ -11,6 +11,7 @@ const listeners: Record<SyncEntity, Set<Listener>> = {
   announcements: new Set(),
   notifications: new Set(),
   leave: new Set(),
+  post: new Set(),
 }
 
 export function subscribeSync(entity: SyncEntity, handler: Listener): () => void {
@@ -31,6 +32,7 @@ type Versions = {
   announcements: string | null
   notificationsUnread: number | null
   leave: string | null
+  post: string | null
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null
@@ -59,7 +61,7 @@ async function unreadCount(): Promise<number | null> {
 async function tick() {
   if (!running) return
   try {
-    const [rehearsalsRes, announcementsRes, leaveRes] = await Promise.all([
+    const [rehearsalsRes, announcementsRes, leaveRes, postsRes] = await Promise.all([
       supabase
         .from('rehearsals')
         .select('updated_at')
@@ -78,19 +80,28 @@ async function tick() {
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from('posts')
+        .select('created_at')
+        .eq('is_locked', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ])
     const rehearsals = rehearsalsRes.error ? null : pickTimestamp(rehearsalsRes.data, 'updated_at')
     const announcements = announcementsRes.error
       ? null
       : pickTimestamp(announcementsRes.data, 'created_at')
     const leave = leaveRes.error ? null : pickTimestamp(leaveRes.data, 'updated_at')
+    const post = postsRes.error ? null : pickTimestamp(postsRes.data, 'created_at')
     const notificationsUnread = await unreadCount()
-    const next: Versions = { rehearsals, announcements, notificationsUnread, leave }
+    const next: Versions = { rehearsals, announcements, notificationsUnread, leave, post }
     if (versions) {
       if (next.rehearsals !== versions.rehearsals) emitSync('rehearsals')
       if (next.announcements !== versions.announcements) emitSync('announcements')
       if (next.notificationsUnread !== versions.notificationsUnread) emitSync('notifications')
       if (next.leave !== versions.leave) emitSync('leave')
+      if (next.post !== versions.post) emitSync('post')
     }
     versions = next
   } catch {

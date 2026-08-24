@@ -1,17 +1,23 @@
 import { useEffect } from 'react'
-import { Button, Input, Text, View } from '@tarojs/components'
+import { Button, Text, View } from '@tarojs/components'
+import Taro from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
-import { useLogin } from '@/hooks/useLogin'
 import { useWechatLogin } from '@/hooks/useWechatLogin'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { supabase } from '@/lib/supabase'
 import './index.scss'
 
+// ============================================================
+// 登录入口（拆分后的第一部分）：仅承载两个入口动作——
+//   1) 微信授权登录/注册（复用既有 Edge Function 桥接逻辑）
+//   2) 路由到「邮箱登录」页（邮箱表单在独立页，符合「登录分两部分」）
+// 已登录用户（含冷启动会话恢复后）按 profile 状态路由，避免看到登录页。
+// ============================================================
+
 export default function LoginPage() {
   const { ready, user, restoreFailed } = useUser()
-  const { email, setEmail, password, setPassword, submitting, errorMsg, handleSubmit } = useLogin()
   const { submitting: wechatSubmitting, loginWithWechat } = useWechatLogin()
   const darkClass = useThemeClass()
 
@@ -48,80 +54,38 @@ export default function LoginPage() {
   }
 
   return (
-  <View
-    className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}
-  >
-    <Card className='w-full px-5 py-6'>
-      <View className='mb-4 text-center'>
-        <Text className='text-xl font-semibold text-text'>登录</Text>
-        <Text className='mt-1 block text-xs text-text-muted'>登录后进入乐团系统</Text>
-      </View>
-
-      {/* 微信登录 */}
-      <Button
-        hoverClass='none'
-        className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
-        disabled={wechatSubmitting}
-        onClick={() => void loginWithWechat()}
-      >
-        {wechatSubmitting ? '登录中…' : '微信登录'}
-      </Button>
-
-      {/* 分隔线 */}
-      <View className='my-4 flex items-center gap-2'>
-        <View className='h-px flex-1 bg-border' />
-        <Text className='text-xs text-text-muted'>或使用邮箱登录</Text>
-        <View className='h-px flex-1 bg-border' />
-      </View>
-
-      {restoreFailed ? (
-        <View className='mb-3 rounded-xl bg-warning-bg px-3 py-2 text-center text-sm text-warning'>
-          网络异常，请重试
+    <View className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}>
+      <Card className='w-full px-5 py-6'>
+        <View className='mb-4 text-center'>
+          <Text className='text-xl font-semibold text-text'>登录</Text>
+          <Text className='mt-1 block text-xs text-text-muted'>登录后进入乐团系统</Text>
         </View>
-      ) : null}
 
-      {/* ✅ 邮箱 - 修复溢出 */}
-      <View className='mb-3'>
-        <Text className='text-sm font-medium text-text-muted'>邮箱</Text>
-        <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-          <Input
-            className='h-10 w-full bg-transparent text-sm text-text'
-            placeholder='name@example.com'
-            value={email}
-            onInput={(e) => setEmail(e.detail.value)}
-          />
-        </View>
-      </View>
+        {restoreFailed ? (
+          <View className='mb-3 rounded-xl bg-warning-bg px-3 py-2 text-center text-sm text-warning'>
+            网络异常，请重试
+          </View>
+        ) : null}
 
-      {/* ✅ 密码 - 修复溢出 */}
-      <View className='mb-3'>
-        <Text className='text-sm font-medium text-text-muted'>密码</Text>
-        <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-          <Input
-            className='h-10 w-full bg-transparent text-sm text-text'
-            placeholder='请输入密码'
-            password
-            value={password}
-            onInput={(e) => setPassword(e.detail.value)}
-          />
-        </View>
-      </View>
+        {/* 微信授权登录/注册：复用既有桥接 Edge Function 的登录逻辑 */}
+        <Button
+          hoverClass='none'
+          className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
+          disabled={wechatSubmitting}
+          onClick={() => void loginWithWechat()}
+        >
+          {wechatSubmitting ? '登录中…' : '微信授权登录/注册'}
+        </Button>
 
-      {errorMsg ? (
-        <View className='mb-3 rounded-xl bg-danger-bg px-3 py-2 text-center text-sm text-danger'>
-          {errorMsg}
-        </View>
-      ) : null}
-
-      <Button
-        hoverClass='none'
-        className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
-        disabled={submitting}
-        onClick={() => void handleSubmit()}
-      >
-        {submitting ? '登录中…' : '登录'}
-      </Button>
-    </Card>
-  </View>
+        {/* 邮箱登录/注册：路由到邮箱登录页（邮箱表单在独立页） */}
+        <Button
+          hoverClass='none'
+          className='mt-3 flex h-11 w-full items-center justify-center rounded-2xl bg-muted text-sm font-medium text-text disabled:opacity-60'
+          onClick={() => void Taro.navigateTo({ url: '/pages/email-login/index' })}
+        >
+          使用邮箱登录/注册
+        </Button>
+      </Card>
+    </View>
   )
 }
