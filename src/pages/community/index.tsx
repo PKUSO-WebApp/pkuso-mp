@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { View, Text } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
@@ -12,7 +12,12 @@ import { Toggle } from '@/components/ui/Toggle'
 import { Card } from '@/components/ui/Card'
 import { PageHeader } from '@/components/page-header'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
-import { isPostSeen, subscribePostSeen, setPostUnviewedFlag } from '@/lib/postSeen'
+import {
+  dismissCommunityDot,
+  getCommunityDismissedAt,
+  isCommunityDotOn,
+  subscribePostSeen,
+} from '@/lib/postSeen'
 import type { PostType } from '@/types/database'
 import './index.scss'
 
@@ -38,12 +43,17 @@ export default function Community() {
   const darkClass = useThemeClass()
   const { t } = useT()
   useNavTitle('community.navTitle')
-
   const [view, setView] = useState<PostType>('ensemble')
+  // 镜像当前分类：useDidShow 回调需读到进入瞬间的选择而非旧闭包
+  const viewRef = useRef<PostType>('ensemble')
+  viewRef.current = view
 
-  // 切回社区 tab 时立即刷新公告（镜像 rehearsal 的 useDidShow 刷新，保证红点/列表即最新）
+  // 切回社区 tab 时立即刷新公告（镜像 rehearsal 的 useDidShow 刷新）；
+  // 点击社区即消除底边栏红点，同时消除当前所在分类的红点（点击某处即消除那一处）
   useDidShow(() => {
     void fetch()
+    dismissCommunityDot('bar')
+    dismissCommunityDot(viewRef.current)
   })
 
   const handleCreate = () => {
@@ -52,31 +62,40 @@ export default function Community() {
 
   const list = useMemo(() => posts.filter((p) => (p.type as PostType) === view), [posts, view])
 
-  // 社区 tabBar 未查看红点：列表中存在尚未打开详情页（markPostSeen）过的公告时点亮
-  const [seenTick, setSeenTick] = useState(0)
-  useEffect(() => subscribePostSeen(() => setSeenTick((n) => n + 1)), [])
-  const hasUnviewed = useMemo(
-    () => posts.some((p) => !isPostSeen(p.id)),
-    // seenTick 用于强制在「标记已查看」事件后重算未查看红点
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [posts, seenTick]
+  const handleSwitchType = (next: PostType) => {
+    setView(next)
+    // 进入对应分类 tab 即消除该处右上角红点
+    dismissCommunityDot(next)
+  }
+
+  // 分类红点：点亮 ⇔ 该分类最新公告晚于「最近一次进入该分类」的消除时间戳；
+  // 新公告到达自然重新点亮。dotTick 用于点击消除后强制重算。
+  const [dotTick, setDotTick] = useState(0)
+  useEffect(() => subscribePostSeen(() => setDotTick((n) => n + 1)), [])
+  const latestByType = useMemo(() => {
+    const acc: Record<PostType, number> = { ensemble: 0, gathering: 0 }
+    for (const p of posts) {
+      if (!p.created_at) continue
+      const ts = parseLocalISO(p.created_at).getTime()
+      if (!Number.isNaN(ts)) {
+        const key = p.type as PostType
+        if (ts > (acc[key] ?? 0)) acc[key] = ts
+      }
+    }
+    return acc
+  }, [posts])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const hasUnviewedEnsemble = isCommunityDotOn(
+    latestByType.ensemble || null,
+    getCommunityDismissedAt('ensemble')
   )
-  // 各分类（重奏/团建）未查看红点：对应 tab 右上角显示，而非卡片右上角
-  const hasUnviewedEnsemble = useMemo(
-    () => posts.some((p) => (p.type as PostType) === 'ensemble' && !isPostSeen(p.id)),
-    // seenTick 用于强制在「标记已查看」事件后重算分类未读红点
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [posts, seenTick]
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const hasUnviewedGathering = isCommunityDotOn(
+    latestByType.gathering || null,
+    getCommunityDismissedAt('gathering')
   )
-  const hasUnviewedGathering = useMemo(
-    () => posts.some((p) => (p.type as PostType) === 'gathering' && !isPostSeen(p.id)),
-    // seenTick 用于强制在「标记已查看」事件后重算分类未读红点
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [posts, seenTick]
-  )
-  useEffect(() => {
-    setPostUnviewedFlag(hasUnviewed)
-  }, [hasUnviewed])
+  // dotTick 变化仅用于触发重算（点击消除后徽标即时消失）
+  void dotTick
 
   // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
   if (myProfile?.role === 'admin') {
@@ -103,7 +122,7 @@ export default function Community() {
           <Toggle
             options={['ensemble', 'gathering']}
             value={view}
-            onChange={(v) => setView(v as PostType)}
+            onChange={(v) => handleSwitchType(v as PostType)}
             getLabel={(k) => (k === 'ensemble' ? t('community.type.ensemble') : t('community.type.gathering'))}
             badges={{ ensemble: hasUnviewedEnsemble, gathering: hasUnviewedGathering }}
           />

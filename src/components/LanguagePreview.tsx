@@ -5,11 +5,11 @@ import { loaders } from '@/i18n'
 import { LOCALES, type Locale } from '@/i18n/storage'
 import { zhCN } from '@/i18n/messages/zh-CN'
 
-const CYCLE_MS = 5000
-const BLUR_MS = 250
+const CYCLE_MS = 2000
+const BLUR_MS = 200
 
 /**
- * 语言设置入口的装饰性预览：每 5 秒在已实现的各语言间模糊切换，
+ * 语言设置入口的装饰性预览：每 2 秒在已实现的各语言间模糊切换，
  * 展示该入口在每门语言下的文案（如「语言设置」↔「Language Setting」）。
  * 列表式循环（LOCALES）：新增语言只需往 LOCALES / loaders 登记即自动纳入。
  */
@@ -62,7 +62,7 @@ export function LanguagePreview({ className }: { className?: string }) {
       style={{
         filter: blurring ? 'blur(3px)' : 'blur(0px)',
         opacity: blurring ? 0.4 : 1,
-        transition: 'filter 0.25s ease, opacity 0.25s ease',
+        transition: 'filter 0.2s ease, opacity 0.2s ease',
       }}
     >
       <Text className={className}>{label}</Text>

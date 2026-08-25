@@ -89,11 +89,12 @@ export default function Index() {
     return sortRehearsalsForMember(filtered, now)
   }, [rehearsals, scheduleTab, nowTick])
 
-  // 未查看红点：列表中存在尚未打开详情页（markRehearsalSeen）过的排练时点亮首页 tabBar 红点
+  // 未查看红点：列表中存在尚未打开详情页且**尚未结束**的排练时点亮首页 tabBar 红点。
+  // 历史合排（已结束）不显示红气泡、也不计入未读（Issue #154 语义补充）
   const [seenTick, setSeenTick] = useState(0)
   useEffect(() => subscribeRehearsalSeen(() => setSeenTick((n) => n + 1)), [])
   const hasUnviewed = useMemo(
-    () => list.some((r) => !isRehearsalSeen(r.id)),
+    () => list.some((r) => !isRehearsalSeen(r.id) && !isRehearsalEnded(r, new Date(nowTick))),
     // seenTick 用于强制在「标记已查看」事件后重算未查看红点
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [list, seenTick]
@@ -177,7 +178,8 @@ export default function Index() {
                 item={r}
                 isUpdated={isRehearsalUpdated(r) && !isRehearsalEnded(r, new Date(nowTick))}
                 onClick={() => Taro.navigateTo({ url: `/pages/rehearsal-detail/index?id=${r.id}` })}
-                seen={isRehearsalSeen(r.id)}
+                // 已结束（历史合排）不显示红气泡
+                seen={isRehearsalSeen(r.id) || isRehearsalEnded(r, new Date(nowTick))}
               />
             </View>
           ))
