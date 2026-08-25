@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/Card'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useLogin } from '@/hooks/useLogin'
+import { useT, useNavTitle } from '@/i18n'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { supabase } from '@/lib/supabase'
 import './index.scss'
@@ -19,6 +20,8 @@ export default function EmailLoginPage() {
   const { ready, user } = useUser()
   const { email, setEmail, password, setPassword, submitting, errorMsg, handleSubmit } = useLogin()
   const darkClass = useThemeClass()
+  const { t } = useT()
+  useNavTitle('emailLogin.navTitle')
 
   // 已登录用户（异常进入本页）按 profile 状态路由入口（与登录提交后双触发，幂等）
   useEffect(() => {
@@ -42,7 +45,7 @@ export default function EmailLoginPage() {
   if (!ready) {
     return (
       <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>加载中…</Text>
+        <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
   }
@@ -51,13 +54,13 @@ export default function EmailLoginPage() {
     <View className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}>
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
-          <Text className='text-xl font-semibold text-text'>邮箱登录</Text>
-          <Text className='mt-1 block text-xs text-text-muted'>使用邮箱和密码登录</Text>
+          <Text className='text-xl font-semibold text-text'>{t('emailLogin.title')}</Text>
+          <Text className='mt-1 block text-xs text-text-muted'>{t('emailLogin.subtitle')}</Text>
         </View>
 
         {/* ✅ 邮箱 - 外层 View 包裹约束宽度，避免原生 Input 溢出 */}
         <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>邮箱</Text>
+          <Text className='text-sm font-medium text-text-muted'>{t('common.fields.email')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               className='h-10 w-full bg-transparent text-sm text-text'
@@ -70,11 +73,11 @@ export default function EmailLoginPage() {
 
         {/* ✅ 密码 - 外层 View 包裹约束宽度 */}
         <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>密码</Text>
+          <Text className='text-sm font-medium text-text-muted'>{t('common.fields.password')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               className='h-10 w-full bg-transparent text-sm text-text'
-              placeholder='请输入密码'
+              placeholder={t('emailLogin.passwordPlaceholder')}
               password
               value={password}
               onInput={(e) => setPassword(e.detail.value)}
@@ -94,7 +97,7 @@ export default function EmailLoginPage() {
           disabled={submitting}
           onClick={() => void handleSubmit()}
         >
-          {submitting ? '登录中…' : '登录'}
+          {submitting ? t('emailLogin.submitting') : t('emailLogin.submit')}
         </Button>
       </Card>
 
@@ -103,13 +106,13 @@ export default function EmailLoginPage() {
           className='text-sm text-text-muted'
           onClick={() => void Taro.navigateBack()}
         >
-          {'返回微信登录 <'}
+          {t('emailLogin.backToWechat')}
         </Text>
         <Text
           className='text-sm font-medium text-primary'
           onClick={() => void Taro.navigateTo({ url: '/pages/email-signup/index' })}
         >
-          使用邮箱注册
+          {t('emailLogin.goSignup')}
         </Text>
       </View>
     </View>

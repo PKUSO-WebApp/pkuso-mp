@@ -2,6 +2,7 @@ import { Button, View } from '@tarojs/components'
 import type { ReactNode } from 'react'
 import { useLayoutEffect } from 'react'
 import { setOverlayOpen } from '@/lib/overlayStore'
+import { useT } from '@/i18n'
 
 type ModalProps = {
   open: boolean
@@ -25,6 +26,7 @@ export function Modal({
   position = 'bottom',
   closeOnOverlay = true,
 }: ModalProps) {
+  const { t } = useT()
   // 打开时通知 custom tabBar 隐藏自身，确保弹窗盖在 tabBar 之上。
   // 用 useLayoutEffect（而非 useEffect）在「绘制前」同步隐藏底边栏，
   // 避免底边栏(CoverView，原生层恒在 Modal 之上)在 Modal 出现后、display:none 生效前的那一帧覆盖 Modal 造成闪烁。
@@ -70,7 +72,7 @@ export function Modal({
                 className='m-0 w-auto rounded-full border-none bg-muted px-3 py-1 text-xs leading-normal text-text-muted'
                 onClick={onClose}
               >
-                关闭
+                {t('ui.modal.close')}
               </Button>
             </View>
           </View>

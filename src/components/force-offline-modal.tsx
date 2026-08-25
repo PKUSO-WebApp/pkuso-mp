@@ -1,5 +1,6 @@
 import { View, Text, Button } from '@tarojs/components'
 import { formatDateTimeInChina } from '@/lib/date-utils'
+import { useT } from '@/i18n'
 
 export type ForceOfflineModalProps = {
   opened: boolean
@@ -13,27 +14,28 @@ export type ForceOfflineModalProps = {
  * 覆盖层级高于普通 Modal（z-[70] vs z-[60]），登录页处于其下。
  */
 export function ForceOfflineModal({ opened, at, onClose }: ForceOfflineModalProps) {
+  const { t } = useT()
   if (!opened) return null
-  const when = at ? formatDateTimeInChina(at) : '刚刚'
+  const when = at ? formatDateTimeInChina(at) : t('ui.forceOffline.justNow')
   return (
     <View
       className='fixed left-0 right-0 top-0 bottom-0 z-[70] flex items-center justify-center bg-overlay px-6'
       catchMove
     >
       <View className='w-full max-w-sm rounded-2xl border border-border bg-surface p-5'>
-        <Text className='block text-base font-semibold text-text'>账号已在其他设备登录</Text>
+        <Text className='block text-base font-semibold text-text'>{t('ui.forceOffline.title')}</Text>
         <Text className='mt-3 block text-sm leading-relaxed text-text-muted'>
-          {`另一设备于 ${when} 登录你的账号，当前设备已经下线。`}
+          {t('ui.forceOffline.line1', { when })}
         </Text>
         <Text className='mt-2 block text-sm leading-relaxed text-text-muted'>
-          如果这不是你本人的操作，说明你的密码可能已经泄露，请尽快重新登录并修改密码。
+          {t('ui.forceOffline.line2')}
         </Text>
         <Button
           hoverClass='none'
           className='mt-4 w-full rounded-xl border-none bg-primary px-3 py-2 text-sm font-medium text-primary-foreground'
           onClick={onClose}
         >
-          重新登录
+          {t('ui.forceOffline.action')}
         </Button>
       </View>
     </View>

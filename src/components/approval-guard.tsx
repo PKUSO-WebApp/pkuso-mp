@@ -5,22 +5,12 @@ import { useThemeClass } from '@/context/theme-context'
 import { useUser } from '@/context/user-context'
 import { useLogout } from '@/hooks/useLogout'
 import { useProfileStatus } from '@/hooks/useProfileStatus'
+import { useT } from '@/i18n'
 import { resolveEntryRoute } from '@/lib/profile-gate'
 
 type ApprovalGuardProps = {
   /** 本页对应状态：决定文案与重定向目标（pending → 等待审核，rejected → 审核未通过） */
   expected: 'pending' | 'rejected'
-}
-
-const COPY = {
-  pending: {
-    title: '等待管理员审核',
-    desc: '资料已提交，管理员审核通过后即可使用小程序。',
-  },
-  rejected: {
-    title: '审核未通过，请联系管理员',
-    desc: '如有疑问请联系乐团管理员。',
-  },
 }
 
 /**
@@ -36,6 +26,7 @@ export function ApprovalGuard({ expected }: ApprovalGuardProps) {
   const { signingOut, logout } = useLogout()
   const { profile, loading, error, refresh } = useProfileStatus()
   const darkClass = useThemeClass()
+  const { t } = useT()
 
   const expectedPath = expected === 'pending' ? '/pages/pending/index' : '/pages/rejected/index'
 
@@ -55,13 +46,22 @@ export function ApprovalGuard({ expected }: ApprovalGuardProps) {
     }
   }, [ready, user])
 
-  const copy = COPY[expected]
+  const copy = {
+    pending: {
+      title: t('common.approval.pending.title'),
+      desc: t('common.approval.pending.desc'),
+    },
+    rejected: {
+      title: t('common.approval.rejected.title'),
+      desc: t('common.approval.rejected.desc'),
+    },
+  }[expected]
 
   // 未就绪/未登录时渲染占位，避免跳转前闪烁
   if (!ready || !user) {
     return (
       <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>加载中…</Text>
+        <Text className='text-sm text-text-muted'>{t('common.approval.loading')}</Text>
       </View>
     )
   }
@@ -83,7 +83,7 @@ export function ApprovalGuard({ expected }: ApprovalGuardProps) {
           disabled={loading || signingOut}
           onClick={() => void refresh()}
         >
-          {loading ? '检查中…' : '刷新状态'}
+          {loading ? t('common.approval.checking') : t('common.approval.refresh')}
         </Button>
         <Button
           hoverClass='none'
@@ -91,7 +91,7 @@ export function ApprovalGuard({ expected }: ApprovalGuardProps) {
           disabled={signingOut}
           onClick={() => void logout()}
         >
-          {signingOut ? '退出中…' : '退出登录'}
+          {signingOut ? t('common.approval.exiting') : t('common.approval.logout')}
         </Button>
       </View>
     </View>

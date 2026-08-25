@@ -1,6 +1,9 @@
 import { View, Text } from '@tarojs/components'
 import { Modal } from '@/components/ui/Modal'
 import { maskedValue } from '@/lib/privacy'
+import { useT } from '@/i18n'
+import { translateInstrument } from '@/lib/instrument-i18n'
+import { translateJoinDate } from '@/lib/join-date-i18n'
 import type { ProfileRow } from '@/types/database'
 
 type MemberDetailModalProps = {
@@ -26,32 +29,41 @@ function DetailField({ label, value }: { label: string; value: string | null }) 
 
 /** 用户侧成员详情弹窗：只读展示花名册成员信息 */
 export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetailModalProps) {
+  const { t } = useT()
   return (
-    <Modal open={open} onClose={onClose} title='成员详情' position='bottom'>
+    <Modal open={open} onClose={onClose} title={t('members.detailTitle')} position='bottom'>
       {user && (
         <View className='mt-2 space-y-3'>
           <View className='flex flex-wrap items-center gap-2'>
             <Text className='text-base font-semibold text-text'>{user.full_name ?? '—'}</Text>
             {user.is_section_leader && (
               <Text className='rounded-full bg-warning-bg px-2 py-1 text-xs text-warning'>
-                🏅 声部长
+                {t('members.sectionLeader')}
               </Text>
             )}
           </View>
-          <DetailField label='乐器' value={user.instrument} />
-          <DetailField label='学院' value={user.college} />
+          <DetailField label={t('members.fieldInstrument')} value={user.instrument ? translateInstrument(user.instrument, t) : user.instrument} />
+          <DetailField label={t('members.fieldCollege')} value={user.college} />
           {/* 隐私掩码：查看自己显示原值，查看他人按对方开关掩码 */}
           <DetailField
-            label='邮箱'
+            label={t('members.fieldEmail')}
             value={maskedValue(user.id !== viewerId && user.hide_email, user.email)}
           />
           <DetailField
-            label='联系方式'
+            label={t('members.fieldContact')}
             value={maskedValue(user.id !== viewerId && user.hide_phone, user.phone_number)}
           />
           <DetailField
-            label='入团时间'
-            value={maskedValue(user.id !== viewerId && user.hide_join_date, user.join_date)}
+            label={t('members.fieldJoinDate')}
+            value={translateJoinDate(
+              maskedValue(user.id !== viewerId && user.hide_join_date, user.join_date),
+              t
+            )}
+          />
+          {/* 在团情况：不涉隐私开关，直接展示 */}
+          <DetailField
+            label={t('members.statusLabel')}
+            value={user.is_in_orchestra === true ? t('members.statusActive') : t('members.statusInactive')}
           />
         </View>
       )}

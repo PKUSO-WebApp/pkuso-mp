@@ -1,5 +1,6 @@
 import { View, Text, Input } from '@tarojs/components'
 import { Modal } from '@/components/ui/Modal'
+import { useT } from '@/i18n'
 
 type Props = {
   open: boolean
@@ -25,16 +26,19 @@ export function CodeVerifyModal({
   onClose,
   hint,
 }: Props) {
+  const { t } = useT()
   return (
-    <Modal open={open} onClose={onClose} title='输入签到码' closeOnOverlay={!submitting}>
-      <Text className='mb-3 block text-xs text-text-muted'>本次排练：{title}</Text>
+    <Modal open={open} onClose={onClose} title={t('activityDetail.codeModal.title')} closeOnOverlay={!submitting}>
+      <Text className='mb-3 block text-xs text-text-muted'>
+        {t('activityDetail.codeModal.rehearsal', { title })}
+      </Text>
       {hint && (
         <Text className='mb-3 block rounded-lg bg-warning-bg/80 px-3 py-2 text-xs text-warning'>
           {hint}
         </Text>
       )}
       <View className='mb-3 space-y-1'>
-        <Text className='block text-xs font-medium text-text-muted'>四位数字签到码</Text>
+        <Text className='block text-xs font-medium text-text-muted'>{t('activityDetail.codeModal.codeLabel')}</Text>
         <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
           <Input
             type='number'
@@ -42,7 +46,7 @@ export function CodeVerifyModal({
             value={codeInput}
             onInput={(e) => onCodeChange(e.detail.value)}
             className='h-10 w-full bg-transparent text-sm text-text'
-            placeholder='如：8848'
+            placeholder={t('activityDetail.codeModal.placeholder')}
           />
         </View>
         {codeError && <Text className='mt-1 block text-xs text-danger'>{codeError}</Text>}
@@ -52,13 +56,13 @@ export function CodeVerifyModal({
           className='rounded-full px-4 py-1.5 text-xs text-text-muted'
           onClick={submitting ? undefined : onClose}
         >
-          取消
+          {t('activityDetail.codeModal.cancel')}
         </View>
         <View
           className={`rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground ${submitting ? 'opacity-60' : ''}`}
           onClick={submitting ? undefined : onConfirm}
         >
-          {submitting ? '确认中…' : '确认签到'}
+          {submitting ? t('activityDetail.codeModal.confirming') : t('activityDetail.codeModal.confirm')}
         </View>
       </View>
     </Modal>

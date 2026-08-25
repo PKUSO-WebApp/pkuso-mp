@@ -1,0 +1,29 @@
+export const home = {
+  navTitle: '首页',
+  welcome: '欢迎！',
+  welcomeWithName: '欢迎，{name}！',
+  schedule: {
+    weekTitle: '本周排练日程',
+    weekSubtitle: '查看乐团合排与分排安排',
+    historyTitle: '历史合排',
+    historySubtitle: '查看已结束的合排排练',
+  },
+  tabs: {
+    full: '合排',
+    section: '分排',
+    history: '历史合排',
+  },
+  loadFailed: '加载失败：{error}',
+  emptySchedule: '暂无安排',
+  announcementDetail: '公告详情',
+  publishTime: '发布时间：{time}',
+  rehearsalTimeUnset: '时间未设置',
+  locationUnset: '未定',
+  targetSection: '针对：',
+  updated: '更新排练：{fields}',
+  updatedField: {
+    time: '时间',
+    location: '地点',
+    repertoire: '曲目',
+  },
+}

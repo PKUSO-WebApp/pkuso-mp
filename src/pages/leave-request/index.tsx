@@ -5,6 +5,7 @@ import { useLeaveRequests, type UploadFileLike } from '@/hooks/useLeaveRequests'
 import { useUser } from '@/context/user-context'
 import { useRehearsals } from '@/hooks/useRehearsals'
 import { formatRehearsalRange } from '@/lib/date-utils'
+import { useT } from '@/i18n'
 import type { LeaveRequestRow } from '@/types/database'
 
 const isActive = (r: LeaveRequestRow) =>
@@ -18,6 +19,7 @@ export default function LeaveRequestPage() {
   const rehearsal = rehearsals?.find((r) => r.id === rehearsalId) ?? null
   const { fetchMine, create, updateReason, reapply, cancelRequest, uploadAttachment, getSignedUrl, saving } =
     useLeaveRequests()
+  const { t } = useT()
 
   const [mode, setMode] = useState<'form' | 'view'>('view')
   const [current, setCurrent] = useState<LeaveRequestRow | null>(null)
@@ -113,11 +115,11 @@ export default function LeaveRequestPage() {
     if (submittingRef.current || isSubmitting) return
     const trimmed = reason.trim()
     if (!trimmed) {
-      setError('请填写请假原因')
+      setError(t('leaveRequest.errorReason'))
       return
     }
     if (!user?.id) {
-      setError('登录状态失效，请重新登录')
+      setError(t('leaveRequest.errorLogin'))
       return
     }
     if (!rehearsal) return
@@ -129,7 +131,7 @@ export default function LeaveRequestPage() {
       if (attachmentFile) {
         const up = await uploadAttachment(attachmentFile, user.id)
         if (up.error) {
-          setError(`附件上传失败：${up.error}`)
+          setError(t('leaveRequest.errorUpload', { error: up.error }))
           return
         }
         attachmentUrl = up.url ?? null
@@ -193,23 +195,23 @@ export default function LeaveRequestPage() {
   const showEdit = leaveStatus === 'pending' || leaveStatus === 'rejected'
 
   // 查看态展示申请状态且禁用按钮；编辑态按钮可用，文案为「修改申请 / 重新申请」。
-  let submitLabel = '提交申请'
+  let submitLabel = t('leaveRequest.submit')
   let submitClass = 'text-white'
   let submitStyle: { backgroundColor: string } | undefined = { backgroundColor: '#6198CB' }
   let submitDisabled = false
   if (mode === 'view') {
     if (leaveStatus === 'pending') {
-      submitLabel = '待审批'
+      submitLabel = t('leaveRequest.statusPending')
       submitClass = 'bg-warning-bg text-warning'
       submitStyle = undefined
       submitDisabled = true
     } else if (leaveStatus === 'approved') {
-      submitLabel = '已通过'
+      submitLabel = t('leaveRequest.statusApproved')
       submitClass = 'bg-success-bg text-success'
       submitStyle = undefined
       submitDisabled = true
     } else if (leaveStatus === 'rejected') {
-      submitLabel = '已驳回'
+      submitLabel = t('leaveRequest.statusRejected')
       submitClass = 'bg-danger-bg text-danger'
       submitStyle = undefined
       submitDisabled = true
@@ -217,12 +219,16 @@ export default function LeaveRequestPage() {
   } else {
     // 编辑态：提交即保存修改（pending 改内容 / rejected 重新申请）
     submitLabel =
-      leaveStatus === 'rejected' ? '重新申请' : leaveStatus === 'pending' ? '修改申请' : '提交申请'
+      leaveStatus === 'rejected'
+        ? t('leaveRequest.resubmit')
+        : leaveStatus === 'pending'
+          ? t('leaveRequest.modify')
+          : t('leaveRequest.submit')
   }
 
   const subtitle = rehearsal?.start_time
     ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
-    : '排练未找到'
+    : t('leaveRequest.notFound')
   const hasAttachment = mode === 'view' ? !!viewAttachmentUrl : !!keepOldAttachment
 
   return (
@@ -234,11 +240,11 @@ export default function LeaveRequestPage() {
 
         {mode === 'view' && current ? (
           <>
-            <Text className='block text-sm font-medium text-text'>申请原因</Text>
+            <Text className='block text-sm font-medium text-text'>{t('leaveRequest.reasonLabel')}</Text>
             <Text className='mt-1 block whitespace-pre-wrap text-sm text-text-muted'>{current.reason}</Text>
-            <Text className='mb-1 mt-4 block text-sm font-medium text-text'>附件</Text>
+            <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('leaveRequest.attachmentLabel')}</Text>
             {attachmentLoading ? (
-              <Text className='text-xs text-text-muted'>附件加载中…</Text>
+              <Text className='text-xs text-text-muted'>{t('leaveRequest.attachmentLoading')}</Text>
             ) : hasAttachment && viewAttachmentUrl ? (
               <Image
                 src={viewAttachmentUrl}
@@ -247,20 +253,20 @@ export default function LeaveRequestPage() {
                 onClick={() => viewAttachmentUrl && Taro.previewImage({ urls: [viewAttachmentUrl] })}
               />
             ) : (
-              <Text className='text-xs text-text-muted'>无附件</Text>
+              <Text className='text-xs text-text-muted'>{t('leaveRequest.noAttachment')}</Text>
             )}
           </>
         ) : (
           <>
-            <Text className='block text-sm font-medium text-text'>申请原因</Text>
+            <Text className='block text-sm font-medium text-text'>{t('leaveRequest.reasonLabel')}</Text>
             <Textarea
               value={reason}
               onInput={(e) => setReason(String((e.detail as { value?: string })?.value ?? ''))}
-              placeholder='请填写请假原因'
+              placeholder={t('leaveRequest.reasonPlaceholder')}
               className='mt-1 w-full rounded-lg border border-border bg-surface p-2 text-sm text-text'
               style={{ minHeight: '96px' }}
             />
-            <Text className='mb-1 mt-4 block text-sm font-medium text-text'>附件</Text>
+            <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('leaveRequest.attachmentLabel')}</Text>
             {attachmentPreview ? (
               <View className='relative'>
                 <Image src={attachmentPreview} mode='widthFix' className='w-full rounded-lg border border-border' />
@@ -268,7 +274,7 @@ export default function LeaveRequestPage() {
                   className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'
                   onClick={handleClearAttachment}
                 >
-                  <Text className='text-sm text-danger'>删除附件</Text>
+                  <Text className='text-sm text-danger'>{t('leaveRequest.deleteAttachment')}</Text>
                 </View>
               </View>
             ) : keepOldAttachment && viewAttachmentUrl ? (
@@ -283,7 +289,7 @@ export default function LeaveRequestPage() {
                   className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'
                   onClick={handleRemoveOldAttachment}
                 >
-                  <Text className='text-sm text-danger'>删除附件</Text>
+                  <Text className='text-sm text-danger'>{t('leaveRequest.deleteAttachment')}</Text>
                 </View>
               </View>
             ) : (
@@ -291,11 +297,11 @@ export default function LeaveRequestPage() {
                 className='inline-flex items-center rounded-full border border-border bg-surface px-3 py-1'
                 onClick={handleChooseImage}
               >
-                <Text className='text-sm text-text'>添加附件</Text>
+                <Text className='text-sm text-text'>{t('leaveRequest.addAttachment')}</Text>
               </View>
             )}
             {attachmentFile === null && keepOldAttachment && (
-              <Text className='mt-1 block text-xs text-text-muted'>保留原附件（可修改或删除）</Text>
+              <Text className='mt-1 block text-xs text-text-muted'>{t('leaveRequest.keepOldAttachment')}</Text>
             )}
             {error && <Text className='mt-3 block text-xs text-danger'>{error}</Text>}
           </>
@@ -314,14 +320,14 @@ export default function LeaveRequestPage() {
         {mode === 'view' && showEdit && (
           <View className='mt-3 flex items-center justify-center'>
             <Text className='text-sm text-danger' onClick={handleEdit}>
-              {current?.status === 'rejected' ? '重新申请' : '编辑申请'} &gt;
+              {current?.status === 'rejected' ? t('leaveRequest.resubmit') : t('leaveRequest.editLink')} &gt;
             </Text>
           </View>
         )}
         {mode === 'form' && leaveStatus === 'pending' && (
           <View className='mt-3 flex items-center justify-center'>
             <Text className='text-sm text-danger' onClick={handleCancel}>
-              撤销申请 &gt;
+              {t('leaveRequest.withdraw')} &gt;
             </Text>
           </View>
         )}

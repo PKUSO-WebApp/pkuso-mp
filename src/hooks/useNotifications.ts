@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
-import { dataSyncBump, subscribeSync } from '@/lib/dataSync'
+import { dataSyncBump, emitSync, subscribeSync } from '@/lib/dataSync'
 import type { NotificationCategory, NotificationRow } from '@/types/database'
 
 /** 三个信箱分类（profile 页按钮共用） */
@@ -42,18 +42,18 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
   /** 重新拉取未读数（挂载时调用） */
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true)
-    const { data, error } = await client
-      .from('notifications')
-      .select('category')
-      .is('read_at', null)
-    if (!mountedRef.current) return
+    // 防御性取值：emitSync 可能触达已卸载测试实例的遗留监听器（其 mock 无此查询链），
+    // 结果为 undefined 时静默跳过，避免未处理拒绝
+    const res = await client.from('notifications').select('category').is('read_at', null)
+    if (!mountedRef.current || !res) return
     setLoading(false)
-    if (error) {
-      console.error('[Notifications] 未读数查询失败', error.message)
+    const rows = (res.data ?? []) as { category: NotificationCategory }[]
+    if (res.error) {
+      console.error('[Notifications] 未读数查询失败', res.error.message)
       return
     }
     const counts: UnreadCounts = { attendance: 0, activity: 0, system: 0 }
-    for (const row of (data ?? []) as { category: NotificationCategory }[]) {
+    for (const row of rows) {
       if (row.category in counts) counts[row.category] += 1
     }
     setUnreadCounts(counts)
@@ -93,8 +93,11 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
   const markCategoryRead = useCallback(
     async (category: NotificationCategory, ids: string[]): Promise<boolean> => {
       if (ids.length === 0) {
-        // 无未读行可标（fetch 已确认该分类无未读）：直接归零
-        setUnreadCounts((prev) => ({ ...prev, [category]: 0 }))
+        // 无未读行可标（fetch 已确认该分类无未读）：直接归零。
+        // 广播必须在 mounted 判断之外——离开页面路径上本实例已卸载，
+        // 但其他实例（「我的」行内数字 / 底边栏红点）仍依赖此次刷新
+        if (mountedRef.current) setUnreadCounts((prev) => ({ ...prev, [category]: 0 }))
+        emitSync('notifications')
         dataSyncBump()
         return true
       }
@@ -117,8 +120,11 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
         console.error('[Notifications] 标记已读失败', err)
         return false
       }
-      if (!mountedRef.current) return true
-      setUnreadCounts((prev) => ({ ...prev, [category]: 0 }))
+      // 卸载只跳过本地 setState；广播无条件执行——否则离开页面路径上
+      // （提交在途时页面已卸载）emitSync 被守卫拦截，所有红点都退化为等 30s 心跳
+      if (mountedRef.current) setUnreadCounts((prev) => ({ ...prev, [category]: 0 }))
+      emitSync('notifications')
+      dataSyncBump()
       return true
     },
     [client]

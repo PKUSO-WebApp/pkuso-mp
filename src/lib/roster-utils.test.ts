@@ -9,6 +9,7 @@ function makeUser(partial: Partial<ProfileRow> & { id: string; full_name: string
     created_at: null,
     email: null,
     instrument: null,
+    is_in_orchestra: true,
     is_section_leader: false,
     join_date: null,
     phone_number: null,

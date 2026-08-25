@@ -1,3 +1,1 @@
-export default definePageConfig({
-  navigationBarTitleText: '社区',
-})
+export default definePageConfig({})

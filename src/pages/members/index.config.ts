@@ -1,3 +1,1 @@
-export default definePageConfig({
-  navigationBarTitleText: '成员',
-})
+export default definePageConfig({})

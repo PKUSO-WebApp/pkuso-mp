@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { View, Text, Input, Picker } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { Modal } from '@/components/ui/Modal'
+import { useT } from '@/i18n'
 
 // 时间选择最小单位 15 分钟：分钟列仅提供 00/15/30/45 四档。
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
@@ -49,6 +50,7 @@ export function CreateScheduleModal({
   onCheckConflict,
   onClose,
 }: Props) {
+  const { t } = useT()
   const [title, setTitle] = useState('')
   const [date, setDate] = useState(defaultDate)
   const [startTime, setStartTime] = useState('')
@@ -72,19 +74,19 @@ export function CreateScheduleModal({
     if (submittingRef.current || isSubmitting) return
     const trimmedTitle = title.trim()
     if (!trimmedTitle) {
-      setError('请填写预约标题')
+      setError(t('schedule.errors.titleRequired'))
       return
     }
     if (!startTime) {
-      setError('请选择开始时间')
+      setError(t('schedule.errors.startTimeRequired'))
       return
     }
     if (!endTime) {
-      setError('请选择结束时间')
+      setError(t('schedule.errors.endTimeRequired'))
       return
     }
     if (endTime <= startTime) {
-      setError('结束时间必须晚于开始时间')
+      setError(t('schedule.errors.endAfterStart'))
       return
     }
 
@@ -104,10 +106,10 @@ export function CreateScheduleModal({
       })
       if (!ok) {
         // hook 已写入具体错误（网络/权限），无则用兜底文案
-        setError('添加失败，请重试')
+        setError(t('schedule.errors.addFailed'))
         return
       }
-      void Taro.showToast({ title: '预约已添加', icon: 'success' })
+      void Taro.showToast({ title: t('schedule.toastAdded'), icon: 'success' })
       setTitle('')
       setStartTime('')
       setEndTime('')
@@ -124,13 +126,13 @@ export function CreateScheduleModal({
     <Modal
       open={open}
       onClose={handleClose}
-      title='添加预约'
+      title={t('schedule.addReservation')}
       position='bottom'
       closeOnOverlay={!busy}
     >
       <View className='mt-2 space-y-3'>
         <View className='space-y-1'>
-          <Text className='block text-label text-text-muted'>预约标题</Text>
+          <Text className='block text-label text-text-muted'>{t('schedule.labels.title')}</Text>
           <View className='w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               value={title}
@@ -140,13 +142,13 @@ export function CreateScheduleModal({
               }}
               disabled={busy}
               className='bg-transparent py-2 text-xs text-text'
-              placeholder='如：排练房A预约'
+              placeholder={t('schedule.placeholders.title')}
             />
           </View>
         </View>
 
         <View className='space-y-1'>
-          <Text className='block text-label text-text-muted'>预约日期</Text>
+          <Text className='block text-label text-text-muted'>{t('schedule.labels.date')}</Text>
           <View className='rounded-xl border border-border bg-muted px-3 py-2'>
             <Picker mode='date' value={date} onChange={(e) => setDate(e.detail.value)}>
               <Text className='text-xs text-text'>{date}</Text>
@@ -155,7 +157,7 @@ export function CreateScheduleModal({
         </View>
 
         <View className='space-y-1'>
-          <Text className='block text-label text-text-muted'>开始时间</Text>
+          <Text className='block text-label text-text-muted'>{t('schedule.labels.startTime')}</Text>
           <View className='rounded-xl border border-border bg-muted px-3 py-2'>
             <Picker
               mode='multiSelector'
@@ -166,13 +168,13 @@ export function CreateScheduleModal({
                 setError(null)
               }}
             >
-              <Text className='text-xs text-text'>{startTime || '请选择开始时间'}</Text>
+              <Text className='text-xs text-text'>{startTime || t('schedule.placeholders.startTime')}</Text>
             </Picker>
           </View>
         </View>
 
         <View className='space-y-1'>
-          <Text className='block text-label text-text-muted'>结束时间</Text>
+          <Text className='block text-label text-text-muted'>{t('schedule.labels.endTime')}</Text>
           <View className='rounded-xl border border-border bg-muted px-3 py-2'>
             <Picker
               mode='multiSelector'
@@ -183,7 +185,7 @@ export function CreateScheduleModal({
                 setError(null)
               }}
             >
-              <Text className='text-xs text-text'>{endTime || '请选择结束时间'}</Text>
+              <Text className='text-xs text-text'>{endTime || t('schedule.placeholders.endTime')}</Text>
             </Picker>
           </View>
         </View>
@@ -195,13 +197,13 @@ export function CreateScheduleModal({
             className='rounded-full px-4 py-1.5 text-label text-text-muted'
             onClick={busy ? undefined : () => handleClose()}
           >
-            取消
+            {t('common.actions.cancel')}
           </View>
           <View
             className={`rounded-full bg-primary px-4 py-1.5 text-label font-medium text-primary-foreground ${busy ? 'opacity-60' : ''}`}
             onClick={busy ? undefined : () => void handleSubmit()}
           >
-            {isSubmitting ? '添加中…' : '确定'}
+            {isSubmitting ? t('schedule.submitting') : t('common.actions.confirm')}
           </View>
         </View>
       </View>

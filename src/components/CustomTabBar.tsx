@@ -30,6 +30,7 @@ import users from '@/assets/icons/users.png'
 import usersActive from '@/assets/icons/users-active.png'
 import user from '@/assets/icons/user.png'
 import userActive from '@/assets/icons/user-active.png'
+import { subscribeLocale, translateCurrent } from '@/i18n'
 
 // 底边栏 UI：由框架专用槽位组件 src/custom-tab-bar 渲染，状态（选中/未读/主题/Modal 覆盖）
 // 均来自全局 store，故每个 tab 页实例保持一致、无闪烁/无双实例失联。
@@ -37,21 +38,21 @@ import userActive from '@/assets/icons/user-active.png'
 // 导致 Modal 底部按钮点不到；改用 View + display:none 既能真正移除（不拦截触摸），
 // 又不会像 CoverView 那样在 display 切换时重建原生节点而闪烁。
 const LIST = [
-  { pagePath: '/pages/index/index', text: '首页', icon: house, selectedIcon: houseActive },
+  { pagePath: '/pages/index/index', key: 'ui.tabBar.home', icon: house, selectedIcon: houseActive },
   {
     pagePath: '/pages/community/index',
-    text: '社区',
+    key: 'ui.tabBar.community',
     icon: messageSquare,
     selectedIcon: messageSquareActive,
   },
   {
     pagePath: '/pages/schedule/index',
-    text: '日程',
+    key: 'ui.tabBar.schedule',
     icon: calendar,
     selectedIcon: calendarActive,
   },
-  { pagePath: '/pages/members/index', text: '成员', icon: users, selectedIcon: usersActive },
-  { pagePath: '/pages/profile/index', text: '我的', icon: user, selectedIcon: userActive },
+  { pagePath: '/pages/members/index', key: 'ui.tabBar.members', icon: users, selectedIcon: usersActive },
+  { pagePath: '/pages/profile/index', key: 'ui.tabBar.profile', icon: user, selectedIcon: userActive },
 ] as const
 
 // active=选中文字/图标色（更深），inactive=未选中（更浅），提升对比度
@@ -84,6 +85,8 @@ export default class CustomTabBar extends Component {
       this.setState({ dark: getThemeMode() === 'dark' })
     )
     this.unsubOverlay = subscribeOverlayOpen(() => this.setState({ overlay: getOverlayOpen() }))
+    // 语言切换时重渲染 tab 文字（底边栏由框架独立槽位渲染，不在 React Provider 树内）
+    this.unsubLocale = subscribeLocale(() => this.forceUpdate())
   }
 
   componentWillUnmount() {
@@ -93,6 +96,7 @@ export default class CustomTabBar extends Component {
     this.unsubPost?.()
     this.unsubTheme?.()
     this.unsubOverlay?.()
+    this.unsubLocale?.()
   }
 
   unsubSelected?: () => void
@@ -101,6 +105,7 @@ export default class CustomTabBar extends Component {
   unsubPost?: () => void
   unsubTheme?: () => void
   unsubOverlay?: () => void
+  unsubLocale?: () => void
 
   switchTab = (idx: number) => {
     setTabBarSelected(idx)
@@ -201,7 +206,7 @@ export default class CustomTabBar extends Component {
                   color: isSelected ? c.active : c.inactive,
                 }}
               >
-                {tab.text}
+                {translateCurrent(tab.key)}
               </View>
             </View>
           )

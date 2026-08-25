@@ -1,0 +1,23 @@
+// 请假申请页文案（按页分：leave-request；对应「活动报名 / 申请」）
+export const leaveRequest = {
+  notFound: '排练未找到',
+  reasonLabel: '申请原因',
+  attachmentLabel: '附件',
+  attachmentLoading: '附件加载中…',
+  noAttachment: '无附件',
+  reasonPlaceholder: '请填写请假原因',
+  deleteAttachment: '删除附件',
+  addAttachment: '添加附件',
+  keepOldAttachment: '保留原附件（可修改或删除）',
+  errorReason: '请填写请假原因',
+  errorLogin: '登录状态失效，请重新登录',
+  errorUpload: '附件上传失败：{error}',
+  statusPending: '待审批',
+  statusApproved: '已通过',
+  statusRejected: '已驳回',
+  submit: '提交申请',
+  resubmit: '重新申请',
+  modify: '修改申请',
+  withdraw: '撤销申请',
+  editLink: '编辑申请',
+}

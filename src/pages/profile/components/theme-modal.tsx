@@ -2,6 +2,7 @@ import { View, Text } from '@tarojs/components'
 import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
 import { useThemeContext } from '@/context/theme-context'
+import { useT } from '@/i18n'
 import { THEME_OPTIONS, themeLabel } from '@/lib/theme'
 
 /** 外观弹窗：亮色 / 暗色 / 跟随系统 三态主题选择（Web Issue #203 语义）。
@@ -9,8 +10,9 @@ import { THEME_OPTIONS, themeLabel } from '@/lib/theme'
  *  状态来自全局 ThemeProvider：弹窗只读共享状态，系统外观监听由根 Provider 统一持有。 */
 export function ThemeModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { preference, mode, setPreference } = useThemeContext()
+  const { t } = useT()
   return (
-    <Modal open={open} onClose={onClose} title='外观' position='bottom'>
+    <Modal open={open} onClose={onClose} title={t('profile.settings.appearance')} position='bottom'>
       <View className='mt-4 space-y-3'>
         <Toggle
           options={THEME_OPTIONS}
@@ -19,8 +21,10 @@ export function ThemeModal({ open, onClose }: { open: boolean; onClose: () => vo
           getLabel={themeLabel}
         />
         <Text className='block text-xs leading-relaxed text-text-muted'>
-          当前为「{mode === 'dark' ? '暗色' : '亮色'}」模式
-          {preference === 'system' && '（跟随系统：随设备系统外观自动切换）'}
+          {t('profile.appearance.currentMode', {
+            mode: t(mode === 'dark' ? 'profile.appearance.dark' : 'profile.appearance.light'),
+          })}
+          {preference === 'system' && t('profile.appearance.followSystem')}
         </Text>
       </View>
     </Modal>

@@ -13,6 +13,7 @@
  */
 
 import Taro from '@tarojs/taro'
+import { translateCurrent } from '@/i18n/core'
 
 export const THEME_STORAGE_KEY = 'pkuso-theme'
 
@@ -25,9 +26,15 @@ export type ThemeMode = 'light' | 'dark'
 /** 三态选项（供 Toggle 分段控件使用） */
 export const THEME_OPTIONS: readonly ThemePreference[] = ['light', 'dark', 'system']
 
-/** 选项中文文案 */
+/** 选项文案（随语言本地化） */
 export const themeLabel = (v: ThemePreference): string =>
-  v === 'dark' ? '暗色' : v === 'light' ? '亮色' : '跟随系统'
+  translateCurrent(
+    v === 'dark'
+      ? 'profile.appearance.dark'
+      : v === 'light'
+        ? 'profile.appearance.light'
+        : 'profile.appearance.followSystemShort'
+  )
 
 export const isThemePreference = (v: unknown): v is ThemePreference =>
   v === 'light' || v === 'dark' || v === 'system'

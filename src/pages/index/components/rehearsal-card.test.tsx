@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -26,6 +26,17 @@ const upcomingRehearsal = {
   sign_in_code: '1234',
 } as unknown as RehearsalRow
 
+vi.mock('@/i18n', async () => {
+  const mod = await import('@/i18n/messages/zh-CN')
+  const dict = mod.zhCN as Record<string, unknown>
+  const get = (k: string, p?: Record<string, unknown>): string => {
+    const val = k.split('.').reduce<unknown>((o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined), dict)
+    let s = typeof val === 'string' ? val : k
+    if (p) s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
+    return s
+  }
+  return { useT: () => ({ t: (k: string, p?: Record<string, unknown>) => get(k, p), locale: 'zh-CN', setLocale: vi.fn() }), useNavTitle: vi.fn() }
+})
 describe('RehearsalCard', () => {
   afterEach(cleanup)
 
@@ -50,3 +61,4 @@ describe('RehearsalCard', () => {
     expect(container.firstElementChild!.children.length).toBe(1)
   })
 })
+

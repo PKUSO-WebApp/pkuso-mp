@@ -1,3 +1,5 @@
+import { translateCurrent, getLocale } from '@/i18n/core'
+
 /**
  * 将 Date 对象格式化为本地时间的 ISO 字符串（不含时区偏移）
  * 避免 toISOString() 将本地时间转为 UTC 时间导致的时区偏移问题
@@ -65,8 +67,10 @@ function formatChinaTimeManual(date: Date): string {
   return `${month}/${day} ${hours}:${minutes}`
 }
 
-/** 中文星期简称（Intl 缺失降级用） */
-const WEEKDAYS_SHORT = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+/** 月份 code（对齐 i18n schedule.monthAbbr），供本地化月份缩写 */
+const MONTH_CODES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+/** 星期 code（对齐 i18n schedule.weekdayShort），0=周日 */
+const DOW_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
 /**
  * 将 ISO 字符串解析为本地时间的 Date 对象
@@ -122,11 +126,11 @@ export function formatDisplayDate(dateStr: string): string {
   const date = parseLocalISO(dateStr)
   // 非法日期守卫：避免把 NaN/翻滚日期渲染成 1900 年 1 月 1 日
   if (Number.isNaN(date.getTime())) return '—'
-  const month = date.getMonth() + 1
-  const day = date.getDate()
-  const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-  const dayOfWeek = weekDays[date.getDay()]
-  return `${month}月${day}日 ${dayOfWeek}`
+  const month = translateCurrent(`schedule.monthAbbr.${MONTH_CODES[date.getMonth()]}`)
+  const day = String(date.getDate())
+  const weekday = translateCurrent(`schedule.weekdayShort.${DOW_CODES[date.getDay()]}`)
+  const tpl = translateCurrent('schedule.dateFormat')
+  return tpl.replace('{month}', month).replace('{day}', day).replace('{weekday}', weekday)
 }
 
 /**
@@ -164,11 +168,8 @@ export function formatRehearsalRange(startValue: string, endValue: string | null
   if (Number.isNaN(start.getTime())) return startValue
   const end = endValue ? parseLocalISO(endValue) : null
 
-  // Intl 缺失时降级为手写补零格式化，避免 old JSCore 直接抛错
+  // 时间格式化：Intl 缺失时降级为手写补零，避免 old JSCore 直接抛错
   const hasIntlSupport = hasIntl()
-  const weekdayFormatter = hasIntlSupport
-    ? new Intl.DateTimeFormat('zh-CN', { weekday: 'short' })
-    : null
   const timeFormatter = hasIntlSupport
     ? new Intl.DateTimeFormat('zh-CN', {
         hour: '2-digit',
@@ -177,15 +178,19 @@ export function formatRehearsalRange(startValue: string, endValue: string | null
       })
     : null
 
-  const weekday = weekdayFormatter ? weekdayFormatter.format(start) : WEEKDAYS_SHORT[start.getDay()]
-  const month = start.getMonth() + 1
-  const day = start.getDate()
-  const startTime = timeFormatter ? timeFormatter.format(start) : formatTimeManual(start)
-  const datePart = `${month}月${day}日 ${weekday}`
+  const month = translateCurrent(`schedule.monthAbbr.${MONTH_CODES[start.getMonth()]}`)
+  const day = String(start.getDate())
+  const weekday = translateCurrent(`schedule.weekdayShort.${DOW_CODES[start.getDay()]}`)
+  const tpl = translateCurrent('schedule.dateFormat')
+  const datePart = tpl.replace('{month}', month).replace('{day}', day).replace('{weekday}', weekday)
+  const dateTimeSep = translateCurrent('schedule.dateTimeSep')
+  const timeRangeSep = translateCurrent('schedule.timeRangeSep')
 
-  if (!end || Number.isNaN(end.getTime())) return `${datePart} ${startTime}`
+  const startTime = timeFormatter ? timeFormatter.format(start) : formatTimeManual(start)
+
+  if (!end || Number.isNaN(end.getTime())) return `${datePart}${dateTimeSep}${startTime}`
   const endTimeFormatted = timeFormatter ? timeFormatter.format(end) : formatTimeManual(end)
-  return `${datePart} ${startTime} - ${endTimeFormatted}`
+  return `${datePart}${dateTimeSep}${startTime}${timeRangeSep}${endTimeFormatted}`
 }
 
 /**
@@ -215,6 +220,8 @@ export function isRehearsalExpired(startTime: string, endTime: string | null) {
  */
 export function formatDateTimeInChina(dateStr: string | null): string {
   if (!dateStr) return '—'
+
+  if (getLocale() === 'en') return formatEnDateTime(dateStr)
 
   // 检测是否为 UTC 时间（Z 后缀 或 +00:00 偏移）
   const isUTC =
@@ -248,4 +255,35 @@ export function formatDateTimeInChina(dateStr: string | null): string {
       hour12: false,
     }).format(date)
   }
+}
+
+/** 英文通知/公告时间戳：与 zh 同一上海墙钟，输出 "Wed, Aug 25, 14:30"（无年份、24h） */
+function formatEnDateTime(dateStr: string): string {
+  const isUTC =
+    dateStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateStr) || /\+00(?::\d{2})?$/.test(dateStr)
+  if (isUTC) {
+    const d = new Date(dateStr)
+    if (Number.isNaN(d.getTime())) return '—'
+    // 与 zh 的 timeZone: 'Asia/Shanghai' 对齐：+8h 后取 UTC 字段即上海墙钟
+    const shanghai = new Date(d.getTime() + 8 * 60 * 60 * 1000)
+    const month = MONTH_CODES[shanghai.getUTCMonth()]
+    const day = String(shanghai.getUTCDate())
+    const weekday = DOW_CODES[shanghai.getUTCDay()]
+    const time = `${String(shanghai.getUTCHours()).padStart(2, '0')}:${String(shanghai.getUTCMinutes()).padStart(2, '0')}`
+    return buildEnDatePart(month, day, weekday) + translateCurrent('schedule.dateTimeSep') + time
+  }
+  const d = parseLocalISO(dateStr)
+  if (Number.isNaN(d.getTime())) return '—'
+  const month = MONTH_CODES[d.getMonth()]
+  const day = String(d.getDate())
+  const weekday = DOW_CODES[d.getDay()]
+  return buildEnDatePart(month, day, weekday) + translateCurrent('schedule.dateTimeSep') + formatTimeManual(d)
+}
+
+/** 英文日期部分：按 {weekday}, {month} {day} 模板填充 */
+function buildEnDatePart(monthCode: string, day: string, weekdayCode: string): string {
+  const month = translateCurrent(`schedule.monthAbbr.${monthCode}`)
+  const weekday = translateCurrent(`schedule.weekdayShort.${weekdayCode}`)
+  const tpl = translateCurrent('schedule.dateFormat')
+  return tpl.replace('{month}', month).replace('{day}', day).replace('{weekday}', weekday)
 }

@@ -5,11 +5,13 @@ import { usePosts } from '@/hooks/usePosts'
 import { markPostSeen } from '@/lib/postSeen'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
+import { useT, useNavTitle } from '@/i18n'
+import { translateInstrument } from '@/lib/instrument-i18n'
 import './index.scss'
 
-const TYPE_LABEL: Record<PostType, string> = {
-  ensemble: '重奏',
-  gathering: '团建',
+const TYPE_KEYS: Record<PostType, 'postDetail.type.ensemble' | 'postDetail.type.gathering'> = {
+  ensemble: 'postDetail.type.ensemble',
+  gathering: 'postDetail.type.gathering',
 }
 
 function hasSectionText(value: string | null | undefined): boolean {
@@ -29,6 +31,8 @@ function formatPostDate(createdAt: string | null | undefined): string {
  * 内容、配图（点击放大）、联系方式（一键复制）、发布时间。
  */
 export default function PostDetailPage() {
+  const { t } = useT()
+  useNavTitle('postDetail.navTitle')
   const id = Taro.getCurrentInstance().router?.params?.id
   const { fetchOne } = usePosts()
   const [post, setPost] = useState<PostRowWithAuthor | null>(null)
@@ -49,7 +53,6 @@ export default function PostDetailPage() {
       else {
         setPost(p)
         markPostSeen(p.id)
-        void Taro.setNavigationBarTitle({ title: p.title })
       }
     })
     return () => {
@@ -65,15 +68,15 @@ export default function PostDetailPage() {
 
   const handleCopy = () => {
     if (!post?.contact_info) return
-    void Taro.setClipboardData({ data: post.contact_info }).then(() => {
-      void Taro.showToast({ title: '已复制', icon: 'success' })
-    })
+      void Taro.setClipboardData({ data: post.contact_info }).then(() => {
+        void Taro.showToast({ title: t('postDetail.copied'), icon: 'success' })
+      })
   }
 
   if (loading) {
     return (
       <View className='flex min-h-screen items-center justify-center bg-bg'>
-        <Text className='text-xs text-text-muted'>加载中…</Text>
+         <Text className='text-xs text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
   }
@@ -81,13 +84,13 @@ export default function PostDetailPage() {
   if (notFound || !post) {
     return (
       <View className='flex min-h-screen flex-col items-center justify-center bg-bg px-4'>
-        <Text className='text-sm text-text-muted'>公告不存在或已删除</Text>
-        <View
-          className='mt-4 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground'
-          onClick={() => void Taro.navigateBack()}
-        >
-          返回
-        </View>
+         <Text className='text-sm text-text-muted'>{t('postDetail.notFound')}</Text>
+         <View
+           className='mt-4 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground'
+           onClick={() => void Taro.navigateBack()}
+         >
+           {t('postDetail.back')}
+         </View>
       </View>
     )
   }
@@ -98,10 +101,10 @@ export default function PostDetailPage() {
     <View className='pk-page min-h-screen bg-bg px-4 py-4'>
       {/* 标题（主字，中大）+ 类型（副字，中） */}
       <Text className='block text-xl font-semibold leading-snug text-text'>{post.title}</Text>
-      <Text className='mt-1 block text-base text-text-muted'>
-        {TYPE_LABEL[post.type as PostType]}
-        {dateText ? ` · ${dateText}` : ''}
-      </Text>
+       <Text className='mt-1 block text-base text-text-muted'>
+         {t(TYPE_KEYS[post.type as PostType])}
+         {dateText ? ` · ${dateText}` : ''}
+       </Text>
 
       {/* 分隔符 */}
       <View className='my-4 h-px w-full bg-border' />
@@ -109,9 +112,9 @@ export default function PostDetailPage() {
       {/* 已有声部（仅重奏） */}
       {post.type === 'ensemble' && hasSectionText(post.current_sections) && (
         <View className='mb-4'>
-          <Text className='block text-base font-medium text-text'>已有声部</Text>
+          <Text className='block text-base font-medium text-text'>{t('postDetail.currentSections')}</Text>
           <Text className='mt-1 block whitespace-pre-line text-sm leading-relaxed text-text-muted'>
-            {post.current_sections!.trim()}
+            {translateInstrument(post.current_sections, t)}
           </Text>
         </View>
       )}
@@ -119,9 +122,9 @@ export default function PostDetailPage() {
       {/* 需要声部（仅重奏） */}
       {post.type === 'ensemble' && hasSectionText(post.missing_sections) && (
         <View className='mb-4'>
-          <Text className='block text-base font-medium text-text'>需要声部</Text>
+          <Text className='block text-base font-medium text-text'>{t('postDetail.missingSections')}</Text>
           <Text className='mt-1 block whitespace-pre-line text-sm leading-relaxed text-text-muted'>
-            {post.missing_sections!.trim()}
+            {translateInstrument(post.missing_sections, t)}
           </Text>
         </View>
       )}
@@ -129,7 +132,7 @@ export default function PostDetailPage() {
       {/* 内容 */}
       {hasSectionText(post.content) && (
         <View className='mb-4'>
-          <Text className='block text-base font-medium text-text'>内容</Text>
+          <Text className='block text-base font-medium text-text'>{t('postDetail.content')}</Text>
           <Text className='mt-1 block whitespace-pre-line text-sm leading-relaxed text-text'>
             {post.content}
           </Text>
@@ -139,7 +142,7 @@ export default function PostDetailPage() {
       {/* 图片 */}
       {post.image_url && (
         <View className='mb-4'>
-          <Text className='block text-base font-medium text-text'>图片</Text>
+          <Text className='block text-base font-medium text-text'>{t('postDetail.image')}</Text>
           <Image
             src={post.image_url}
             mode='aspectFit'
@@ -153,14 +156,14 @@ export default function PostDetailPage() {
       {hasSectionText(post.contact_info) && (
         <View className='mb-4 flex items-center justify-between gap-2 rounded-2xl border border-border bg-card p-3'>
           <View>
-            <Text className='block text-base font-medium text-text'>联系方式</Text>
+            <Text className='block text-base font-medium text-text'>{t('postDetail.contact')}</Text>
             <Text className='block text-sm text-text-muted'>{post.contact_info}</Text>
           </View>
           <View
             className='shrink-0 rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'
             onClick={handleCopy}
           >
-            一键复制
+             {t('postDetail.copy')}
           </View>
         </View>
       )}

@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react'
+import { translateCurrent } from '@/i18n'
 import { ErrorView } from './error-view'
 
 interface Props {
@@ -23,7 +24,12 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     const { error } = this.state
     if (error) {
-      return <ErrorView message={error.message || '渲染时发生错误'} stack={error.stack} />
+      return (
+        <ErrorView
+          message={error.message || translateCurrent('ui.errorBoundary.defaultMessage')}
+          stack={error.stack}
+        />
+      )
     }
     return this.props.children
   }

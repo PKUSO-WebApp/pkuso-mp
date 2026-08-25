@@ -29,7 +29,7 @@ export default defineAppConfig({
    window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#ffffff',
-    navigationBarTitleText: '北大交响乐团',
+    navigationBarTitleText: 'PKU Symphony',
     navigationBarTextStyle: 'black',
     backgroundColor: '#f4f4f5',
   },

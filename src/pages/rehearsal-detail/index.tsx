@@ -10,15 +10,16 @@ import { getSignBlockReason, hasSignedIn } from '@/lib/attendance-utils'
 import { markRehearsalSeen } from '@/lib/rehearsalSeen'
 import { CodeVerifyModal } from '@/pages/index/components/code-verify-modal'
 import type { RehearsalRow } from '@/types/database'
+import { useT } from '@/i18n'
 
-const mapSignInError = (err: string): string => {
+const mapSignInError = (tf: (key: string, params?: Record<string, unknown>) => string, err: string): string => {
   const msg = err.toLowerCase()
-  if (msg.includes('invalid sign-in code')) return '签到码错误'
-  if (msg.includes('authentication required')) return '请先登录'
-  if (msg.includes('not approved')) return '账号未通过审核'
-  if (msg.includes('outside the allowed window')) return '不在签到时间窗口内'
-  if (msg.includes('already been signed')) return '已签到，不可重复签到'
-  return '签到失败'
+  if (msg.includes('invalid sign-in code')) return tf('activityDetail.signIn.codeError')
+  if (msg.includes('authentication required')) return tf('activityDetail.signIn.authRequired')
+  if (msg.includes('not approved')) return tf('activityDetail.signIn.notApproved')
+  if (msg.includes('outside the allowed window')) return tf('activityDetail.signIn.outsideWindow')
+  if (msg.includes('already been signed')) return tf('activityDetail.signIn.alreadySigned')
+  return tf('activityDetail.signIn.failed')
 }
 
 export default function RehearsalDetail() {
@@ -29,6 +30,7 @@ export default function RehearsalDetail() {
   const { map: attendanceMap, fetchMyAttendances, signIn } = useAttendance()
   const { data: leaveRequests, cancelOnSignIn, fetchMine } = useLeaveRequests()
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const { t } = useT()
 
   const rehearsal = useMemo<RehearsalRow | null>(
     () => rehearsals?.find((r) => r.id === id) ?? null,
@@ -44,8 +46,8 @@ export default function RehearsalDetail() {
   )
 
   useEffect(() => {
-    const t = setInterval(() => setNowTick(Date.now()), 60 * 1000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setNowTick(Date.now()), 60 * 1000)
+    return () => clearInterval(timer)
   }, [])
   useEffect(() => {
     if (user?.id && id) void fetchMyAttendances(user.id, [id])
@@ -71,12 +73,12 @@ export default function RehearsalDetail() {
 
   const handleSignInSuccess = async (rehearsalId: number, row: SignInResultRow | null) => {
     void Taro.showToast({
-      title: row?.status === 'late' ? '签到成功，已记录迟到' : '签到成功',
+      title: row?.status === 'late' ? t('activityDetail.toastSignedLate') : t('activityDetail.toastSigned'),
       icon: 'success',
     })
     const cancelResult = await cancelOnSignIn(rehearsalId)
     if (!cancelResult.ok && cancelResult.reason === 'network') {
-      void Taro.showToast({ title: '签到成功，但请假申请取消失败，请联系管理员', icon: 'none' })
+      void Taro.showToast({ title: t('activityDetail.toastCancelLeaveFailed'), icon: 'none' })
     }
     if (user?.id) void fetchMyAttendances(user.id, [rehearsalId])
   }
@@ -87,7 +89,7 @@ export default function RehearsalDetail() {
     try {
       const { error, row } = await signIn({ rehearsal_id: r.id, code: '' })
       if (error) {
-        void Taro.showToast({ title: mapSignInError(error), icon: 'none' })
+        void Taro.showToast({ title: mapSignInError(t, error), icon: 'none' })
         return
       }
       await handleSignInSuccess(r.id, row)
@@ -104,7 +106,7 @@ export default function RehearsalDetail() {
         setCodeInput('')
         setCodeError(null)
       } else {
-        void Taro.showToast({ title: '该排练未配置签到码', icon: 'none' })
+         void Taro.showToast({ title: t('activityDetail.noSignInCode'), icon: 'none' })
       }
       return
     }
@@ -114,7 +116,7 @@ export default function RehearsalDetail() {
   const handleCodeConfirm = async () => {
     if (codeSubmittingRef.current || codeSubmitting || !codeRehearsal) return
     if (!/^\d{4}$/.test(codeInput)) {
-      setCodeError('请输入四位数字')
+      setCodeError(t('activityDetail.codeInvalid'))
       return
     }
     codeSubmittingRef.current = true
@@ -126,7 +128,7 @@ export default function RehearsalDetail() {
         setCodeRehearsal(null)
         await handleSignInSuccess(rid, row)
       } else {
-        setCodeError(mapSignInError(error))
+        setCodeError(mapSignInError(t, error))
       }
     } finally {
       codeSubmittingRef.current = false
@@ -141,7 +143,7 @@ export default function RehearsalDetail() {
     return (
     <View className='flex h-full flex-col bg-page-bg'>
       <View className='flex flex-1 items-center justify-center'>
-        <Text className='text-xs text-text-muted'>{rehearsalsLoading ? '加载中…' : '排练不存在'}</Text>
+        <Text className='text-xs text-text-muted'>{rehearsalsLoading ? t('common.actions.loading') : t('activityDetail.notFound')}</Text>
       </View>
     </View>
     )
@@ -162,29 +164,29 @@ export default function RehearsalDetail() {
   let onSign: (() => void) | null = null
   if (signedIn) {
     if (attendance?.status === 'late') {
-      signLabel = '迟到'
+      signLabel = t('activityDetail.status.late')
       signClass = 'bg-warning-bg text-warning'
     } else {
-      signLabel = '出勤'
+      signLabel = t('activityDetail.status.present')
       signClass = 'bg-success-bg text-success'
     }
   } else if (blockReason === 'not-started') {
-    signLabel = '未开始'
+    signLabel = t('activityDetail.status.notStarted')
   } else if (blockReason === 'ended') {
     if (explicitStatus === 'excused') {
-      signLabel = '已请假'
+      signLabel = t('activityDetail.status.excused')
       signClass = 'bg-warning-bg text-warning'
     } else {
-      signLabel = '缺勤'
+      signLabel = t('activityDetail.status.absent')
       signClass = 'bg-danger-bg text-danger'
     }
   } else if (hasActiveLeaveRequest || explicitStatus === 'excused') {
-    signLabel = '覆盖签到'
+    signLabel = t('activityDetail.status.override')
     signClass = 'bg-warning-bg text-warning'
     signDisabled = false
     onSign = () => requestSignIn(rehearsal)
   } else {
-    signLabel = '签到'
+    signLabel = t('activityDetail.status.signIn')
     signClass = 'text-white'
     signStyle = { backgroundColor: '#6198CB' }
     signDisabled = false
@@ -193,8 +195,8 @@ export default function RehearsalDetail() {
 
   const timeText = rehearsal.start_time
     ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
-    : '时间未设置'
-  const typeText = rehearsal.type === 'section' ? '分排' : '合排'
+    : t('activityDetail.timeUnset')
+  const typeText = rehearsal.type === 'section' ? t('activityDetail.type.section') : t('activityDetail.type.full')
 
   return (
     <View className='flex h-full flex-col bg-page-bg'>
@@ -203,9 +205,9 @@ export default function RehearsalDetail() {
         <Text className='block text-2xl font-semibold text-text'>{timeText}</Text>
         <Text className='mt-1 block text-sm text-text-muted'>{typeText}</Text>
         <View className='my-4 h-px bg-border' />
-        <DetailRow label='排练时间' value={timeText} />
-        <DetailRow label='排练地点' value={rehearsal.location || '未定'} />
-        <DetailRow label='排练曲目' value={rehearsal.repertoire || '未定'} />
+        <DetailRow label={t('activityDetail.rows.time')} value={timeText} />
+        <DetailRow label={t('activityDetail.rows.location')} value={rehearsal.location || t('activityDetail.unset')} />
+        <DetailRow label={t('activityDetail.rows.repertoire')} value={rehearsal.repertoire || t('activityDetail.unset')} />
         <View className='mt-6'>
           <View
             className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${signClass} ${
@@ -222,7 +224,7 @@ export default function RehearsalDetail() {
             className='mt-3 flex items-center justify-center'
             onClick={() => Taro.navigateTo({ url: `/pages/leave-request/index?rehearsalId=${rehearsal.id}` })}
           >
-            <Text className='text-sm text-danger'>我要请假 &gt;</Text>
+            <Text className='text-sm text-danger'>{t('activityDetail.requestLeave')} &gt;</Text>
           </View>
         )}
        </View>
@@ -235,7 +237,7 @@ export default function RehearsalDetail() {
         codeError={codeError}
         hint={
           hasActiveLeaveRequest
-            ? '签到会撤销请假申请，具体信息查阅原项目 pkuso-web-v2'
+            ? t('activityDetail.revokeHint')
             : null
         }
         onCodeChange={(v) => {

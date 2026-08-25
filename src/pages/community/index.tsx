@@ -4,6 +4,8 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useThemeClass } from '@/context/theme-context'
+import { useT, useNavTitle } from '@/i18n'
+import { translateInstrument } from '@/lib/instrument-i18n'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 
 import { Toggle } from '@/components/ui/Toggle'
@@ -13,11 +15,6 @@ import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
 import { isPostSeen, subscribePostSeen, setPostUnviewedFlag } from '@/lib/postSeen'
 import type { PostType } from '@/types/database'
 import './index.scss'
-
-const TYPE_LABEL: Record<PostType, string> = {
-  ensemble: '重奏',
-  gathering: '团建',
-}
 
 function formatPostDate(createdAt: string | null | undefined): string {
   if (!createdAt) return ''
@@ -39,6 +36,8 @@ export default function Community() {
   const { data: posts, loading, error, fetch } = usePosts()
   const { profile: myProfile } = useMyProfile()
   const darkClass = useThemeClass()
+  const { t } = useT()
+  useNavTitle('community.navTitle')
 
   const [view, setView] = useState<PostType>('ensemble')
 
@@ -62,6 +61,19 @@ export default function Community() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [posts, seenTick]
   )
+  // 各分类（重奏/团建）未查看红点：对应 tab 右上角显示，而非卡片右上角
+  const hasUnviewedEnsemble = useMemo(
+    () => posts.some((p) => (p.type as PostType) === 'ensemble' && !isPostSeen(p.id)),
+    // seenTick 用于强制在「标记已查看」事件后重算分类未读红点
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [posts, seenTick]
+  )
+  const hasUnviewedGathering = useMemo(
+    () => posts.some((p) => (p.type as PostType) === 'gathering' && !isPostSeen(p.id)),
+    // seenTick 用于强制在「标记已查看」事件后重算分类未读红点
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [posts, seenTick]
+  )
   useEffect(() => {
     setPostUnviewedFlag(hasUnviewed)
   }, [hasUnviewed])
@@ -76,14 +88,14 @@ export default function Community() {
       {/* 头部 */}
       <View className='mt-1 mb-3'>
         <PageHeader
-          title='公告板'
-          subtitle='重奏与团建信息'
+          title={t('community.title')}
+          subtitle={t('community.subtitle')}
           rightButton={
             <View
               className='inline-flex items-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'
               onClick={handleCreate}
             >
-              发布
+              {t('community.publish')}
             </View>
           }
         />
@@ -92,7 +104,8 @@ export default function Community() {
             options={['ensemble', 'gathering']}
             value={view}
             onChange={(v) => setView(v as PostType)}
-            getLabel={(k) => (k === 'ensemble' ? '重奏' : '团建')}
+            getLabel={(k) => (k === 'ensemble' ? t('community.type.ensemble') : t('community.type.gathering'))}
+            badges={{ ensemble: hasUnviewedEnsemble, gathering: hasUnviewedGathering }}
           />
         </View>
       </View>
@@ -100,14 +113,16 @@ export default function Community() {
       {/* 公告列表（可滚动） */}
       <View className='flex-1 min-h-0 overflow-y-auto'>
         {loading ? (
-          <Text className='block py-12 text-center text-xs text-text-muted'>加载中…</Text>
+          <Text className='block py-12 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
         ) : error ? (
           <Card className='border-danger-bg bg-danger-bg/80'>
             <Text className='block px-3 py-2 text-sm text-danger'>{error}</Text>
           </Card>
         ) : list.length === 0 ? (
           <Text className='block py-12 text-center text-xs text-text-muted'>
-            暂无「{TYPE_LABEL[view]}」。
+            {t('community.empty', {
+              type: t(view === 'ensemble' ? 'community.type.ensemble' : 'community.type.gathering'),
+            })}
           </Text>
         ) : (
           <View>
@@ -121,13 +136,19 @@ export default function Community() {
                   <View className='min-w-0 flex-1'>
                     <Text className='block text-sm font-semibold text-text'>{post.title}</Text>
                     <Text className='mt-0.5 block text-label text-text-muted'>
-                      {TYPE_LABEL[post.type as PostType]}
+                      {t(post.type === 'ensemble' ? 'community.type.ensemble' : 'community.type.gathering')}
                       {formatPostDate(post.created_at) && ` · ${formatPostDate(post.created_at)}`}
                     </Text>
                     {post.type === 'ensemble' && hasSectionText(post.missing_sections) && (
                       <View className='mt-2'>
                         <Text className='inline-flex rounded-full bg-primary px-2 py-0.5 text-caption font-bold text-primary-foreground'>
-                          缺：{post.missing_sections!.trim()}
+                          {t('community.missing', {
+                            sections: (post.missing_sections ?? '')
+                              .split(/[,，、\s]+/)
+                              .filter(Boolean)
+                              .map((s) => translateInstrument(s, t))
+                              .join('、'),
+                          })}
                         </Text>
                       </View>
                     )}
@@ -136,13 +157,6 @@ export default function Community() {
                     )}
                   </View>
                 </View>
-                {/* 未查看红气泡：打开详情页（markPostSeen）后消失，与首页排练卡一致 */}
-                {!isPostSeen(post.id) && (
-                  <View
-                    className='absolute right-0 top-0'
-                    style={{ width: '8px', height: '8px', borderRadius: '4px', background: '#de2626' }}
-                  />
-                )}
               </Card>
             ))}
           </View>

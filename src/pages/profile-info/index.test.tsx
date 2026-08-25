@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -48,6 +48,7 @@ vi.mock('@/hooks/useProfiles', () => ({
         phone_number: '13800000000',
         college: '元培学院',
         join_date: '2024秋',
+        is_in_orchestra: true,
         hide_email: false,
         hide_phone: false,
         hide_join_date: false,
@@ -68,6 +69,17 @@ vi.mock('@/constants/instruments', () => ({
 vi.mock('@/assets/icons/eye.png', () => ({ default: 'eye.png' }))
 vi.mock('@/assets/icons/eye-dashed.png', () => ({ default: 'eye-dashed.png' }))
 
+vi.mock('@/i18n', async () => {
+  const mod = await import('@/i18n/messages/zh-CN')
+  const dict = mod.zhCN as Record<string, unknown>
+  const get = (k: string, p?: Record<string, unknown>): string => {
+    const val = k.split('.').reduce<unknown>((o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined), dict)
+    let s = typeof val === 'string' ? val : k
+    if (p) s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
+    return s
+  }
+  return { useT: () => ({ t: (k: string, p?: Record<string, unknown>) => get(k, p), locale: 'zh-CN', setLocale: vi.fn() }), useNavTitle: vi.fn() }
+})
 describe('ProfileInfoPage', () => {
   afterEach(() => {
     cleanup()
@@ -106,3 +118,4 @@ describe('ProfileInfoPage', () => {
     expect(payload.hide_email).toBe(true)
   })
 })
+

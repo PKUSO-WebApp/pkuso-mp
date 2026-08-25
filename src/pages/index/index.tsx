@@ -22,6 +22,7 @@ import {
   sortEndedFullRehearsals,
 } from '@/lib/rehearsal-sort'
 import { isRehearsalSeen, subscribeRehearsalSeen, setRehearsalUnviewedFlag } from '@/lib/rehearsalSeen'
+import { useT, useNavTitle } from '@/i18n'
 import { RehearsalCard } from './components/rehearsal-card'
 import './index.scss'
 
@@ -36,6 +37,8 @@ export default function Index() {
   const { user } = useUser()
   const { profile: myProfile } = useMyProfile()
   const darkClass = useThemeClass()
+  const { t } = useT()
+  useNavTitle('home.navTitle')
 
   // 每次切回首页重新拉取排练与公告，并重置全局轮询计时器
   useDidShow(() => {
@@ -113,7 +116,9 @@ export default function Index() {
             welcomeVisible ? 'opacity-100' : 'opacity-0'
           }`}
         >
-          <Text className='text-sm text-text-muted'>欢迎{profileName ? `，${profileName}` : ''}！</Text>
+          <Text className='text-sm text-text-muted'>
+            {profileName ? t('home.welcomeWithName', { name: profileName }) : t('home.welcome')}
+          </Text>
         </View>
       )}
 
@@ -131,8 +136,8 @@ export default function Index() {
 
       <View className='mb-3 mt-1'>
         <PageHeader
-          title={scheduleTab === 'history' ? '历史合排' : '本周排练日程'}
-          subtitle={scheduleTab === 'history' ? '查看已结束的合排排练' : '查看乐团合排与分排安排'}
+          title={scheduleTab === 'history' ? t('home.schedule.historyTitle') : t('home.schedule.weekTitle')}
+          subtitle={scheduleTab === 'history' ? t('home.schedule.historySubtitle') : t('home.schedule.weekSubtitle')}
         />
         <View className='mt-2'>
           <Toggle
@@ -141,9 +146,9 @@ export default function Index() {
             onChange={(v) => setScheduleTab(v as 'full' | 'section' | 'history')}
             getLabel={(k) => {
               const labels: Record<string, string> = {
-                full: '合排',
-                section: '分排',
-                history: '历史合排',
+                full: t('home.tabs.full'),
+                section: t('home.tabs.section'),
+                history: t('home.tabs.history'),
               }
               return labels[k] ?? k
             }}
@@ -158,13 +163,13 @@ export default function Index() {
             历史合排多时末行会被遮挡、无法滚到底，故内容底部补足留白（与成员页一致） */}
         <View className='pb-8'>
         {rehearsalsLoading ? (
-          <Text className='block py-12 text-center text-xs text-text-muted'>加载中…</Text>
-        ) : rehearsalsError ? (
-          <Card className='border-danger-bg bg-danger-bg/80'>
-            <Text className='block px-3 py-2 text-sm text-danger'>加载失败：{rehearsalsError}</Text>
-          </Card>
-        ) : list.length === 0 ? (
-          <Text className='block py-12 text-center text-xs text-text-muted'>暂无安排</Text>
+           <Text className='block py-12 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
+         ) : rehearsalsError ? (
+           <Card className='border-danger-bg bg-danger-bg/80'>
+             <Text className='block px-3 py-2 text-sm text-danger'>{t('home.loadFailed', { error: rehearsalsError })}</Text>
+           </Card>
+         ) : list.length === 0 ? (
+           <Text className='block py-12 text-center text-xs text-text-muted'>{t('home.emptySchedule')}</Text>
         ) : (
           list.map((r) => (
             <View key={String(r.id)} className='mb-3'>
@@ -184,13 +189,13 @@ export default function Index() {
       <Modal
         open={showAnnouncementDetail}
         onClose={() => setShowAnnouncementDetail(false)}
-        title='公告详情'
+        title={t('home.announcementDetail')}
         position='bottom'
       >
         <View>
-          <Text className='mb-3 block text-xs text-text-muted'>
-            发布时间：{formatDateTimeInChina(announcement?.created_at ?? null)}
-          </Text>
+           <Text className='mb-3 block text-xs text-text-muted'>
+             {t('home.publishTime', { time: formatDateTimeInChina(announcement?.created_at ?? null) })}
+           </Text>
           <View className='max-h-[60vh] overflow-y-auto'>
             <Text className='whitespace-pre-wrap break-words text-sm leading-relaxed text-text'>
               {announcement?.content}

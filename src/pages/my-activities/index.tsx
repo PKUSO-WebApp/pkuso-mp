@@ -3,6 +3,8 @@ import { View, Text } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useThemeClass } from '@/context/theme-context'
+import { useT, useNavTitle } from '@/i18n'
+import { translateInstrument } from '@/lib/instrument-i18n'
 import { PageHeader } from '@/components/page-header'
 import { Card } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
@@ -22,6 +24,8 @@ function hasText(value: string | null | undefined): boolean {
 export default function MyActivitiesPage() {
   const { mine, mineLoading, mineError, fetchMine, setLocked, deletePost } = usePosts()
   const darkClass = useThemeClass()
+  const { t } = useT()
+  useNavTitle('myActivities.navTitle')
 
   const [menuId, setMenuId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -58,16 +62,16 @@ export default function MyActivitiesPage() {
   return (
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       <View className='mt-1 mb-3'>
-        <PageHeader title='我的活动' subtitle='我发布的活动' />
+        <PageHeader title={t('myActivities.title')} subtitle={t('myActivities.subtitle')} />
       </View>
 
       <View className='flex-1 min-h-0 overflow-y-auto'>
         {mineLoading ? (
-          <Text className='block py-12 text-center text-xs text-text-muted'>加载中…</Text>
+          <Text className='block py-12 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
         ) : mineError ? (
           <Text className='block px-3 py-2 text-sm text-danger'>{mineError}</Text>
         ) : mine.length === 0 ? (
-          <Text className='block py-12 text-center text-xs text-text-muted'>你还没有发布活动</Text>
+          <Text className='block py-12 text-center text-xs text-text-muted'>{t('myActivities.empty')}</Text>
         ) : (
           <View className='pb-4'>
             {mine.map((post) => {
@@ -98,7 +102,7 @@ export default function MyActivitiesPage() {
                               className='px-4 py-2 text-sm text-text'
                               onClick={() => void handleToggleLock(post)}
                             >
-                              {post.is_locked ? '解锁' : '锁定'}
+                              {post.is_locked ? t('common.actions.unlock') : t('common.actions.lock')}
                             </View>
                             <View
                               className='px-4 py-2 text-sm text-danger'
@@ -107,7 +111,7 @@ export default function MyActivitiesPage() {
                                 setMenuId(null)
                               }}
                             >
-                              删除
+                              {t('common.actions.delete')}
                             </View>
                           </View>
                         </>
@@ -118,20 +122,25 @@ export default function MyActivitiesPage() {
                   {/* 已有声部 / 需要声部（仅重奏） */}
                   {isEnsemble && hasText(post.current_sections) && (
                     <Text className='mt-2 block text-xs text-primary'>
-                      已有声部：{post.current_sections!.trim()}
+                      {t('myActivities.currentSectionsLabel')}
+                      {translateInstrument(post.current_sections, t)}
                     </Text>
                   )}
                   {isEnsemble && hasText(post.missing_sections) && (
                     <Text className='mt-1 block text-xs text-primary'>
-                      需要声部：{post.missing_sections!.trim()}
+                      {t('myActivities.missingSectionsLabel')}
+                      {translateInstrument(post.missing_sections, t)}
                     </Text>
                   )}
 
                   {/* 联系方式（重奏/团建均显示） */}
-                  <Text className='mt-2 block text-xs text-text-muted'>联系方式：{contact || '无'}</Text>
+                  <Text className='mt-2 block text-xs text-text-muted'>
+                    {t('myActivities.contactLabel')}
+                    {contact || t('myActivities.contactNone')}
+                  </Text>
 
                   {post.is_locked && (
-                    <Text className='mt-1 block text-xs text-text-subtle'>已锁定（对他人不可见）</Text>
+                    <Text className='mt-1 block text-xs text-text-subtle'>{t('myActivities.lockedHint')}</Text>
                   )}
 
                   {/* 底行：编辑 › */}
@@ -139,7 +148,7 @@ export default function MyActivitiesPage() {
                     className='mt-2 flex justify-end'
                     onClick={() => void Taro.navigateTo({ url: `/pages/post-edit/index?id=${post.id}` })}
                   >
-                    <Text className='text-xs text-danger'>编辑 ›</Text>
+                    <Text className='text-xs text-danger'>{t('common.actions.edit')} ›</Text>
                   </View>
                 </Card>
               )
@@ -149,21 +158,21 @@ export default function MyActivitiesPage() {
       </View>
 
       {/* 删除确认 */}
-      <Modal open={!!confirmDeleteId} onClose={() => setConfirmDeleteId(null)} title='确认删除'>
-        <Text className='block text-sm text-text'>删除后不可恢复，确定删除该活动？</Text>
+      <Modal open={!!confirmDeleteId} onClose={() => setConfirmDeleteId(null)} title={t('myActivities.confirmDeleteTitle')}>
+        <Text className='block text-sm text-text'>{t('myActivities.confirmDeleteContent')}</Text>
         <View className='mt-4 flex gap-3'>
           <View
             className='flex-1 rounded-xl border border-border bg-card py-2 text-center'
             onClick={() => setConfirmDeleteId(null)}
           >
-            <Text className='text-sm text-text'>取消</Text>
+            <Text className='text-sm text-text'>{t('common.actions.cancel')}</Text>
           </View>
           <View
             className='flex-1 rounded-xl bg-danger py-2 text-center'
             onClick={() => void handleConfirmDelete()}
           >
             <Text className='text-sm text-primary-foreground'>
-              {busyId === confirmDeleteId ? '删除中…' : '删除'}
+              {busyId === confirmDeleteId ? t('myActivities.deleting') : t('common.actions.delete')}
             </Text>
           </View>
         </View>

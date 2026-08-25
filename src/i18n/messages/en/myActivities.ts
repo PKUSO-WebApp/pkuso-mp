@@ -1,0 +1,14 @@
+export const myActivities = {
+  navTitle: 'My Activities',
+  title: 'My Activities',
+  subtitle: 'Activities I published',
+  empty: "You haven't published any activities yet",
+  currentSectionsLabel: 'Current sections: ',
+  missingSectionsLabel: 'Missing sections: ',
+  contactLabel: 'Contact: ',
+  contactNone: 'None',
+  lockedHint: 'Locked (hidden from others)',
+  confirmDeleteTitle: 'Confirm Deletion',
+  confirmDeleteContent: 'This cannot be undone. Delete this activity?',
+  deleting: 'Deleting…',
+}

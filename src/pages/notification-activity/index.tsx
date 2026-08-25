@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { NotificationList } from '@/pages/notifications/notification-list'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
+import { useT, useNavTitle } from '@/i18n'
 import type { PostType } from '@/types/database'
 import './index.scss'
 
-const ACTIVITY_TABS: { key: PostType | 'all'; label: string }[] = [
-  { key: 'all', label: '全部' },
-  { key: 'ensemble', label: '重奏' },
-  { key: 'gathering', label: '团建' },
+const ACTIVITY_TABS: { key: PostType | 'all'; labelKey: 'notification.activityTabs.all' | 'notification.activityTabs.ensemble' | 'notification.activityTabs.gathering' }[] = [
+  { key: 'all', labelKey: 'notification.activityTabs.all' },
+  { key: 'ensemble', labelKey: 'notification.activityTabs.ensemble' },
+  { key: 'gathering', labelKey: 'notification.activityTabs.gathering' },
 ]
 
 /**
@@ -17,13 +18,17 @@ const ACTIVITY_TABS: { key: PostType | 'all'; label: string }[] = [
  * tab 切换组件与「我的请假」页（SegmentTabs）保持一致。
  */
 export default function NotificationActivityPage() {
+  const { t } = useT()
+  useNavTitle('notification.activityNavTitle')
   const [view, setView] = useState<PostType | 'all'>('all')
+
+  const tabs = ACTIVITY_TABS.map((tab) => ({ key: tab.key, label: t(tab.labelKey) }))
 
   return (
     <NotificationList
       category='activity'
-      title='活动通知'
-      topSlot={<SegmentTabs tabs={ACTIVITY_TABS} value={view} onChange={(k) => setView(k)} />}
+      title={t('notification.activityTitle')}
+      topSlot={<SegmentTabs tabs={tabs} value={view} onChange={(k) => setView(k)} />}
     />
   )
 }

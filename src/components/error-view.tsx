@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import Taro from '@tarojs/taro'
 import { View, Text, Button } from '@tarojs/components'
+import { useT } from '@/i18n'
 
 interface ErrorViewProps {
   title?: string
@@ -8,13 +9,15 @@ interface ErrorViewProps {
   stack?: string
 }
 
-export function ErrorView({ title = '页面出错了', message, stack }: ErrorViewProps) {
+export function ErrorView({ title, message, stack }: ErrorViewProps) {
+  const { t } = useT()
+  const resolvedTitle = title ?? t('common.error.defaultTitle')
   const full = stack ? `${message}\n\n${stack}` : message
 
   const handleCopy = () => {
     Taro.setClipboardData({ data: full })
-      .then(() => Taro.showToast({ title: '已复制错误信息', icon: 'none' }))
-      .catch(() => Taro.showToast({ title: '复制失败', icon: 'none' }))
+      .then(() => Taro.showToast({ title: t('common.error.copySuccess'), icon: 'none' }))
+      .catch(() => Taro.showToast({ title: t('common.error.copyFailed'), icon: 'none' }))
   }
 
   const container: CSSProperties = {
@@ -69,11 +72,11 @@ export function ErrorView({ title = '页面出错了', message, stack }: ErrorVi
   return (
     <View style={container}>
       <Text style={icon}>⚠️</Text>
-      <Text style={heading}>{title}</Text>
+      <Text style={heading}>{resolvedTitle}</Text>
       <Text style={msg}>{message}</Text>
       {stack ? <Text style={stackStyle}>{stack}</Text> : null}
-      <Button onClick={handleCopy}>复制错误信息</Button>
-      <Text style={hint}>请把复制的信息发送给乐团管理员，以便尽快修复问题。</Text>
+      <Button onClick={handleCopy}>{t('common.error.copyButton')}</Button>
+      <Text style={hint}>{t('common.error.hint')}</Text>
     </View>
   )
 }

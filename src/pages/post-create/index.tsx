@@ -4,6 +4,7 @@ import Taro from '@tarojs/taro'
 import { usePosts, type CreatePostInput } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useThemeClass } from '@/context/theme-context'
+import { useT, useNavTitle } from '@/i18n'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Toggle } from '@/components/ui/Toggle'
 import { PageHeader } from '@/components/page-header'
@@ -19,6 +20,8 @@ export default function PostCreatePage() {
   const { create, saving } = usePosts()
   const { profile: myProfile } = useMyProfile()
   const darkClass = useThemeClass()
+  const { t } = useT()
+  useNavTitle('postCreate.navTitle')
 
   const [type, setType] = useState<PostType>(initialType)
   const [title, setTitle] = useState('')
@@ -46,7 +49,7 @@ export default function PostCreatePage() {
         const f = res.tempFiles?.[0] as unknown as UploadFileLike & { size?: number }
         if (!f) return
         if (typeof f.size === 'number' && f.size > MAX_IMAGE_BYTES) {
-          Taro.showToast({ title: '图片过大，请压缩至 1MB 以内', icon: 'none' })
+          Taro.showToast({ title: t('postCreate.imageTooLarge'), icon: 'none' })
           return
         }
         setImageFile(f)
@@ -61,14 +64,14 @@ export default function PostCreatePage() {
 
   const handleSubmit = async () => {
     if (submittingRef.current || isSubmitting) return
-    const t = title.trim()
+    const titleTrim = title.trim()
     const c = content.trim()
-    if (!t) {
-      setError('请填写标题')
+    if (!titleTrim) {
+      setError(t('postCreate.errorTitle'))
       return
     }
     if (!c) {
-      setError('请填写内容')
+      setError(t('postCreate.errorContent'))
       return
     }
     submittingRef.current = true
@@ -77,7 +80,7 @@ export default function PostCreatePage() {
     try {
       const payload: CreatePostInput = {
         type,
-        title: t,
+        title: title,
         content: c,
         current_sections: type === 'ensemble' ? currentSections : '',
         missing_sections: type === 'ensemble' ? missingSections : '',
@@ -89,7 +92,7 @@ export default function PostCreatePage() {
         setError(res.error)
         return
       }
-      Taro.showToast({ title: '发布成功', icon: 'success' })
+      Taro.showToast({ title: t('postCreate.publishSuccess'), icon: 'success' })
       setTimeout(() => Taro.navigateBack(), 300)
     } finally {
       submittingRef.current = false
@@ -104,16 +107,16 @@ export default function PostCreatePage() {
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}>
       <View className='flex-1 overflow-y-auto px-4 pb-safe'>
         <View className='pt-2 pb-2'>
-          <PageHeader title='发布帖子' subtitle='公告板 · 内容将经过微信安全审核' />
+          <PageHeader title={t('postCreate.title')} subtitle={t('postCreate.subtitle')} />
 
           <View className='mt-4'>
-            <Text className='block text-sm font-medium text-text'>类型</Text>
+            <Text className='block text-sm font-medium text-text'>{t('postCreate.fieldType')}</Text>
             <View className='mt-2'>
               <Toggle
                 options={['ensemble', 'gathering']}
                 value={type}
                 onChange={(v) => setType(v as PostType)}
-                getLabel={(k) => (k === 'ensemble' ? '重奏' : '团建')}
+                getLabel={(k) => (k === 'ensemble' ? t('postCreate.type.ensemble') : t('postCreate.type.gathering'))}
               />
             </View>
           </View>
@@ -121,24 +124,24 @@ export default function PostCreatePage() {
           <View className='my-4 h-px bg-border' />
 
           {/* 标题 */}
-          <Text className='block text-sm font-medium text-text'>标题</Text>
+          <Text className='block text-sm font-medium text-text'>{t('postCreate.titleLabel')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Input
               value={title}
               onInput={(e) => setTitle(String(e.detail.value ?? ''))}
-              placeholder='请输入标题'
+              placeholder={t('postCreate.titlePlaceholder')}
               maxlength={50}
               className='h-10 w-full bg-transparent text-sm text-text'
             />
           </View>
 
           {/* 内容 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>内容</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postCreate.contentLabel')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Textarea
               value={content}
               onInput={(e) => setContent(String((e.detail as { value?: string })?.value ?? ''))}
-              placeholder='请输入内容'
+              placeholder={t('postCreate.contentPlaceholder')}
               className='w-full bg-transparent py-2 text-sm text-text'
               style={{ minHeight: '120px' }}
             />
@@ -147,21 +150,21 @@ export default function PostCreatePage() {
           {/* 重奏专属：声部 */}
           {showSections && (
             <>
-              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>已有声部</Text>
+              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postCreate.currentSectionsLabel')}</Text>
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={currentSections}
                   onInput={(e) => setCurrentSections(String(e.detail.value ?? ''))}
-                  placeholder='如：小提琴'
+                  placeholder={t('postCreate.currentSectionsPlaceholder')}
                   className='h-10 w-full bg-transparent text-sm text-text'
                 />
               </View>
-              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>缺声部</Text>
+              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postCreate.missingSectionsLabel')}</Text>
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={missingSections}
                   onInput={(e) => setMissingSections(String(e.detail.value ?? ''))}
-                  placeholder='如：中提'
+                  placeholder={t('postCreate.missingSectionsPlaceholder')}
                   className='h-10 w-full bg-transparent text-sm text-text'
                 />
               </View>
@@ -169,18 +172,18 @@ export default function PostCreatePage() {
           )}
 
           {/* 联系方式 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>联系方式</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postCreate.contactLabel')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Input
               value={contactInfo}
               onInput={(e) => setContactInfo(String(e.detail.value ?? ''))}
-              placeholder='选填，供感兴趣的同学联系你'
+              placeholder={t('postCreate.contactPlaceholder')}
               className='h-10 w-full bg-transparent text-sm text-text'
             />
           </View>
 
           {/* 配图 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>配图</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postCreate.imageLabel')}</Text>
           {imagePreview ? (
             <View className='relative'>
               <Image src={imagePreview} mode='widthFix' className='w-full rounded-lg border border-border' />
@@ -188,7 +191,7 @@ export default function PostCreatePage() {
                 className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'
                 onClick={handleClearImage}
               >
-                <Text className='text-sm text-danger'>删除图片</Text>
+                <Text className='text-sm text-danger'>{t('postCreate.deleteImage')}</Text>
               </View>
             </View>
           ) : (
@@ -196,7 +199,7 @@ export default function PostCreatePage() {
               className='inline-flex items-center rounded-full border border-border bg-surface px-3 py-1'
               onClick={handleChooseImage}
             >
-              <Text className='text-sm text-text'>添加图片</Text>
+              <Text className='text-sm text-text'>{t('postCreate.addImage')}</Text>
             </View>
           )}
 
@@ -209,7 +212,7 @@ export default function PostCreatePage() {
               }`}
               onClick={busy ? undefined : handleSubmit}
             >
-              {busy ? '发布中…' : '发布'}
+              {busy ? t('postCreate.publishing') : t('postCreate.publish')}
             </View>
           </View>
         </View>

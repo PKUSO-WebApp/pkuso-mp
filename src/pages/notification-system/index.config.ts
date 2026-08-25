@@ -1,3 +1,1 @@
-export default definePageConfig({
-  navigationBarTitleText: '系统通知',
-})
+export default definePageConfig({})

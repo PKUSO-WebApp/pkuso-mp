@@ -1,3 +1,1 @@
-export default definePageConfig({
-  navigationBarTitleText: '个人信息',
-})
+export default definePageConfig({})

@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/Card'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useWechatLogin } from '@/hooks/useWechatLogin'
+import { useT, useNavTitle } from '@/i18n'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { supabase } from '@/lib/supabase'
 import './index.scss'
@@ -20,6 +21,8 @@ export default function LoginPage() {
   const { ready, user, restoreFailed } = useUser()
   const { submitting: wechatSubmitting, loginWithWechat } = useWechatLogin()
   const darkClass = useThemeClass()
+  const { t } = useT()
+  useNavTitle('login.navTitle')
 
   // 已登录用户（含冷启动会话恢复后）按 profile 状态路由，避免看到登录页。
   // 先经 getUser 校验会话真实性：storage 有 stale session 但服务端已吊销时
@@ -48,7 +51,7 @@ export default function LoginPage() {
   if (!ready) {
     return (
       <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>加载中…</Text>
+        <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
   }
@@ -57,13 +60,13 @@ export default function LoginPage() {
     <View className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}>
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
-          <Text className='text-xl font-semibold text-text'>登录</Text>
-          <Text className='mt-1 block text-xs text-text-muted'>登录后进入乐团系统</Text>
+          <Text className='text-xl font-semibold text-text'>{t('login.title')}</Text>
+          <Text className='mt-1 block text-xs text-text-muted'>{t('login.subtitle')}</Text>
         </View>
 
         {restoreFailed ? (
           <View className='mb-3 rounded-xl bg-warning-bg px-3 py-2 text-center text-sm text-warning'>
-            网络异常，请重试
+            {t('login.networkError')}
           </View>
         ) : null}
 
@@ -74,7 +77,7 @@ export default function LoginPage() {
           disabled={wechatSubmitting}
           onClick={() => void loginWithWechat()}
         >
-          {wechatSubmitting ? '登录中…' : '微信授权登录/注册'}
+          {wechatSubmitting ? t('login.wechatSubmitting') : t('login.wechatLogin')}
         </Button>
 
         {/* 邮箱登录/注册：路由到邮箱登录页（邮箱表单在独立页） */}
@@ -83,7 +86,7 @@ export default function LoginPage() {
           className='mt-3 flex h-11 w-full items-center justify-center rounded-2xl bg-muted text-sm font-medium text-text disabled:opacity-60'
           onClick={() => void Taro.navigateTo({ url: '/pages/email-login/index' })}
         >
-          使用邮箱登录/注册
+          {t('login.emailLogin')}
         </Button>
       </Card>
     </View>

@@ -3,6 +3,9 @@ import { View, Text, Input, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
+import { useT, useNavTitle } from '@/i18n'
+import { LanguagePreview } from '@/components/LanguagePreview'
+import { translateInstrument } from '@/lib/instrument-i18n'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useAuth } from '@/hooks/useAuth'
 import { isSyntheticEmail } from '@/lib/profile-gate'
@@ -21,17 +24,9 @@ import { ThemeModal } from './components/theme-modal'
 import { FeedbackModal } from './components/feedback-modal'
 import './index.scss'
 
-// 通知栏目：信箱按钮 → 通知分类映射（Issue #188 语义）
-const notificationItems: { label: string; category: NotificationCategory }[] = [
-  { label: '考勤与请假', category: 'attendance' },
-  { label: '活动', category: 'activity' },
-  { label: '系统', category: 'system' },
-]
-
 // 账号与密码弹窗 tab（Issue #214 语义）：修改密码 / 换绑邮箱 两个区块
 const ACCOUNT_TAB_OPTIONS = ['password', 'email'] as const
 type AccountTab = (typeof ACCOUNT_TAB_OPTIONS)[number]
-const accountTabLabel = (v: AccountTab) => (v === 'password' ? '修改密码' : '换绑邮箱')
 
 /**
  * 我的页：
@@ -46,6 +41,20 @@ export default function Profile() {
   const { user } = useUser()
   const { signOut } = useAuth()
   const darkClass = useThemeClass()
+  const { t, locale, setLocale } = useT()
+  useNavTitle('profile.title')
+
+  // 通知栏目：信箱按钮 → 通知分类映射（Issue #188 语义）
+  const notificationItems: { label: string; category: NotificationCategory }[] = [
+    { label: t('profile.notifications.attendance'), category: 'attendance' },
+    { label: t('profile.notifications.activity'), category: 'activity' },
+    { label: t('profile.notifications.system'), category: 'system' },
+  ]
+  // 账号与密码弹窗 tab 文案（Issue #214 语义）
+  const accountTabLabel = (v: AccountTab) =>
+    v === 'password' ? t('profile.account.tabPassword') : t('profile.account.tabEmail')
+
+  const [isLangOpen, setIsLangOpen] = useState(false)
 
   // 资料：头像卡 / 邮箱展示 / 换绑邮箱同步
   const { data: profileData, update: updateProfile } = useProfiles({ userId: user?.id })
@@ -131,11 +140,11 @@ export default function Profile() {
 
   const handleUpdatePassword = async () => {
     if (newPwd.trim() !== confirmPwd.trim()) {
-      setPwdError('两次输入的密码不一致')
+      setPwdError(t('profile.account.pwdMismatch'))
       return
     }
     if (newPwd.trim().length < 6) {
-      setPwdError('新密码长度至少 6 位')
+      setPwdError(t('profile.account.pwdTooShort'))
       return
     }
     // 双重 guard 防重复提交：ref 同步阻断 + state 异步兜底
@@ -149,7 +158,7 @@ export default function Profile() {
         setPwdError(error.message)
         return
       }
-      void Taro.showToast({ title: '密码修改成功', icon: 'success' })
+      void Taro.showToast({ title: t('profile.account.pwdSuccess'), icon: 'success' })
       setNewPwd('')
       setConfirmPwd('')
       // 换绑提交进行中不关闭弹窗；换绑区块存在未提交输入时也不关闭
@@ -172,15 +181,15 @@ export default function Profile() {
     if (!user) return
     const emailInput = newEmail.trim()
     if (!emailInput) {
-      void Taro.showToast({ title: '请输入新邮箱', icon: 'none' })
+      void Taro.showToast({ title: t('profile.account.emailEmpty'), icon: 'none' })
       return
     }
     if (!isValidEmail(emailInput)) {
-      void Taro.showToast({ title: '邮箱格式不正确', icon: 'none' })
+      void Taro.showToast({ title: t('profile.account.emailInvalid'), icon: 'none' })
       return
     }
     if (emailInput.toLowerCase() === (user.email ?? '').toLowerCase()) {
-      void Taro.showToast({ title: '新邮箱与当前邮箱相同', icon: 'none' })
+      void Taro.showToast({ title: t('profile.account.emailSame'), icon: 'none' })
       return
     }
     // 双重 guard 防重复提交：ref 同步阻断 + state 异步兜底
@@ -194,7 +203,7 @@ export default function Profile() {
         return
       }
       void Taro.showToast({
-        title: '确认邮件已发送至新邮箱，请点击邮件内链接完成换绑（未确认前仍使用旧邮箱）',
+        title: t('profile.account.rebindSent'),
         icon: 'none',
       })
       setNewEmail('')
@@ -231,14 +240,14 @@ export default function Profile() {
           </View>
           <View className='min-w-0 flex-1 space-y-1'>
             <Text className='block text-lg font-semibold text-text'>{fullName}</Text>
-            <Text className='block text-sm text-text-muted'>声部 {instrument}</Text>
-            <Text className='block text-xs text-text-muted'>邮箱 {email}</Text>
+            <Text className='block text-sm text-text-muted'>{t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}</Text>
+            <Text className='block text-xs text-text-muted'>{t('profile.card.email', { email })}</Text>
           </View>
         </View>
 
         {/* 通知栏目：三个信箱按钮，右侧未读数字徽章（>0 时显示） */}
         <View>
-          <Text className='text-xs font-medium text-text-muted'>通知</Text>
+          <Text className='text-xs font-medium text-text-muted'>{t('profile.sections.notifications')}</Text>
           <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
             {notificationItems.map(({ label, category }) => {
               const count = unreadCounts[category]
@@ -276,13 +285,13 @@ export default function Profile() {
 
         {/* 设置栏目 */}
         <View>
-          <Text className='text-xs font-medium text-text-muted'>设置</Text>
+          <Text className='text-xs font-medium text-text-muted'>{t('profile.sections.settings')}</Text>
           <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
             <View
               className='border-b border-border px-4 py-3'
               onClick={() => void Taro.navigateTo({ url: '/pages/profile-info/index' })}
             >
-              <Text className='text-sm font-medium text-text'>个人信息</Text>
+              <Text className='text-sm font-medium text-text'>{t('profileInfo.title')}</Text>
             </View>
             <View
               className='border-b border-border px-4 py-3'
@@ -295,7 +304,7 @@ export default function Profile() {
                 setIsPwdModalOpen(true)
               }}
             >
-              <Text className='text-sm font-medium text-text'>账号与密码</Text>
+              <Text className='text-sm font-medium text-text'>{t('profile.settings.account')}</Text>
             </View>
             {/* 考勤：本人考勤历史，起止日期过滤（打开时才挂载查询组件） */}
             <View
@@ -304,34 +313,41 @@ export default function Profile() {
                 if (user) setIsAttendanceOpen(true)
               }}
             >
-              <Text className='text-sm font-medium text-text'>考勤</Text>
+              <Text className='text-sm font-medium text-text'>{t('profile.settings.attendance')}</Text>
             </View>
             {/* 我的活动：我发布的活动管理（锁定/删除/编辑） */}
             <View
               className='border-b border-border px-4 py-3'
               onClick={() => void Taro.navigateTo({ url: '/pages/my-activities/index' })}
             >
-              <Text className='text-sm font-medium text-text'>我的活动</Text>
+              <Text className='text-sm font-medium text-text'>{t('profile.settings.myActivities')}</Text>
+            </View>
+            {/* 语言：中文 / English，默认跟随系统、手动覆盖并持久化 */}
+            <View
+              className='border-b border-border px-4 py-3'
+              onClick={() => setIsLangOpen(true)}
+            >
+              <LanguagePreview className='text-sm font-medium text-text' />
             </View>
             {/* 外观：亮色 / 暗色 / 跟随系统 三态主题切换 */}
             <View className='border-b border-border px-4 py-3' onClick={() => setIsThemeOpen(true)}>
-              <Text className='text-sm font-medium text-text'>外观</Text>
+              <Text className='text-sm font-medium text-text'>{t('profile.settings.appearance')}</Text>
             </View>
             {/* 问题与反馈：匿名提交，底部弹窗 */}
             <View
               className='border-b border-border px-4 py-3'
               onClick={() => setIsFeedbackOpen(true)}
             >
-              <Text className='text-sm font-medium text-text'>问题与反馈</Text>
+              <Text className='text-sm font-medium text-text'>{t('profile.settings.feedback')}</Text>
             </View>
             <View className='px-4 py-3' onClick={() => void handleLogout()}>
-              <Text className='text-sm font-medium text-danger'>退出登录</Text>
+              <Text className='text-sm font-medium text-danger'>{t('profile.settings.logout')}</Text>
             </View>
           </View>
         </View>
         {/* 版本号：随时可查，报障时便于核对 */}
         <View className='mt-8 text-center'>
-          <Text className='text-xs text-text-subtle'>北大交响乐团 · {getAppVersionLabel()}</Text>
+          <Text className='text-xs text-text-subtle'>{t('common.appName')} · {getAppVersionLabel()}</Text>
         </View>
       </View>
       </ScrollView>
@@ -344,12 +360,12 @@ export default function Profile() {
         onClose={() => {
           // 任一提交进行中不允许关闭（改密/换绑各自守卫，互不干扰）
           if (isUpdatingPwd || isRebindingEmail) {
-            void Taro.showToast({ title: '提交进行中，请稍候再关闭', icon: 'none' })
+            void Taro.showToast({ title: t('profile.account.submittingClose'), icon: 'none' })
             return
           }
           setIsPwdModalOpen(false)
         }}
-        title='账号与密码'
+        title={t('profile.settings.account')}
         position='bottom'
         closeOnOverlay={!isUpdatingPwd && !isRebindingEmail}
       >
@@ -364,12 +380,12 @@ export default function Profile() {
           {accountTab === 'password' ? (
             <View className='mt-4 space-y-3'>
               <View>
-                <Text className='mb-1 block text-xs font-medium text-text-muted'>新密码</Text>
+                <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.account.newPassword')}</Text>
                 <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
                   <Input
                     className='h-10 w-full bg-transparent text-sm text-text'
                     password
-                    placeholder='至少 6 位'
+                    placeholder={t('profile.account.newPasswordPlaceholder')}
                     value={newPwd}
                     onInput={(e) => {
                       setNewPwd(e.detail.value)
@@ -379,12 +395,12 @@ export default function Profile() {
                 </View>
               </View>
               <View>
-                <Text className='mb-1 block text-xs font-medium text-text-muted'>确认新密码</Text>
+                <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.account.confirmPassword')}</Text>
                 <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
                   <Input
                     className='h-10 w-full bg-transparent text-sm text-text'
                     password
-                    placeholder='再次输入'
+                    placeholder={t('profile.account.confirmPasswordPlaceholder')}
                     value={confirmPwd}
                     onInput={(e) => {
                       setConfirmPwd(e.detail.value)
@@ -404,7 +420,7 @@ export default function Profile() {
                     isUpdatingPwd || isRebindingEmail ? undefined : () => setIsPwdModalOpen(false)
                   }
                 >
-                  取消
+                  {t('common.actions.cancel')}
                 </View>
                 <View
                   className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
@@ -412,20 +428,20 @@ export default function Profile() {
                   }`}
                   onClick={isUpdatingPwd ? undefined : () => void handleUpdatePassword()}
                 >
-                  {isUpdatingPwd ? '提交中…' : '确认修改'}
+                  {isUpdatingPwd ? t('profile.account.submitting') : t('profile.account.confirmChange')}
                 </View>
               </View>
             </View>
           ) : (
             <View className='mt-4 space-y-3'>
               {/* 当前邮箱只读展示（Issue #199 语义）；「换绑邮箱」小标题由 tab 承担 */}
-              <Text className='block text-xs text-text-subtle'>当前邮箱：{email}</Text>
+              <Text className='block text-xs text-text-subtle'>{t('profile.account.currentEmail', { email })}</Text>
               <View>
-                <Text className='mb-1 block text-xs font-medium text-text-muted'>新邮箱</Text>
+                <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.account.newEmail')}</Text>
                 <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
                   <Input
                     className='h-10 w-full bg-transparent text-sm text-text'
-                    placeholder='输入新邮箱'
+                    placeholder={t('profile.account.newEmailPlaceholder')}
                     value={newEmail}
                     disabled={isRebindingEmail}
                     onInput={(e) => {
@@ -443,7 +459,7 @@ export default function Profile() {
                   }`}
                   onClick={isRebindingEmail ? undefined : () => void handleRebindEmail()}
                 >
-                  {isRebindingEmail ? '发送中…' : '发送确认邮件'}
+                  {isRebindingEmail ? t('profile.account.submitting') : t('profile.account.sendVerifyEmail')}
                 </View>
               </View>
             </View>
@@ -461,6 +477,31 @@ export default function Profile() {
 
       {/* 问题与反馈 Modal：多行输入匿名提交 */}
       <FeedbackModal open={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
+
+      {/* 语言选择：默认跟随系统，手动选择后持久化 */}
+      <Modal open={isLangOpen} onClose={() => setIsLangOpen(false)} title={t('profile.language.title')}>
+        <View className='space-y-2'>
+          {(['zh-CN', 'en'] as const).map((l) => {
+            const labels: Record<'zh-CN' | 'en', string> = {
+              'zh-CN': t('profile.language.zhCN'),
+              en: t('profile.language.en'),
+            }
+            return (
+              <View
+                key={l}
+                className='flex items-center justify-between rounded-xl border border-border px-4 py-3'
+                onClick={() => {
+                  setLocale(l)
+                  setIsLangOpen(false)
+                }}
+              >
+                <Text className='text-sm text-text'>{labels[l]}</Text>
+                {locale === l && <Text className='text-sm text-primary'>✓</Text>}
+              </View>
+            )
+          })}
+        </View>
+      </Modal>
 
     </View>
   )

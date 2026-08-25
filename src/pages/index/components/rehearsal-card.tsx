@@ -1,7 +1,9 @@
 import { View, Text } from '@tarojs/components'
 import { Card } from '@/components/ui/Card'
 import { formatRehearsalRange } from '@/lib/date-utils'
-import { getUpdateBadgeLabel } from '@/lib/rehearsal-sort'
+import { getUpdatedFields } from '@/lib/rehearsal-sort'
+import { useT } from '@/i18n'
+import { translateInstrument } from '@/lib/instrument-i18n'
 import type { RehearsalRow } from '@/types/database'
 
 type Props = {
@@ -15,7 +17,8 @@ type Props = {
 }
 
 export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
-  const updateLabel = isUpdated ? getUpdateBadgeLabel(item) : null
+  const { t } = useT()
+  const updatedFields = isUpdated ? getUpdatedFields(item) : null
 
   return (
     <Card onClick={onClick} className='relative'>
@@ -25,17 +28,21 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
           <Text className='block text-base font-semibold text-text'>
             {item.start_time
               ? formatRehearsalRange(item.start_time, item.end_time ?? null)
-              : '时间未设置'}
+              : t('home.rehearsalTimeUnset')}
           </Text>
-          {updateLabel && (
+          {updatedFields && updatedFields.length > 0 && (
             <Text className='inline-block rounded bg-warning-bg/80 px-1.5 py-1 text-xs text-warning'>
-              {updateLabel}
+              {t('home.updated', {
+                fields: updatedFields
+                  .map((f) => t(`home.updatedField.${f}`))
+                  .join('/'),
+              })}
             </Text>
           )}
           <Text className='block text-xs text-text-muted'>
-            {item.location || '未定'}
+            {item.location || t('home.locationUnset')}
             {item.type === 'section' && item.target_section
-              ? ` · 针对：${item.target_section}`
+              ? ` · ${t('home.targetSection')}${translateInstrument(item.target_section, t)}`
               : ''}
           </Text>
         </View>

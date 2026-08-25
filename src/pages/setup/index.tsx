@@ -10,6 +10,7 @@ import { isSyntheticEmail } from '@/lib/profile-gate'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { supabase } from '@/lib/supabase'
 import { isValidEmail } from '@/lib/validation'
+import { useT, useNavTitle } from '@/i18n'
 import './index.scss'
 
 // ============================================================
@@ -26,12 +27,12 @@ import './index.scss'
 const MAX_NAME_LENGTH = 30
 
 /** auth.updateUser 换邮箱错误归一化（主要场景：邮箱已被其他账号注册） */
-const mapAuthEmailError = (err: { message?: string; code?: string } | null): string => {
+const mapAuthEmailError = (t: (k: string, p?: Record<string, unknown>) => string, err: { message?: string; code?: string } | null): string => {
   const text = `${err?.code ?? ''} ${err?.message ?? ''}`.toLowerCase()
   if (text.includes('already been registered') || text.includes('email_exists')) {
-    return '该邮箱已被注册，请更换邮箱'
+    return t('setup.authEmail.alreadyRegistered')
   }
-  return '保存失败，请重试'
+  return t('setup.authEmail.saveFailed')
 }
 
 export default function SetupPage() {
@@ -39,6 +40,8 @@ export default function SetupPage() {
   const { signingOut, logout } = useLogout()
   const { profile } = useProfileStatus()
   const darkClass = useThemeClass()
+  const { t } = useT()
+  useNavTitle('setup.navTitle')
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -68,15 +71,15 @@ export default function SetupPage() {
     const trimmedEmail = email.trim()
 
     if (!trimmedName) {
-      setErrorMsg('请输入姓名')
+      setErrorMsg(t('setup.errors.nameRequired'))
       return
     }
     if (trimmedName.length > MAX_NAME_LENGTH) {
-      setErrorMsg(`姓名过长（最多 ${MAX_NAME_LENGTH} 字）`)
+      setErrorMsg(t('setup.errors.nameTooLong', { max: MAX_NAME_LENGTH }))
       return
     }
     if (!isValidEmail(trimmedEmail)) {
-      setErrorMsg('请输入有效的邮箱地址')
+      setErrorMsg(t('setup.errors.emailInvalid'))
       return
     }
 
@@ -91,7 +94,7 @@ export default function SetupPage() {
         .eq('id', user.id)
         .select('id')
       if (error || !data || data.length === 0) {
-        setErrorMsg('保存失败，请重试')
+        setErrorMsg(t('setup.errors.saveFailed'))
         return
       }
       // 同步 auth 邮箱（与换绑邮箱同流程：发确认邮件，确认后 auth 才生效）。
@@ -101,11 +104,11 @@ export default function SetupPage() {
       if (trimmedEmail.toLowerCase() !== (user.email ?? '').toLowerCase()) {
         const { error: authError } = await supabase.auth.updateUser({ email: trimmedEmail })
         if (authError) {
-          setErrorMsg(mapAuthEmailError(authError))
+          setErrorMsg(mapAuthEmailError(t, authError))
           return
         }
       }
-      void Taro.showToast({ title: '资料已提交，等待管理员审核', icon: 'none' })
+      void Taro.showToast({ title: t('setup.toastSubmitted'), icon: 'none' })
       // 重新走入口路由：正常落到「等待管理员审核」守卫页
       await routeAfterLogin(supabase)
     } finally {
@@ -118,7 +121,7 @@ export default function SetupPage() {
   if (!ready || !user) {
     return (
       <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>加载中…</Text>
+        <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
   }
@@ -129,18 +132,18 @@ export default function SetupPage() {
     >
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
-          <Text className='text-xl font-semibold text-text'>完善资料</Text>
+          <Text className='text-xl font-semibold text-text'>{t('setup.title')}</Text>
           <Text className='mt-1 block text-xs text-text-muted'>
-            姓名与邮箱均为必填，提交后等待管理员审核
+            {t('setup.subtitle')}
           </Text>
         </View>
 
         <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>姓名</Text>
+          <Text className='text-sm font-medium text-text-muted'>{t('setup.nameLabel')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               className='h-10 text-sm text-text'
-              placeholder='请输入真实姓名'
+              placeholder={t('setup.namePlaceholder')}
               value={name}
               onInput={(e) => {
                 setErrorMsg(null)
@@ -151,11 +154,11 @@ export default function SetupPage() {
         </View>
 
         <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>邮箱</Text>
+          <Text className='text-sm font-medium text-text-muted'>{t('setup.emailLabel')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               className='h-10 text-sm text-text'
-              placeholder='name@example.com'
+              placeholder={t('setup.emailPlaceholder')}
               value={email}
               onInput={(e) => {
                 setErrorMsg(null)
@@ -179,7 +182,7 @@ export default function SetupPage() {
             disabled={submitting || signingOut}
             onClick={() => void logout()}
           >
-            {signingOut ? '取消中…' : '取消'}
+            {signingOut ? t('setup.canceling') : t('setup.cancel')}
           </Button>
           <Button
             hoverClass='none'
@@ -187,7 +190,7 @@ export default function SetupPage() {
             disabled={submitting}
             onClick={() => void handleSubmit()}
           >
-            {submitting ? '提交中…' : '提交'}
+            {submitting ? t('setup.submitting') : t('setup.submit')}
           </Button>
         </View>
       </Card>

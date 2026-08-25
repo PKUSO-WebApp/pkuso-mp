@@ -3,6 +3,7 @@ import { View, Text, Textarea } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { getAppVersionLabel } from '@/lib/version'
+import { useT } from '@/i18n'
 import { Modal } from '@/components/ui/Modal'
 
 type Props = {
@@ -18,6 +19,7 @@ type Props = {
  * maxLength 与 DB CHECK（feedback_content_length_check）一致。
  */
 export function FeedbackModal({ open, onClose }: Props) {
+  const { t } = useT()
   const [content, setContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false) // 同步 guard，阻断竞态窗口
@@ -25,7 +27,7 @@ export function FeedbackModal({ open, onClose }: Props) {
   const handleSubmit = async () => {
     const trimmed = content.trim()
     if (!trimmed) {
-      void Taro.showToast({ title: '请填写反馈内容', icon: 'none' })
+      void Taro.showToast({ title: t('profile.feedback.empty'), icon: 'none' })
       return
     }
     if (submittingRef.current || submitting) return
@@ -34,10 +36,10 @@ export function FeedbackModal({ open, onClose }: Props) {
     try {
       const { error } = await supabase.from('feedback').insert({ content: trimmed })
       if (error) {
-        void Taro.showToast({ title: error.message || '反馈提交失败，请重试', icon: 'none' })
+        void Taro.showToast({ title: error.message || t('profile.feedback.submitFailed'), icon: 'none' })
         return
       }
-      void Taro.showToast({ title: '反馈已提交，感谢你的反馈', icon: 'success' })
+      void Taro.showToast({ title: t('profile.feedback.submitted'), icon: 'success' })
       setContent('')
       onClose()
     } catch {
@@ -58,13 +60,13 @@ export function FeedbackModal({ open, onClose }: Props) {
     <Modal
       open={open}
       onClose={handleClose}
-      title='问题与反馈'
+      title={t('profile.settings.feedback')}
       position='bottom'
       closeOnOverlay={!submitting}
     >
       <View className='mt-4 space-y-3'>
-        <Text className='block text-xs text-text-muted'>匿名提交，管理员可在后台查看</Text>
-        <Text className='mt-1 block text-xs text-text-subtle'>当前版本：{getAppVersionLabel()}</Text>
+        <Text className='block text-xs text-text-muted'>{t('profile.feedback.anonymousHint')}</Text>
+        <Text className='mt-1 block text-xs text-text-subtle'>{t('profile.feedback.version', { version: getAppVersionLabel() })}</Text>
         <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
           <Textarea
             value={content}
@@ -72,7 +74,7 @@ export function FeedbackModal({ open, onClose }: Props) {
             maxlength={2000}
             disabled={submitting}
             className='h-32 bg-transparent px-3 py-3 text-xs leading-relaxed text-text'
-            placeholder='写下你的问题或建议'
+            placeholder={t('profile.feedback.placeholder')}
           />
         </View>
         {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
@@ -83,7 +85,7 @@ export function FeedbackModal({ open, onClose }: Props) {
             }`}
             onClick={submitting ? undefined : () => void handleSubmit()}
           >
-            {submitting ? '提交中…' : '提交'}
+            {submitting ? t('profile.account.submitting') : t('common.actions.submit')}
           </View>
         </View>
       </View>

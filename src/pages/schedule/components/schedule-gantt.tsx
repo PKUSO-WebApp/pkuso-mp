@@ -4,6 +4,7 @@ import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { Modal } from '@/components/ui/Modal'
 import { parseLocalISO, formatTime } from '@/lib/date-utils'
+import { useT } from '@/i18n'
 import type { ScheduleRow } from '@/types/database'
 
 type Props = {
@@ -44,6 +45,7 @@ export function parseTimeToHours(timeStr: string | null): number {
  *  点击预约块打开详情弹窗；预约人姓名经 profiles_roster 查询，
  *  竞态守卫用 ref 记录当前选中 id（快速连点时丢弃过期响应）。 */
 export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) {
+  const { t } = useT()
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleRow | null>(null)
   const [authorName, setAuthorName] = useState<string | null>(null)
   const [loadingAuthor, setLoadingAuthor] = useState(false)
@@ -59,8 +61,10 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
   const handleDelete = async () => {
     if (!selectedSchedule) return
     const res = await Taro.showModal({
-      title: '删除预约',
-      content: `确定要删除预约「${selectedSchedule.title || '未命名预约'}」吗？`,
+      title: t('schedule.deleteReservation'),
+      content: t('schedule.deleteConfirm', {
+        title: selectedSchedule.title || t('schedule.unnamed'),
+      }),
     })
     if (!res.confirm) return
     setDeleting(true)
@@ -70,7 +74,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
     if (success) {
       handleCloseModal()
     } else {
-      setDeleteError('删除失败，请稍后重试')
+      setDeleteError(t('schedule.errors.deleteFailed'))
     }
   }
 
@@ -176,7 +180,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
             >
               <View className='flex h-full flex-col justify-center px-2 py-1'>
                 <Text className='block truncate text-xs font-medium text-schedule-text'>
-                  {schedule.title || '未命名预约'}
+                  {schedule.title || t('schedule.unnamed')}
                 </Text>
                 <Text className='block text-xs text-schedule-text-muted'>
                   {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
@@ -191,31 +195,31 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
       <Modal
         open={!!selectedSchedule}
         onClose={handleCloseModal}
-        title='预约详情'
+        title={t('schedule.detailTitle')}
         position='bottom'
       >
         {selectedSchedule && (
           <View className='mt-2 space-y-3'>
             <View>
-              <Text className='mb-1 block text-xs text-text-muted'>标题</Text>
+              <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.title')}</Text>
               <Text className='block text-sm font-medium text-text'>
-                {selectedSchedule.title || '未命名预约'}
+                {selectedSchedule.title || t('schedule.unnamed')}
               </Text>
             </View>
             <View>
-              <Text className='mb-1 block text-xs text-text-muted'>时间</Text>
+              <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.time')}</Text>
               <Text className='block text-sm text-text'>
                 {formatTime(selectedSchedule.start_time)} - {formatTime(selectedSchedule.end_time)}
               </Text>
             </View>
             <View>
-              <Text className='mb-1 block text-xs text-text-muted'>日期</Text>
+              <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.date')}</Text>
               <Text className='block text-sm text-text'>{selectedDate}</Text>
             </View>
             <View>
-              <Text className='mb-1 block text-xs text-text-muted'>预约人</Text>
+              <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.author')}</Text>
               <Text className='block text-sm text-text'>
-                {loadingAuthor ? '加载中…' : authorName || '未知'}
+                {loadingAuthor ? t('common.actions.loading') : authorName || t('schedule.unknown')}
               </Text>
             </View>
             {/* 仅创建者可删除自己添加的预约（Issue #142 移植） */}
@@ -227,7 +231,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
                   }`}
                   onClick={deleting ? undefined : () => void handleDelete()}
                 >
-                  {deleting ? '删除中…' : '删除预约'}
+                  {deleting ? t('schedule.deleting') : t('schedule.deleteReservation')}
                 </View>
                 {deleteError && (
                   <Text className='mt-2 block text-center text-sm text-danger'>{deleteError}</Text>

@@ -3,16 +3,13 @@ import { View, Text, Input, Textarea, Image } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useThemeClass } from '@/context/theme-context'
+import { useT, useNavTitle } from '@/i18n'
 import { PageHeader } from '@/components/page-header'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 import './index.scss'
 
 const MAX_IMAGE_BYTES = 1024 * 1024
-const TYPE_LABEL: Record<PostType, string> = {
-  ensemble: '重奏',
-  gathering: '团建',
-}
 
 /**
  * 编辑活动页（「我的活动」卡片「编辑 ›」进入，带 id 参数）。
@@ -23,6 +20,8 @@ export default function PostEditPage() {
   const id = Taro.getCurrentInstance().router?.params?.id
   const { fetchOne, updatePost, saving } = usePosts()
   const darkClass = useThemeClass()
+  const { t } = useT()
+  useNavTitle('postEdit.navTitle')
 
   const [post, setPost] = useState<PostRowWithAuthor | null>(null)
   const [loading, setLoading] = useState(true)
@@ -77,7 +76,7 @@ export default function PostEditPage() {
         const f = res.tempFiles?.[0] as unknown as UploadFileLike & { size?: number }
         if (!f) return
         if (typeof f.size === 'number' && f.size > MAX_IMAGE_BYTES) {
-          Taro.showToast({ title: '图片过大，请压缩至 1MB 以内', icon: 'none' })
+          Taro.showToast({ title: t('postEdit.imageTooLarge'), icon: 'none' })
           return
         }
         setImageFile(f)
@@ -94,14 +93,14 @@ export default function PostEditPage() {
 
   const handleSubmit = async () => {
     if (submittingRef.current || isSubmitting || !id) return
-    const t = title.trim()
+    const titleTrim = title.trim()
     const c = content.trim()
-    if (!t) {
-      setError('请填写标题')
+    if (!titleTrim) {
+      setError(t('postEdit.errorTitle'))
       return
     }
     if (!c) {
-      setError('请填写内容')
+      setError(t('postEdit.errorContent'))
       return
     }
     submittingRef.current = true
@@ -110,7 +109,7 @@ export default function PostEditPage() {
     try {
       const res = await updatePost(id, {
         type,
-        title: t,
+        title: title,
         content: c,
         current_sections: type === 'ensemble' ? currentSections : '',
         missing_sections: type === 'ensemble' ? missingSections : '',
@@ -121,7 +120,7 @@ export default function PostEditPage() {
         setError(res.error)
         return
       }
-      Taro.showToast({ title: '已保存', icon: 'success' })
+      Taro.showToast({ title: t('postEdit.saved'), icon: 'success' })
       setTimeout(() => Taro.navigateBack(), 300)
     } finally {
       submittingRef.current = false
@@ -136,7 +135,7 @@ export default function PostEditPage() {
   if (loading) {
     return (
       <View className='flex min-h-screen items-center justify-center bg-bg'>
-        <Text className='text-xs text-text-muted'>加载中…</Text>
+        <Text className='text-xs text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
   }
@@ -144,12 +143,12 @@ export default function PostEditPage() {
   if (notFound || !post) {
     return (
       <View className='flex min-h-screen flex-col items-center justify-center bg-bg px-4'>
-        <Text className='text-sm text-text-muted'>活动不存在或已删除</Text>
+        <Text className='text-sm text-text-muted'>{t('postEdit.notFound')}</Text>
         <View
           className='mt-4 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground'
           onClick={() => void Taro.navigateBack()}
         >
-          返回
+          {t('postEdit.back')}
         </View>
       </View>
     )
@@ -159,27 +158,32 @@ export default function PostEditPage() {
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}>
       <View className='flex-1 overflow-y-auto px-4 pb-safe'>
         <View className='pt-2 pb-2'>
-          <PageHeader title='编辑活动' subtitle={`公告板 · ${TYPE_LABEL[type]}`} />
+          <PageHeader
+            title={t('postEdit.title')}
+            subtitle={t('postEdit.subtitle', {
+              type: t(type === 'ensemble' ? 'postEdit.type.ensemble' : 'postEdit.type.gathering'),
+            })}
+          />
 
           {/* 标题 */}
-          <Text className='block text-sm font-medium text-text'>标题</Text>
+          <Text className='block text-sm font-medium text-text'>{t('postEdit.titleLabel')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Input
               value={title}
               onInput={(e) => setTitle(String(e.detail.value ?? ''))}
-              placeholder='请输入标题'
+              placeholder={t('postEdit.titlePlaceholder')}
               maxlength={50}
               className='h-10 w-full bg-transparent text-sm text-text'
             />
           </View>
 
           {/* 内容 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>内容</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postEdit.contentLabel')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Textarea
               value={content}
               onInput={(e) => setContent(String((e.detail as { value?: string })?.value ?? ''))}
-              placeholder='请输入内容'
+              placeholder={t('postEdit.contentPlaceholder')}
               className='w-full bg-transparent py-2 text-sm text-text'
               style={{ minHeight: '120px' }}
             />
@@ -188,21 +192,21 @@ export default function PostEditPage() {
           {/* 重奏专属：声部 */}
           {showSections && (
             <>
-              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>已有声部</Text>
+              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postEdit.currentSectionsLabel')}</Text>
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={currentSections}
                   onInput={(e) => setCurrentSections(String(e.detail.value ?? ''))}
-                  placeholder='如：小提琴'
+                  placeholder={t('postEdit.currentSectionsPlaceholder')}
                   className='h-10 w-full bg-transparent text-sm text-text'
                 />
               </View>
-              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>缺声部</Text>
+              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postEdit.missingSectionsLabel')}</Text>
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={missingSections}
                   onInput={(e) => setMissingSections(String(e.detail.value ?? ''))}
-                  placeholder='如：中提'
+                  placeholder={t('postEdit.missingSectionsPlaceholder')}
                   className='h-10 w-full bg-transparent text-sm text-text'
                 />
               </View>
@@ -210,18 +214,18 @@ export default function PostEditPage() {
           )}
 
           {/* 联系方式 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>联系方式</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postEdit.contactLabel')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Input
               value={contactInfo}
               onInput={(e) => setContactInfo(String(e.detail.value ?? ''))}
-              placeholder='选填，供感兴趣的同学联系你'
+              placeholder={t('postEdit.contactPlaceholder')}
               className='h-10 w-full bg-transparent text-sm text-text'
             />
           </View>
 
           {/* 配图 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>配图</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postEdit.imageLabel')}</Text>
           {previewSrc ? (
             <View className='relative'>
               <Image src={previewSrc} mode='widthFix' className='w-full rounded-lg border border-border' />
@@ -229,7 +233,7 @@ export default function PostEditPage() {
                 className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'
                 onClick={handleClearImage}
               >
-                <Text className='text-sm text-danger'>删除图片</Text>
+                <Text className='text-sm text-danger'>{t('postEdit.deleteImage')}</Text>
               </View>
             </View>
           ) : (
@@ -237,7 +241,7 @@ export default function PostEditPage() {
               className='inline-flex items-center rounded-full border border-border bg-surface px-3 py-1'
               onClick={handleChooseImage}
             >
-              <Text className='text-sm text-text'>添加图片</Text>
+              <Text className='text-sm text-text'>{t('postEdit.addImage')}</Text>
             </View>
           )}
 
@@ -252,13 +256,13 @@ export default function PostEditPage() {
               style={{ backgroundColor: '#000000' }}
               onClick={busy ? undefined : handleSubmit}
             >
-              {busy ? '保存中…' : '保存'}
+              {busy ? t('postEdit.saving') : t('common.actions.save')}
             </View>
             <View
               className='flex h-11 w-full items-center justify-center rounded-xl border border-border bg-card text-base font-medium text-text'
               onClick={() => void Taro.navigateBack()}
             >
-              取消
+              {t('common.actions.cancel')}
             </View>
           </View>
         </View>

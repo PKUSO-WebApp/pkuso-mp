@@ -1,0 +1,23 @@
+// 请假申请页文案（按页分：leave-request；对应「活动报名 / 申请」）
+export const leaveRequest = {
+  notFound: 'Rehearsal not found',
+  reasonLabel: 'Reason',
+  attachmentLabel: 'Attachment',
+  attachmentLoading: 'Loading attachment…',
+  noAttachment: 'No attachment',
+  reasonPlaceholder: 'Please enter the leave reason',
+  deleteAttachment: 'Remove Attachment',
+  addAttachment: 'Add Attachment',
+  keepOldAttachment: 'Keep original attachment (editable or removable)',
+  errorReason: 'Please enter the leave reason',
+  errorLogin: 'Login expired, please log in again',
+  errorUpload: 'Attachment upload failed: {error}',
+  statusPending: 'Pending',
+  statusApproved: 'Approved',
+  statusRejected: 'Rejected',
+  submit: 'Submit Request',
+  resubmit: 'Reapply',
+  modify: 'Modify Request',
+  withdraw: 'Withdraw Request',
+  editLink: 'Edit Request',
+}

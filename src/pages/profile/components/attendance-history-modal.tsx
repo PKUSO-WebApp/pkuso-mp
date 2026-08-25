@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ScrollView, View, Text, Picker } from '@tarojs/components'
 import { useAttendance, type AttendanceHistoryRow } from '@/hooks/useAttendance'
+import { useT } from '@/i18n'
+import type { TFn } from '@/i18n/core'
 import { Modal } from '@/components/ui/Modal'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { isAbsentPlaceholder, UNSIGNED_LABEL } from '@/lib/attendance-utils'
-import { STATUS_LABEL, STATUS_TEXT_COLOR } from '@/lib/attendance-status'
+import { STATUS_TEXT_COLOR } from '@/lib/attendance-status'
 import { summarizeAttendance, type AttendanceSummaryKey } from '@/lib/attendance-summary'
 import type { AttendanceRow } from '@/types/database'
 
@@ -23,14 +25,15 @@ const getAttendanceDisplay = (
   status: AttendanceRow['status'],
   signInTime: string | null,
   startTime: string | null,
-  endTime: string | null
+  endTime: string | null,
+  t: TFn
 ): { label: string; className: string } => {
   if (!status) return { label: '—', className: 'text-text-muted' }
   if (status === 'absent' && isAbsentPlaceholder(signInTime, startTime, endTime)) {
     return { label: UNSIGNED_LABEL, className: 'text-text' }
   }
   return {
-    label: STATUS_LABEL[status] ?? status,
+    label: t(`profile.attendance.status.${status}` as Parameters<typeof t>[0]) ?? status,
     className: STATUS_TEXT_COLOR[status] ?? '',
   }
 }
@@ -48,6 +51,7 @@ type Props = {
  * 父级条件渲染挂载：打开时查询、关闭即卸载清态（重开默认查全部）。
  */
 export function AttendanceHistoryModal({ userId, onClose }: Props) {
+  const { t } = useT()
   const { fetchMyHistory } = useAttendance()
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -102,50 +106,50 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
   const attendanceSummary = summarizeAttendance(rows)
 
   return (
-    <Modal open onClose={onClose} title='我的考勤' position='bottom'>
+    <Modal open onClose={onClose} title={t('profile.attendance.title')} position='bottom'>
       <View className='mt-4 space-y-3'>
         <View className='flex items-end gap-2'>
           <View className='flex-1'>
-            <Text className='mb-1 block text-xs font-medium text-text-muted'>开始日期</Text>
+            <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.attendance.startDate')}</Text>
             <Picker
               mode='date'
               value={startDate}
               onChange={(e) => handleStartChange(String(e.detail.value))}
             >
               <View className='flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
-                <Text className='text-sm text-text'>{startDate || '不限'}</Text>
+                <Text className='text-sm text-text'>{startDate || t('profile.attendance.unlimited')}</Text>
               </View>
             </Picker>
           </View>
-          <Text className='pb-2 text-sm text-text-muted'>至</Text>
+          <Text className='pb-2 text-sm text-text-muted'>{t('profile.attendance.to')}</Text>
           <View className='flex-1'>
-            <Text className='mb-1 block text-xs font-medium text-text-muted'>结束日期</Text>
+            <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.attendance.endDate')}</Text>
             <Picker
               mode='date'
               value={endDate}
               onChange={(e) => handleEndChange(String(e.detail.value))}
             >
               <View className='flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
-                <Text className='text-sm text-text'>{endDate || '不限'}</Text>
+                <Text className='text-sm text-text'>{endDate || t('profile.attendance.unlimited')}</Text>
               </View>
             </Picker>
           </View>
         </View>
         {startDate && endDate && startDate > endDate && (
-          <Text className='block text-xs text-danger'>开始日期不能晚于结束日期</Text>
+          <Text className='block text-xs text-danger'>{t('profile.attendance.startAfterEnd')}</Text>
         )}
 
         {/* 考勤列表：罗列内容可滚动（max-h 容器，改用原生 ScrollView 以兼容真机） */}
         <ScrollView scrollY style={{ maxHeight: '60vh' }}>
           {loading ? (
-            <Text className='block py-6 text-center text-xs text-text-muted'>加载中…</Text>
+            <Text className='block py-6 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
           ) : queryFailed ? (
             <Text className='block py-6 text-center text-sm text-text-muted'>
-              加载失败，请稍后重试
+              {t('profile.attendance.loadFailed')}
             </Text>
           ) : rows.length === 0 ? (
             <Text className='block py-6 text-center text-sm text-text-muted'>
-              该区间暂无考勤记录
+              {t('profile.attendance.empty')}
             </Text>
           ) : (
             rows.map((row) => {
@@ -153,7 +157,8 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
                 row.status,
                 row.sign_in_time,
                 row.rehearsals?.start_time ?? null,
-                row.rehearsals?.end_time ?? null
+                row.rehearsals?.end_time ?? null,
+                t
               )
               return (
                 <View key={row.id} className='rounded-xl border border-border bg-card p-3 mb-0.5'>
@@ -164,7 +169,7 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
                             row.rehearsals.start_time,
                             row.rehearsals.end_time ?? null
                           )
-                        : '时间未设置'}
+                        : t('profile.attendance.timeUnset')}
                     </Text>
                     <Text
                       className={`flex-shrink-0 text-sm font-medium ${className || 'text-text'}`}
@@ -173,10 +178,10 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
                     </Text>
                   </View>
                   <Text className='mt-1 block text-xs text-text-muted'>
-                    地点：{row.rehearsals?.location ?? '—'}
+                    {t('profile.attendance.location', { location: row.rehearsals?.location ?? '—' })}
                   </Text>
                   <Text className='mt-1 block text-xs text-text-muted'>
-                    曲目：{row.rehearsals?.repertoire ?? '—'}
+                    {t('profile.attendance.repertoire', { repertoire: row.rehearsals?.repertoire ?? '—' })}
                   </Text>
                 </View>
               )
@@ -188,11 +193,11 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
         {!loading && !queryFailed && (
           <View className='border-t border-border pt-2'>
             <Text className='text-xs text-text-muted'>
-              {`共 ${attendanceSummary.total} 次排练`}
+              {t('profile.attendance.totalRehearsals', { count: attendanceSummary.total })}
               {ATTENDANCE_SUMMARY_ITEMS.map((key) => (
                 <Text key={key} className={STATUS_TEXT_COLOR[key]}>
                   <Text className='mx-1.5 text-text-muted'>·</Text>
-                  {`${STATUS_LABEL[key]} ${attendanceSummary[key]}`}
+                  {`${t(`profile.attendance.status.${key}` as Parameters<typeof t>[0])} ${attendanceSummary[key]}`}
                 </Text>
               ))}
             </Text>

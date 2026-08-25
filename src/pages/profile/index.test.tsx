@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -65,6 +65,7 @@ vi.mock('@/hooks/useProfiles', () => ({
         role: 'member',
         college: '',
         join_date: '',
+        is_in_orchestra: true,
       },
     ],
     loading: false,
@@ -106,6 +107,24 @@ vi.mock('@/pages/profile/components/attendance-history-modal', () => ({
 vi.mock('@/pages/profile/components/theme-modal', () => ({ ThemeModal: () => null }))
 vi.mock('@/pages/profile/components/feedback-modal', () => ({ FeedbackModal: () => null }))
 
+vi.mock('@/i18n', async () => {
+  const mod = await import('@/i18n/messages/zh-CN')
+  const dict = mod.zhCN as Record<string, unknown>
+  const get = (k: string, p?: Record<string, unknown>): string => {
+    const val = k.split('.').reduce<unknown>((o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined), dict)
+    let s = typeof val === 'string' ? val : k
+    if (p) s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
+    return s
+  }
+  return {
+    useT: () => ({ t: (k: string, p?: Record<string, unknown>) => get(k, p), locale: 'zh-CN', setLocale: vi.fn() }),
+    useNavTitle: vi.fn(),
+    loaders: {
+      'zh-CN': () => Promise.resolve({ default: {} as Record<string, unknown> }),
+      en: () => Promise.resolve({ default: {} as Record<string, unknown> }),
+    },
+  }
+})
 describe('我的页', () => {
   afterEach(() => {
     cleanup()
@@ -126,3 +145,4 @@ describe('我的页', () => {
     expect(taroMock.navigateTo).toHaveBeenCalledWith({ url: '/pages/profile-info/index' })
   })
 })
+

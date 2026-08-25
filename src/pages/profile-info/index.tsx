@@ -3,17 +3,19 @@ import { View, Text, Input, Picker, Image } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
+import { useT, useNavTitle } from '@/i18n'
 import { useProfiles } from '@/hooks/useProfiles'
 import { isValidPhoneNumber } from '@/lib/validation'
+import { translateInstrument } from '@/lib/instrument-i18n'
+import { translateJoinDate } from '@/lib/join-date-i18n'
 import { INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP } from '@/constants/instruments'
 import eyeIcon from '@/assets/icons/eye.png'
 import eyeDashedIcon from '@/assets/icons/eye-dashed.png'
 import './index.scss'
 
-// 入团时间选择器：年份区间 + 春/秋两季，输出形如「2024秋」
+// 入团时间选择器：年份区间 + 春/秋两季；存储恒为规范值「YYYY春/YYYY秋」，展示层经 translateJoinDate 本地化
 const CURRENT_YEAR = new Date().getFullYear()
 const JOIN_YEARS = Array.from({ length: CURRENT_YEAR - 1990 + 2 }, (_, i) => String(1990 + i))
-const JOIN_SEASONS: string[] = ['春', '秋']
 
 const parseJoinDate = (v: string | null | undefined): { year: string; season: string } => {
   if (v) {
@@ -38,6 +40,8 @@ export default function ProfileInfoPage() {
   const darkClass = useThemeClass()
   const { data: profileData, update: updateProfile } = useProfiles({ userId: user?.id })
   const myProfile = profileData[0]
+  const { t } = useT()
+  useNavTitle('profileInfo.title')
 
   const [isEditing, setIsEditing] = useState(false)
   const [editInstrument, setEditInstrument] = useState('')
@@ -48,6 +52,7 @@ export default function ProfileInfoPage() {
   const [editHideCollege, setEditHideCollege] = useState(false)
   const [editJoinYear, setEditJoinYear] = useState(String(CURRENT_YEAR))
   const [editJoinSeason, setEditJoinSeason] = useState<string>('秋')
+  const [editIsInOrchestra, setEditIsInOrchestra] = useState(false)
   const [isJoinTouched, setIsJoinTouched] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -62,11 +67,20 @@ export default function ProfileInfoPage() {
   const hideCollege = isEditing ? editHideCollege : (myProfile?.hide_college ?? false)
 
   const instrumentOptions = [...INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP]
+  const instrumentLabels = instrumentOptions.map((o) => translateInstrument(o, t))
   const selectedInstrumentIndex = Math.max(0, instrumentOptions.indexOf(editInstrument))
+
+  // 在团情况选择器（与乐器同款滚动选择）：true=在团，false=不在团
+  const orchestraStatusLabels = [
+    t('profileInfo.statusActive'),
+    t('profileInfo.statusInactive'),
+  ]
+  // 季节滚轮：显示用本地化标签，索引 ↔ 规范值「春/秋」（存储格式受 DB CHECK 约束）
+  const seasonLabels = [t('common.joinDate.season.spring'), t('common.joinDate.season.fall')]
 
   const startEdit = () => {
     if (!myProfile) {
-      void Taro.showToast({ title: '个人信息加载中，请稍候再试', icon: 'none' })
+      void Taro.showToast({ title: t('profileInfo.profileLoading'), icon: 'none' })
       return
     }
     setEditInstrument(myProfile.instrument ?? '')
@@ -79,6 +93,7 @@ export default function ProfileInfoPage() {
     setEditJoinYear(parsed.year)
     setEditJoinSeason(parsed.season)
     setIsJoinTouched(false)
+    setEditIsInOrchestra(myProfile.is_in_orchestra === true)
     setError(null)
     setIsEditing(true)
   }
@@ -95,7 +110,7 @@ export default function ProfileInfoPage() {
 
     const phone = editPhone.trim()
     if (phone && !isValidPhoneNumber(phone)) {
-      setError('手机号格式不正确（11 位数字，以 1 开头）')
+      setError(t('profileInfo.phoneInvalid'))
       return
     }
 
@@ -103,10 +118,10 @@ export default function ProfileInfoPage() {
     const originalJoinDate = myProfile.join_date ?? ''
     const willWriteJoin = isJoinTouched && newJoin !== originalJoinDate
     if (willWriteJoin) {
-      const source = originalJoinDate.trim() || '当前为空'
+      const source = originalJoinDate.trim() || t('profileInfo.emptyJoinDate')
       const res = await Taro.showModal({
-        title: '确认修改入团时间',
-        content: `保存将把入团时间从「${source}」变更为「${newJoin}」，确认？`,
+        title: t('profileInfo.confirmJoinTitle'),
+        content: t('profileInfo.confirmJoinContent', { source, new: newJoin }),
       })
       if (!res.confirm) return
     }
@@ -122,13 +137,14 @@ export default function ProfileInfoPage() {
         hide_email: editHideEmail,
         hide_phone: editHidePhone,
         hide_college: editHideCollege,
+        is_in_orchestra: editIsInOrchestra,
         ...(willWriteJoin ? { join_date: newJoin } : {}),
       })
       if (ok) {
         setIsEditing(false)
-        void Taro.showToast({ title: '个人信息已更新', icon: 'success' })
+        void Taro.showToast({ title: t('profileInfo.saved'), icon: 'success' })
       } else {
-        setError('保存失败，请重试')
+        setError(t('profileInfo.saveFailed'))
       }
     } finally {
       submittingRef.current = false
@@ -139,7 +155,7 @@ export default function ProfileInfoPage() {
   if (!myProfile) {
     return (
       <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>加载中…</Text>
+        <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
   }
@@ -149,11 +165,11 @@ export default function ProfileInfoPage() {
       {/* 顶部标题 + 编辑入口 */}
       <View className='flex items-center justify-between px-4 pb-2 pt-3'>
         <View className='w-12' />
-        <Text className='text-base font-semibold text-text'>个人信息</Text>
+        <Text className='text-base font-semibold text-text'>{t('profileInfo.title')}</Text>
         <View className='flex w-12 items-center justify-end'>
           {!isEditing && (
             <Text className='text-sm font-medium text-primary' onClick={startEdit}>
-              编辑
+              {t('common.actions.edit')}
             </Text>
           )}
         </View>
@@ -169,7 +185,7 @@ export default function ProfileInfoPage() {
       <View className='px-4'>
         {/* 姓名（不可编辑） */}
         <View className='flex items-center gap-3 border-b border-border py-3'>
-          <Text className='w-20 shrink-0 text-sm text-primary'>姓名</Text>
+          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.nameLabel')}</Text>
           <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
             <Text className='block text-sm text-text'>{fullName}</Text>
           </View>
@@ -177,49 +193,81 @@ export default function ProfileInfoPage() {
 
         {/* 乐器（编辑态从声部列表选择） */}
         <View className='flex items-center gap-3 border-b border-border py-3'>
-          <Text className='w-20 shrink-0 text-sm text-primary'>乐器</Text>
+          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.instrumentLabel')}</Text>
           {isEditing ? (
             <Picker
               className='flex-1'
               mode='selector'
-              range={instrumentOptions}
+              range={instrumentLabels}
               value={selectedInstrumentIndex}
               onChange={(e) => setEditInstrument(instrumentOptions[Number(e.detail.value)] ?? '')}
             >
               <View className='rounded-xl border border-border bg-muted px-3 py-2'>
-                <Text className='text-sm text-text'>{editInstrument || '选择乐器'}</Text>
+                <Text className='text-sm text-text'>{translateInstrument(editInstrument, t) || t('profileInfo.selectInstrument')}</Text>
               </View>
             </Picker>
           ) : (
             <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
-              <Text className='block text-sm text-text'>{myProfile.instrument || '无'}</Text>
+                <Text className='block text-sm text-text'>{translateInstrument(myProfile.instrument, t) || t('profileInfo.none')}</Text>
             </View>
           )}
         </View>
 
         {/* 入团时间（编辑态年份 + 春/秋） */}
         <View className='flex items-center gap-3 border-b border-border py-3'>
-          <Text className='w-20 shrink-0 text-sm text-primary'>入团时间</Text>
+          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.joinTimeLabel')}</Text>
           {isEditing ? (
             <Picker
               className='flex-1'
               mode='multiSelector'
-              range={[JOIN_YEARS, JOIN_SEASONS]}
-              value={[JOIN_YEARS.indexOf(editJoinYear), JOIN_SEASONS.indexOf(editJoinSeason)]}
+              range={[JOIN_YEARS, seasonLabels]}
+              value={[JOIN_YEARS.indexOf(editJoinYear), editJoinSeason === '春' ? 0 : 1]}
               onChange={(e) => {
                 const [yi, si] = e.detail.value as number[]
                 setEditJoinYear(JOIN_YEARS[yi] ?? String(CURRENT_YEAR))
-                setEditJoinSeason(JOIN_SEASONS[si] ?? '秋')
+                setEditJoinSeason(si === 0 ? '春' : '秋')
                 setIsJoinTouched(true)
               }}
             >
               <View className='rounded-xl border border-border bg-muted px-3 py-2'>
-                <Text className='text-sm text-text'>{`${editJoinYear}${editJoinSeason}`}</Text>
+                <Text className='text-sm text-text'>
+                  {translateJoinDate(`${editJoinYear}${editJoinSeason}`, t)}
+                </Text>
               </View>
             </Picker>
           ) : (
             <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
-              <Text className='block text-sm text-text'>{myProfile.join_date ?? '—'}</Text>
+              <Text className='block text-sm text-text'>
+                {myProfile.join_date ? translateJoinDate(myProfile.join_date, t) : '—'}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* 在团情况（编辑态与乐器同款滚动选择：在团/不在团） */}
+        <View className='flex items-center gap-3 border-b border-border py-3'>
+          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.statusLabel')}</Text>
+          {isEditing ? (
+            <Picker
+              className='flex-1'
+              mode='selector'
+              range={orchestraStatusLabels}
+              value={editIsInOrchestra ? 0 : 1}
+              onChange={(e) => setEditIsInOrchestra(Number(e.detail.value) === 0)}
+            >
+              <View className='rounded-xl border border-border bg-muted px-3 py-2'>
+                <Text className='text-sm text-text'>
+                  {editIsInOrchestra ? t('profileInfo.statusActive') : t('profileInfo.statusInactive')}
+                </Text>
+              </View>
+            </Picker>
+          ) : (
+            <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
+              <Text className='block text-sm text-text'>
+                {myProfile.is_in_orchestra === true
+                  ? t('profileInfo.statusActive')
+                  : t('profileInfo.statusInactive')}
+              </Text>
             </View>
           )}
         </View>
@@ -227,13 +275,13 @@ export default function ProfileInfoPage() {
         {/* 分隔线：文字置于线中，标识下方信息可对外隐藏 */}
         <View className='mt-4 flex items-center gap-3'>
           <View className='h-px flex-1 bg-border' />
-          <Text className='text-xs text-text-subtle'>以下信息可对外隐藏</Text>
+          <Text className='text-xs text-text-subtle'>{t('profileInfo.hideHint')}</Text>
           <View className='h-px flex-1 bg-border' />
         </View>
 
         {/* 绑定邮箱（不可编辑 + 隐藏开关） */}
         <View className='flex items-center gap-3 border-b border-border py-3'>
-          <Text className='w-20 shrink-0 text-sm text-primary'>绑定邮箱</Text>
+          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.emailLabel')}</Text>
           <View className='flex-1 truncate rounded-xl border border-border bg-muted px-3 py-2'>
             <Text className='block truncate text-sm text-text'>{email}</Text>
           </View>
@@ -246,12 +294,12 @@ export default function ProfileInfoPage() {
 
         {/* 联系方式（可编辑 + 隐藏开关） */}
         <View className='flex items-center gap-3 border-b border-border py-3'>
-          <Text className='w-20 shrink-0 text-sm text-primary'>联系方式</Text>
+          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.contactLabel')}</Text>
           {isEditing ? (
             <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
               <Input
                 className='h-10 w-full bg-transparent text-sm text-text'
-                placeholder='11 位手机号'
+                placeholder={t('profileInfo.phonePlaceholder')}
                 value={editPhone}
                 onInput={(e) => {
                   setEditPhone(e.detail.value)
@@ -273,12 +321,12 @@ export default function ProfileInfoPage() {
 
         {/* 学院（可编辑 + 隐藏开关） */}
         <View className='flex items-center gap-3 border-b border-border py-3'>
-          <Text className='w-20 shrink-0 text-sm text-primary'>学院</Text>
+          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.collegeLabel')}</Text>
           {isEditing ? (
             <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
               <Input
                 className='h-10 w-full bg-transparent text-sm text-text'
-                placeholder='所在学院'
+                placeholder={t('profileInfo.collegePlaceholder')}
                 value={editCollege}
                 onInput={(e) => {
                   setEditCollege(e.detail.value)
@@ -310,7 +358,7 @@ export default function ProfileInfoPage() {
               style={{ backgroundColor: '#000000' }}
               onClick={submitting ? undefined : handleSave}
             >
-              {submitting ? '保存中…' : '保存'}
+              {submitting ? t('profileInfo.saving') : t('common.actions.save')}
             </View>
             <View
               className={`flex h-11 w-full items-center justify-center rounded-xl border border-border bg-card text-base font-medium text-text ${
@@ -318,7 +366,7 @@ export default function ProfileInfoPage() {
               }`}
               onClick={submitting ? undefined : cancelEdit}
             >
-              取消
+              {t('common.actions.cancel')}
             </View>
           </View>
         )}

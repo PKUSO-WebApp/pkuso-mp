@@ -12,11 +12,16 @@ import { PageHeader } from '@/components/page-header'
 import { groupProfilesByInstrument } from '@/lib/roster-utils'
 import { filterByName } from '@/lib/name-search'
 import { maskedValue } from '@/lib/privacy'
+import { useT, useNavTitle } from '@/i18n'
+import { translateInstrument } from '@/lib/instrument-i18n'
+import { translateJoinDate } from '@/lib/join-date-i18n'
 import type { ProfileRow } from '@/types/database'
 import { MemberDetailModal } from './components/member-detail-modal'
 import './index.scss'
 
 export default function Members() {
+  const { t } = useT()
+  useNavTitle('members.navTitle')
   const { user: currentUser } = useUser()
   const { profile: myProfile } = useMyProfile()
   const {
@@ -62,7 +67,7 @@ export default function Members() {
     /* 根容器 flex 化（矮屏布局）：头部固定，搜索框 + 列表整体独立滚动 */
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       <View className='mt-1 mb-3'>
-        <PageHeader title='全团成员' subtitle='查看乐团最新花名册' />
+        <PageHeader title={t('members.title')} subtitle={t('members.subtitle')} />
       </View>
 
       <ScrollView scrollY className='flex-1 min-h-0'>
@@ -72,29 +77,29 @@ export default function Members() {
         <View className='mb-4 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
           <Input
             className='h-10 w-full bg-transparent text-sm text-text'
-            placeholder='搜索姓名（支持中文/拼音/首字母）'
+            placeholder={t('members.searchPlaceholder')}
             value={searchQuery}
             onInput={(e) => setSearchQuery(e.detail.value)}
           />
         </View>
 
         {rosterLoading && (allProfiles ?? []).length === 0 ? (
-          <Text className='block py-8 text-center text-xs text-text-subtle'>加载中…</Text>
+          <Text className='block py-8 text-center text-xs text-text-subtle'>{t('common.actions.loading')}</Text>
         ) : rosterError ? (
           <Card className='border-danger-bg bg-danger-bg/80'>
             <Text className='block px-3 py-2 text-sm text-danger'>{rosterError}</Text>
           </Card>
         ) : rosterRows.length === 0 ? (
-          <Text className='block py-8 text-center text-xs text-text-muted'>暂无已通过成员</Text>
+          <Text className='block py-8 text-center text-xs text-text-muted'>{t('members.emptyApproved')}</Text>
         ) : grouped.length === 0 ? (
-          <Text className='block py-8 text-center text-xs text-text-muted'>未找到匹配的成员</Text>
+          <Text className='block py-8 text-center text-xs text-text-muted'>{t('members.emptyMatch')}</Text>
         ) : (
           <View>
             {grouped.map(({ group, users }) => (
               <View key={group} className='mb-5'>
-                <Text className='mb-2 block text-xs font-medium uppercase tracking-wide text-text-muted'>
-                  {group}
-                </Text>
+                  <Text className='mb-2 block text-xs font-medium uppercase tracking-wide text-text-muted'>
+                    {translateInstrument(group, t)}
+                  </Text>
                 <View>
                   {users.map((u) => {
                     // 查看自己时隐私开关不生效，显示原值；查看他人按对方开关掩码
@@ -107,22 +112,26 @@ export default function Members() {
                       >
                         <View className='flex flex-wrap items-center gap-1.5'>
                           <Text className='font-medium text-text'>
-                            {(u.instrument ?? '—') + ' - ' + (u.full_name ?? '—')}
+                            {(translateInstrument(u.instrument, t) || '—') + ' - ' + (u.full_name ?? '—')}
                           </Text>
-                          {u.is_section_leader && (
+                           {u.is_section_leader && (
                             <Text className='rounded-full bg-warning-bg px-1.5 py-1 text-xs text-warning'>
-                              🏅 声部长
+                              {t('members.sectionLeader')}
                             </Text>
                           )}
                         </View>
                         <Text className='mt-1 block text-text-muted'>
-                          学院：{u.college?.trim() || '—'}
+                          {t('members.collegeLabel')}{u.college?.trim() || '—'}
                         </Text>
                         <Text className='mt-1 block text-text-muted'>
-                          邮箱：{maskedValue(!isSelf && u.hide_email, u.email)}
+                          {t('members.emailLabel')}{maskedValue(!isSelf && u.hide_email, u.email)}
                         </Text>
                         <Text className='mt-1 block text-text-subtle'>
-                          入团时间：{maskedValue(!isSelf && u.hide_join_date, u.join_date)}
+                          {t('members.joinDateLabel')}{translateJoinDate(maskedValue(!isSelf && u.hide_join_date, u.join_date), t)}
+                          {/* 在团标记（"-" 连接）：true=团员，false=团友；null 未填写则不追加 */}
+                          {u.is_in_orchestra == null
+                            ? ''
+                            : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagFriend')}`}
                         </Text>
                       </View>
                     )

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useAuth } from '@/hooks/useAuth'
+import { useT } from '@/i18n'
 
 /**
  * 管理端账号登录小程序时的阻断页（member 端各页共用）。
@@ -10,6 +11,7 @@ import { useAuth } from '@/hooks/useAuth'
  */
 export function AdminBlockedPage() {
   const { signOut } = useAuth()
+  const { t } = useT()
   const [signingOut, setSigningOut] = useState(false)
 
   const handleLogout = async () => {
@@ -26,9 +28,9 @@ export function AdminBlockedPage() {
 
   return (
     <View className='flex h-full flex-col items-center justify-center gap-4 bg-page-bg px-6 pb-safe'>
-      <Text className='text-lg font-semibold text-text'>不提供小程序管理端，请使用网页端</Text>
+      <Text className='text-lg font-semibold text-text'>{t('ui.adminBlocked.title')}</Text>
       <Text className='text-center text-sm text-text-muted'>
-        小程序仅面向乐团成员；审批、排练管理、考勤统计等管理功能请使用网页端。
+        {t('ui.adminBlocked.desc')}
       </Text>
       <View
         className={`mt-2 rounded-full bg-primary px-6 py-2 text-sm font-medium text-primary-foreground ${
@@ -36,7 +38,7 @@ export function AdminBlockedPage() {
         }`}
         onClick={() => void handleLogout()}
       >
-        {signingOut ? '退出中…' : '退出登录'}
+        {signingOut ? t('ui.adminBlocked.loggingOut') : t('ui.adminBlocked.logout')}
       </View>
     </View>
   )

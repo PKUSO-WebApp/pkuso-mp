@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/Card'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useSignup } from '@/hooks/useSignup'
+import { useT, useNavTitle } from '@/i18n'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { supabase } from '@/lib/supabase'
 import './index.scss'
@@ -31,6 +32,8 @@ export default function EmailSignupPage() {
     handleSubmit,
   } = useSignup()
   const darkClass = useThemeClass()
+  const { t } = useT()
+  useNavTitle('emailSignup.navTitle')
 
   // 已登录用户（异常进入本页）按 profile 状态路由入口（与注册成功/登录后双触发，幂等）
   useEffect(() => {
@@ -54,7 +57,7 @@ export default function EmailSignupPage() {
   if (!ready) {
     return (
       <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>加载中…</Text>
+        <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
   }
@@ -63,7 +66,7 @@ export default function EmailSignupPage() {
     const { needsEmailConfirmation } = await handleSubmit()
     // 邮箱验证开启时未建立会话：提示去邮箱确认后返回上一页登录
     if (needsEmailConfirmation) {
-      Taro.showToast({ title: '注册成功，请前往邮箱验证', icon: 'none' })
+      Taro.showToast({ title: t('emailSignup.registeredToast'), icon: 'none' })
       setTimeout(() => void Taro.navigateBack(), 1200)
     }
     // 否则 handleSubmit 内已 routeAfterLogin（reLaunch 到等待审核/首页），本页被卸载
@@ -73,13 +76,13 @@ export default function EmailSignupPage() {
     <View className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}>
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
-          <Text className='text-xl font-semibold text-text'>注册</Text>
-          <Text className='mt-1 block text-xs text-text-muted'>创建账号后等待管理员审核</Text>
+          <Text className='text-xl font-semibold text-text'>{t('emailSignup.title')}</Text>
+          <Text className='mt-1 block text-xs text-text-muted'>{t('emailSignup.subtitle')}</Text>
         </View>
 
         {/* ✅ 邮箱 */}
         <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>邮箱</Text>
+          <Text className='text-sm font-medium text-text-muted'>{t('common.fields.email')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               className='h-10 w-full bg-transparent text-sm text-text'
@@ -92,11 +95,11 @@ export default function EmailSignupPage() {
 
         {/* ✅ 密码 */}
         <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>密码</Text>
+          <Text className='text-sm font-medium text-text-muted'>{t('common.fields.password')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               className='h-10 w-full bg-transparent text-sm text-text'
-              placeholder='至少 6 位'
+              placeholder={t('emailSignup.passwordPlaceholder')}
               password
               value={password}
               onInput={(e) => setPassword(e.detail.value)}
@@ -106,11 +109,11 @@ export default function EmailSignupPage() {
 
         {/* ✅ 确认密码 */}
         <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>确认密码</Text>
+          <Text className='text-sm font-medium text-text-muted'>{t('common.fields.confirmPassword')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               className='h-10 w-full bg-transparent text-sm text-text'
-              placeholder='再次输入密码'
+              placeholder={t('emailSignup.confirmPasswordPlaceholder')}
               password
               value={confirmPassword}
               onInput={(e) => setConfirmPassword(e.detail.value)}
@@ -120,11 +123,11 @@ export default function EmailSignupPage() {
 
         {/* ✅ 姓名（去除乐器/学院/入团时间等冗余字段） */}
         <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>姓名</Text>
+          <Text className='text-sm font-medium text-text-muted'>{t('common.fields.fullName')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               className='h-10 w-full bg-transparent text-sm text-text'
-              placeholder='请输入真实姓名'
+              placeholder={t('emailSignup.fullNamePlaceholder')}
               value={fullName}
               onInput={(e) => setFullName(e.detail.value)}
             />
@@ -143,7 +146,7 @@ export default function EmailSignupPage() {
           disabled={submitting}
           onClick={() => void onSubmit()}
         >
-          {submitting ? '注册中…' : '注册'}
+          {submitting ? t('emailSignup.submitting') : t('emailSignup.submit')}
         </Button>
       </Card>
 
@@ -152,7 +155,7 @@ export default function EmailSignupPage() {
           className='text-sm text-text-muted'
           onClick={() => void Taro.navigateBack()}
         >
-          返回
+          {t('emailSignup.back')}
         </Text>
       </View>
     </View>

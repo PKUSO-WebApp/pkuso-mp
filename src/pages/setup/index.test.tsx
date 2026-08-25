@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -88,6 +88,17 @@ const fillForm = (name: string, email: string) => {
   fireEvent.input(screen.getByPlaceholderText('name@example.com'), { target: { value: email } })
 }
 
+vi.mock('@/i18n', async () => {
+  const mod = await import('@/i18n/messages/zh-CN')
+  const dict = mod.zhCN as Record<string, unknown>
+  const get = (k: string, p?: Record<string, unknown>): string => {
+    const val = k.split('.').reduce<unknown>((o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined), dict)
+    let s = typeof val === 'string' ? val : k
+    if (p) s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
+    return s
+  }
+  return { useT: () => ({ t: (k: string, p?: Record<string, unknown>) => get(k, p), locale: 'zh-CN', setLocale: vi.fn() }), useNavTitle: vi.fn() }
+})
 describe('SetupPage', () => {
   beforeEach(() => {
     userCtx.user = { id: 'u1' }
@@ -236,3 +247,4 @@ describe('SetupPage', () => {
     )
   })
 })
+

@@ -1,8 +1,8 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import NotificationSystemPage from './index'
 
 const rows = [
@@ -24,11 +24,12 @@ const rows = [
   },
 ]
 
-const { taroMock, fetchMock, markMock, notifyMock } = vi.hoisted(() => ({
+const { taroMock, fetchMock, markCategoryMock, notifyMock, hideHolder } = vi.hoisted(() => ({
   taroMock: { showToast: vi.fn() },
   fetchMock: vi.fn(() => Promise.resolve({ rows: [] as any[], error: null })),
-  markMock: vi.fn(() => Promise.resolve(true)),
+  markCategoryMock: vi.fn(() => Promise.resolve(true)),
   notifyMock: vi.fn(),
+  hideHolder: { cb: () => {} },
 }))
 
 vi.mock('@tarojs/components', () => {
@@ -38,9 +39,14 @@ vi.mock('@tarojs/components', () => {
   }
   return { View: create('div'), Text: create('span'), Button: create('button') }
 })
-vi.mock('@tarojs/taro', () => ({ default: taroMock }))
+vi.mock('@tarojs/taro', () => ({
+  default: taroMock,
+  useDidHide: (cb: () => void) => {
+    hideHolder.cb = cb
+  },
+}))
 vi.mock('@/hooks/useNotifications', () => ({
-  useNotifications: () => ({ fetchByCategory: fetchMock, markItemRead: markMock }),
+  useNotifications: () => ({ fetchByCategory: fetchMock, markCategoryRead: markCategoryMock }),
 }))
 vi.mock('@/components/notification-badge-sync', () => ({
   notifyNotificationsUpdated: notifyMock,
@@ -57,6 +63,18 @@ vi.mock('@/components/ui/SegmentTabs', () => ({
 }))
 vi.mock('@/lib/date-utils', () => ({ formatDateTimeInChina: () => '2026-01-01' }))
 
+vi.mock('@/i18n', async () => {
+  const mod = await import('@/i18n/messages/zh-CN')
+  const dict = mod.zhCN as Record<string, unknown>
+  const get = (k: string, p?: Record<string, unknown>): string => {
+    const val = k.split('.').reduce<unknown>((o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined), dict)
+    let s = typeof val === 'string' ? val : k
+    if (p) s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
+    return s
+  }
+  return { useT: () => ({ t: (k: string, p?: Record<string, unknown>) => get(k, p), locale: 'zh-CN', setLocale: vi.fn() }), useNavTitle: vi.fn() }
+})
+
 describe('系统通知页', () => {
   beforeEach(() => {
     fetchMock.mockResolvedValue({ rows, error: null })
@@ -67,28 +85,28 @@ describe('系统通知页', () => {
     fetchMock.mockResolvedValue({ rows, error: null })
   })
 
-  it('默认全部 tab 渲染全部通知，未读项显示「标记已读」', async () => {
+  it('进入页面即把未读标为已读，未读 tab 按快照仍显示', async () => {
     render(<NotificationSystemPage />)
-    await screen.findByText('维护通知')
-    expect(screen.getByText('已读通知')).toBeTruthy()
-    expect(screen.getByText('标记已读')).toBeTruthy()
-  })
-
-  it('切换到未读 tab 只显示未读项', async () => {
-    render(<NotificationSystemPage />)
-    await screen.findByText('维护通知')
-    fireEvent.click(screen.getByText('未读', { exact: false }))
+    await waitFor(() => expect(markCategoryMock).toHaveBeenCalledWith('system', ['1']))
+    // 快照：刚被标读的「维护通知」本会话内仍在未读 tab；原已读项不出现在此
+    expect(await screen.findByText('维护通知')).toBeTruthy()
     expect(screen.queryByText('已读通知')).toBeNull()
-    expect(screen.getByText('维护通知')).toBeTruthy()
   })
 
-  it('点击「标记已读」调用 markItemRead 并广播更新', async () => {
+  it('切换到已读 tab 只显示已读项', async () => {
     render(<NotificationSystemPage />)
     await screen.findByText('维护通知')
+    fireEvent.click(screen.getByText('已读'))
+    expect(screen.getByText('已读通知')).toBeTruthy()
+    expect(screen.queryByText('维护通知')).toBeNull()
+  })
+
+  it('离开时兜底提交不重复标记（成功过的 id 已在 handled 中）', async () => {
+    render(<NotificationSystemPage />)
+    await waitFor(() => expect(markCategoryMock).toHaveBeenCalledTimes(1))
     await act(async () => {
-      fireEvent.click(screen.getByText('标记已读'))
+      hideHolder.cb()
     })
-    expect(markMock).toHaveBeenCalledWith('system', '1')
-    expect(notifyMock).toHaveBeenCalled()
+    expect(markCategoryMock).toHaveBeenCalledTimes(1)
   })
 })

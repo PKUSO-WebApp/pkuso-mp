@@ -6,6 +6,7 @@ import { useSchedule } from '@/hooks/useSchedule'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
+import { useT, useNavTitle } from '@/i18n'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 
 import { PageHeader } from '@/components/page-header'
@@ -35,6 +36,8 @@ export default function Schedule() {
   const { profile: myProfile } = useMyProfile()
   const { user } = useUser()
   const darkClass = useThemeClass()
+  const { t } = useT()
+  useNavTitle('schedule.navTitle')
 
   const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString)
   const [createOpen, setCreateOpen] = useState(false)
@@ -74,14 +77,14 @@ export default function Schedule() {
       {/* 头部 */}
       <View className='mb-3 mt-1'>
         <PageHeader
-          title='日程预约'
-          subtitle='查看与申请排练房预约'
+          title={t('schedule.title')}
+          subtitle={t('schedule.subtitle')}
           rightButton={
             <View
               className='rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'
               onClick={() => setCreateOpen(true)}
             >
-              添加预约
+              {t('schedule.addReservation')}
             </View>
           }
         />
@@ -100,7 +103,7 @@ export default function Schedule() {
       {/* 甘特图：flex-1 占满剩余空间，内部独立滚动 */}
       <View className='mb-4 flex-1 min-h-0 overflow-y-auto rounded-xl border border-border bg-card'>
         {loading ? (
-          <Text className='block py-16 text-center text-xs text-text-muted'>加载中…</Text>
+          <Text className='block py-16 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
         ) : error ? (
           <Text className='block px-3 py-16 text-center text-sm text-danger'>{error}</Text>
         ) : (

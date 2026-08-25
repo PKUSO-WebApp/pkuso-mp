@@ -4,6 +4,7 @@ import { UserProvider } from './context/user-context'
 import { ThemeProvider } from './context/theme-context'
 import { NotificationBadgeSync } from './components/notification-badge-sync'
 import { PostUnviewedSync } from './components/post-unviewed-sync'
+import { LanguageProvider } from './i18n'
 import { DataSyncProvider } from './components/data-sync-provider'
 import { ErrorBoundary } from './components/error-boundary'
 
@@ -39,12 +40,15 @@ function App({ children }: PropsWithChildren<any>) {
     createElement(
       UserProvider,
       null,
-        createElement(
-          ThemeProvider,
-          null,
           createElement(
-            DataSyncProvider,
+            ThemeProvider,
             null,
+            createElement(
+              LanguageProvider,
+              null,
+              createElement(
+                DataSyncProvider,
+                null,
             createElement(
               NotificationBadgeSync,
               null,
@@ -57,6 +61,7 @@ function App({ children }: PropsWithChildren<any>) {
             )
           )
         )
+      )
     )
   )
 }

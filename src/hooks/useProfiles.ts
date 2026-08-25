@@ -27,6 +27,7 @@ export type ProfileUpdatePayload = Partial<
     | 'email'
     | 'phone_number'
     | 'join_date'
+    | 'is_in_orchestra'
     | 'hide_email'
     | 'hide_phone'
     | 'hide_join_date'
