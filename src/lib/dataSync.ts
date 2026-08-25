@@ -38,6 +38,10 @@ type Versions = {
 let timer: ReturnType<typeof setTimeout> | null = null
 let running = false
 let versions: Versions | null = null
+// 进程内「上次已知的全局未读数」：跨 start/stop 保留。
+// 回前台首轮 tick 不发事件（versions=null 仅建基线），但未读数若与此值不同
+// （后台/关闭期间管理端写入了新通知）必须立即广播，否则红点被基线吞噬、永久漏报
+let lastKnownUnread: number | null = null
 
 // 从 maybeSingle 结果中安全取出某列的时间戳（data 为具体行类型，先转 unknown 再取索引）
 function pickTimestamp(row: unknown, column: string): string | null {
@@ -99,10 +103,19 @@ async function tick() {
     if (versions) {
       if (next.rehearsals !== versions.rehearsals) emitSync('rehearsals')
       if (next.announcements !== versions.announcements) emitSync('announcements')
-      if (next.notificationsUnread !== versions.notificationsUnread) emitSync('notifications')
       if (next.leave !== versions.leave) emitSync('leave')
       if (next.post !== versions.post) emitSync('post')
     }
+    // 未读数独立判定（不受首轮基线守卫影响）：与进程内上次已知值不同即广播，
+    // 覆盖「后台期间新增通知、回前台首轮 tick」的漏报窗口
+    if (
+      lastKnownUnread !== null &&
+      next.notificationsUnread !== null &&
+      next.notificationsUnread !== lastKnownUnread
+    ) {
+      emitSync('notifications')
+    }
+    if (next.notificationsUnread !== null) lastKnownUnread = next.notificationsUnread
     versions = next
   } catch {
     // 心跳失败不阻断下一次（已 reschedule）；网络抖动由下次轮询自愈

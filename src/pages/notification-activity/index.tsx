@@ -13,9 +13,10 @@ const ACTIVITY_TABS: { key: PostType | 'all'; labelKey: 'notification.activityTa
 
 /**
  * 活动页（「我的-通知-活动」进入）。
- * 三 tab（全部/重奏/团建）当前仅作 UI 占位：notifications 表尚未携带帖子类型字段，
- * 故三个 tab 均展示同一份「活动通知」列表；待后端补齐 post_type 后再做实筛选。
- * tab 切换组件与「我的请假」页（SegmentTabs）保持一致。
+ * 三 tab（全部/重奏/团建）：notifications 表暂无 post_type 字段，
+ * 按 Web 管理端固定文案模板「你的{重奏|团建}帖子《…》…」做客户端归类
+ * （activity-notification.ts）；未命中的通知仅在「全部」tab 展示。
+ * 后端补 post_type 后，此处退化为 fallback 即可。
  */
 export default function NotificationActivityPage() {
   const { t } = useT()
@@ -29,6 +30,7 @@ export default function NotificationActivityPage() {
       category='activity'
       title={t('notification.activityTitle')}
       topSlot={<SegmentTabs tabs={tabs} value={view} onChange={(k) => setView(k)} />}
+      typeFilter={view}
     />
   )
 }

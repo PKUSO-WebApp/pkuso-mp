@@ -8,6 +8,7 @@ export const myActivities = {
   contactLabel: 'Contact: ',
   contactNone: 'None',
   lockedHint: 'Locked (hidden from others)',
+  lockedByAdmin: 'Locked by admin — cannot be unlocked by you',
   confirmDeleteTitle: 'Confirm Deletion',
   confirmDeleteContent: 'This cannot be undone. Delete this activity?',
   deleting: 'Deleting…',

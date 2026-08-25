@@ -8,6 +8,7 @@ export const myActivities = {
   contactLabel: '联系方式：',
   contactNone: '无',
   lockedHint: '已锁定（对他人不可见）',
+  lockedByAdmin: '帖子被管理员锁定，无法解锁',
   confirmDeleteTitle: '确认删除',
   confirmDeleteContent: '删除后不可恢复，确定删除该活动？',
   deleting: '删除中…',

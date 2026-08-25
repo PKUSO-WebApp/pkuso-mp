@@ -22,6 +22,18 @@ export function NotificationBadgeSync({ children }: { children?: ReactNode }) {
     if (ready || user?.id) void refresh()
   }, [ready, user?.id, refresh])
 
+  // 回前台强制重拉：后台/关闭期间管理端写入的未读，可能被心跳首轮基线吞掉
+  // （回前台首轮 tick 只建基线不广播），此处兜底保证红点与「我的」行内数字不漏报
+  useEffect(() => {
+    const onShow = () => {
+      if (ready || user?.id) void refresh()
+    }
+    Taro.onAppShow?.(onShow)
+    return () => {
+      Taro.offAppShow?.(onShow)
+    }
+  }, [ready, user?.id, refresh])
+
   // profile 页标记已读成功后广播，这里重新拉取以便红点同步消失
   useEffect(() => {
     const handler = () => void refresh()

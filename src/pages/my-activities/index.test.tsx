@@ -28,6 +28,7 @@ const SAMPLE: PostRowWithAuthor[] = [
     contact_info: 'wx123',
     image_url: null,
     is_locked: false,
+    locked_by: null,
     created_at: '2026-01-01T00:00:00',
     author_id: 'u1',
   },
@@ -41,7 +42,22 @@ const SAMPLE: PostRowWithAuthor[] = [
     contact_info: '',
     image_url: null,
     is_locked: false,
+    locked_by: null,
     created_at: '2026-01-02T00:00:00',
+    author_id: 'u1',
+  },
+  {
+    id: 'c',
+    title: '管理员锁定的帖',
+    type: 'ensemble',
+    content: 'c3',
+    current_sections: null,
+    missing_sections: null,
+    contact_info: 'wx-admin-lock',
+    image_url: null,
+    is_locked: true,
+    locked_by: 'admin',
+    created_at: '2026-01-03T00:00:00',
     author_id: 'u1',
   },
 ]
@@ -105,6 +121,7 @@ describe('我的活动管理页', () => {
     expect(screen.getByText('需要声部：中提')).toBeTruthy()
     expect(screen.getByText('联系方式：wx123')).toBeTruthy()
     expect(screen.getByText('联系方式：无')).toBeTruthy()
+    expect(screen.getByText('联系方式：wx-admin-lock')).toBeTruthy()
   })
 
   it('点击 ··· 打开菜单，锁定调用 setLocked(true)', () => {
@@ -118,6 +135,16 @@ describe('我的活动管理页', () => {
     render(<MyActivities />)
     fireEvent.click(screen.getAllByText('编辑 ›')[0])
     expect(mocks.taro.navigateTo).toHaveBeenCalledWith({ url: '/pages/post-edit/index?id=a' })
+  })
+
+  it('管理员锁定的帖子：显示「无法解锁」提示，菜单无锁定/解锁项', () => {
+    render(<MyActivities />)
+    expect(screen.getByText('帖子被管理员锁定，无法解锁')).toBeTruthy()
+    fireEvent.click(screen.getAllByText('···')[2])
+    expect(screen.queryByText('锁定')).toBeNull()
+    expect(screen.queryByText('解锁')).toBeNull()
+    // 删除不受限
+    expect(screen.getByText('删除')).toBeTruthy()
   })
 
   it('删除需二次确认，确认后调用 deletePost', () => {

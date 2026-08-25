@@ -263,6 +263,7 @@ export type Database = {
           id: string
           image_url: string | null
           is_locked: boolean
+          locked_by: string | null
           missing_sections: string | null
           title: string
           type: Database["public"]["Enums"]["postType"]
@@ -276,6 +277,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_locked?: boolean
+          locked_by?: string | null
           missing_sections?: string | null
           title: string
           type?: Database["public"]["Enums"]["postType"]
@@ -289,6 +291,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_locked?: boolean
+          locked_by?: string | null
           missing_sections?: string | null
           title?: string
           type?: Database["public"]["Enums"]["postType"]

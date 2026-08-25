@@ -98,12 +98,15 @@ export default function MyActivitiesPage() {
                             onClick={() => setMenuId(null)}
                           />
                           <View className='absolute right-0 top-6 z-[56] w-28 rounded-xl border border-border bg-surface py-1 shadow-lg'>
-                            <View
-                              className='px-4 py-2 text-sm text-text'
-                              onClick={() => void handleToggleLock(post)}
-                            >
-                              {post.is_locked ? t('common.actions.unlock') : t('common.actions.lock')}
-                            </View>
+                            {/* 管理员锁定的帖子：用户不可解锁，不出现该菜单项 */}
+                            {post.locked_by !== 'admin' && (
+                              <View
+                                className='px-4 py-2 text-sm text-text'
+                                onClick={() => void handleToggleLock(post)}
+                              >
+                                {post.is_locked ? t('common.actions.unlock') : t('common.actions.lock')}
+                              </View>
+                            )}
                             <View
                               className='px-4 py-2 text-sm text-danger'
                               onClick={() => {
@@ -140,7 +143,11 @@ export default function MyActivitiesPage() {
                   </Text>
 
                   {post.is_locked && (
-                    <Text className='mt-1 block text-xs text-text-subtle'>{t('myActivities.lockedHint')}</Text>
+                    <Text className='mt-1 block text-xs text-text-subtle'>
+                      {post.locked_by === 'admin'
+                        ? t('myActivities.lockedByAdmin')
+                        : t('myActivities.lockedHint')}
+                    </Text>
                   )}
 
                   {/* 底行：编辑 › */}

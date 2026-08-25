@@ -17,6 +17,7 @@ const SAMPLE: PostRowWithAuthor[] = [
     contact_info: 'wx123',
     image_url: null,
     is_locked: false,
+    locked_by: null,
     created_at: '2026-01-01T00:00:00',
     author_id: 'u1',
   },
