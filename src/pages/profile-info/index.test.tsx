@@ -68,6 +68,8 @@ vi.mock('@/constants/instruments', () => ({
 }))
 vi.mock('@/assets/icons/eye.png', () => ({ default: 'eye.png' }))
 vi.mock('@/assets/icons/eye-dashed.png', () => ({ default: 'eye-dashed.png' }))
+vi.mock('@/assets/icons/eye-dark.png', () => ({ default: 'eye-dark.png' }))
+vi.mock('@/assets/icons/eye-dashed-dark.png', () => ({ default: 'eye-dashed-dark.png' }))
 
 vi.mock('@/i18n', async () => {
   const mod = await import('@/i18n/messages/zh-CN')

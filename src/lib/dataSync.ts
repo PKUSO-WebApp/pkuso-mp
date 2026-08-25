@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { logDiag } from '@/lib/session-diag'
 
 export type SyncEntity = 'rehearsals' | 'announcements' | 'notifications' | 'leave' | 'post'
 
@@ -55,7 +56,10 @@ async function unreadCount(): Promise<number | null> {
     .from('notifications')
     .select('*', { count: 'exact', head: true })
     .is('read_at', null)
-  if (error) return null
+  if (error) {
+    logDiag('unread_count_error', { message: error.message })
+    return null
+  }
   return count ?? 0
 }
 
@@ -117,8 +121,9 @@ async function tick() {
     }
     if (next.notificationsUnread !== null) lastKnownUnread = next.notificationsUnread
     versions = next
-  } catch {
-    // 心跳失败不阻断下一次（已 reschedule）；网络抖动由下次轮询自愈
+  } catch (err) {
+    // 心跳失败不阻断下一次（已 reschedule）；记录诊断后由下次轮询自愈
+    logDiag('sync_tick_error', { err: err instanceof Error ? err.message : String(err) })
   } finally {
     if (running) schedule()
   }

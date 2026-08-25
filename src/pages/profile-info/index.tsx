@@ -11,6 +11,8 @@ import { translateJoinDate } from '@/lib/join-date-i18n'
 import { INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP } from '@/constants/instruments'
 import eyeIcon from '@/assets/icons/eye.png'
 import eyeDashedIcon from '@/assets/icons/eye-dashed.png'
+import eyeDarkIcon from '@/assets/icons/eye-dark.png'
+import eyeDashedDarkIcon from '@/assets/icons/eye-dashed-dark.png'
 import './index.scss'
 
 // 入团时间选择器：年份区间 + 春/秋两季；存储恒为规范值「YYYY春/YYYY秋」，展示层经 translateJoinDate 本地化
@@ -65,6 +67,10 @@ export default function ProfileInfoPage() {
   const hideEmail = isEditing ? editHideEmail : (myProfile?.hide_email ?? false)
   const hidePhone = isEditing ? editHidePhone : (myProfile?.hide_phone ?? false)
   const hideCollege = isEditing ? editHideCollege : (myProfile?.hide_college ?? false)
+  // 暗色模式换用高亮暗版眼图标，避免与深底色融为一体
+  const isDark = darkClass === 'dark'
+  const eyeImg = isDark ? eyeDarkIcon : eyeIcon
+  const eyeDashedImg = isDark ? eyeDashedDarkIcon : eyeDashedIcon
 
   const instrumentOptions = [...INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP]
   const instrumentLabels = instrumentOptions.map((o) => translateInstrument(o, t))
@@ -286,7 +292,7 @@ export default function ProfileInfoPage() {
             <Text className='block truncate text-sm text-text'>{email}</Text>
           </View>
           <Image
-            src={hideEmail ? eyeDashedIcon : eyeIcon}
+            src={hideEmail ? eyeDashedImg : eyeImg}
             className='h-5 w-5 shrink-0'
             onClick={isEditing ? () => setEditHideEmail((v) => !v) : undefined}
           />
@@ -313,7 +319,7 @@ export default function ProfileInfoPage() {
             </View>
           )}
           <Image
-            src={hidePhone ? eyeDashedIcon : eyeIcon}
+            src={hidePhone ? eyeDashedImg : eyeImg}
             className='h-5 w-5 shrink-0'
             onClick={isEditing ? () => setEditHidePhone((v) => !v) : undefined}
           />
@@ -340,7 +346,7 @@ export default function ProfileInfoPage() {
             </View>
           )}
           <Image
-            src={hideCollege ? eyeDashedIcon : eyeIcon}
+            src={hideCollege ? eyeDashedImg : eyeImg}
             className='h-5 w-5 shrink-0'
             onClick={isEditing ? () => setEditHideCollege((v) => !v) : undefined}
           />

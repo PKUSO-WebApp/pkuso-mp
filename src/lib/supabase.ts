@@ -6,6 +6,7 @@ import '@/lib/weapp-polyfills'
 import Taro from '@tarojs/taro'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
+import { logDiag } from './session-diag'
 
 const supabaseUrl = process.env.TARO_APP_SUPABASE_URL
 const supabaseAnonKey = process.env.TARO_APP_SUPABASE_ANON_KEY
@@ -52,20 +53,37 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
   const hasApikey = Object.keys(headers).some((key) => key.toLowerCase() === 'apikey')
   if (!hasApikey) headers.apikey = supabaseAnonKey
   const body = await toTaroBody(init.body)
-  const response = await Taro.request({
-    url,
-    method: method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
-    header: headers,
-    data: body,
-    responseType: 'arraybuffer',
-  })
-  const responseData =
-    typeof response.data === 'string' ||
-    (typeof ArrayBuffer !== 'undefined' && response.data instanceof ArrayBuffer) ||
-    (typeof Blob !== 'undefined' && response.data instanceof Blob)
-      ? response.data
-      : JSON.stringify(response.data)
-  return createFetchResponse(response.statusCode, response.header, responseData)
+  // 会话诊断：auth 端点 / 单会话 RPC / 失败请求必记（低噪过滤），定位登录丢失附近的网络事件
+  const startedAtMs = Date.now()
+  const shortUrl = url.replace(/^https?:\/\/[^/]+/, '').slice(0, 160)
+  const isAuthUrl = url.includes('/auth/v1/')
+  const isSessionRpc = url.includes('touch_session') || url.includes('get_my_session')
+  try {
+    const response = await Taro.request({
+      url,
+      method: method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+      header: headers,
+      data: body,
+      responseType: 'arraybuffer',
+    })
+    if (isAuthUrl || isSessionRpc || response.statusCode >= 400) {
+      logDiag('http', { path: shortUrl, status: response.statusCode, ms: Date.now() - startedAtMs })
+    }
+    const responseData =
+      typeof response.data === 'string' ||
+      (typeof ArrayBuffer !== 'undefined' && response.data instanceof ArrayBuffer) ||
+      (typeof Blob !== 'undefined' && response.data instanceof Blob)
+        ? response.data
+        : JSON.stringify(response.data)
+    return createFetchResponse(response.statusCode, response.header, responseData)
+  } catch (err) {
+    logDiag('http_error', {
+      path: shortUrl,
+      ms: Date.now() - startedAtMs,
+      err: err instanceof Error ? err.message : String(err),
+    })
+    throw err
+  }
 }
 
 type TaroBody = string | ArrayBuffer | Blob | FormData | URLSearchParams

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useAuth } from '@/hooks/useAuth'
+import { useThemeClass } from '@/context/theme-context'
 import { useT } from '@/i18n'
 
 /**
@@ -26,8 +27,10 @@ export function AdminBlockedPage() {
     }
   }
 
+  const darkClass = useThemeClass()
+
   return (
-    <View className='flex h-full flex-col items-center justify-center gap-4 bg-page-bg px-6 pb-safe'>
+    <View className={`${darkClass} flex h-full flex-col items-center justify-center gap-4 bg-page-bg px-6 pb-safe`}>
       <Text className='text-lg font-semibold text-text'>{t('ui.adminBlocked.title')}</Text>
       <Text className='text-center text-sm text-text-muted'>
         {t('ui.adminBlocked.desc')}

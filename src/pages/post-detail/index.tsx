@@ -6,6 +6,7 @@ import { markPostSeen } from '@/lib/postSeen'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
 import { useT, useNavTitle } from '@/i18n'
+import { useThemeClass } from '@/context/theme-context'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import './index.scss'
 
@@ -33,6 +34,7 @@ function formatPostDate(createdAt: string | null | undefined): string {
 export default function PostDetailPage() {
   const { t } = useT()
   useNavTitle('postDetail.navTitle')
+  const darkClass = useThemeClass()
   const id = Taro.getCurrentInstance().router?.params?.id
   const { fetchOne } = usePosts()
   const [post, setPost] = useState<PostRowWithAuthor | null>(null)
@@ -98,7 +100,7 @@ export default function PostDetailPage() {
   const dateText = formatPostDate(post.created_at)
 
   return (
-    <View className='pk-page min-h-screen bg-bg px-4 py-4'>
+    <View className={`${darkClass} pk-page min-h-screen bg-bg px-4 py-4`}>
       {/* 标题（主字，中大）+ 类型（副字，中） */}
       <Text className='block text-xl font-semibold leading-snug text-text'>{post.title}</Text>
        <Text className='mt-1 block text-base text-text-muted'>

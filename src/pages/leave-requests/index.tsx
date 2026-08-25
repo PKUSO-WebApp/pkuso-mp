@@ -7,6 +7,7 @@ import { notifyNotificationsUpdated } from '@/components/notification-badge-sync
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { useT } from '@/i18n'
+import { useThemeClass } from '@/context/theme-context'
 import type { LeaveRequestRow, LeaveStatus } from '@/types/database'
 
 type RehearsalMini = {
@@ -28,6 +29,7 @@ type TabKey = 'all' | 'approved' | 'rejected' | 'pending'
 
 export default function LeaveRequestsPage() {
   const { t } = useT()
+  const darkClass = useThemeClass()
   const [tab, setTab] = useState<TabKey>('all')
   const [requests, setRequests] = useState<LeaveRequestWithRehearsal[]>([])
   const [loading, setLoading] = useState(true)
@@ -94,7 +96,7 @@ export default function LeaveRequestsPage() {
   )
 
   return (
-    <View className='flex h-full flex-col bg-page-bg'>
+        <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
       {/* 顶部 tab 过滤（主色中字，切换即过滤） */}
       <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
 

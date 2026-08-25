@@ -5,6 +5,7 @@ import { useNotifications } from '@/hooks/useNotifications'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import { useT, useNavTitle } from '@/i18n'
+import { useThemeClass } from '@/context/theme-context'
 import type { NotificationRow } from '@/types/database'
 import './index.scss'
 
@@ -27,6 +28,7 @@ export default function NotificationSystemPage() {
   const [failed, setFailed] = useState(false)
   const [tab, setTab] = useState<Tab>('unread')
   const seqRef = useRef(0)
+  const darkClass = useThemeClass()
   // 已提交/提交中的 id 集合：防 StrictMode 双挂载与「进页主路径 × 离开兜底」重复提交
   const handledRef = useRef<Set<string>>(new Set())
   // 镜像最新列表：兜底提交需读到离开瞬间的数据而非挂载时的旧闭包
@@ -110,7 +112,7 @@ export default function NotificationSystemPage() {
   )
 
   return (
-    <View className='pk-page min-h-screen bg-bg px-4 py-4'>
+    <View className={`${darkClass} pk-page min-h-screen bg-bg px-4 py-4`}>
       <Text className='block text-lg font-semibold text-text'>{t('notification.systemTitle')}</Text>
       <View className='mt-2'>
         <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />

@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { View } from '@tarojs/components'
 import { NotificationList } from '@/pages/notifications/notification-list'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { useT, useNavTitle } from '@/i18n'
+import { useThemeClass } from '@/context/theme-context'
 import type { PostType } from '@/types/database'
 import './index.scss'
 
@@ -21,16 +23,19 @@ const ACTIVITY_TABS: { key: PostType | 'all'; labelKey: 'notification.activityTa
 export default function NotificationActivityPage() {
   const { t } = useT()
   useNavTitle('notification.activityNavTitle')
+  const darkClass = useThemeClass()
   const [view, setView] = useState<PostType | 'all'>('all')
 
   const tabs = ACTIVITY_TABS.map((tab) => ({ key: tab.key, label: t(tab.labelKey) }))
 
   return (
-    <NotificationList
-      category='activity'
-      title={t('notification.activityTitle')}
-      topSlot={<SegmentTabs tabs={tabs} value={view} onChange={(k) => setView(k)} />}
-      typeFilter={view}
-    />
+    <View className={`${darkClass} min-h-full bg-page-bg`}>
+      <NotificationList
+        category='activity'
+        title={t('notification.activityTitle')}
+        topSlot={<SegmentTabs tabs={tabs} value={view} onChange={(k) => setView(k)} />}
+        typeFilter={view}
+      />
+    </View>
   )
 }

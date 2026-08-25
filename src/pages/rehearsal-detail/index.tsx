@@ -11,6 +11,7 @@ import { markRehearsalSeen } from '@/lib/rehearsalSeen'
 import { CodeVerifyModal } from '@/pages/index/components/code-verify-modal'
 import type { RehearsalRow } from '@/types/database'
 import { useT } from '@/i18n'
+import { useThemeClass } from '@/context/theme-context'
 
 const mapSignInError = (tf: (key: string, params?: Record<string, unknown>) => string, err: string): string => {
   const msg = err.toLowerCase()
@@ -25,6 +26,7 @@ const mapSignInError = (tf: (key: string, params?: Record<string, unknown>) => s
 export default function RehearsalDetail() {
   const router = Taro.getCurrentInstance().router
   const id = Number(router?.params?.id)
+  const darkClass = useThemeClass()
   const { user } = useUser()
   const { data: rehearsals, loading: rehearsalsLoading } = useRehearsals()
   const { map: attendanceMap, fetchMyAttendances, signIn } = useAttendance()
@@ -141,7 +143,7 @@ export default function RehearsalDetail() {
 
   if (!rehearsal) {
     return (
-    <View className='flex h-full flex-col bg-page-bg'>
+    <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
       <View className='flex flex-1 items-center justify-center'>
         <Text className='text-xs text-text-muted'>{rehearsalsLoading ? t('common.actions.loading') : t('activityDetail.notFound')}</Text>
       </View>
@@ -199,7 +201,7 @@ export default function RehearsalDetail() {
   const typeText = rehearsal.type === 'section' ? t('activityDetail.type.section') : t('activityDetail.type.full')
 
   return (
-    <View className='flex h-full flex-col bg-page-bg'>
+    <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
       <View className='flex-1 overflow-y-auto px-4 pb-safe'>
        <View className='pt-2 pb-2'>
         <Text className='block text-2xl font-semibold text-text'>{timeText}</Text>

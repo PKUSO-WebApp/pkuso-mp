@@ -14,8 +14,10 @@ import type { Session } from '@supabase/supabase-js'
 import {
   clearSessionToken,
   establishSession,
+  getStoredSessionToken,
   verifySession,
 } from '@/lib/single-session'
+import { logDiag, setSessionStatusProvider, startSessionDiag } from '@/lib/session-diag'
 import { ForceOfflineModal } from '@/components/force-offline-modal'
 
 // 会话恢复超时阈值：弱网/挂起时不再无限等待（SDK 默认等待较长），超时降级为「未登录 + 恢复失败」
@@ -49,11 +51,37 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [restoreFailed, setRestoreFailed] = useState(false)
   const [forcedOfflineAt, setForcedOfflineAt] = useState<string | null>(null)
 
+  // 镜像最新状态：诊断心跳提供者注册一次即可读到最新值，避免闭包过期
+  const sessionRef = useRef(session)
+  sessionRef.current = session
+  const readyRef = useRef(ready)
+  readyRef.current = ready
+
   // 设置会话并（当会话存在时）把本机登记为当前活跃会话（覆写 profiles.session_token），
   // 使单设备会话生效：后登录设备会挤掉先登录设备
   const applySession = useCallback((next: Session | null) => {
     setSession(next)
     if (next) void establishSession(supabase)
+  }, [])
+
+  // 诊断：注册心跳状态提供者并启动日志（幂等）
+  useEffect(() => {
+    setSessionStatusProvider(() => {
+      const s = sessionRef.current
+      return {
+        ready: readyRef.current,
+        hasSession: !!s,
+        userId8: s?.user.id.slice(0, 8) ?? null,
+        expiresInSec:
+          typeof s?.expires_at === 'number'
+            ? Math.round(s.expires_at - Date.now() / 1000)
+            : null,
+        localToken8: getStoredSessionToken()?.slice(0, 8) ?? null,
+        forcedOffline: !!forcedOfflineAtRef.current,
+      }
+    })
+    startSessionDiag()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // 本设备被挤下线的统一处理：记录时刻、弹通知、清本机会话令牌、本地登出
@@ -62,6 +90,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
     (startedAt: string | null) => {
       if (forcedOfflineAtRef.current) return
       forcedOfflineAtRef.current = startedAt
+      logDiag('forced_offline', {
+        otherDeviceStartedAt: startedAt,
+        localToken8: getStoredSessionToken()?.slice(0, 8) ?? null,
+      })
       setForcedOfflineAt(startedAt)
       clearSessionToken()
       applySession(null)
@@ -78,13 +110,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
     // token 静默失效导致请求拿到空数据 / 静默登出。续期成功会触发 TOKEN_REFRESHED。
     const exp = session?.expires_at
     if (typeof exp === 'number' && Date.now() / 1000 >= exp - 120) {
+      logDiag('token_refresh_attempt', { expiresInSec: Math.round(exp - Date.now() / 1000) })
       void supabase.auth.refreshSession().catch(() => {})
     }
     try {
       const { kicked, startedAt } = await verifySession(supabase)
       if (kicked) kick(startedAt)
-    } catch {
-      // 查询异常不判定为被踢，避免误伤
+    } catch (err) {
+      logDiag('verify_error', { err: err instanceof Error ? err.message : String(err) })
     }
   }, [session, kick])
 
@@ -106,6 +139,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const init = async () => {
       let timeoutId: ReturnType<typeof setTimeout> | undefined
+      logDiag('restore_begin')
       try {
         const { data } = await Promise.race([
           supabase.auth.getSession(),
@@ -119,13 +153,18 @@ export function UserProvider({ children }: { children: ReactNode }) {
           applySession(data.session)
         }
         setRestoreFailed(false)
-      } catch {
+        logDiag('restore_ok', { hasSession: !!data.session })
+      } catch (err) {
         if (!mounted) return
         // 事件已给出会话时不降级（超时只是 getSession 未返回，会话仍可用）
         if (!eventArrived) {
           setSession(null)
           setRestoreFailed(true)
         }
+        logDiag('restore_failed', {
+          timeout: err instanceof Error && err.message === '会话恢复超时',
+          err: err instanceof Error ? err.message : String(err),
+        })
       } finally {
         if (timeoutId) clearTimeout(timeoutId)
         if (mounted) setReady(true)
@@ -136,6 +175,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!mounted) return
       eventArrived = true
+      logDiag('auth_event', {
+        event: _event,
+        hasSession: !!nextSession,
+        userId8: nextSession?.user?.id.slice(0, 8) ?? null,
+      })
       // 会话结束（SIGNED_OUT）只清本地状态，不再弹「已在其他设备登录」：
       // 自然过期 / 被服务端清理与会话被其他设备注销难以区分——而本模型下「被其他设备登录」
       // 只会覆写 profiles.session_token、auth.sessions 仍存活，可由 checkNow 的 verifySession

@@ -51,6 +51,7 @@ vi.mock('@/hooks/useNotifications', () => ({
 vi.mock('@/components/notification-badge-sync', () => ({
   notifyNotificationsUpdated: notifyMock,
 }))
+vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 vi.mock('@/components/ui/SegmentTabs', () => ({
   SegmentTabs: ({ tabs, onChange }: any) =>
     React.createElement(

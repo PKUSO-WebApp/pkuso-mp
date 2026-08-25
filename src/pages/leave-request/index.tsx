@@ -6,6 +6,7 @@ import { useUser } from '@/context/user-context'
 import { useRehearsals } from '@/hooks/useRehearsals'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { useT } from '@/i18n'
+import { useThemeClass } from '@/context/theme-context'
 import type { LeaveRequestRow } from '@/types/database'
 
 const isActive = (r: LeaveRequestRow) =>
@@ -14,6 +15,7 @@ const isActive = (r: LeaveRequestRow) =>
 export default function LeaveRequestPage() {
   const router = Taro.getCurrentInstance().router
   const rehearsalId = Number(router?.params?.rehearsalId)
+  const darkClass = useThemeClass()
   const { user } = useUser()
   const { data: rehearsals } = useRehearsals()
   const rehearsal = rehearsals?.find((r) => r.id === rehearsalId) ?? null
@@ -232,7 +234,7 @@ export default function LeaveRequestPage() {
   const hasAttachment = mode === 'view' ? !!viewAttachmentUrl : !!keepOldAttachment
 
   return (
-    <View className='flex h-full flex-col bg-page-bg'>
+        <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
       <View className='flex-1 overflow-y-auto px-4 pb-safe'>
        <View className='pt-2 pb-2'>
         <Text className='block text-sm text-text-muted'>{subtitle}</Text>

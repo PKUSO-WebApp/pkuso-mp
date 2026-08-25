@@ -7,6 +7,8 @@ import { PostUnviewedSync } from './components/post-unviewed-sync'
 import { LanguageProvider } from './i18n'
 import { DataSyncProvider } from './components/data-sync-provider'
 import { ErrorBoundary } from './components/error-boundary'
+import { logDiag, startSessionDiag } from './lib/session-diag'
+import { installSessionDiagFileSink } from './lib/session-diag-file'
 
 import './app.css'
 import './app.scss'
@@ -15,6 +17,9 @@ const IGNORE_ERRORS = [/not TabBar page/i]
 
 function App({ children }: PropsWithChildren<any>) {
   useLaunch(() => {
+    installSessionDiagFileSink()
+    startSessionDiag()
+    logDiag('app_launch', { env: process.env.TARO_ENV })
     const report = (err: unknown) => {
       const e = err as { message?: string; stack?: string }
       const message = typeof err === 'string' ? err : (e?.message ?? '未知错误')

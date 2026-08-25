@@ -22,14 +22,19 @@ import {
 } from '@/lib/tabBarSelected'
 import house from '@/assets/icons/house.png'
 import houseActive from '@/assets/icons/house-active.png'
+import houseActiveDark from '@/assets/icons/house-active-dark.png'
 import messageSquare from '@/assets/icons/message-square.png'
 import messageSquareActive from '@/assets/icons/message-square-active.png'
+import messageSquareActiveDark from '@/assets/icons/message-square-active-dark.png'
 import calendar from '@/assets/icons/calendar.png'
 import calendarActive from '@/assets/icons/calendar-active.png'
+import calendarActiveDark from '@/assets/icons/calendar-active-dark.png'
 import users from '@/assets/icons/users.png'
 import usersActive from '@/assets/icons/users-active.png'
+import usersActiveDark from '@/assets/icons/users-active-dark.png'
 import user from '@/assets/icons/user.png'
 import userActive from '@/assets/icons/user-active.png'
+import userActiveDark from '@/assets/icons/user-active-dark.png'
 import { subscribeLocale, translateCurrent } from '@/i18n'
 
 // 底边栏 UI：由框架专用槽位组件 src/custom-tab-bar 渲染，状态（选中/未读/主题/Modal 覆盖）
@@ -38,21 +43,41 @@ import { subscribeLocale, translateCurrent } from '@/i18n'
 // 导致 Modal 底部按钮点不到；改用 View + display:none 既能真正移除（不拦截触摸），
 // 又不会像 CoverView 那样在 display 切换时重建原生节点而闪烁。
 const LIST = [
-  { pagePath: '/pages/index/index', key: 'ui.tabBar.home', icon: house, selectedIcon: houseActive },
+  {
+    pagePath: '/pages/index/index',
+    key: 'ui.tabBar.home',
+    icon: house,
+    selectedIcon: houseActive,
+    selectedIconDark: houseActiveDark,
+  },
   {
     pagePath: '/pages/community/index',
     key: 'ui.tabBar.community',
     icon: messageSquare,
     selectedIcon: messageSquareActive,
+    selectedIconDark: messageSquareActiveDark,
   },
   {
     pagePath: '/pages/schedule/index',
     key: 'ui.tabBar.schedule',
     icon: calendar,
     selectedIcon: calendarActive,
+    selectedIconDark: calendarActiveDark,
   },
-  { pagePath: '/pages/members/index', key: 'ui.tabBar.members', icon: users, selectedIcon: usersActive },
-  { pagePath: '/pages/profile/index', key: 'ui.tabBar.profile', icon: user, selectedIcon: userActive },
+  {
+    pagePath: '/pages/members/index',
+    key: 'ui.tabBar.members',
+    icon: users,
+    selectedIcon: usersActive,
+    selectedIconDark: usersActiveDark,
+  },
+  {
+    pagePath: '/pages/profile/index',
+    key: 'ui.tabBar.profile',
+    icon: user,
+    selectedIcon: userActive,
+    selectedIconDark: userActiveDark,
+  },
 ] as const
 
 // active=选中文字/图标色（更深），inactive=未选中（更浅），提升对比度
@@ -150,7 +175,14 @@ export default class CustomTabBar extends Component {
             >
               <View style={{ position: 'relative', display: 'flex' }}>
                 <Image
-                  src={isSelected ? tab.selectedIcon : tab.icon}
+                  // 暗色模式选中态用高亮暗版图标（active-dark），避免与深底色融为一体
+                  src={
+                    isSelected
+                      ? dark
+                        ? tab.selectedIconDark
+                        : tab.selectedIcon
+                      : tab.icon
+                  }
                   style={{ width: '24px', height: '24px' }}
                 />
                 {idx === 4 && unread > 0 && (
