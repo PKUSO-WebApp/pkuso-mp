@@ -2,9 +2,15 @@
 // custom tabBar 不继承 <App> 的 theme-context（Taro 已知限制），故主题走模块级 store，
 // 由 ThemeProvider 在 mode 变化时推送，custom tabBar 订阅后自己挂 .dark 类。
 import { useSyncExternalStore } from 'react'
-import type { ThemeMode } from './theme'
+import { getSystemDark, readStoredThemeSync, resolveTheme, type ThemeMode } from './theme'
 
-let mode: ThemeMode = 'light'
+// 初始值同步解析存储偏好 + 系统外观：冷启动首帧（早于 ThemeProvider 挂载推送）
+// tabBar 即按最终模式渲染，与 Provider 的 useState 初始化器同一套规则
+function initialMode(): ThemeMode {
+  return resolveTheme(readStoredThemeSync(), getSystemDark())
+}
+
+let mode: ThemeMode = initialMode()
 const listeners = new Set<() => void>()
 
 function emit() {

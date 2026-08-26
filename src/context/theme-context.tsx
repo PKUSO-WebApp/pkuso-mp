@@ -10,7 +10,7 @@ import {
 import Taro from '@tarojs/taro'
 import {
   getSystemDark,
-  readStoredTheme,
+  readStoredThemeSync,
   resolveTheme,
   writeThemePreference,
   type ThemePreference,
@@ -64,20 +64,13 @@ const WINDOW_COLORS: Record<
  * - 导航栏：Taro.setNavigationBarColor 同步。
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreferenceState] = useState<ThemePreference>('system')
+  // 同步初始化：getStorageSync 在首帧渲染前读出存储偏好（暗色冷启动无白闪）；
+  // 无存储时回退跟随系统
+  const [preference, setPreferenceState] = useState<ThemePreference>(
+    () => readStoredThemeSync() ?? 'system'
+  )
   const [systemDark, setSystemDark] = useState<boolean>(() => getSystemDark())
   const mode = resolveTheme(preference, systemDark)
-
-  // 挂载后读取存储偏好覆盖默认值（存储为异步，只能在 effect 中读）
-  useEffect(() => {
-    let cancelled = false
-    void readStoredTheme().then((stored) => {
-      if (!cancelled && stored) setPreferenceState(stored)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   // 导航栏/窗口底色跟随实际模式；custom tabBar 自管主题（见 themeStore），不再调用 setTabBarStyle
   useEffect(() => {

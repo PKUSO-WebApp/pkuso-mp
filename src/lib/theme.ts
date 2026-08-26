@@ -8,8 +8,8 @@
  * - 生效方式：页面内容经 theme-context 的 useThemeClass 在页面根节点挂 .dark
  *   类（app.css 中 .dark 覆盖语义 token，Tailwind 工具类引用 var(--color-*)
  *   随祖先类切换）；导航栏色经 Taro.setNavigationBarColor 同步。
- * - 无首帧防闪烁脚本（小程序无 SSR/首帧脚本通道）：冷启动首帧按亮色渲染，
- *   挂载后即时切换（首帧闪烁暂接受，官方 darkmode 接入后优化）。
+ * - 首帧防闪烁：存储偏好经 getStorageSync 在 ThemeProvider 的 useState 初始化器中
+ *   同步读出（照抄 i18n/storage.ts 模式），冷启动首帧即按最终模式渲染，无白闪。
  */
 
 import Taro from '@tarojs/taro'
@@ -61,12 +61,12 @@ export function getSystemDark(): boolean {
   }
 }
 
-/** 读取存储偏好；无存储或值非法时返回 null（调用方按默认 system 处理） */
-export async function readStoredTheme(): Promise<ThemePreference | null> {
+/** 同步读取存储偏好；无存储或值非法时返回 null（调用方按默认 system 处理）。
+    冷启动首帧在 Provider useState 初始化器中同步调用，暗色偏好首帧即生效，无白闪 */
+export function readStoredThemeSync(): ThemePreference | null {
   try {
-    const result = await Taro.getStorage({ key: THEME_STORAGE_KEY })
-    const raw = typeof result.data === 'string' ? result.data : null
-    return isThemePreference(raw) ? raw : null
+    const raw = Taro.getStorageSync(THEME_STORAGE_KEY)
+    return typeof raw === 'string' && isThemePreference(raw) ? raw : null
   } catch {
     return null
   }
