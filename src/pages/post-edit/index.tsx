@@ -248,7 +248,7 @@ export default function PostEditPage() {
           {error && <Text className='mt-3 block text-xs text-danger'>{error}</Text>}
 
           {/* 底部大按钮：保存 / 取消（各自独立大按钮，不拆分同级） */}
-          <View className='mt-6 space-y-3 pb-safe'>
+          <View className='mt-6 pb-safe'>
             <View
               className={`flex h-11 w-full items-center justify-center rounded-xl text-base font-medium text-white ${
                 busy ? 'opacity-90' : ''
@@ -259,7 +259,7 @@ export default function PostEditPage() {
               {busy ? t('postEdit.saving') : t('common.actions.save')}
             </View>
             <View
-              className='flex h-11 w-full items-center justify-center rounded-xl border border-border bg-card text-base font-medium text-text'
+              className='mt-3 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-card text-base font-medium text-text'
               onClick={() => void Taro.navigateBack()}
             >
               {t('common.actions.cancel')}

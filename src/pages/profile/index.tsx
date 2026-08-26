@@ -232,21 +232,21 @@ export default function Profile() {
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       <ScrollView scrollY className='flex-1 min-h-0'>
         {/* 底部留白 = 自定义底边栏高(50px)，避免末行被遮挡、滚不到底（横屏同样稳健） */}
-        <View className='space-y-6 pt-4 pb-[50px]'>
+        <View className='pt-4 pb-[50px]'>
         {/* 头像卡 */}
         <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
           <View className='flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-base font-medium text-primary-foreground'>
             {initials}
           </View>
-          <View className='min-w-0 flex-1 space-y-1'>
+          <View className='min-w-0 flex-1'>
             <Text className='block text-lg font-semibold text-text'>{fullName}</Text>
-            <Text className='block text-sm text-text-muted'>{t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}</Text>
-            <Text className='block text-xs text-text-muted'>{t('profile.card.email', { email })}</Text>
+            <Text className='mt-1 block text-sm text-text-muted'>{t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}</Text>
+            <Text className='mt-1 block text-xs text-text-muted'>{t('profile.card.email', { email })}</Text>
           </View>
         </View>
 
         {/* 通知栏目：三个信箱按钮，右侧未读数字徽章（>0 时显示） */}
-        <View>
+        <View className='mt-6'>
           <Text className='text-xs font-medium text-text-muted'>{t('profile.sections.notifications')}</Text>
           <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
             {notificationItems.map(({ label, category }) => {
@@ -284,7 +284,7 @@ export default function Profile() {
         </View>
 
         {/* 设置栏目 */}
-        <View>
+        <View className='mt-6'>
           <Text className='text-xs font-medium text-text-muted'>{t('profile.sections.settings')}</Text>
           <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
             <View
@@ -378,7 +378,7 @@ export default function Profile() {
           />
 
           {accountTab === 'password' ? (
-            <View className='mt-4 space-y-3'>
+            <View className='mt-4'>
               <View>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.account.newPassword')}</Text>
                 <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
@@ -394,7 +394,7 @@ export default function Profile() {
                   />
                 </View>
               </View>
-              <View>
+              <View className='mt-3'>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.account.confirmPassword')}</Text>
                 <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
                   <Input
@@ -409,9 +409,9 @@ export default function Profile() {
                   />
                 </View>
               </View>
-              {pwdError && <Text className='block text-xs text-danger'>{pwdError}</Text>}
+              {pwdError && <Text className='mt-3 block text-xs text-danger'>{pwdError}</Text>}
               {/* 双按钮操作行右下角（取消 + 确认修改）；取消按钮任一提交飞行中禁用 */}
-              <View className='flex justify-end gap-2'>
+              <View className='mt-3 flex justify-end gap-2'>
                 <View
                   className={`rounded-full border border-border bg-card px-4 py-2 text-xs font-medium text-text-muted ${
                     isUpdatingPwd || isRebindingEmail ? 'opacity-60' : ''
@@ -433,10 +433,10 @@ export default function Profile() {
               </View>
             </View>
           ) : (
-            <View className='mt-4 space-y-3'>
+            <View className='mt-4'>
               {/* 当前邮箱只读展示（Issue #199 语义）；「换绑邮箱」小标题由 tab 承担 */}
               <Text className='block text-xs text-text-subtle'>{t('profile.account.currentEmail', { email })}</Text>
-              <View>
+              <View className='mt-3'>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.account.newEmail')}</Text>
                 <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
                   <Input
@@ -452,7 +452,7 @@ export default function Profile() {
                 </View>
               </View>
               {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
-              <View className='flex justify-end gap-2'>
+              <View className='mt-3 flex justify-end gap-2'>
                 <View
                   className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
                     isRebindingEmail ? 'opacity-60' : ''
@@ -480,7 +480,7 @@ export default function Profile() {
 
       {/* 语言选择：默认跟随系统，手动选择后持久化 */}
       <Modal open={isLangOpen} onClose={() => setIsLangOpen(false)} title={t('profile.language.title')}>
-        <View className='space-y-2'>
+        <View>
           {(['zh-CN', 'en'] as const).map((l) => {
             const labels: Record<'zh-CN' | 'en', string> = {
               'zh-CN': t('profile.language.zhCN'),
@@ -489,7 +489,7 @@ export default function Profile() {
             return (
               <View
                 key={l}
-                className='flex items-center justify-between rounded-xl border border-border px-4 py-3'
+                className='mt-2 flex items-center justify-between rounded-xl border border-border px-4 py-3'
                 onClick={() => {
                   setLocale(l)
                   setIsLangOpen(false)

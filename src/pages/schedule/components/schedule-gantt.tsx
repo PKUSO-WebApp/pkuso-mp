@@ -199,24 +199,24 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
         position='bottom'
       >
         {selectedSchedule && (
-          <View className='mt-2 space-y-3'>
+          <View className='mt-2'>
             <View>
               <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.title')}</Text>
               <Text className='block text-sm font-medium text-text'>
                 {selectedSchedule.title || t('schedule.unnamed')}
               </Text>
             </View>
-            <View>
+            <View className='mt-3'>
               <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.time')}</Text>
               <Text className='block text-sm text-text'>
                 {formatTime(selectedSchedule.start_time)} - {formatTime(selectedSchedule.end_time)}
               </Text>
             </View>
-            <View>
+            <View className='mt-3'>
               <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.date')}</Text>
               <Text className='block text-sm text-text'>{selectedDate}</Text>
             </View>
-            <View>
+            <View className='mt-3'>
               <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.author')}</Text>
               <Text className='block text-sm text-text'>
                 {loadingAuthor ? t('common.actions.loading') : authorName || t('schedule.unknown')}
@@ -224,7 +224,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
             </View>
             {/* 仅创建者可删除自己添加的预约（Issue #142 移植） */}
             {isAuthor && (
-              <View className='mt-2 border-t border-border pt-2'>
+              <View className='mt-3 border-t border-border pt-2'>
                 <View
                   className={`rounded-lg border border-danger py-2 text-center text-sm font-medium text-danger ${
                     deleting ? 'opacity-50' : ''

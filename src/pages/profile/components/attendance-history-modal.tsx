@@ -107,7 +107,7 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
 
   return (
     <Modal open onClose={onClose} title={t('profile.attendance.title')} position='bottom'>
-      <View className='mt-4 space-y-3'>
+      <View className='mt-4'>
         <View className='flex items-end gap-2'>
           <View className='flex-1'>
             <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.attendance.startDate')}</Text>
@@ -140,7 +140,7 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
         )}
 
         {/* 考勤列表：罗列内容可滚动（max-h 容器，改用原生 ScrollView 以兼容真机） */}
-        <ScrollView scrollY style={{ maxHeight: '60vh' }}>
+        <ScrollView scrollY className='mt-3' style={{ maxHeight: '60vh' }}>
           {loading ? (
             <Text className='block py-6 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
           ) : queryFailed ? (
@@ -191,7 +191,7 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
 
         {/* 区间统计：固定于列表滚动容器下方；加载中/失败时隐藏（数据未就绪不展示可能误导的统计） */}
         {!loading && !queryFailed && (
-          <View className='border-t border-border pt-2'>
+          <View className='mt-3 border-t border-border pt-2'>
             <Text className='text-xs text-text-muted'>
               {t('profile.attendance.totalRehearsals', { count: attendanceSummary.total })}
               {ATTENDANCE_SUMMARY_ITEMS.map((key) => (

@@ -13,14 +13,14 @@ export function ThemeModal({ open, onClose }: { open: boolean; onClose: () => vo
   const { t } = useT()
   return (
     <Modal open={open} onClose={onClose} title={t('profile.settings.appearance')} position='bottom'>
-      <View className='mt-4 space-y-3'>
+      <View className='mt-4'>
         <Toggle
           options={THEME_OPTIONS}
           value={preference}
           onChange={setPreference}
           getLabel={themeLabel}
         />
-        <Text className='block text-xs leading-relaxed text-text-muted'>
+        <Text className='mt-3 block text-xs leading-relaxed text-text-muted'>
           {t('profile.appearance.currentMode', {
             mode: t(mode === 'dark' ? 'profile.appearance.dark' : 'profile.appearance.light'),
           })}

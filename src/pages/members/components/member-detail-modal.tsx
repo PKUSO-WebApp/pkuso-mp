@@ -16,9 +16,9 @@ type MemberDetailModalProps = {
 }
 
 /** 展示字段：标签 + 值，值为空时显示 — */
-function DetailField({ label, value }: { label: string; value: string | null }) {
+function DetailField({ label, value, className }: { label: string; value: string | null; className?: string }) {
   return (
-    <View className='flex items-baseline justify-between gap-3'>
+    <View className={`flex items-baseline justify-between gap-3 ${className ?? ''}`}>
       <Text className='shrink-0 text-xs text-text-muted'>{label}</Text>
       <Text className='min-w-0 break-words text-right text-sm text-text'>
         {value?.trim() || '—'}
@@ -33,7 +33,7 @@ export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetai
   return (
     <Modal open={open} onClose={onClose} title={t('members.detailTitle')} position='bottom'>
       {user && (
-        <View className='mt-2 space-y-3'>
+        <View className='mt-2'>
           <View className='flex flex-wrap items-center gap-2'>
             <Text className='text-base font-semibold text-text'>{user.full_name ?? '—'}</Text>
             {user.is_section_leader && (
@@ -42,18 +42,21 @@ export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetai
               </Text>
             )}
           </View>
-          <DetailField label={t('members.fieldInstrument')} value={user.instrument ? translateInstrument(user.instrument, t) : user.instrument} />
-          <DetailField label={t('members.fieldCollege')} value={user.college} />
+          <DetailField className='mt-3' label={t('members.fieldInstrument')} value={user.instrument ? translateInstrument(user.instrument, t) : user.instrument} />
+          <DetailField className='mt-3' label={t('members.fieldCollege')} value={user.college} />
           {/* 隐私掩码：查看自己显示原值，查看他人按对方开关掩码 */}
           <DetailField
+            className='mt-3'
             label={t('members.fieldEmail')}
             value={maskedValue(user.id !== viewerId && user.hide_email, user.email)}
           />
           <DetailField
+            className='mt-3'
             label={t('members.fieldContact')}
             value={maskedValue(user.id !== viewerId && user.hide_phone, user.phone_number)}
           />
           <DetailField
+            className='mt-3'
             label={t('members.fieldJoinDate')}
             value={translateJoinDate(
               maskedValue(user.id !== viewerId && user.hide_join_date, user.join_date),
@@ -62,6 +65,7 @@ export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetai
           />
           {/* 在团情况：不涉隐私开关，直接展示 */}
           <DetailField
+            className='mt-3'
             label={t('members.statusLabel')}
             value={user.is_in_orchestra === true ? t('members.statusActive') : t('members.statusInactive')}
           />

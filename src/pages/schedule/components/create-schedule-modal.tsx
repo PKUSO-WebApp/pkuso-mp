@@ -130,10 +130,10 @@ export function CreateScheduleModal({
       position='bottom'
       closeOnOverlay={!busy}
     >
-      <View className='mt-2 space-y-3'>
-        <View className='space-y-1'>
+      <View className='mt-2'>
+        <View>
           <Text className='block text-label text-text-muted'>{t('schedule.labels.title')}</Text>
-          <View className='w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
+           <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
             <Input
               value={title}
               onInput={(e) => {
@@ -147,18 +147,18 @@ export function CreateScheduleModal({
           </View>
         </View>
 
-        <View className='space-y-1'>
+        <View>
           <Text className='block text-label text-text-muted'>{t('schedule.labels.date')}</Text>
-          <View className='rounded-xl border border-border bg-muted px-3 py-2'>
+           <View className='mt-1 rounded-xl border border-border bg-muted px-3 py-2'>
             <Picker mode='date' value={date} onChange={(e) => setDate(e.detail.value)}>
               <Text className='text-xs text-text'>{date}</Text>
             </Picker>
           </View>
         </View>
 
-        <View className='space-y-1'>
+        <View>
           <Text className='block text-label text-text-muted'>{t('schedule.labels.startTime')}</Text>
-          <View className='rounded-xl border border-border bg-muted px-3 py-2'>
+           <View className='mt-1 rounded-xl border border-border bg-muted px-3 py-2'>
             <Picker
               mode='multiSelector'
               range={[HOURS, MINUTES]}
@@ -173,9 +173,9 @@ export function CreateScheduleModal({
           </View>
         </View>
 
-        <View className='space-y-1'>
+        <View>
           <Text className='block text-label text-text-muted'>{t('schedule.labels.endTime')}</Text>
-          <View className='rounded-xl border border-border bg-muted px-3 py-2'>
+           <View className='mt-1 rounded-xl border border-border bg-muted px-3 py-2'>
             <Picker
               mode='multiSelector'
               range={[HOURS, MINUTES]}

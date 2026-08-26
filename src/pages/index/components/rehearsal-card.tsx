@@ -24,14 +24,14 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
     <Card onClick={onClick} className='relative'>
       <View className='flex gap-3'>
         {/* 排练信息（时间/地点/更新提示 chip） */}
-        <View className='min-w-0 flex-1 space-y-1 leading-tight'>
+        <View className='min-w-0 flex-1 leading-tight'>
           <Text className='block text-base font-semibold text-text'>
             {item.start_time
               ? formatRehearsalRange(item.start_time, item.end_time ?? null)
               : t('home.rehearsalTimeUnset')}
           </Text>
           {updatedFields && updatedFields.length > 0 && (
-            <Text className='inline-block rounded bg-warning-bg/80 px-1.5 py-1 text-xs text-warning'>
+            <Text className='mt-1 inline-block rounded bg-warning-bg/80 px-1.5 py-1 text-xs text-warning'>
               {t('home.updated', {
                 fields: updatedFields
                   .map((f) => t(`home.updatedField.${f}`))
@@ -39,7 +39,7 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
               })}
             </Text>
           )}
-          <Text className='block text-xs text-text-muted'>
+          <Text className='mt-1 block text-xs text-text-muted'>
             {item.location || t('home.locationUnset')}
             {item.type === 'section' && item.target_section
               ? ` · ${t('home.targetSection')}${translateInstrument(item.target_section, t)}`

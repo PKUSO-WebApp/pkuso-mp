@@ -356,7 +356,7 @@ export default function ProfileInfoPage() {
 
         {/* 编辑态底部操作：保存（大按钮·黑底）/ 取消（大按钮·白底） */}
         {isEditing && (
-          <View className='mt-6 space-y-3 pb-safe'>
+          <View className='mt-6 pb-safe'>
             <View
               className={`flex h-11 w-full items-center justify-center rounded-xl text-base font-medium text-white ${
                 submitting ? 'opacity-60' : ''
@@ -367,7 +367,7 @@ export default function ProfileInfoPage() {
               {submitting ? t('profileInfo.saving') : t('common.actions.save')}
             </View>
             <View
-              className={`flex h-11 w-full items-center justify-center rounded-xl border border-border bg-card text-base font-medium text-text ${
+              className={`mt-3 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-card text-base font-medium text-text ${
                 submitting ? 'opacity-60' : ''
               }`}
               onClick={submitting ? undefined : cancelEdit}

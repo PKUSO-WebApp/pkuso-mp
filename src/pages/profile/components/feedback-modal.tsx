@@ -64,8 +64,8 @@ export function FeedbackModal({ open, onClose }: Props) {
       position='bottom'
       closeOnOverlay={!submitting}
     >
-      <View className='mt-4 space-y-3'>
-        <Text className='block text-xs text-text-muted'>{t('profile.feedback.anonymousHint')}</Text>
+      <View className='mt-4'>
+        <Text className='mt-3 block text-xs text-text-muted'>{t('profile.feedback.anonymousHint')}</Text>
         <Text className='mt-1 block text-xs text-text-subtle'>{t('profile.feedback.version', { version: getAppVersionLabel() })}</Text>
         <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
           <Textarea
@@ -78,7 +78,7 @@ export function FeedbackModal({ open, onClose }: Props) {
           />
         </View>
         {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
-        <View className='flex justify-end gap-2'>
+        <View className='mt-3 flex justify-end gap-2'>
           <View
             className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
               submitting ? 'opacity-60' : ''
