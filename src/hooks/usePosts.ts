@@ -42,7 +42,8 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [mine, setMine] = useState<PostRowWithAuthor[]>([])
-  const [mineLoading, setMineLoading] = useState(false)
+  // 初始 true：进页先渲染 loading 骨架，避免「暂无活动」空态闪现（P0-5）
+  const [mineLoading, setMineLoading] = useState(true)
   const [mineError, setMineError] = useState<string | null>(null)
   const savingRef = useRef(false)
   const [saving, setSaving] = useState(false)

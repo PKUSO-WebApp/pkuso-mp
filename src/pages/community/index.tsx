@@ -48,10 +48,11 @@ export default function Community() {
   const viewRef = useRef<PostType>('ensemble')
   viewRef.current = view
 
-  // 切回社区 tab 时立即刷新公告（镜像 rehearsal 的 useDidShow 刷新）；
+  // 切回社区 tab 时立即刷新公告（镜像 rehearsal 的 useDidShow 刷新；
+  // 静默重取：已有数据时不翻 loading，避免切 tab 整页闪烁）；
   // 点击社区即消除底边栏红点，同时消除当前所在分类的红点（点击某处即消除那一处）
   useDidShow(() => {
-    void fetch()
+    void fetch({ silent: true })
     dismissCommunityDot('bar')
     dismissCommunityDot(viewRef.current)
   })
@@ -131,7 +132,8 @@ export default function Community() {
 
       {/* 公告列表（可滚动） */}
       <View className='flex-1 min-h-0 overflow-y-auto'>
-        {loading ? (
+        {/* 仅在无数据时才显示 loading（有旧数据静默刷新不闪） */}
+        {loading && posts.length === 0 ? (
           <Text className='block py-12 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
         ) : error ? (
           <Card className='border-danger-bg bg-danger-bg/80'>

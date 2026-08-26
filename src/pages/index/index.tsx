@@ -40,10 +40,11 @@ export default function Index() {
   const { t } = useT()
   useNavTitle('home.navTitle')
 
-  // 每次切回首页重新拉取排练与公告，并重置全局轮询计时器
+  // 每次切回首页重新拉取排练与公告，并重置全局轮询计时器。
+  // 静默重取：已有数据时不翻 loading，避免切 tab 整页闪烁
   useDidShow(() => {
-    void fetchRehearsals()
-    void fetchAnnouncement()
+    void fetchRehearsals({ silent: true })
+    void fetchAnnouncement({ silent: true })
     dataSyncBump()
   })
 
@@ -163,7 +164,8 @@ export default function Index() {
         {/* 底部留白：自定义 tabBar 固定覆盖页面底部（高 50px + 安全区），
             历史合排多时末行会被遮挡、无法滚到底，故内容底部补足留白（与成员页一致） */}
         <View className='pb-8'>
-        {rehearsalsLoading ? (
+        {/* 仅在无数据时才显示 loading（有旧数据静默刷新不闪） */}
+        {rehearsalsLoading && rehearsals.length === 0 ? (
            <Text className='block py-12 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
          ) : rehearsalsError ? (
            <Card className='border-danger-bg bg-danger-bg/80'>

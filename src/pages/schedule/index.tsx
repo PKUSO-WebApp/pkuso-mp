@@ -49,9 +49,10 @@ export default function Schedule() {
     void fetch(selectedDate)
   }, [selectedDate, fetch])
 
-  // A：每次切回本 tab 重新拉取当前日期预约，并重置全局轮询计时器
+  // A：每次切回本 tab 重新拉取当前日期预约，并重置全局轮询计时器。
+  // 静默重取：已有数据时不翻 loading，避免切 tab 整页闪烁
   useDidShow(() => {
-    void fetch(selectedDateRef.current)
+    void fetch(selectedDateRef.current, { silent: true })
     dataSyncBump()
   })
 
@@ -102,7 +103,8 @@ export default function Schedule() {
 
       {/* 甘特图：flex-1 占满剩余空间，内部独立滚动 */}
       <View className='mb-4 flex-1 min-h-0 overflow-y-auto rounded-xl border border-border bg-card'>
-        {loading ? (
+        {/* 仅在无数据时才显示 loading（有旧数据静默刷新不闪） */}
+        {loading && schedules.length === 0 ? (
           <Text className='block py-16 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
         ) : error ? (
           <Text className='block px-3 py-16 text-center text-sm text-danger'>{error}</Text>

@@ -31,15 +31,16 @@ export default function MyActivitiesPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
-  const load = useCallback(() => {
-    void fetchMine()
+  const load = useCallback((opts?: { silent?: boolean }) => {
+    void fetchMine(opts)
   }, [fetchMine])
 
   useEffect(() => {
     void load()
   }, [load])
+  // 切回本页静默重取：已有数据时不翻 loading，避免整页闪烁
   useDidShow(() => {
-    void load()
+    void load({ silent: true })
   })
 
   const handleToggleLock = async (post: PostRowWithAuthor) => {
@@ -66,7 +67,8 @@ export default function MyActivitiesPage() {
       </View>
 
       <View className='flex-1 min-h-0 overflow-y-auto'>
-        {mineLoading ? (
+        {/* 仅在无数据时才显示 loading（有旧数据静默刷新不闪） */}
+        {mineLoading && mine.length === 0 ? (
           <Text className='block py-12 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
         ) : mineError ? (
           <Text className='block px-3 py-2 text-sm text-danger'>{mineError}</Text>

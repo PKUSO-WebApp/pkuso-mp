@@ -32,10 +32,10 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
   const fetchSeqRef = useRef(0)
 
   const fetch = useCallback(
-    async (date?: string) => {
+    async (date?: string, opts?: { silent?: boolean }) => {
       if (!mountedRef.current) return
       const seq = ++fetchSeqRef.current
-      setLoading(true)
+      if (!opts?.silent) setLoading(true)
       let query = client.from('schedules').select('*').order('start_time', { ascending: true })
 
       if (date) {
