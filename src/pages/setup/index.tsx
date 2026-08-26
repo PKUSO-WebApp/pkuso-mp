@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Input, Text, View } from '@tarojs/components'
+import { Button, Text, View } from '@tarojs/components'
+import { TextField } from '@/components/ui/FormFields'
 import Taro from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
 import { useThemeClass } from '@/context/theme-context'
@@ -27,7 +28,10 @@ import './index.scss'
 const MAX_NAME_LENGTH = 30
 
 /** auth.updateUser 换邮箱错误归一化（主要场景：邮箱已被其他账号注册） */
-const mapAuthEmailError = (t: (k: string, p?: Record<string, unknown>) => string, err: { message?: string; code?: string } | null): string => {
+const mapAuthEmailError = (
+  t: (k: string, p?: Record<string, unknown>) => string,
+  err: { message?: string; code?: string } | null
+): string => {
   const text = `${err?.code ?? ''} ${err?.message ?? ''}`.toLowerCase()
   if (text.includes('already been registered') || text.includes('email_exists')) {
     return t('setup.authEmail.alreadyRegistered')
@@ -133,40 +137,34 @@ export default function SetupPage() {
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
           <Text className='text-xl font-semibold text-text'>{t('setup.title')}</Text>
-          <Text className='mt-1 block text-xs text-text-muted'>
-            {t('setup.subtitle')}
-          </Text>
+          <Text className='mt-1 block text-xs text-text-muted'>{t('setup.subtitle')}</Text>
         </View>
 
-        <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>{t('setup.nameLabel')}</Text>
-          <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-            <Input
-              className='h-10 text-sm text-text'
-              placeholder={t('setup.namePlaceholder')}
-              value={name}
-              onInput={(e) => {
-                setErrorMsg(null)
-                setName(e.detail.value)
-              }}
-            />
-          </View>
-        </View>
+        <TextField
+          className='mb-3'
+          labelClass='text-sm font-medium text-text-muted'
+          label={t('setup.nameLabel')}
+          inputClass='h-10 text-sm text-text'
+          placeholder={t('setup.namePlaceholder')}
+          value={name}
+          onInput={(e) => {
+            setErrorMsg(null)
+            setName(e.detail.value)
+          }}
+        />
 
-        <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>{t('setup.emailLabel')}</Text>
-          <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-            <Input
-              className='h-10 text-sm text-text'
-              placeholder={t('setup.emailPlaceholder')}
-              value={email}
-              onInput={(e) => {
-                setErrorMsg(null)
-                setEmail(e.detail.value)
-              }}
-            />
-          </View>
-        </View>
+        <TextField
+          className='mb-3'
+          labelClass='text-sm font-medium text-text-muted'
+          label={t('setup.emailLabel')}
+          inputClass='h-10 text-sm text-text'
+          placeholder={t('setup.emailPlaceholder')}
+          value={email}
+          onInput={(e) => {
+            setErrorMsg(null)
+            setEmail(e.detail.value)
+          }}
+        />
 
         {errorMsg ? (
           <View className='mb-3 rounded-xl bg-danger-bg px-3 py-2 text-center text-sm text-danger'>

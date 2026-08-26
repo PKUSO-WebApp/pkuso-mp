@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
-import { Button, Input, Text, View } from '@tarojs/components'
+import { Button, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
+import { TextField } from '@/components/ui/FormFields'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useLogin } from '@/hooks/useLogin'
@@ -51,39 +52,33 @@ export default function EmailLoginPage() {
   }
 
   return (
-    <View className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}>
+    <View
+      className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}
+    >
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
           <Text className='text-xl font-semibold text-text'>{t('emailLogin.title')}</Text>
           <Text className='mt-1 block text-xs text-text-muted'>{t('emailLogin.subtitle')}</Text>
         </View>
 
-        {/* ✅ 邮箱 - 外层 View 包裹约束宽度，避免原生 Input 溢出 */}
-        <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>{t('common.fields.email')}</Text>
-          <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-            <Input
-              className='h-10 w-full bg-transparent text-sm text-text'
-              placeholder='name@example.com'
-              value={email}
-              onInput={(e) => setEmail(e.detail.value)}
-            />
-          </View>
-        </View>
+        <TextField
+          className='mb-3'
+          labelClass='text-sm font-medium text-text-muted'
+          label={t('common.fields.email')}
+          placeholder='name@example.com'
+          value={email}
+          onInput={(e) => setEmail(e.detail.value)}
+        />
 
-        {/* ✅ 密码 - 外层 View 包裹约束宽度 */}
-        <View className='mb-3'>
-          <Text className='text-sm font-medium text-text-muted'>{t('common.fields.password')}</Text>
-          <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-            <Input
-              className='h-10 w-full bg-transparent text-sm text-text'
-              placeholder={t('emailLogin.passwordPlaceholder')}
-              password
-              value={password}
-              onInput={(e) => setPassword(e.detail.value)}
-            />
-          </View>
-        </View>
+        <TextField
+          className='mb-3'
+          labelClass='text-sm font-medium text-text-muted'
+          label={t('common.fields.password')}
+          placeholder={t('emailLogin.passwordPlaceholder')}
+          password
+          value={password}
+          onInput={(e) => setPassword(e.detail.value)}
+        />
 
         {errorMsg ? (
           <View className='mb-3 rounded-xl bg-danger-bg px-3 py-2 text-center text-sm text-danger'>
@@ -102,10 +97,7 @@ export default function EmailLoginPage() {
       </Card>
 
       <View className='mt-4 flex w-full items-center justify-between px-1'>
-        <Text
-          className='text-sm text-text-muted'
-          onClick={() => void Taro.navigateBack()}
-        >
+        <Text className='text-sm text-text-muted' onClick={() => void Taro.navigateBack()}>
           {t('emailLogin.backToWechat')}
         </Text>
         <Text

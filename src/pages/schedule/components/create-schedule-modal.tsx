@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { View, Text, Input, Picker } from '@tarojs/components'
+import { View, Text, Picker } from '@tarojs/components'
+import { TextField, PickerField } from '@/components/ui/FormFields'
 import Taro from '@tarojs/taro'
 import { Modal } from '@/components/ui/Modal'
 import { useT } from '@/i18n'
@@ -131,64 +132,68 @@ export function CreateScheduleModal({
       closeOnOverlay={!busy}
     >
       <View className='mt-2'>
-        <View>
-          <Text className='block text-label text-text-muted'>{t('schedule.labels.title')}</Text>
-           <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-            <Input
-              value={title}
-              onInput={(e) => {
-                setTitle(e.detail.value)
-                setError(null)
-              }}
-              disabled={busy}
-              className='bg-transparent py-2 text-xs text-text'
-              placeholder={t('schedule.placeholders.title')}
-            />
-          </View>
-        </View>
+        <TextField
+          label={t('schedule.labels.title')}
+          labelClass='block text-label text-text-muted'
+          inputClass='bg-transparent py-2 text-xs text-text'
+          value={title}
+          onInput={(e) => {
+            setTitle(e.detail.value)
+            setError(null)
+          }}
+          disabled={busy}
+          placeholder={t('schedule.placeholders.title')}
+        />
 
-        <View>
-          <Text className='block text-label text-text-muted'>{t('schedule.labels.date')}</Text>
-           <View className='mt-1 rounded-xl border border-border bg-muted px-3 py-2'>
-            <Picker mode='date' value={date} onChange={(e) => setDate(e.detail.value)}>
-              <Text className='text-xs text-text'>{date}</Text>
-            </Picker>
-          </View>
-        </View>
+        <PickerField
+          className='mt-3'
+          label={t('schedule.labels.date')}
+          labelClass='block text-label text-text-muted'
+        >
+          <Picker mode='date' value={date} onChange={(e) => setDate(e.detail.value)}>
+            <Text className='text-xs text-text'>{date}</Text>
+          </Picker>
+        </PickerField>
 
-        <View>
-          <Text className='block text-label text-text-muted'>{t('schedule.labels.startTime')}</Text>
-           <View className='mt-1 rounded-xl border border-border bg-muted px-3 py-2'>
-            <Picker
-              mode='multiSelector'
-              range={[HOURS, MINUTES]}
-              value={timeToIndices(startTime)}
-              onChange={(e) => {
-                setStartTime(indicesToTime(e.detail.value))
-                setError(null)
-              }}
-            >
-              <Text className='text-xs text-text'>{startTime || t('schedule.placeholders.startTime')}</Text>
-            </Picker>
-          </View>
-        </View>
+        <PickerField
+          className='mt-3'
+          label={t('schedule.labels.startTime')}
+          labelClass='block text-label text-text-muted'
+        >
+          <Picker
+            mode='multiSelector'
+            range={[HOURS, MINUTES]}
+            value={timeToIndices(startTime)}
+            onChange={(e) => {
+              setStartTime(indicesToTime(e.detail.value))
+              setError(null)
+            }}
+          >
+            <Text className='text-xs text-text'>
+              {startTime || t('schedule.placeholders.startTime')}
+            </Text>
+          </Picker>
+        </PickerField>
 
-        <View>
-          <Text className='block text-label text-text-muted'>{t('schedule.labels.endTime')}</Text>
-           <View className='mt-1 rounded-xl border border-border bg-muted px-3 py-2'>
-            <Picker
-              mode='multiSelector'
-              range={[HOURS, MINUTES]}
-              value={timeToIndices(endTime)}
-              onChange={(e) => {
-                setEndTime(indicesToTime(e.detail.value))
-                setError(null)
-              }}
-            >
-              <Text className='text-xs text-text'>{endTime || t('schedule.placeholders.endTime')}</Text>
-            </Picker>
-          </View>
-        </View>
+        <PickerField
+          className='mt-3'
+          label={t('schedule.labels.endTime')}
+          labelClass='block text-label text-text-muted'
+        >
+          <Picker
+            mode='multiSelector'
+            range={[HOURS, MINUTES]}
+            value={timeToIndices(endTime)}
+            onChange={(e) => {
+              setEndTime(indicesToTime(e.detail.value))
+              setError(null)
+            }}
+          >
+            <Text className='text-xs text-text'>
+              {endTime || t('schedule.placeholders.endTime')}
+            </Text>
+          </Picker>
+        </PickerField>
 
         {error && <Text className='block text-sm text-danger'>{error}</Text>}
 

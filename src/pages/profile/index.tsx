@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, Input, ScrollView } from '@tarojs/components'
+import { View, Text, ScrollView } from '@tarojs/components'
+import { TextField } from '@/components/ui/FormFields'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -233,123 +234,148 @@ export default function Profile() {
       <ScrollView scrollY className='flex-1 min-h-0'>
         {/* 底部留白 = 自定义底边栏高(50px)，避免末行被遮挡、滚不到底（横屏同样稳健） */}
         <View className='pt-4 pb-[50px]'>
-        {/* 头像卡 */}
-        <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
-          <View className='flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-base font-medium text-primary-foreground'>
-            {initials}
+          {/* 头像卡 */}
+          <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
+            <View className='flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-base font-medium text-primary-foreground'>
+              {initials}
+            </View>
+            <View className='min-w-0 flex-1'>
+              <Text className='block text-lg font-semibold text-text'>{fullName}</Text>
+              <Text className='mt-1 block text-sm text-text-muted'>
+                {t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}
+              </Text>
+              <Text className='mt-1 block text-xs text-text-muted'>
+                {t('profile.card.email', { email })}
+              </Text>
+            </View>
           </View>
-          <View className='min-w-0 flex-1'>
-            <Text className='block text-lg font-semibold text-text'>{fullName}</Text>
-            <Text className='mt-1 block text-sm text-text-muted'>{t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}</Text>
-            <Text className='mt-1 block text-xs text-text-muted'>{t('profile.card.email', { email })}</Text>
-          </View>
-        </View>
 
-        {/* 通知栏目：三个信箱按钮，右侧未读数字徽章（>0 时显示） */}
-        <View className='mt-6'>
-          <Text className='text-xs font-medium text-text-muted'>{t('profile.sections.notifications')}</Text>
-          <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
-            {notificationItems.map(({ label, category }) => {
-              const count = unreadCounts[category]
-              return (
-                <View
-                  key={category}
-                  className={`px-4 py-3 ${category !== 'system' ? 'border-b border-border' : ''}`}
-                  onClick={() => {
-                    // 「考勤与请假」改用全屏请假详情页（结构化卡片 + 状态筛选），
-                    // 活动 / 系统通知改用独立信箱页，均不再弹通用通知 Modal
-                    if (category === 'attendance') {
-                      void Taro.navigateTo({ url: '/pages/leave-requests/index' })
-                    } else if (category === 'activity') {
-                      void Taro.navigateTo({ url: '/pages/notification-activity/index' })
-                    } else {
-                      void Taro.navigateTo({ url: '/pages/notification-system/index' })
-                    }
-                  }}
-                >
-                  <View className='flex items-center'>
-                    <Text className='text-sm font-medium text-text'>{label}</Text>
-                    {count > 0 && (
-                      <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5'>
-                        <Text className='text-xs font-medium leading-none text-danger-foreground'>
-                          {count > 99 ? '99+' : count}
-                        </Text>
-                      </View>
-                    )}
+          {/* 通知栏目：三个信箱按钮，右侧未读数字徽章（>0 时显示） */}
+          <View className='mt-6'>
+            <Text className='text-xs font-medium text-text-muted'>
+              {t('profile.sections.notifications')}
+            </Text>
+            <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
+              {notificationItems.map(({ label, category }) => {
+                const count = unreadCounts[category]
+                return (
+                  <View
+                    key={category}
+                    className={`px-4 py-3 ${category !== 'system' ? 'border-b border-border' : ''}`}
+                    onClick={() => {
+                      // 「考勤与请假」改用全屏请假详情页（结构化卡片 + 状态筛选），
+                      // 活动 / 系统通知改用独立信箱页，均不再弹通用通知 Modal
+                      if (category === 'attendance') {
+                        void Taro.navigateTo({ url: '/pages/leave-requests/index' })
+                      } else if (category === 'activity') {
+                        void Taro.navigateTo({ url: '/pages/notification-activity/index' })
+                      } else {
+                        void Taro.navigateTo({ url: '/pages/notification-system/index' })
+                      }
+                    }}
+                  >
+                    <View className='flex items-center'>
+                      <Text className='text-sm font-medium text-text'>{label}</Text>
+                      {count > 0 && (
+                        <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5'>
+                          <Text className='text-xs font-medium leading-none text-danger-foreground'>
+                            {count > 99 ? '99+' : count}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
-              )
-            })}
+                )
+              })}
+            </View>
           </View>
-        </View>
 
-        {/* 设置栏目 */}
-        <View className='mt-6'>
-          <Text className='text-xs font-medium text-text-muted'>{t('profile.sections.settings')}</Text>
-          <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
-            <View
-              className='border-b border-border px-4 py-3'
-              onClick={() => void Taro.navigateTo({ url: '/pages/profile-info/index' })}
-            >
-              <Text className='text-sm font-medium text-text'>{t('profileInfo.title')}</Text>
-            </View>
-            <View
-              className='border-b border-border px-4 py-3'
-              onClick={() => {
-                // 重开弹窗默认回到「修改密码」tab（accountTab 是组件层 state，不重置会残留上次选择）
-                setAccountTab('password')
-                setNewPwd('')
-                setConfirmPwd('')
-                setPwdError(null)
-                setIsPwdModalOpen(true)
-              }}
-            >
-              <Text className='text-sm font-medium text-text'>{t('profile.settings.account')}</Text>
-            </View>
-            {/* 考勤：本人考勤历史，起止日期过滤（打开时才挂载查询组件） */}
-            <View
-              className='border-b border-border px-4 py-3'
-              onClick={() => {
-                if (user) setIsAttendanceOpen(true)
-              }}
-            >
-              <Text className='text-sm font-medium text-text'>{t('profile.settings.attendance')}</Text>
-            </View>
-            {/* 我的活动：我发布的活动管理（锁定/删除/编辑） */}
-            <View
-              className='border-b border-border px-4 py-3'
-              onClick={() => void Taro.navigateTo({ url: '/pages/my-activities/index' })}
-            >
-              <Text className='text-sm font-medium text-text'>{t('profile.settings.myActivities')}</Text>
-            </View>
-            {/* 语言：中文 / English，默认跟随系统、手动覆盖并持久化 */}
-            <View
-              className='border-b border-border px-4 py-3'
-              onClick={() => setIsLangOpen(true)}
-            >
-              <LanguagePreview className='text-sm font-medium text-text' />
-            </View>
-            {/* 外观：亮色 / 暗色 / 跟随系统 三态主题切换 */}
-            <View className='border-b border-border px-4 py-3' onClick={() => setIsThemeOpen(true)}>
-              <Text className='text-sm font-medium text-text'>{t('profile.settings.appearance')}</Text>
-            </View>
-            {/* 问题与反馈：匿名提交，底部弹窗 */}
-            <View
-              className='border-b border-border px-4 py-3'
-              onClick={() => setIsFeedbackOpen(true)}
-            >
-              <Text className='text-sm font-medium text-text'>{t('profile.settings.feedback')}</Text>
-            </View>
-            <View className='px-4 py-3' onClick={() => void handleLogout()}>
-              <Text className='text-sm font-medium text-danger'>{t('profile.settings.logout')}</Text>
+          {/* 设置栏目 */}
+          <View className='mt-6'>
+            <Text className='text-xs font-medium text-text-muted'>
+              {t('profile.sections.settings')}
+            </Text>
+            <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => void Taro.navigateTo({ url: '/pages/profile-info/index' })}
+              >
+                <Text className='text-sm font-medium text-text'>{t('profileInfo.title')}</Text>
+              </View>
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => {
+                  // 重开弹窗默认回到「修改密码」tab（accountTab 是组件层 state，不重置会残留上次选择）
+                  setAccountTab('password')
+                  setNewPwd('')
+                  setConfirmPwd('')
+                  setPwdError(null)
+                  setIsPwdModalOpen(true)
+                }}
+              >
+                <Text className='text-sm font-medium text-text'>
+                  {t('profile.settings.account')}
+                </Text>
+              </View>
+              {/* 考勤：本人考勤历史，起止日期过滤（打开时才挂载查询组件） */}
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => {
+                  if (user) setIsAttendanceOpen(true)
+                }}
+              >
+                <Text className='text-sm font-medium text-text'>
+                  {t('profile.settings.attendance')}
+                </Text>
+              </View>
+              {/* 我的活动：我发布的活动管理（锁定/删除/编辑） */}
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => void Taro.navigateTo({ url: '/pages/my-activities/index' })}
+              >
+                <Text className='text-sm font-medium text-text'>
+                  {t('profile.settings.myActivities')}
+                </Text>
+              </View>
+              {/* 语言：中文 / English，默认跟随系统、手动覆盖并持久化 */}
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => setIsLangOpen(true)}
+              >
+                <LanguagePreview className='text-sm font-medium text-text' />
+              </View>
+              {/* 外观：亮色 / 暗色 / 跟随系统 三态主题切换 */}
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => setIsThemeOpen(true)}
+              >
+                <Text className='text-sm font-medium text-text'>
+                  {t('profile.settings.appearance')}
+                </Text>
+              </View>
+              {/* 问题与反馈：匿名提交，底部弹窗 */}
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => setIsFeedbackOpen(true)}
+              >
+                <Text className='text-sm font-medium text-text'>
+                  {t('profile.settings.feedback')}
+                </Text>
+              </View>
+              <View className='px-4 py-3' onClick={() => void handleLogout()}>
+                <Text className='text-sm font-medium text-danger'>
+                  {t('profile.settings.logout')}
+                </Text>
+              </View>
             </View>
           </View>
+          {/* 版本号：随时可查，报障时便于核对 */}
+          <View className='mt-8 text-center'>
+            <Text className='text-xs text-text-subtle'>
+              {t('common.appName')} · {getAppVersionLabel()}
+            </Text>
+          </View>
         </View>
-        {/* 版本号：随时可查，报障时便于核对 */}
-        <View className='mt-8 text-center'>
-          <Text className='text-xs text-text-subtle'>{t('common.appName')} · {getAppVersionLabel()}</Text>
-        </View>
-      </View>
       </ScrollView>
 
       {/* 账号与密码 Modal（Issue #214 语义 tab 化）：标题下方、内容上方左对齐
@@ -379,36 +405,27 @@ export default function Profile() {
 
           {accountTab === 'password' ? (
             <View className='mt-4'>
-              <View>
-                <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.account.newPassword')}</Text>
-                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-                  <Input
-                    className='h-10 w-full bg-transparent text-sm text-text'
-                    password
-                    placeholder={t('profile.account.newPasswordPlaceholder')}
-                    value={newPwd}
-                    onInput={(e) => {
-                      setNewPwd(e.detail.value)
-                      setPwdError(null)
-                    }}
-                  />
-                </View>
-              </View>
-              <View className='mt-3'>
-                <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.account.confirmPassword')}</Text>
-                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-                  <Input
-                    className='h-10 w-full bg-transparent text-sm text-text'
-                    password
-                    placeholder={t('profile.account.confirmPasswordPlaceholder')}
-                    value={confirmPwd}
-                    onInput={(e) => {
-                      setConfirmPwd(e.detail.value)
-                      setPwdError(null)
-                    }}
-                  />
-                </View>
-              </View>
+              <TextField
+                label={t('profile.account.newPassword')}
+                password
+                placeholder={t('profile.account.newPasswordPlaceholder')}
+                value={newPwd}
+                onInput={(e) => {
+                  setNewPwd(e.detail.value)
+                  setPwdError(null)
+                }}
+              />
+              <TextField
+                className='mt-3'
+                label={t('profile.account.confirmPassword')}
+                password
+                placeholder={t('profile.account.confirmPasswordPlaceholder')}
+                value={confirmPwd}
+                onInput={(e) => {
+                  setConfirmPwd(e.detail.value)
+                  setPwdError(null)
+                }}
+              />
               {pwdError && <Text className='mt-3 block text-xs text-danger'>{pwdError}</Text>}
               {/* 双按钮操作行右下角（取消 + 确认修改）；取消按钮任一提交飞行中禁用 */}
               <View className='mt-3 flex justify-end gap-2'>
@@ -428,29 +445,29 @@ export default function Profile() {
                   }`}
                   onClick={isUpdatingPwd ? undefined : () => void handleUpdatePassword()}
                 >
-                  {isUpdatingPwd ? t('profile.account.submitting') : t('profile.account.confirmChange')}
+                  {isUpdatingPwd
+                    ? t('profile.account.submitting')
+                    : t('profile.account.confirmChange')}
                 </View>
               </View>
             </View>
           ) : (
             <View className='mt-4'>
               {/* 当前邮箱只读展示（Issue #199 语义）；「换绑邮箱」小标题由 tab 承担 */}
-              <Text className='block text-xs text-text-subtle'>{t('profile.account.currentEmail', { email })}</Text>
-              <View className='mt-3'>
-                <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.account.newEmail')}</Text>
-                <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-                  <Input
-                    className='h-10 w-full bg-transparent text-sm text-text'
-                    placeholder={t('profile.account.newEmailPlaceholder')}
-                    value={newEmail}
-                    disabled={isRebindingEmail}
-                    onInput={(e) => {
-                      setNewEmail(e.detail.value)
-                      newEmailRef.current = e.detail.value // 同步最新值（async 闭包读 ref）
-                    }}
-                  />
-                </View>
-              </View>
+              <Text className='block text-xs text-text-subtle'>
+                {t('profile.account.currentEmail', { email })}
+              </Text>
+              <TextField
+                className='mt-3'
+                label={t('profile.account.newEmail')}
+                placeholder={t('profile.account.newEmailPlaceholder')}
+                value={newEmail}
+                disabled={isRebindingEmail}
+                onInput={(e) => {
+                  setNewEmail(e.detail.value)
+                  newEmailRef.current = e.detail.value // 同步最新值（async 闭包读 ref）
+                }}
+              />
               {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
               <View className='mt-3 flex justify-end gap-2'>
                 <View
@@ -459,7 +476,9 @@ export default function Profile() {
                   }`}
                   onClick={isRebindingEmail ? undefined : () => void handleRebindEmail()}
                 >
-                  {isRebindingEmail ? t('profile.account.submitting') : t('profile.account.sendVerifyEmail')}
+                  {isRebindingEmail
+                    ? t('profile.account.submitting')
+                    : t('profile.account.sendVerifyEmail')}
                 </View>
               </View>
             </View>
@@ -479,7 +498,11 @@ export default function Profile() {
       <FeedbackModal open={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
 
       {/* 语言选择：默认跟随系统，手动选择后持久化 */}
-      <Modal open={isLangOpen} onClose={() => setIsLangOpen(false)} title={t('profile.language.title')}>
+      <Modal
+        open={isLangOpen}
+        onClose={() => setIsLangOpen(false)}
+        title={t('profile.language.title')}
+      >
         <View>
           {(['zh-CN', 'en'] as const).map((l) => {
             const labels: Record<'zh-CN' | 'en', string> = {
@@ -502,7 +525,6 @@ export default function Profile() {
           })}
         </View>
       </Modal>
-
     </View>
   )
 }

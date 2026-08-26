@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { View, Text, Textarea } from '@tarojs/components'
+import { FormField } from '@/components/ui/FormFields'
 import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { getAppVersionLabel } from '@/lib/version'
@@ -36,7 +37,10 @@ export function FeedbackModal({ open, onClose }: Props) {
     try {
       const { error } = await supabase.from('feedback').insert({ content: trimmed })
       if (error) {
-        void Taro.showToast({ title: error.message || t('profile.feedback.submitFailed'), icon: 'none' })
+        void Taro.showToast({
+          title: error.message || t('profile.feedback.submitFailed'),
+          icon: 'none',
+        })
         return
       }
       void Taro.showToast({ title: t('profile.feedback.submitted'), icon: 'success' })
@@ -65,9 +69,13 @@ export function FeedbackModal({ open, onClose }: Props) {
       closeOnOverlay={!submitting}
     >
       <View className='mt-4'>
-        <Text className='mt-3 block text-xs text-text-muted'>{t('profile.feedback.anonymousHint')}</Text>
-        <Text className='mt-1 block text-xs text-text-subtle'>{t('profile.feedback.version', { version: getAppVersionLabel() })}</Text>
-        <View className='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
+        <Text className='mt-3 block text-xs text-text-muted'>
+          {t('profile.feedback.anonymousHint')}
+        </Text>
+        <Text className='mt-1 block text-xs text-text-subtle'>
+          {t('profile.feedback.version', { version: getAppVersionLabel() })}
+        </Text>
+        <FormField boxClass='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
           <Textarea
             value={content}
             onInput={(e) => setContent(e.detail.value)}
@@ -76,7 +84,7 @@ export function FeedbackModal({ open, onClose }: Props) {
             className='h-32 bg-transparent px-3 py-3 text-xs leading-relaxed text-text'
             placeholder={t('profile.feedback.placeholder')}
           />
-        </View>
+        </FormField>
         {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
         <View className='mt-3 flex justify-end gap-2'>
           <View

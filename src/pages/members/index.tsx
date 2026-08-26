@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { View, Text, Input, ScrollView } from '@tarojs/components'
+import { View, Text, ScrollView } from '@tarojs/components'
+import { TextField } from '@/components/ui/FormFields'
 import { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -32,7 +33,6 @@ export default function Members() {
   } = useProfiles({ status: 'approved' })
 
   const darkClass = useThemeClass()
-
 
   // 切回本 tab 时重新拉取花名册（Taro tab 页常驻内存不卸载，仅靠挂载时一次
   // 拉取会导致「改完资料回来仍是旧数据」；回到本页静默刷新，旧数据仍展示不闪加载）
@@ -74,73 +74,85 @@ export default function Members() {
         {/* 底部留白：底边栏固定覆盖在页面底部（高 50px + 安全区），
             花名册成员多时 ScrollView 末行会被底边栏遮挡、无法滚到底，故内容底部补足留白 */}
         <View className='pb-8'>
-        <View className='mb-4 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'>
-          <Input
-            className='h-10 w-full bg-transparent text-sm text-text'
+          <TextField
+            boxClass='mb-4 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'
             placeholder={t('members.searchPlaceholder')}
             value={searchQuery}
             onInput={(e) => setSearchQuery(e.detail.value)}
           />
-        </View>
 
-        {rosterLoading && (allProfiles ?? []).length === 0 ? (
-          <Text className='block py-8 text-center text-xs text-text-subtle'>{t('common.actions.loading')}</Text>
-        ) : rosterError ? (
-          <Card className='border-danger-bg bg-danger-bg/80'>
-            <Text className='block px-3 py-2 text-sm text-danger'>{rosterError}</Text>
-          </Card>
-        ) : rosterRows.length === 0 ? (
-          <Text className='block py-8 text-center text-xs text-text-muted'>{t('members.emptyApproved')}</Text>
-        ) : grouped.length === 0 ? (
-          <Text className='block py-8 text-center text-xs text-text-muted'>{t('members.emptyMatch')}</Text>
-        ) : (
-          <View>
-            {grouped.map(({ group, users }) => (
-              <View key={group} className='mb-5'>
+          {rosterLoading && (allProfiles ?? []).length === 0 ? (
+            <Text className='block py-8 text-center text-xs text-text-subtle'>
+              {t('common.actions.loading')}
+            </Text>
+          ) : rosterError ? (
+            <Card className='border-danger-bg bg-danger-bg/80'>
+              <Text className='block px-3 py-2 text-sm text-danger'>{rosterError}</Text>
+            </Card>
+          ) : rosterRows.length === 0 ? (
+            <Text className='block py-8 text-center text-xs text-text-muted'>
+              {t('members.emptyApproved')}
+            </Text>
+          ) : grouped.length === 0 ? (
+            <Text className='block py-8 text-center text-xs text-text-muted'>
+              {t('members.emptyMatch')}
+            </Text>
+          ) : (
+            <View>
+              {grouped.map(({ group, users }) => (
+                <View key={group} className='mb-5'>
                   <Text className='mb-2 block text-xs font-medium uppercase tracking-wide text-text-muted'>
                     {translateInstrument(group, t)}
                   </Text>
-                <View>
-                  {users.map((u) => {
-                    // 查看自己时隐私开关不生效，显示原值；查看他人按对方开关掩码
-                    const isSelf = u.id === currentUser?.id
-                    return (
-                      <View
-                        key={u.id}
-                        className='mb-2 rounded-xl border border-border bg-card px-3 py-2'
-                        onClick={() => setSelectedUser(u)}
-                      >
-                        <View className='flex flex-wrap items-center gap-1.5'>
-                          <Text className='font-medium text-text'>
-                            {(translateInstrument(u.instrument, t) || '—') + ' - ' + (u.full_name ?? '—')}
-                          </Text>
-                           {u.is_section_leader && (
-                            <Text className='rounded-full bg-warning-bg px-1.5 py-1 text-xs text-warning'>
-                              {t('members.sectionLeader')}
+                  <View>
+                    {users.map((u) => {
+                      // 查看自己时隐私开关不生效，显示原值；查看他人按对方开关掩码
+                      const isSelf = u.id === currentUser?.id
+                      return (
+                        <View
+                          key={u.id}
+                          className='mb-2 rounded-xl border border-border bg-card px-3 py-2'
+                          onClick={() => setSelectedUser(u)}
+                        >
+                          <View className='flex flex-wrap items-center gap-1.5'>
+                            <Text className='font-medium text-text'>
+                              {(translateInstrument(u.instrument, t) || '—') +
+                                ' - ' +
+                                (u.full_name ?? '—')}
                             </Text>
-                          )}
+                            {u.is_section_leader && (
+                              <Text className='rounded-full bg-warning-bg px-1.5 py-1 text-xs text-warning'>
+                                {t('members.sectionLeader')}
+                              </Text>
+                            )}
+                          </View>
+                          <Text className='mt-1 block text-text-muted'>
+                            {t('members.collegeLabel')}
+                            {u.college?.trim() || '—'}
+                          </Text>
+                          <Text className='mt-1 block text-text-muted'>
+                            {t('members.emailLabel')}
+                            {maskedValue(!isSelf && u.hide_email, u.email)}
+                          </Text>
+                          <Text className='mt-1 block text-text-subtle'>
+                            {t('members.joinDateLabel')}
+                            {translateJoinDate(
+                              maskedValue(!isSelf && u.hide_join_date, u.join_date),
+                              t
+                            )}
+                            {/* 在团标记（"-" 连接）：true=团员，false=团友；null 未填写则不追加 */}
+                            {u.is_in_orchestra == null
+                              ? ''
+                              : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagFriend')}`}
+                          </Text>
                         </View>
-                        <Text className='mt-1 block text-text-muted'>
-                          {t('members.collegeLabel')}{u.college?.trim() || '—'}
-                        </Text>
-                        <Text className='mt-1 block text-text-muted'>
-                          {t('members.emailLabel')}{maskedValue(!isSelf && u.hide_email, u.email)}
-                        </Text>
-                        <Text className='mt-1 block text-text-subtle'>
-                          {t('members.joinDateLabel')}{translateJoinDate(maskedValue(!isSelf && u.hide_join_date, u.join_date), t)}
-                          {/* 在团标记（"-" 连接）：true=团员，false=团友；null 未填写则不追加 */}
-                          {u.is_in_orchestra == null
-                            ? ''
-                            : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagFriend')}`}
-                        </Text>
-                      </View>
-                    )
-                  })}
+                      )
+                    })}
+                  </View>
                 </View>
-              </View>
-            ))}
-          </View>
-        )}
+              ))}
+            </View>
+          )}
         </View>
       </ScrollView>
 
