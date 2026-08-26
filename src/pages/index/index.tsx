@@ -9,7 +9,7 @@ import { useThemeClass } from '@/context/theme-context'
 import { dataSyncBump } from '@/lib/dataSync'
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import { Toggle } from '@/components/ui/Toggle'
-import { Card } from '@/components/ui/Card'
+import { ListState } from '@/components/ui/ListState'
 import { Modal } from '@/components/ui/Modal'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { PageHeader } from '@/components/page-header'
@@ -21,14 +21,22 @@ import {
   sortRehearsalsForMember,
   sortEndedFullRehearsals,
 } from '@/lib/rehearsal-sort'
-import { isRehearsalSeen, subscribeRehearsalSeen, setRehearsalUnviewedFlag } from '@/lib/rehearsalSeen'
+import {
+  isRehearsalSeen,
+  subscribeRehearsalSeen,
+  setRehearsalUnviewedFlag,
+} from '@/lib/rehearsalSeen'
 import { useT, useNavTitle } from '@/i18n'
 import { RehearsalCard } from './components/rehearsal-card'
 import './index.scss'
 
 export default function Index() {
-  const { data: rehearsals, loading: rehearsalsLoading, error: rehearsalsError, fetch: fetchRehearsals } =
-    useRehearsals()
+  const {
+    data: rehearsals,
+    loading: rehearsalsLoading,
+    error: rehearsalsError,
+    fetch: fetchRehearsals,
+  } = useRehearsals()
   const {
     data: announcement,
     loading: announcementLoading,
@@ -126,8 +134,16 @@ export default function Index() {
 
       <View className='mb-3 mt-1'>
         <PageHeader
-          title={scheduleTab === 'history' ? t('home.schedule.historyTitle') : t('home.schedule.weekTitle')}
-          subtitle={scheduleTab === 'history' ? t('home.schedule.historySubtitle') : t('home.schedule.weekSubtitle')}
+          title={
+            scheduleTab === 'history'
+              ? t('home.schedule.historyTitle')
+              : t('home.schedule.weekTitle')
+          }
+          subtitle={
+            scheduleTab === 'history'
+              ? t('home.schedule.historySubtitle')
+              : t('home.schedule.weekSubtitle')
+          }
         />
         <View className='mt-2'>
           <Toggle
@@ -164,28 +180,27 @@ export default function Index() {
         {/* 底部留白：自定义 tabBar 固定覆盖页面底部（高 50px + 安全区），
             历史合排多时末行会被遮挡、无法滚到底，故内容底部补足留白（与成员页一致） */}
         <View className='pb-8'>
-        {/* 仅在无数据时才显示 loading（有旧数据静默刷新不闪） */}
-        {rehearsalsLoading && rehearsals.length === 0 ? (
-           <Text className='block py-12 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
-         ) : rehearsalsError ? (
-           <Card className='border-danger-bg bg-danger-bg/80'>
-             <Text className='block px-3 py-2 text-sm text-danger'>{t('home.loadFailed', { error: rehearsalsError })}</Text>
-           </Card>
-         ) : list.length === 0 ? (
-           <Text className='block py-12 text-center text-xs text-text-muted'>{t('home.emptySchedule')}</Text>
-        ) : (
-          list.map((r) => (
-            <View key={String(r.id)} className='mb-3'>
-              <RehearsalCard
-                item={r}
-                isUpdated={isRehearsalUpdated(r) && !isRehearsalEnded(r, new Date(nowTick))}
-                onClick={() => Taro.navigateTo({ url: `/pages/rehearsal-detail/index?id=${r.id}` })}
-                // 已结束（历史合排）不显示红气泡
-                seen={isRehearsalSeen(r.id) || isRehearsalEnded(r, new Date(nowTick))}
-              />
-            </View>
-          ))
-        )}
+          <ListState
+            loading={rehearsalsLoading}
+            isEmpty={list.length === 0}
+            error={rehearsalsError}
+            emptyText={t('home.emptySchedule')}
+            onRetry={() => void fetchRehearsals()}
+          >
+            {list.map((r) => (
+              <View key={String(r.id)} className='mb-3'>
+                <RehearsalCard
+                  item={r}
+                  isUpdated={isRehearsalUpdated(r) && !isRehearsalEnded(r, new Date(nowTick))}
+                  onClick={() =>
+                    Taro.navigateTo({ url: `/pages/rehearsal-detail/index?id=${r.id}` })
+                  }
+                  // 已结束（历史合排）不显示红气泡
+                  seen={isRehearsalSeen(r.id) || isRehearsalEnded(r, new Date(nowTick))}
+                />
+              </View>
+            ))}
+          </ListState>
         </View>
       </ScrollView>
 
@@ -197,9 +212,11 @@ export default function Index() {
         position='bottom'
       >
         <View>
-           <Text className='mb-3 block text-xs text-text-muted'>
-             {t('home.publishTime', { time: formatDateTimeInChina(announcement?.created_at ?? null) })}
-           </Text>
+          <Text className='mb-3 block text-xs text-text-muted'>
+            {t('home.publishTime', {
+              time: formatDateTimeInChina(announcement?.created_at ?? null),
+            })}
+          </Text>
           <View className='max-h-[60vh] overflow-y-auto'>
             <Text className='whitespace-pre-wrap break-words text-sm leading-relaxed text-text'>
               {announcement?.content}

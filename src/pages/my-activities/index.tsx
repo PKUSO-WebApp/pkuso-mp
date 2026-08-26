@@ -7,6 +7,7 @@ import { useT, useNavTitle } from '@/i18n'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { PageHeader } from '@/components/page-header'
 import { Card } from '@/components/ui/Card'
+import { ListState } from '@/components/ui/ListState'
 import { Modal } from '@/components/ui/Modal'
 import type { PostRowWithAuthor } from '@/types/database'
 import './index.scss'
@@ -31,9 +32,12 @@ export default function MyActivitiesPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
-  const load = useCallback((opts?: { silent?: boolean }) => {
-    void fetchMine(opts)
-  }, [fetchMine])
+  const load = useCallback(
+    (opts?: { silent?: boolean }) => {
+      void fetchMine(opts)
+    },
+    [fetchMine]
+  )
 
   useEffect(() => {
     void load()
@@ -67,14 +71,13 @@ export default function MyActivitiesPage() {
       </View>
 
       <View className='flex-1 min-h-0 overflow-y-auto'>
-        {/* 仅在无数据时才显示 loading（有旧数据静默刷新不闪） */}
-        {mineLoading && mine.length === 0 ? (
-          <Text className='block py-12 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
-        ) : mineError ? (
-          <Text className='block px-3 py-2 text-sm text-danger'>{mineError}</Text>
-        ) : mine.length === 0 ? (
-          <Text className='block py-12 text-center text-xs text-text-muted'>{t('myActivities.empty')}</Text>
-        ) : (
+        <ListState
+          loading={mineLoading}
+          isEmpty={mine.length === 0}
+          error={mineError}
+          emptyText={t('myActivities.empty')}
+          onRetry={() => void load()}
+        >
           <View className='pb-4'>
             {mine.map((post) => {
               const isEnsemble = post.type === 'ensemble'
@@ -84,7 +87,9 @@ export default function MyActivitiesPage() {
                 <Card key={post.id} className='relative mb-3'>
                   {/* 顶行：标题 + ··· 小菜单 */}
                   <View className='flex items-start justify-between gap-2'>
-                    <Text className='min-w-0 flex-1 text-sm font-semibold text-text'>{post.title}</Text>
+                    <Text className='min-w-0 flex-1 text-sm font-semibold text-text'>
+                      {post.title}
+                    </Text>
                     <View className='relative shrink-0'>
                       <View
                         className='px-1 py-0.5 text-[10px] leading-none text-text-muted'
@@ -95,10 +100,7 @@ export default function MyActivitiesPage() {
                       {menuOpen && (
                         <>
                           {/* 点击空白处关闭小菜单 */}
-                          <View
-                            className='fixed inset-0 z-[55]'
-                            onClick={() => setMenuId(null)}
-                          />
+                          <View className='fixed inset-0 z-[55]' onClick={() => setMenuId(null)} />
                           <View className='absolute right-0 top-6 z-[56] w-28 rounded-xl border border-border bg-surface py-1 shadow-lg'>
                             {/* 管理员锁定的帖子：用户不可解锁，不出现该菜单项 */}
                             {post.locked_by !== 'admin' && (
@@ -106,7 +108,9 @@ export default function MyActivitiesPage() {
                                 className='px-4 py-2 text-sm text-text'
                                 onClick={() => void handleToggleLock(post)}
                               >
-                                {post.is_locked ? t('common.actions.unlock') : t('common.actions.lock')}
+                                {post.is_locked
+                                  ? t('common.actions.unlock')
+                                  : t('common.actions.lock')}
                               </View>
                             )}
                             <View
@@ -155,7 +159,9 @@ export default function MyActivitiesPage() {
                   {/* 底行：编辑 › */}
                   <View
                     className='mt-2 flex justify-end'
-                    onClick={() => void Taro.navigateTo({ url: `/pages/post-edit/index?id=${post.id}` })}
+                    onClick={() =>
+                      void Taro.navigateTo({ url: `/pages/post-edit/index?id=${post.id}` })
+                    }
                   >
                     <Text className='text-xs text-danger'>{t('common.actions.edit')} ›</Text>
                   </View>
@@ -163,11 +169,15 @@ export default function MyActivitiesPage() {
               )
             })}
           </View>
-        )}
+        </ListState>
       </View>
 
       {/* 删除确认 */}
-      <Modal open={!!confirmDeleteId} onClose={() => setConfirmDeleteId(null)} title={t('myActivities.confirmDeleteTitle')}>
+      <Modal
+        open={!!confirmDeleteId}
+        onClose={() => setConfirmDeleteId(null)}
+        title={t('myActivities.confirmDeleteTitle')}
+      >
         <Text className='block text-sm text-text'>{t('myActivities.confirmDeleteContent')}</Text>
         <View className='mt-4 flex gap-3'>
           <View

@@ -7,6 +7,7 @@ import { notifyNotificationsUpdated } from '@/components/notification-badge-sync
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import { classifyActivityNotification } from '@/lib/activity-notification'
 import { useT } from '@/i18n'
+import { ListState } from '@/components/ui/ListState'
 
 type Props = {
   category: NotificationCategory
@@ -62,14 +63,13 @@ export function NotificationList({ category, title, topSlot, typeFilter }: Props
       {topSlot}
       <Text className='block text-lg font-semibold text-text'>{title}</Text>
       <View className='mt-3'>
-        {loading ? (
-          <Text className='block py-10 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
-        ) : failed ? (
-          <Text className='block py-10 text-center text-sm text-text-muted'>{t('notification.list.failed')}</Text>
-        ) : visible.length === 0 ? (
-          <Text className='block py-10 text-center text-sm text-text-muted'>{t('notification.list.empty')}</Text>
-        ) : (
-          visible.map((msg) => (
+        <ListState
+          loading={loading}
+          isEmpty={visible.length === 0}
+          error={failed ? t('notification.list.failed') : null}
+          emptyText={t('notification.list.empty')}
+        >
+          {visible.map((msg) => (
             <View key={msg.id} className='mb-2 rounded-xl border border-border bg-card p-3'>
               <View className='flex items-start justify-between gap-2'>
                 <Text className='min-w-0 flex-1 text-sm font-medium text-text'>{msg.title}</Text>
@@ -81,8 +81,8 @@ export function NotificationList({ category, title, topSlot, typeFilter }: Props
                 {msg.content}
               </Text>
             </View>
-          ))
-        )}
+          ))}
+        </ListState>
       </View>
     </View>
   )

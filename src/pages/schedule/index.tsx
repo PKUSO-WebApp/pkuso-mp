@@ -10,6 +10,7 @@ import { useT, useNavTitle } from '@/i18n'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 
 import { PageHeader } from '@/components/page-header'
+import { ListState } from '@/components/ui/ListState'
 import { getLocalDateString, parseLocalISO, formatDisplayDate } from '@/lib/date-utils'
 import { DateSelector } from './components/date-selector'
 import { ScheduleGantt } from './components/schedule-gantt'
@@ -103,19 +104,15 @@ export default function Schedule() {
 
       {/* 甘特图：flex-1 占满剩余空间，内部独立滚动 */}
       <View className='mb-4 flex-1 min-h-0 overflow-y-auto rounded-xl border border-border bg-card'>
-        {/* 仅在无数据时才显示 loading（有旧数据静默刷新不闪） */}
-        {loading && schedules.length === 0 ? (
-          <Text className='block py-16 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
-        ) : error ? (
-          <Text className='block px-3 py-16 text-center text-sm text-danger'>{error}</Text>
-        ) : (
+        {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
+        <ListState loading={loading} isEmpty={false} error={error}>
           <ScheduleGantt
             schedules={filteredSchedules}
             selectedDate={selectedDate}
             user={user}
             remove={remove}
           />
-        )}
+        </ListState>
       </View>
 
       {/* 添加预约弹窗（成员写入排练房申请） */}

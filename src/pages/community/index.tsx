@@ -10,6 +10,7 @@ import { AdminBlockedPage } from '@/components/admin-blocked-page'
 
 import { Toggle } from '@/components/ui/Toggle'
 import { Card } from '@/components/ui/Card'
+import { ListState } from '@/components/ui/ListState'
 import { PageHeader } from '@/components/page-header'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
 import {
@@ -124,7 +125,9 @@ export default function Community() {
             options={['ensemble', 'gathering']}
             value={view}
             onChange={(v) => handleSwitchType(v as PostType)}
-            getLabel={(k) => (k === 'ensemble' ? t('community.type.ensemble') : t('community.type.gathering'))}
+            getLabel={(k) =>
+              k === 'ensemble' ? t('community.type.ensemble') : t('community.type.gathering')
+            }
             badges={{ ensemble: hasUnviewedEnsemble, gathering: hasUnviewedGathering }}
           />
         </View>
@@ -132,32 +135,33 @@ export default function Community() {
 
       {/* 公告列表（可滚动） */}
       <View className='flex-1 min-h-0 overflow-y-auto'>
-        {/* 仅在无数据时才显示 loading（有旧数据静默刷新不闪） */}
-        {loading && posts.length === 0 ? (
-          <Text className='block py-12 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
-        ) : error ? (
-          <Card className='border-danger-bg bg-danger-bg/80'>
-            <Text className='block px-3 py-2 text-sm text-danger'>{error}</Text>
-          </Card>
-        ) : list.length === 0 ? (
-          <Text className='block py-12 text-center text-xs text-text-muted'>
-            {t('community.empty', {
-              type: t(view === 'ensemble' ? 'community.type.ensemble' : 'community.type.gathering'),
-            })}
-          </Text>
-        ) : (
+        <ListState
+          loading={loading}
+          isEmpty={list.length === 0}
+          error={error}
+          emptyText={t('community.empty', {
+            type: t(view === 'ensemble' ? 'community.type.ensemble' : 'community.type.gathering'),
+          })}
+          onRetry={() => void fetch({ silent: true })}
+        >
           <View>
             {list.map((post) => (
               <Card
                 key={post.id}
                 className='relative mb-3'
-                onClick={() => void Taro.navigateTo({ url: `/pages/post-detail/index?id=${post.id}` })}
+                onClick={() =>
+                  void Taro.navigateTo({ url: `/pages/post-detail/index?id=${post.id}` })
+                }
               >
                 <View className='flex items-start justify-between gap-2'>
                   <View className='min-w-0 flex-1'>
                     <Text className='block text-sm font-semibold text-text'>{post.title}</Text>
                     <Text className='mt-0.5 block text-label text-text-muted'>
-                      {t(post.type === 'ensemble' ? 'community.type.ensemble' : 'community.type.gathering')}
+                      {t(
+                        post.type === 'ensemble'
+                          ? 'community.type.ensemble'
+                          : 'community.type.gathering'
+                      )}
                       {formatPostDate(post.created_at) && ` · ${formatPostDate(post.created_at)}`}
                     </Text>
                     {post.type === 'ensemble' && hasSectionText(post.missing_sections) && (
@@ -181,7 +185,7 @@ export default function Community() {
               </Card>
             ))}
           </View>
-        )}
+        </ListState>
       </View>
     </View>
   )
