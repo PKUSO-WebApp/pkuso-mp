@@ -13,6 +13,7 @@ import {
   readStoredThemeSync,
   resolveTheme,
   writeThemePreference,
+  THEME_PALETTE,
   type ThemePreference,
   type ThemeMode,
 } from '@/lib/theme'
@@ -28,32 +29,6 @@ export type ThemeContextValue = {
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
-
-/** 导航栏配色（与 app.css 亮/暗语义 token 对应的页面/卡片底色） */
-const NAV_BAR_COLORS: Record<ThemeMode, { frontColor: string; backgroundColor: string }> = {
-  light: { frontColor: '#000000', backgroundColor: '#f4f4f5' },
-  dark: { frontColor: '#ffffff', backgroundColor: '#09090b' },
-}
-
-/** 页面窗口（page 元素）与 tabBar 配色：页面根 View 只覆盖内容区，
-    滚动阻尼/下拉露出的窗口底色与原生 tabBar 需随模式同步，
-    否则暗色模式下背景仍是白色（app.config 的 backgroundColor 是静态的） */
-const WINDOW_COLORS: Record<
-  ThemeMode,
-  {
-    backgroundColor: string
-    tabBar: { backgroundColor: string; color: string; selectedColor: string }
-  }
-> = {
-  light: {
-    backgroundColor: '#f4f4f5',
-    tabBar: { backgroundColor: '#ffffff', color: '#71717a', selectedColor: '#18181b' },
-  },
-  dark: {
-    backgroundColor: '#09090b',
-    tabBar: { backgroundColor: '#09090b', color: '#a1a1aa', selectedColor: '#f4f4f5' },
-  },
-}
 
 /**
  * 全局主题 Provider：全站共享一份主题状态与系统外观监听（Web Issue #203 语义）。
@@ -72,17 +47,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [systemDark, setSystemDark] = useState<boolean>(() => getSystemDark())
   const mode = resolveTheme(preference, systemDark)
 
-  // 导航栏/窗口底色跟随实际模式；custom tabBar 自管主题（见 themeStore），不再调用 setTabBarStyle
+  // 导航栏/窗口底色跟随实际模式；custom tabBar 自管主题（见 themeStore），不再调用 setTabBarStyle。
+  // 配色取自 lib/theme.ts THEME_PALETTE 单一真相源（P2-8）
   useEffect(() => {
-    const colors = NAV_BAR_COLORS[mode]
-    const windowColors = WINDOW_COLORS[mode]
+    const p = THEME_PALETTE[mode]
     // 非 tab 页调部分 API 会 reject，统一 catch 静默（非页面环境如测试同样跳过）
     const noop = () => {}
     try {
-      void Taro.setNavigationBarColor(colors).catch(noop)
+      void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(noop)
       // page 元素背景（窗口底色）：页面根 View 盖不到滚动阻尼露出的区域
-      void Taro.setBackgroundColor({ backgroundColor: windowColors.backgroundColor }).catch(noop)
-      // custom tabBar 通过 themeStore 订阅 mode 自行套 .dark 类与语义 token，无需同步原生 tabBar
+      void Taro.setBackgroundColor({ backgroundColor: p.windowBg }).catch(noop)
     } catch {
       // 非页面环境（如测试）静默跳过
     }

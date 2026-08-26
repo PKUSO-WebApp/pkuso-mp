@@ -14,6 +14,7 @@ import {
   subscribePostUnviewed,
 } from '@/lib/postSeen'
 import { getThemeMode, subscribeThemeMode } from '@/lib/themeStore'
+import { THEME_PALETTE } from '@/lib/theme'
 import { getOverlayOpen, subscribeOverlayOpen } from '@/lib/overlayStore'
 import {
   getTabBarSelected,
@@ -80,9 +81,12 @@ const LIST = [
   },
 ] as const
 
-// active=选中文字/图标色（更深），inactive=未选中（更浅），提升对比度
-const LIGHT = { bg: '#ffffff', border: '#e4e4e7', active: '#000000', inactive: '#a1a1aa' }
-const DARK = { bg: '#09090b', border: '#27272a', active: '#ffffff', inactive: '#71717a' }
+// 色板单一真相源：lib/theme.ts THEME_PALETTE（与语义 token 亮/暗值一致，P2-8）。
+// active=选中文字色，inactive=未选中（更浅），dot=未读红点
+const paletteFor = (dark: boolean) => {
+  const p = THEME_PALETTE[dark ? 'dark' : 'light']
+  return { bg: p.tabBg, border: p.tabBorder, active: p.tabActive, inactive: p.tabInactive, dot: p.tabDot }
+}
 
 export default class CustomTabBar extends Component {
   state = {
@@ -139,7 +143,7 @@ export default class CustomTabBar extends Component {
 
   render() {
     const { selected, unread, rehearsalUnviewed, postUnviewed, dark, overlay } = this.state
-    const c = dark ? DARK : LIGHT
+    const c = paletteFor(dark)
     return (
       <View
         style={{
@@ -194,7 +198,7 @@ export default class CustomTabBar extends Component {
                       width: '8px',
                       height: '8px',
                       borderRadius: '9999px',
-                      background: dark ? '#f87171' : '#dc2626',
+                      background: c.dot,
                       borderWidth: '1px',
                       borderColor: c.bg,
                     }}
@@ -209,7 +213,7 @@ export default class CustomTabBar extends Component {
                       width: '8px',
                       height: '8px',
                       borderRadius: '9999px',
-                      background: dark ? '#f87171' : '#dc2626',
+                      background: c.dot,
                       borderWidth: '1px',
                       borderColor: c.bg,
                     }}
@@ -224,7 +228,7 @@ export default class CustomTabBar extends Component {
                       width: '8px',
                       height: '8px',
                       borderRadius: '9999px',
-                      background: dark ? '#f87171' : '#dc2626',
+                      background: c.dot,
                       borderWidth: '1px',
                       borderColor: c.bg,
                     }}

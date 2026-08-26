@@ -39,6 +39,46 @@ export const themeLabel = (v: ThemePreference): string =>
 export const isThemePreference = (v: unknown): v is ThemePreference =>
   v === 'light' || v === 'dark' || v === 'system'
 
+/** 导航栏 / 窗口 / tabBar 配色单一真相源（theme-context 与 CustomTabBar 共用，P2-8）。
+ *  取值与 app.css 语义 token 的亮/暗值一一对应，消除多处手写色板漂移 */
+export type ThemePalette = {
+  /** 页面窗口（page 元素）底色（滚动阻尼露出的区域） */
+  windowBg: string
+  /** 原生导航栏前景 / 底色 */
+  navFront: string
+  navBg: string
+  /** tabBar 容器底色 / 描边 / 选中文字 / 未选中文字 */
+  tabBg: string
+  tabBorder: string
+  tabActive: string
+  tabInactive: string
+  /** tabBar 未读红点（= --color-danger token 对应值） */
+  tabDot: string
+}
+
+export const THEME_PALETTE: Record<ThemeMode, ThemePalette> = {
+  light: {
+    windowBg: '#f4f4f5',
+    navFront: '#000000',
+    navBg: '#f4f4f5',
+    tabBg: '#ffffff',
+    tabBorder: '#e4e4e7',
+    tabActive: '#18181b',
+    tabInactive: '#71717a',
+    tabDot: '#dc2626',
+  },
+  dark: {
+    windowBg: '#09090b',
+    navFront: '#ffffff',
+    navBg: '#09090b',
+    tabBg: '#09090b',
+    tabBorder: '#27272a',
+    tabActive: '#f4f4f5',
+    tabInactive: '#a1a1aa',
+    tabDot: '#f87171',
+  },
+}
+
 /**
  * 核心解析规则：给定存储偏好 + 系统暗色偏好 → 最终亮/暗。
  * 无存储（null，即默认）按跟随系统处理。
