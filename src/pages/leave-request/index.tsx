@@ -198,24 +198,20 @@ export default function LeaveRequestPage() {
 
   // 查看态展示申请状态且禁用按钮；编辑态按钮可用，文案为「修改申请 / 重新申请」。
   let submitLabel = t('leaveRequest.submit')
-  let submitClass = 'text-white'
-  let submitStyle: { backgroundColor: string } | undefined = { backgroundColor: '#6198CB' }
+  let submitClass = 'bg-signin text-signin-foreground'
   let submitDisabled = false
   if (mode === 'view') {
     if (leaveStatus === 'pending') {
       submitLabel = t('leaveRequest.statusPending')
       submitClass = 'bg-warning-bg text-warning'
-      submitStyle = undefined
       submitDisabled = true
     } else if (leaveStatus === 'approved') {
       submitLabel = t('leaveRequest.statusApproved')
       submitClass = 'bg-success-bg text-success'
-      submitStyle = undefined
       submitDisabled = true
     } else if (leaveStatus === 'rejected') {
       submitLabel = t('leaveRequest.statusRejected')
       submitClass = 'bg-danger-bg text-danger'
-      submitStyle = undefined
       submitDisabled = true
     }
   } else {
@@ -261,13 +257,15 @@ export default function LeaveRequestPage() {
         ) : (
           <>
             <Text className='block text-sm font-medium text-text'>{t('leaveRequest.reasonLabel')}</Text>
-            <Textarea
-              value={reason}
-              onInput={(e) => setReason(String((e.detail as { value?: string })?.value ?? ''))}
-              placeholder={t('leaveRequest.reasonPlaceholder')}
-              className='mt-1 w-full rounded-lg border border-border bg-surface p-2 text-sm text-text'
-              style={{ minHeight: '96px' }}
-            />
+            {/* 外层 View 约束宽度（AGENTS.md 表单模式），内层 Textarea 透明背景铺满 */}
+            <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface p-2'>
+              <Textarea
+                value={reason}
+                onInput={(e) => setReason(String((e.detail as { value?: string })?.value ?? ''))}
+                placeholder={t('leaveRequest.reasonPlaceholder')}
+                className='h-24 w-full bg-transparent text-sm text-text'
+              />
+            </View>
             <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('leaveRequest.attachmentLabel')}</Text>
             {attachmentPreview ? (
               <View className='relative'>
@@ -313,7 +311,6 @@ export default function LeaveRequestPage() {
             className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${submitClass} ${
               submitDisabled ? 'opacity-90' : ''
             }`}
-            style={submitStyle}
             onClick={submitDisabled || busy ? undefined : handleSubmit}
           >
             {submitLabel}

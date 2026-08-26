@@ -194,7 +194,7 @@ export default class CustomTabBar extends Component {
                       width: '8px',
                       height: '8px',
                       borderRadius: '9999px',
-                      background: '#dc2626',
+                      background: dark ? '#f87171' : '#dc2626',
                       borderWidth: '1px',
                       borderColor: c.bg,
                     }}
@@ -209,7 +209,7 @@ export default class CustomTabBar extends Component {
                       width: '8px',
                       height: '8px',
                       borderRadius: '9999px',
-                      background: '#dc2626',
+                      background: dark ? '#f87171' : '#dc2626',
                       borderWidth: '1px',
                       borderColor: c.bg,
                     }}
@@ -224,7 +224,7 @@ export default class CustomTabBar extends Component {
                       width: '8px',
                       height: '8px',
                       borderRadius: '9999px',
-                      background: '#dc2626',
+                      background: dark ? '#f87171' : '#dc2626',
                       borderWidth: '1px',
                       borderColor: c.bg,
                     }}

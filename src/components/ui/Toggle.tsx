@@ -1,4 +1,5 @@
 import { Button, View } from '@tarojs/components'
+import { UnreadDot } from '@/components/ui/UnreadDot'
 
 type ToggleProps<T extends string> = {
   options: readonly T[] | T[]
@@ -30,16 +31,9 @@ export function Toggle<T extends string>({ options, value, onChange, getLabel, b
               {getLabel ? getLabel(opt) : opt}
             </Button>
             {badge && (
-              <View
-                className='absolute right-0 top-0'
-                style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '9999px',
-                  background: '#de2626',
-                  transform: 'translate(50%, -50%)',
-                  pointerEvents: 'none',
-                }}
+              <UnreadDot
+                className='absolute right-0 top-0 pointer-events-none'
+                style={{ transform: 'translate(50%, -50%)' }}
               />
             )}
           </View>

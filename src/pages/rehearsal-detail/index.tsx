@@ -8,14 +8,16 @@ import { useUser } from '@/context/user-context'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { getSignBlockReason, hasSignedIn } from '@/lib/attendance-utils'
 import { markRehearsalSeen } from '@/lib/rehearsalSeen'
-import { CodeVerifyModal } from '@/pages/index/components/code-verify-modal'
+import { withinCheckinGeofence } from '@/lib/geo'
+import { logDiag } from '@/lib/session-diag'
 import type { RehearsalRow } from '@/types/database'
 import { useT } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 
 const mapSignInError = (tf: (key: string, params?: Record<string, unknown>) => string, err: string): string => {
   const msg = err.toLowerCase()
-  if (msg.includes('invalid sign-in code')) return tf('activityDetail.signIn.codeError')
+  if (msg.includes('outside check-in geofence')) return tf('activityDetail.signIn.tooFar')
+  if (msg.includes('check-in location is required')) return tf('activityDetail.signIn.locationRequired')
   if (msg.includes('authentication required')) return tf('activityDetail.signIn.authRequired')
   if (msg.includes('not approved')) return tf('activityDetail.signIn.notApproved')
   if (msg.includes('outside the allowed window')) return tf('activityDetail.signIn.outsideWindow')
@@ -29,7 +31,7 @@ export default function RehearsalDetail() {
   const darkClass = useThemeClass()
   const { user } = useUser()
   const { data: rehearsals, loading: rehearsalsLoading } = useRehearsals()
-  const { map: attendanceMap, fetchMyAttendances, signIn } = useAttendance()
+  const { map: attendanceMap, loading: attendanceLoading, fetchMyAttendances, signIn } = useAttendance()
   const { data: leaveRequests, cancelOnSignIn, fetchMine } = useLeaveRequests()
   const [nowTick, setNowTick] = useState(() => Date.now())
   const { t } = useT()
@@ -39,6 +41,9 @@ export default function RehearsalDetail() {
     [rehearsals, id]
   )
   const attendance = attendanceMap[id] ?? null
+  // 考勤记录加载中（map 尚无该行且请求未完成）：签到按钮渲染中性 disabled 态，
+  // 与「已查无记录」区分，避免「可签到蓝 → 结果色」两段变色闪烁（P1-6）
+  const attendancePending = attendanceLoading && attendance === null
   const leaveRequest = useMemo(
     () =>
       leaveRequests.find(
@@ -65,12 +70,7 @@ export default function RehearsalDetail() {
     void fetchMine()
   })
 
-  // 签到码弹窗状态
-  const [codeRehearsal, setCodeRehearsal] = useState<RehearsalRow | null>(null)
-  const [codeInput, setCodeInput] = useState('')
-  const [codeError, setCodeError] = useState<string | null>(null)
-  const [codeSubmitting, setCodeSubmitting] = useState(false)
-  const codeSubmittingRef = useRef(false)
+  // 定位签到状态
   const signingInRef = useRef(false)
 
   const handleSignInSuccess = async (rehearsalId: number, row: SignInResultRow | null) => {
@@ -85,60 +85,84 @@ export default function RehearsalDetail() {
     if (user?.id) void fetchMyAttendances(user.id, [rehearsalId])
   }
 
-  const doSectionSignIn = async (r: RehearsalRow) => {
+  /** 按下签到 → 取定位（gcj02）→ 本地距离诊断打点 → 服务端围栏裁决 */
+  const doGeoSignIn = (r: RehearsalRow) => {
     if (signingInRef.current) return
     signingInRef.current = true
-    try {
-      const { error, row } = await signIn({ rehearsal_id: r.id, code: '' })
-      if (error) {
-        void Taro.showToast({ title: mapSignInError(t, error), icon: 'none' })
-        return
-      }
-      await handleSignInSuccess(r.id, row)
-    } finally {
-      signingInRef.current = false
-    }
+    Taro.showLoading({ title: t('activityDetail.signIn.locating'), mask: true })
+    Taro.getLocation({
+      type: 'gcj02',
+      isHighAccuracy: true,
+      success: (loc) => {
+        const accuracy = typeof loc.accuracy === 'number' ? loc.accuracy : null
+        const geo = withinCheckinGeofence(
+          { latitude: loc.latitude, longitude: loc.longitude, accuracy },
+          { lat: r.checkin_lat ?? null, lng: r.checkin_lng ?? null, radiusM: r.checkin_radius_m ?? null }
+        )
+        logDiag('checkin_distance', {
+          rehearsalId: r.id,
+          lat: loc.latitude,
+          lng: loc.longitude,
+          accuracy,
+          distanceM: Math.round(geo.distanceM),
+          radiusM: r.checkin_radius_m ?? null,
+          localPass: geo.ok,
+        })
+        signIn({ rehearsal_id: r.id, latitude: loc.latitude, longitude: loc.longitude, accuracy })
+          .then(({ error, row }) => {
+            Taro.hideLoading()
+            if (error) {
+              void Taro.showToast({ title: mapSignInError(t, error), icon: 'none' })
+              return
+            }
+            void handleSignInSuccess(r.id, row)
+          })
+          .catch(() => {
+            Taro.hideLoading()
+            void Taro.showToast({ title: t('activityDetail.signIn.failed'), icon: 'none' })
+          })
+      },
+      fail: (err) => {
+        Taro.hideLoading()
+        const msg = (err?.errMsg ?? '').toLowerCase()
+        logDiag('checkin_location_fail', { errMsg: err?.errMsg ?? '', rehearsalId: r.id })
+        if (msg.includes('auth deny') || msg.includes('authorize') || msg.includes('permission')) {
+          void Taro.showModal({
+            title: t('activityDetail.signIn.locationDenied'),
+            content: t('activityDetail.signIn.locationRequired'),
+            confirmText: t('common.actions.openSettings'),
+            cancelText: t('common.actions.cancel'),
+            success: (res) => {
+              if (res.confirm) void Taro.openSetting({})
+            },
+          })
+        } else {
+          void Taro.showToast({ title: t('activityDetail.signIn.locationFailed'), icon: 'none' })
+        }
+      },
+      complete: () => {
+        signingInRef.current = false
+      },
+    })
   }
 
   const requestSignIn = (r: RehearsalRow) => {
     if (!user) return
-    if (r.type === 'full') {
-      if (r.sign_in_code) {
-        setCodeRehearsal(r)
-        setCodeInput('')
-        setCodeError(null)
-      } else {
-         void Taro.showToast({ title: t('activityDetail.noSignInCode'), icon: 'none' })
-      }
+    const activeLeave =
+      leaveRequest && (leaveRequest.status === 'pending' || leaveRequest.status === 'approved')
+    if (activeLeave) {
+      void Taro.showModal({
+        title: t('activityDetail.revokeConfirmTitle'),
+        content: t('activityDetail.revokeHint'),
+        confirmText: t('common.actions.confirm'),
+        cancelText: t('common.actions.cancel'),
+        success: (res) => {
+          if (res.confirm) doGeoSignIn(r)
+        },
+      })
       return
     }
-    void doSectionSignIn(r)
-  }
-
-  const handleCodeConfirm = async () => {
-    if (codeSubmittingRef.current || codeSubmitting || !codeRehearsal) return
-    if (!/^\d{4}$/.test(codeInput)) {
-      setCodeError(t('activityDetail.codeInvalid'))
-      return
-    }
-    codeSubmittingRef.current = true
-    setCodeSubmitting(true)
-    try {
-      const { error, row } = await signIn({ rehearsal_id: codeRehearsal.id, code: codeInput })
-      if (!error) {
-        const rid = codeRehearsal.id
-        setCodeRehearsal(null)
-        await handleSignInSuccess(rid, row)
-      } else {
-        setCodeError(mapSignInError(t, error))
-      }
-    } finally {
-      codeSubmittingRef.current = false
-      setCodeSubmitting(false)
-    }
-  }
-  const handleCodeClose = () => {
-    if (!codeSubmitting) setCodeRehearsal(null)
+    doGeoSignIn(r)
   }
 
   if (!rehearsal) {
@@ -161,10 +185,12 @@ export default function RehearsalDetail() {
 
   let signLabel = ''
   let signClass = 'bg-muted text-text-subtle'
-  let signStyle: { backgroundColor: string } | undefined
   let signDisabled = true
   let onSign: (() => void) | null = null
-  if (signedIn) {
+  if (attendancePending) {
+    // 加载中：中性灰 disabled，不预判任何结果色
+    signLabel = t('common.actions.loading')
+  } else if (signedIn) {
     if (attendance?.status === 'late') {
       signLabel = t('activityDetail.status.late')
       signClass = 'bg-warning-bg text-warning'
@@ -189,8 +215,7 @@ export default function RehearsalDetail() {
     onSign = () => requestSignIn(rehearsal)
   } else {
     signLabel = t('activityDetail.status.signIn')
-    signClass = 'text-white'
-    signStyle = { backgroundColor: '#6198CB' }
+    signClass = 'bg-signin text-signin-foreground'
     signDisabled = false
     onSign = () => requestSignIn(rehearsal)
   }
@@ -215,7 +240,6 @@ export default function RehearsalDetail() {
             className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${signClass} ${
               signDisabled ? 'opacity-90' : ''
             }`}
-            style={signStyle}
             onClick={signDisabled ? undefined : (onSign ?? undefined)}
           >
             {signLabel}
@@ -231,24 +255,6 @@ export default function RehearsalDetail() {
         )}
        </View>
       </View>
-      <CodeVerifyModal
-        open={!!codeRehearsal}
-        title={codeRehearsal?.repertoire ?? timeText}
-        submitting={codeSubmitting}
-        codeInput={codeInput}
-        codeError={codeError}
-        hint={
-          hasActiveLeaveRequest
-            ? t('activityDetail.revokeHint')
-            : null
-        }
-        onCodeChange={(v) => {
-          setCodeError(null)
-          setCodeInput(v)
-        }}
-        onConfirm={handleCodeConfirm}
-        onClose={handleCodeClose}
-      />
     </View>
   )
 }

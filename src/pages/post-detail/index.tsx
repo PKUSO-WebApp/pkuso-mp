@@ -141,16 +141,18 @@ export default function PostDetailPage() {
         </View>
       )}
 
-      {/* 图片 */}
+      {/* 图片：固定比例容器预留高度，加载前后布局零跳动；点击预览看全图 */}
       {post.image_url && (
         <View className='mb-4'>
           <Text className='block text-base font-medium text-text'>{t('postDetail.image')}</Text>
-          <Image
-            src={post.image_url}
-            mode='aspectFit'
-            className='mt-1 w-full rounded-2xl border border-border'
-            onClick={handlePreview}
-          />
+          <View className='mt-1 aspect-[4/3] w-full overflow-hidden rounded-2xl border border-border'>
+            <Image
+              src={post.image_url}
+              mode='aspectFill'
+              className='h-full w-full'
+              onClick={handlePreview}
+            />
+          </View>
         </View>
       )}
 

@@ -354,14 +354,13 @@ export default function ProfileInfoPage() {
 
         {error && <Text className='mt-3 block text-xs text-danger'>{error}</Text>}
 
-        {/* 编辑态底部操作：保存（大按钮·黑底）/ 取消（大按钮·白底） */}
+        {/* 编辑态底部操作：保存（大按钮·primary）/ 取消（大按钮·card） */}
         {isEditing && (
           <View className='mt-6 pb-safe'>
             <View
-              className={`flex h-11 w-full items-center justify-center rounded-xl text-base font-medium text-white ${
+              className={`flex h-11 w-full items-center justify-center rounded-xl bg-primary text-base font-medium text-primary-foreground ${
                 submitting ? 'opacity-60' : ''
               }`}
-              style={{ backgroundColor: '#000000' }}
               onClick={submitting ? undefined : handleSave}
             >
               {submitting ? t('profileInfo.saving') : t('common.actions.save')}

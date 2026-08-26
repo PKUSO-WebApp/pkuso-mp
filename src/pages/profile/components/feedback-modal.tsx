@@ -43,8 +43,8 @@ export function FeedbackModal({ open, onClose }: Props) {
       setContent('')
       onClose()
     } catch {
-      // 网络异常兜底：非 PostgrestError 无 message 字段，统一中文文案
-      void Taro.showToast({ title: '反馈提交失败，请重试', icon: 'none' })
+      // 网络异常兜底：非 PostgrestError 无 message 字段，统一走 i18n 文案
+      void Taro.showToast({ title: t('profile.feedback.submitFailed'), icon: 'none' })
     } finally {
       // 无论成败都复位：避免抛异常时 submitting 卡 true，按钮被永久禁用
       submittingRef.current = false

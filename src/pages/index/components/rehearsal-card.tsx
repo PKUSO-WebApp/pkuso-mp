@@ -1,5 +1,6 @@
 import { View, Text } from '@tarojs/components'
 import { Card } from '@/components/ui/Card'
+import { UnreadDot } from '@/components/ui/UnreadDot'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { getUpdatedFields } from '@/lib/rehearsal-sort'
 import { useT } from '@/i18n'
@@ -48,12 +49,7 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
         </View>
       </View>
       {/* 未查看红气泡：打开详情页（markRehearsalSeen）后消失 */}
-      {!seen && (
-        <View
-          className='absolute right-0 top-0'
-          style={{ width: '8px', height: '8px', borderRadius: '4px', background: '#de2626' }}
-        />
-      )}
+      {!seen && <UnreadDot className='absolute right-0 top-0' />}
     </Card>
   )
 }
