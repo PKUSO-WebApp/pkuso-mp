@@ -1,55 +1,17 @@
 import Taro from '@tarojs/taro'
+import { createSeenStore } from './createSeenStore'
 
-const SEEN_PREFIX = 'postSeen_'
+// 已读标记 + tabBar 红点 flag：createSeenStore 工厂实例（P2-4 合一，API 与原实现一致）
+const store = createSeenStore('postSeen_')
 
 /** 该公告是否已被用户查看过（localStorage，按设备；打开详情页即标记） */
-export function isPostSeen(id: string): boolean {
-  try {
-    return Taro.getStorageSync(SEEN_PREFIX + id) === true
-  } catch {
-    return false
-  }
-}
-
-export function markPostSeen(id: string): void {
-  try {
-    Taro.setStorageSync(SEEN_PREFIX + id, true)
-  } catch {
-    /* ignore quota / unsupported */
-  }
-  notifySeenChanged()
-}
-
-// 已查看变化事件：供公告列表重算「未查看」红气泡
-const seenListeners = new Set<() => void>()
-function notifySeenChanged() {
-  seenListeners.forEach((l) => l())
-}
-export function subscribePostSeen(cb: () => void): () => void {
-  seenListeners.add(cb)
-  return () => {
-    seenListeners.delete(cb)
-  }
-}
-
-// 社区 tabBar 红点 store（模块级，custom tabBar 订阅渲染，与 rehearsalSeen 同源模式）
-let hasUnviewed = false
-const flagListeners = new Set<() => void>()
-export function setPostUnviewedFlag(v: boolean): void {
-  const next = !!v
-  if (next === hasUnviewed) return
-  hasUnviewed = next
-  flagListeners.forEach((l) => l())
-}
-export function getPostUnviewedFlag(): boolean {
-  return hasUnviewed
-}
-export function subscribePostUnviewed(cb: () => void): () => void {
-  flagListeners.add(cb)
-  return () => {
-    flagListeners.delete(cb)
-  }
-}
+export const isPostSeen = store.isSeen
+export const markPostSeen = store.markSeen
+/** 已查看变化事件：供公告列表重算「未查看」红气泡 */
+export const subscribePostSeen = store.subscribeSeen
+export const setPostUnviewedFlag = store.setUnviewedFlag
+export const getPostUnviewedFlag = store.getUnviewedFlag
+export const subscribePostUnviewed = store.subscribeUnviewedFlag
 
 // ---- 社区红点「点击即消」模型 ----
 // 三处红点（底边栏 / 重奏 / 团建）各自记录「最近一次点击消除」的时间戳：
@@ -81,7 +43,7 @@ export function dismissCommunityDot(scope: CommunityDotScope): void {
   } catch {
     /* ignore quota / unsupported */
   }
-  notifySeenChanged()
+  store.notify()
 }
 
 /** 纯函数：红点是否点亮（范围内最新公告时间戳严格晚于消除时间戳） */
