@@ -112,7 +112,7 @@ export default function NotificationSystemPage() {
   )
 
   return (
-    <View className={`${darkClass} pk-page min-h-screen bg-bg px-4 py-4`}>
+    <View className={`${darkClass} pk-page min-h-screen bg-page-bg px-4 py-4`}>
       <Text className='block text-lg font-semibold text-text'>{t('notification.systemTitle')}</Text>
       <View className='mt-2'>
         <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />

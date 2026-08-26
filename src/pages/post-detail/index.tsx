@@ -77,7 +77,7 @@ export default function PostDetailPage() {
 
   if (loading) {
     return (
-      <View className='flex min-h-screen items-center justify-center bg-bg'>
+      <View className={`${darkClass} flex min-h-screen items-center justify-center bg-page-bg`}>
          <Text className='text-xs text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
@@ -85,7 +85,7 @@ export default function PostDetailPage() {
 
   if (notFound || !post) {
     return (
-      <View className='flex min-h-screen flex-col items-center justify-center bg-bg px-4'>
+      <View className={`${darkClass} flex min-h-screen flex-col items-center justify-center bg-page-bg px-4`}>
          <Text className='text-sm text-text-muted'>{t('postDetail.notFound')}</Text>
          <View
            className='mt-4 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground'
@@ -100,7 +100,7 @@ export default function PostDetailPage() {
   const dateText = formatPostDate(post.created_at)
 
   return (
-    <View className={`${darkClass} pk-page min-h-screen bg-bg px-4 py-4`}>
+    <View className={`${darkClass} pk-page min-h-screen bg-page-bg px-4 py-4`}>
       {/* 标题（主字，中大）+ 类型（副字，中） */}
       <Text className='block text-xl font-semibold leading-snug text-text'>{post.title}</Text>
        <Text className='mt-1 block text-base text-text-muted'>

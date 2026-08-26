@@ -58,7 +58,7 @@ export function NotificationList({ category, title, topSlot, typeFilter }: Props
   }, [messages, typeFilter])
 
   return (
-    <View className='pk-page min-h-screen bg-bg px-4 py-4'>
+    <View className='pk-page min-h-screen bg-page-bg px-4 py-4'>
       {topSlot}
       <Text className='block text-lg font-semibold text-text'>{title}</Text>
       <View className='mt-3'>
