@@ -10,6 +10,7 @@ import { getSignBlockReason, hasSignedIn } from '@/lib/attendance-utils'
 import { markRehearsalSeen } from '@/lib/rehearsalSeen'
 import { withinCheckinGeofence } from '@/lib/geo'
 import { logDiag } from '@/lib/session-diag'
+import { FieldRow } from '@/components/ui/FieldRow'
 import type { RehearsalRow } from '@/types/database'
 import { useT } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
@@ -232,9 +233,9 @@ export default function RehearsalDetail() {
         <Text className='block text-2xl font-semibold text-text'>{timeText}</Text>
         <Text className='mt-1 block text-sm text-text-muted'>{typeText}</Text>
         <View className='my-4 h-px bg-border' />
-        <DetailRow label={t('activityDetail.rows.time')} value={timeText} />
-        <DetailRow label={t('activityDetail.rows.location')} value={rehearsal.location || t('activityDetail.unset')} />
-        <DetailRow label={t('activityDetail.rows.repertoire')} value={rehearsal.repertoire || t('activityDetail.unset')} />
+        <FieldRow layout='stacked' label={t('activityDetail.rows.time')} value={timeText} />
+        <FieldRow layout='stacked' label={t('activityDetail.rows.location')} value={rehearsal.location || t('activityDetail.unset')} />
+        <FieldRow layout='stacked' label={t('activityDetail.rows.repertoire')} value={rehearsal.repertoire || t('activityDetail.unset')} />
         <View className='mt-6'>
           <View
             className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${signClass} ${
@@ -259,11 +260,3 @@ export default function RehearsalDetail() {
   )
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View className='mb-3'>
-      <Text className='block text-sm font-medium text-text'>{label}</Text>
-      <Text className='mt-1 block text-sm text-text-muted'>{value}</Text>
-    </View>
-  )
-}
