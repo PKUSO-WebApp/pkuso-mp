@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { emitSync, subscribeSync } from '@/lib/dataSync'
+import { moderateAndUploadPostImage } from '@/lib/contentModeration'
 import type { PostRow, PostRowWithAuthor, PostType } from '@/types/database'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 
@@ -136,51 +137,17 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
         const content = input.content.trim()
         if (!title || !content) return { ok: false, error: '请填写标题与内容' }
 
-        // 1) 文本审核（标题 + 内容）
-        const textRes = await client.functions.invoke('wechat-content-check', {
-          body: { kind: 'text', content: `${title}\n${content}` },
+        // 1) 内容安全（文本+图片审核/上传）——共用流程见 lib/contentModeration
+        const mod = await moderateAndUploadPostImage(client, {
+          uid,
+          title,
+          content,
+          imageFile: input.imageFile,
         })
-        if (textRes.error) {
-          // 审核基础设施故障：放行发布，仅记录（避免误伤正常发帖）
-          console.warn('[usePosts] 文本审核调用失败，放行：', textRes.error)
-        } else if ((textRes.data as { result?: string })?.result === 'block') {
-          return { ok: false, error: '内容包含违规信息，发布失败' }
-        }
+        if (!mod.ok) return { ok: false, error: mod.error }
+        const imageUrl = mod.imageUrl
 
-        // 2) 图片上传（公开桶）+ 图片审核
-        let imageUrl: string | null = null
-        if (input.imageFile) {
-          // 动态导入：避免模块加载即拉入 Taro（@tarojs/taro 在纯逻辑单测 jsdom 环境下缺少运行时全局）
-          const { uploadLocalFile, guessContentType } = await import('@/lib/uploadLocalFile')
-          const rawName =
-            input.imageFile.name || input.imageFile.tempFilePath.split('/').pop() || 'image'
-          const safeName = rawName.replace(/[^A-Za-z0-9._-]/g, '-') || 'image'
-          const path = `${uid}/${Date.now()}-${safeName}`
-          const up = await uploadLocalFile(
-            client,
-            'community-images',
-            path,
-            input.imageFile.tempFilePath,
-            guessContentType(safeName)
-          )
-          if (up.error) return { ok: false, error: `图片上传失败：${up.error.message}` }
-          imageUrl = client.storage.from('community-images').getPublicUrl(path).data.publicUrl
-
-          const imgRes = await client.functions.invoke('wechat-content-check', {
-            body: { kind: 'image', imageUrl },
-          })
-          const imgData = imgRes.data as { result?: string; ok?: boolean; error?: string } | null
-          if (imgRes.error) {
-            console.warn('[usePosts] 图片审核调用失败，放行：', imgRes.error)
-          } else if (imgData?.result === 'block') {
-            return { ok: false, error: '图片包含违规内容，发布失败' }
-          } else if (imgData?.ok === false) {
-            // 微信拒收或函数侧主动拦截（如图片过大）：不放行
-            return { ok: false, error: imgData.error || '图片审核未通过' }
-          }
-        }
-
-        // 3) 写库
+        // 2) 写库
         const { error: dbError } = await client.from('posts').insert({
           author_id: uid,
           type: input.type,
@@ -288,52 +255,25 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
         const content = input.content.trim()
         if (!title || !content) return { ok: false, error: '请填写标题与内容' }
 
-        // 1) 文本审核（标题 + 内容）
-        const textRes = await client.functions.invoke('wechat-content-check', {
-          body: { kind: 'text', content: `${title}\n${content}` },
-        })
-        if (textRes.error) {
-          console.warn('[usePosts] 文本审核调用失败，放行：', textRes.error)
-        } else if ((textRes.data as { result?: string })?.result === 'block') {
-          return { ok: false, error: '内容包含违规信息，发布失败' }
-        }
-
-        // 2) 图片：undefined=保留原图；null=删除；file=上传替换
-        let imageUrl: string | null | undefined
-        if (input.imageFile === null) {
-          imageUrl = null
-        } else if (input.imageFile) {
-          const uid = (await client.auth.getUser()).data.user?.id
+        // 1) 内容安全（文本+图片审核/上传）——共用流程见 lib/contentModeration。
+        //    图片三态：undefined=保留原图（不上传，patch 不带 image_url）；null=删除；file=上传替换
+        let uid: string | null = null
+        if (input.imageFile) {
+          uid = (await client.auth.getUser()).data.user?.id ?? null
           if (!uid) return { ok: false, error: '登录状态失效，请重新登录' }
-          const { uploadLocalFile, guessContentType } = await import('@/lib/uploadLocalFile')
-          const f = input.imageFile
-          const rawName = f.name || f.tempFilePath.split('/').pop() || 'image'
-          const safeName = rawName.replace(/[^A-Za-z0-9._-]/g, '-') || 'image'
-          const path = `${uid}/${Date.now()}-${safeName}`
-          const up = await uploadLocalFile(
-            client,
-            'community-images',
-            path,
-            f.tempFilePath,
-            guessContentType(safeName)
-          )
-          if (up.error) return { ok: false, error: `图片上传失败：${up.error.message}` }
-          imageUrl = client.storage.from('community-images').getPublicUrl(path).data.publicUrl
-
-          const imgRes = await client.functions.invoke('wechat-content-check', {
-            body: { kind: 'image', imageUrl },
-          })
-          const imgData = imgRes.data as { result?: string; ok?: boolean; error?: string } | null
-          if (imgRes.error) {
-            console.warn('[usePosts] 图片审核调用失败，放行：', imgRes.error)
-          } else if (imgData?.result === 'block') {
-            return { ok: false, error: '图片包含违规内容，发布失败' }
-          } else if (imgData?.ok === false) {
-            return { ok: false, error: imgData.error || '图片审核未通过' }
-          }
         }
+        const mod = await moderateAndUploadPostImage(client, {
+          uid: uid ?? '',
+          title,
+          content,
+          imageFile: input.imageFile,
+        })
+        if (!mod.ok) return { ok: false, error: mod.error }
+        let imageUrl: string | null | undefined
+        if (input.imageFile === null) imageUrl = null
+        else if (input.imageFile) imageUrl = mod.imageUrl
 
-        // 3) 写库
+        // 2) 写库
         const patch: Record<string, unknown> = {
           title,
           content,
