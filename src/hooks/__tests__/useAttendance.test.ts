@@ -94,16 +94,7 @@ describe('useAttendance', () => {
     expect(resultRows).toEqual(rows)
   })
 
-  it('upsert 拒绝客户端直接提交成员身份和签到时间', async () => {
-    const c = mockClient([])
-    const { result } = renderHook(() => useAttendance(c as never))
-    const err = await act(() =>
-      result.current.upsert([{ rehearsal_id: 1, user_id: 'u1', status: 'present' }])
-    )
-    expect(err).toContain('服务端安全权限')
-  })
-
-  it('signIn 走安全 RPC，不接收客户端 user_id/status/sign_in_time', async () => {
+  it('signIn 走安全定位 RPC，不接收客户端 user_id/status/sign_in_time', async () => {
     const c = mockClient([
       {
         data: [
@@ -119,7 +110,9 @@ describe('useAttendance', () => {
       },
     ])
     const { result } = renderHook(() => useAttendance(c as never))
-    const res = await act(() => result.current.signIn({ rehearsal_id: 1, code: '123456' }))
+    const res = await act(() =>
+      result.current.signIn({ rehearsal_id: 1, latitude: 39.99, longitude: 116.31, accuracy: 25 })
+    )
     expect(res.error).toBeNull()
     expect(res.row).toEqual({
       id: 1,
@@ -131,18 +124,13 @@ describe('useAttendance', () => {
   })
 
   it('signIn RPC 出错时返回错误信息', async () => {
-    const c = mockClient([{ data: null, error: { message: 'invalid sign-in code' } }])
+    const c = mockClient([{ data: null, error: { message: 'outside check-in geofence' } }])
     const { result } = renderHook(() => useAttendance(c as never))
-    const res = await act(() => result.current.signIn({ rehearsal_id: 1, code: '0000' }))
-    expect(res.error).toBe('invalid sign-in code')
+    const res = await act(() =>
+      result.current.signIn({ rehearsal_id: 1, latitude: 30.0, longitude: 110.0 })
+    )
+    expect(res.error).toBe('outside check-in geofence')
     expect(res.row).toBeNull()
-  })
-
-  it('updateStatus 没有安全 RPC 时失败关闭', async () => {
-    const c = mockClient([])
-    const { result } = renderHook(() => useAttendance(c as never))
-    const err = await act(() => result.current.updateStatus(1, 'u1', 'present'))
-    expect(err).toContain('服务端安全权限')
   })
 
   it('fetchMyHistory 查询本人考勤历史并返回 join 行', async () => {
@@ -179,15 +167,6 @@ describe('useAttendance', () => {
     const res = await act(() => result.current.fetchMyHistory('u1', {}))
     expect(res.error).toBe('查询失败')
     expect(res.rows).toEqual([])
-  })
-
-  it('batchInsert 不执行客户端 INSERT，避免伪造成员考勤', async () => {
-    const c = mockClient([])
-    const { result } = renderHook(() => useAttendance(c as never))
-    const err = await act(() =>
-      result.current.batchInsert([{ rehearsal_id: 1, user_id: 'u1', status: 'present' }])
-    )
-    expect(err).toContain('服务端安全权限')
   })
 
   it('卸载后调用 fetchMyAttendances 不再发起请求（mountedRef 拦截 setState）', async () => {

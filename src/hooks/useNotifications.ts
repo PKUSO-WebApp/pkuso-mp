@@ -30,6 +30,8 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
     system: 0,
   })
   const [loading, setLoading] = useState(true)
+  // 未读数查询失败面（P2-6）：失败不再仅 console 静默，暴露给调用方
+  const [error, setError] = useState<string | null>(null)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -50,8 +52,10 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
     const rows = (res.data ?? []) as { category: NotificationCategory }[]
     if (res.error) {
       console.error('[Notifications] 未读数查询失败', res.error.message)
+      if (mountedRef.current) setError('通知未读数加载失败，请重试')
       return
     }
+    if (mountedRef.current) setError(null)
     const counts: UnreadCounts = { attendance: 0, activity: 0, system: 0 }
     for (const row of rows) {
       if (row.category in counts) counts[row.category] += 1
@@ -70,13 +74,13 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
   /** 拉取某分类的消息列表（created_at 倒序） */
   const fetchByCategory = useCallback(
     async (category: NotificationCategory): Promise<NotificationListResult> => {
-      const { data, error } = await client
+      const { data, error: dbError } = await client
         .from('notifications')
         .select('*')
         .eq('category', category)
         .order('created_at', { ascending: false })
-      if (error) {
-        return { rows: [], error: error.message }
+      if (dbError) {
+        return { rows: [], error: dbError.message }
       }
       return { rows: (data as NotificationRow[]) ?? [], error: null }
     },
@@ -102,14 +106,14 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
         return true
       }
       try {
-        const { data, error } = await client
+        const { data, error: dbError } = await client
           .from('notifications')
           .update({ read_at: new Date().toISOString() })
           .in('id', ids)
           .is('read_at', null)
           .select('id')
-        if (error) {
-          console.error('[Notifications] 标记已读失败', error.message)
+        if (dbError) {
+          console.error('[Notifications] 标记已读失败', dbError.message)
           return false
         }
         if (!data || data.length === 0) {
@@ -139,14 +143,14 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
   const markItemRead = useCallback(
     async (category: NotificationCategory, id: string): Promise<boolean> => {
       try {
-        const { data, error } = await client
+        const { data, error: dbError } = await client
           .from('notifications')
           .update({ read_at: new Date().toISOString() })
           .eq('id', id)
           .is('read_at', null)
           .select('id')
-        if (error) {
-          console.error('[Notifications] 标记已读失败', error.message)
+        if (dbError) {
+          console.error('[Notifications] 标记已读失败', dbError.message)
           return false
         }
         if (!data || data.length === 0) {
@@ -170,6 +174,7 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
     unreadCounts,
     totalUnread,
     loading,
+    error,
     refresh,
     fetchByCategory,
     markCategoryRead,
