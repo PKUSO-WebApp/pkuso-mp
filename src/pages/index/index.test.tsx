@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -60,7 +60,6 @@ vi.mock('@/pages/index/components/rehearsal-card', () => ({
   RehearsalCard: ({ item, onClick }: any) =>
     React.createElement('div', { 'data-testid': `card-${item.id}`, onClick }, item.repertoire),
 }))
-vi.mock('@/pages/index/components/code-verify-modal', () => ({ CodeVerifyModal: () => null }))
 
 const mk = (id: number, type: string, repertoire: string, offsetDays: number) => {
   const start = new Date(Date.now() + offsetDays * 86400000)

@@ -26,6 +26,12 @@ export default defineAppConfig({
         'pages/post-edit/index',
       ],
    lazyCodeLoading: 'requiredComponents',
+  permission: {
+    'scope.userLocation': {
+      desc: '用于核验您已到达排练地点完成签到',
+    },
+  },
+  requiredPrivateInfos: ['getLocation'],
    window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#ffffff',

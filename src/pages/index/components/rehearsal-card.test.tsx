@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -23,6 +23,9 @@ const upcomingRehearsal = {
   start_time: '2099-01-01T10:00:00',
   end_time: '2099-01-01T12:00:00',
   location: '排练厅',
+  checkin_lat: null,
+  checkin_lng: null,
+  checkin_radius_m: null,
   sign_in_code: '1234',
 } as unknown as RehearsalRow
 

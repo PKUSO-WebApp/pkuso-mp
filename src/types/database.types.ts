@@ -381,6 +381,9 @@ export type Database = {
       }
       rehearsals: {
         Row: {
+          checkin_lat: number | null
+          checkin_lng: number | null
+          checkin_radius_m: number | null
           created_at: string | null
           date: string | null
           end_time: string | null
@@ -397,6 +400,9 @@ export type Database = {
           updated_fields: string | null
         }
         Insert: {
+          checkin_lat?: number | null
+          checkin_lng?: number | null
+          checkin_radius_m?: number | null
           created_at?: string | null
           date?: string | null
           end_time?: string | null
@@ -413,6 +419,9 @@ export type Database = {
           updated_fields?: string | null
         }
         Update: {
+          checkin_lat?: number | null
+          checkin_lng?: number | null
+          checkin_radius_m?: number | null
           created_at?: string | null
           date?: string | null
           end_time?: string | null
@@ -672,12 +681,17 @@ export type Database = {
         }[]
       }
       is_admin: { Args: never; Returns: boolean }
-      sign_in_attendance: {
-        Args: { p_code: string; p_rehearsal_id: number }
+      sign_in_attendance_location: {
+        Args: {
+          p_accuracy?: number | null
+          p_lat: number
+          p_lng: number
+          p_rehearsal_id: number
+        }
         Returns: {
           id: number
           rehearsal_id: number
-          sign_in_time: string
+          sign_in_time: string | null
           status: Database["public"]["Enums"]["attendanceStatus"]
           user_id: string
         }[]
