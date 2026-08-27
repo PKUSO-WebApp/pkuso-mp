@@ -103,12 +103,6 @@ page,
   padding-bottom: calc(env(safe-area-inset-bottom));
 }
 
-/* 自定义底边栏占位：tabBar 为 fixed 浮层，高度 calc(50px + 安全区)，页面需预留同样高度，
-   否则内容（尤其甘特图底部 21:30–24:00）被 tabBar 永久遮挡、滚动也救不回来 */
-@utility pb-tabbar {
-  padding-bottom: calc(50px + env(safe-area-inset-bottom));
-}
-
 /* 原生 button 组件默认样式重置（UI 原语里的按钮均为自绘样式） */
 button {
   margin: 0;

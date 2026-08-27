@@ -76,7 +76,10 @@ export default function Schedule() {
   }
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-tabbar`}>
+    <View
+      className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4`}
+      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+    >
       {/* 头部 */}
       <View className='mb-3 mt-1'>
         <PageHeader
@@ -104,7 +107,7 @@ export default function Schedule() {
       </View>
 
       {/* 甘特图：flex-1 占满剩余空间，内部 ScrollView 独立滚动（固定 480px 比例尺，
-          24h × 20px/h）；页面已用 pb-tabbar 为自定义 tabBar 预留 50px+安全区，故可滚到底不遮挡 */}
+          24h × 20px/h）；页面根已内联预留 tabBar 50px+安全区，故可滚到底不遮挡 */}
       <ScrollView
         scrollY
         className='mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'
