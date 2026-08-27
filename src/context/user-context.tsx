@@ -122,22 +122,22 @@ export function UserProvider({ children }: { children: ReactNode }) {
         otherDeviceStartedAt: startedAt,
         localToken8: getStoredSessionToken()?.slice(0, 8) ?? null,
       })
-      // 先弹「被其他设备挤下线」通知（显隐用独立布尔 forcedOffline，与 startedAt 是否为空解耦），
-      // 并立即跳登录页卸载当前已登录页面：否则下方 applySession(null) 置空会话时，未加 user?.
-      // 守卫的页面读取 user.id 会抛错，触发最外层 ErrorBoundary 把整棵子树（含本弹窗）替换为错误页，
-      // 导致既无弹窗也无登录页。
+      // 同步先置位（若 Provider 不因 reLaunch 重挂载，弹窗立即出现）；并延迟到 reLaunch 完成后
+      // 再置位一次（reLaunch 在部分 Taro 配置下会让 UserProvider 重挂载，旧实例状态随之丢失，
+      // 需在登录页新实例上重新置位，否则弹窗不出现）。见 force_offline_modal_render 诊断。
       setForcedOffline(true)
       setForcedOfflineAt(startedAt)
       clearSessionToken()
+      const openOnLogin = () => {
+        logDiag('forced_offline_open', { startedAt })
+        setForcedOffline(true)
+        setForcedOfflineAt(startedAt)
+        applySession(null)
+        void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+      }
       Taro.reLaunch({ url: '/pages/login/index' })
-        .then(() => {
-          applySession(null)
-          void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
-        })
-        .catch(() => {
-          applySession(null)
-          void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
-        })
+        .then(openOnLogin)
+        .catch(openOnLogin)
     },
     [applySession]
   )

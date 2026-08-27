@@ -1,6 +1,7 @@
 import { View, Text, Button } from '@tarojs/components'
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import { useT } from '@/i18n'
+import { logDiag } from '@/lib/session-diag'
 
 export type ForceOfflineModalProps = {
   opened: boolean
@@ -15,6 +16,7 @@ export type ForceOfflineModalProps = {
  */
 export function ForceOfflineModal({ opened, at, onClose }: ForceOfflineModalProps) {
   const { t } = useT()
+  logDiag('force_offline_modal_render', { opened: !!opened })
   if (!opened) return null
   const when = at ? formatDateTimeInChina(at) : t('ui.forceOffline.justNow')
   return (
