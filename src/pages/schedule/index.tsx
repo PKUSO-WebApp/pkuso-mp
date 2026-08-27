@@ -106,11 +106,13 @@ export default function Schedule() {
         <Text className='text-base font-medium text-text'>{formatDisplayDate(selectedDate)}</Text>
       </View>
 
-      {/* 甘特图：flex-1 占满剩余空间，内部 ScrollView 独立滚动（固定 480px 比例尺，
-          24h × 20px/h）；页面根已内联预留 tabBar 50px+安全区，故可滚到底不遮挡 */}
+      {/* 甘特图：固定 480px 比例尺（24h × 20px/h）。容器 flex-1 占满剩余空间、min-h-0 允许
+          矮屏收缩并内部滚动；maxHeight 480px（内联真实 px，避免被 Taro 转 rpx）使长屏时
+          容器紧贴甘特图、不向下补白。页面根已预留 tabBar 50px+安全区，故可滚到底不遮挡 */}
       <ScrollView
         scrollY
         className='mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'
+        style={{ maxHeight: '480px' }}
       >
         {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
         <ListState loading={loading} isEmpty={false} error={tAppError(t, error)}>
