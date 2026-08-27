@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
+import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import type { RehearsalRow, ScheduleRow } from '@/types/database'
 
 // 排练房预约 hook。
@@ -25,7 +26,7 @@ function normalizeScheduleTime(value: string | null): string | null {
 export function useSchedule(client: typeof defaultClient = defaultClient) {
   const [data, setData] = useState<ScheduleRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppErrorCode | null>(null)
   const [saving, setSaving] = useState(false)
   const mountedRef = useRef(true)
   const savingRef = useRef(false)
@@ -51,8 +52,9 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       if (!mountedRef.current || seq !== fetchSeqRef.current) return
       setLoading(false)
       if (dbError) {
-        // 错误归一化：加载失败统一中文文案
-        setError('数据加载失败，请重试')
+        // 错误码化（P2-7）：原始错误仅记录
+        console.error('[useSchedule] 预约加载失败', dbError)
+        setError(APP_ERROR.loadFailed)
         setData([])
         return
       }
@@ -85,7 +87,10 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       try {
         const { error: dbError } = await client.from('schedules').insert([payload] as never)
         if (dbError) {
-          if (mountedRef.current) setError(dbError.message)
+          if (mountedRef.current) {
+            console.error('[useSchedule] 写操作失败', dbError)
+            setError(APP_ERROR.saveFailed)
+          }
           return false
         }
         if (mountedRef.current) setError(null)
@@ -111,11 +116,14 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
         .select('id')
       try {
         if (dbError) {
-          if (mountedRef.current) setError(dbError.message)
+          if (mountedRef.current) {
+            console.error('[useSchedule] 写操作失败', dbError)
+            setError(APP_ERROR.saveFailed)
+          }
           return false
         }
         if (!updated || updated.length === 0) {
-          if (mountedRef.current) setError('预约不存在或更新未生效')
+          if (mountedRef.current) setError(APP_ERROR.saveFailed)
           return false
         }
         if (mountedRef.current) setError(null)
@@ -137,7 +145,10 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       try {
         const { error: dbError } = await client.from('schedules').delete().eq('id', id)
         if (dbError) {
-          if (mountedRef.current) setError(dbError.message)
+          if (mountedRef.current) {
+            console.error('[useSchedule] 写操作失败', dbError)
+            setError(APP_ERROR.saveFailed)
+          }
           return false
         }
         if (mountedRef.current) setError(null)

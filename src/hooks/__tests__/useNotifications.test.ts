@@ -80,7 +80,7 @@ describe('useNotifications', () => {
     const c = mockClient([{ data: null, error: { message: '查询失败' } }])
     const { result } = renderHook(() => useNotifications(c as never))
     const res = await act(() => result.current.fetchByCategory('activity'))
-    expect(res.error).toBe('查询失败')
+    expect(res.error).toBe('loadFailed')
     expect(res.rows).toEqual([])
   })
 

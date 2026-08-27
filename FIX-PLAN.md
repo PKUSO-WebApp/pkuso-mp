@@ -66,7 +66,11 @@
   - ✅ 完成：commit `refactor(hooks): drop dead attendance stubs, add fetchSeq, expose notifications error`
 - [x] **P2-6** useNotifications 补 error 面（查询失败不再静默）
   - ✅ 完成于上一同批 commit
-- [ ] **P2-7** hooks 错误文案错误码化（error 改稳定码枚举，页面侧 t() 映射；消 5 种中文变体 + DB 原文透传）
+- [x] **P2-7** hooks 错误文案错误码化（error 改稳定码枚举 AppErrorCode，页面侧 tAppError(t,code) 映射；消中文变体 + DB 原文透传）
+  - 新增 `src/lib/appError.ts`（`APP_ERROR` 码 + `tAppError`）；`common.errors.loadFailed/saveFailed`
+  - 8 hooks 读路径 error→`AppErrorCode|null`，DB 原文走 `console.error`；页面 `ListState` 用 `tAppError` 映射
+  - 写路径业务中文（useLeaveRequests/usePosts 提交/删除）保留 `string` 状态（页面直渲染），延期统一
+  - ✅ 完成：commit `refactor(hooks): error-code refactor for read paths (P2-7)`
 - [x] **P2-8** tabBar 色板单一真相源（CustomTabBar LIGHT/DARK 从共享常量/theme-context 导入）
   - ✅ 完成：lib/theme.ts 新增 `THEME_PALETTE`（nav/window/tab/dot 全量），theme-context 与 CustomTabBar 共用；commit `refactor(theme): single-source THEME_PALETTE for nav/window/tabBar colors`
 - [ ] **P2-9** 其余低优先提取：ActionBar、StatusChip、`runContentCheckAndUpload`

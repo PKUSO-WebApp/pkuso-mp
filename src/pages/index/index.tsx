@@ -7,6 +7,7 @@ import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { dataSyncBump } from '@/lib/dataSync'
+import { tAppError } from '@/lib/appError'
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import { Toggle } from '@/components/ui/Toggle'
 import { ListState } from '@/components/ui/ListState'
@@ -183,7 +184,7 @@ export default function Index() {
           <ListState
             loading={rehearsalsLoading}
             isEmpty={list.length === 0}
-            error={rehearsalsError}
+            error={tAppError(t, rehearsalsError)}
             emptyText={t('home.emptySchedule')}
             onRetry={() => void fetchRehearsals()}
           >

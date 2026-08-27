@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -113,7 +113,7 @@ describe('useLeaveRequests', () => {
     const { result } = renderHook(() => useLeaveRequests(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
     // 与 Web 差异：不透传 dbError.message，统一中文文案（不抛）
-    expect(result.current.error).toBe('数据加载失败，请重试')
+    expect(result.current.error).toBe('loadFailed')
     expect(result.current.data).toEqual([])
   })
 

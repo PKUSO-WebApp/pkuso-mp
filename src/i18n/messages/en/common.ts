@@ -5,6 +5,7 @@ export const common = {
     save: 'Save',
     cancel: 'Cancel',
     confirm: 'OK',
+    openSettings: 'Open Settings',
     delete: 'Delete',
     edit: 'Edit',
     lock: 'Lock',
@@ -40,6 +41,10 @@ export const common = {
     copyFailed: 'Copy failed',
     copyButton: 'Copy error info',
     hint: 'Please send the copied info to the orchestra admin so we can fix it soon.',
+  },
+  errors: {
+    loadFailed: 'Failed to load data, please retry',
+    saveFailed: 'Operation failed, please retry',
   },
   hidden: '（Hidden）',
   joinDate: {

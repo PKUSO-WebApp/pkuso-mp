@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -77,7 +77,7 @@ describe('usePosts', () => {
     const c = mockClient([{ data: null, error: { message: 'connection refused' } }])
     const { result } = renderHook(() => usePosts(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.error).toBe('公告加载失败，请重试')
+    expect(result.current.error).toBe('loadFailed')
     expect(result.current.data).toEqual([])
   })
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { emitSync, subscribeSync } from '@/lib/dataSync'
 import { moderateAndUploadPostImage } from '@/lib/contentModeration'
+import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import type { PostRow, PostRowWithAuthor, PostType } from '@/types/database'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 
@@ -41,11 +42,11 @@ export type EditPostInput = {
 export function usePosts(client: typeof defaultClient = defaultClient) {
   const [data, setData] = useState<PostRowWithAuthor[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppErrorCode | null>(null)
   const [mine, setMine] = useState<PostRowWithAuthor[]>([])
   // 初始 true：进页先渲染 loading 骨架，避免「暂无活动」空态闪现（P0-5）
   const [mineLoading, setMineLoading] = useState(true)
-  const [mineError, setMineError] = useState<string | null>(null)
+  const [mineError, setMineError] = useState<AppErrorCode | null>(null)
   const savingRef = useRef(false)
   const [saving, setSaving] = useState(false)
   const mountedRef = useRef(true)
@@ -67,7 +68,8 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
       if (!mountedRef.current || seq !== fetchSeqRef.current) return null
       if (!opts?.silent) setLoading(false)
       if (dbError) {
-        setError('公告加载失败，请重试')
+        console.error('[usePosts] 公告列表加载失败', dbError)
+        setError(APP_ERROR.loadFailed)
         setData([])
         return null
       }
@@ -178,9 +180,9 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
   const fetchMine = useCallback(
     async (opts?: { silent?: boolean }): Promise<PostRowWithAuthor[]> => {
       const uid = (await client.auth.getUser()).data.user?.id
-      if (!uid) {
-        if (!opts?.silent) setMineLoading(false)
-        setMineError('未登录')
+        if (!uid) {
+          if (!opts?.silent) setMineLoading(false)
+          setMineError(APP_ERROR.loadFailed)
         setMine([])
         return []
       }
@@ -195,11 +197,11 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
         .order('created_at', { ascending: false })
       if (!opts?.silent) setMineLoading(false)
       if (dbError) {
-        setMineError('加载失败，请重试')
+        setMineError(APP_ERROR.loadFailed)
         setMine([])
         return []
       }
-      const list = (rows as unknown[] ?? []).map((row) => {
+      const list = ((rows as unknown[]) ?? []).map((row) => {
         const r = row as PostRow & { profiles?: unknown }
         const p = r.profiles as Record<string, unknown> | undefined
         const profiles =
@@ -222,7 +224,10 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
   /** 锁定/解锁自己的帖子（与社区过滤 is_locked 联动）。 */
   const setLocked = useCallback(
     async (id: string, value: boolean): Promise<{ ok: true } | { ok: false; error: string }> => {
-      const { error: dbError } = await client.from('posts').update({ is_locked: value }).eq('id', id)
+      const { error: dbError } = await client
+        .from('posts')
+        .update({ is_locked: value })
+        .eq('id', id)
       if (dbError) return { ok: false, error: dbError.message }
       setMine((prev) => prev.map((p) => (p.id === id ? { ...p, is_locked: value } : p)))
       emitSync('post')
@@ -288,7 +293,10 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
         }
         if (imageUrl !== undefined) patch.image_url = imageUrl
 
-        const { error: dbError } = await client.from('posts').update(patch as never).eq('id', id)
+        const { error: dbError } = await client
+          .from('posts')
+          .update(patch as never)
+          .eq('id', id)
         if (dbError) return { ok: false, error: dbError.message }
 
         await fetchMine({ silent: true })

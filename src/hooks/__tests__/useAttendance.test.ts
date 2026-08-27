@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -81,7 +81,7 @@ describe('useAttendance', () => {
     await act(async () => {
       await result.current.fetchMyAttendances('user-1', [1])
     })
-    expect(result.current.error).toContain('考勤数据加载失败')
+    expect(result.current.error).toBe('loadFailed')
   })
 
   it('fetchByRehearsal 查询 DB 返回列表（RLS 允许 SELECT 自己的行）', async () => {
@@ -165,7 +165,7 @@ describe('useAttendance', () => {
     const c = mockClient([{ data: null, error: { message: '查询失败' } }])
     const { result } = renderHook(() => useAttendance(c as never))
     const res = await act(() => result.current.fetchMyHistory('u1', {}))
-    expect(res.error).toBe('查询失败')
+    expect(res.error).toBe('loadFailed')
     expect(res.rows).toEqual([])
   })
 

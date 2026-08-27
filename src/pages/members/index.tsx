@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
+import { tAppError } from '@/lib/appError'
 import { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -87,7 +88,9 @@ export default function Members() {
             </Text>
           ) : rosterError ? (
             <Card className='border-danger-bg bg-danger-bg/80'>
-              <Text className='block px-3 py-2 text-sm text-danger'>{rosterError}</Text>
+              <Text className='block px-3 py-2 text-sm text-danger'>
+                {tAppError(t, rosterError)}
+              </Text>
             </Card>
           ) : rosterRows.length === 0 ? (
             <Text className='block py-8 text-center text-xs text-text-muted'>

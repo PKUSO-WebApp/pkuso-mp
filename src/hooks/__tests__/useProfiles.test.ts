@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -69,7 +69,7 @@ describe('useProfiles', () => {
     const { result } = renderHook(() => useProfiles({ status: 'pending' }, c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
     // 与 Web 差异：不透传 dbError.message，统一中文文案（不抛）
-    expect(result.current.error).toBe('数据加载失败，请重试')
+    expect(result.current.error).toBe('loadFailed')
     expect(result.current.data).toEqual([])
   })
 
@@ -116,7 +116,7 @@ describe('useProfiles', () => {
       })
     )
     expect(ok).toBe(false)
-    expect(result.current.error).toBe('插入失败')
+    expect(result.current.error).toBe('saveFailed')
   })
 
   it('update 成功时返回 true 并更新本地数据', async () => {
@@ -149,7 +149,7 @@ describe('useProfiles', () => {
       ok = await result.current.update('1', { phone_number: '13800138000' })
     })
     expect(ok).toBe(false)
-    expect(result.current.error).toBe('无权限或记录不存在')
+    expect(result.current.error).toBe('saveFailed')
     // 本地数据不应被污染（保留旧值）
     expect(result.current.data[0]).not.toHaveProperty('phone_number', '13800138000')
   })
@@ -167,7 +167,7 @@ describe('useProfiles', () => {
       ok = await result.current.update('1', { full_name: '李四' })
     })
     expect(ok).toBe(false)
-    expect(result.current.error).toBe('db error')
+    expect(result.current.error).toBe('saveFailed')
   })
 
   it('fetch 竞态保护：旧请求返回不覆盖新数据', async () => {

@@ -3,6 +3,7 @@ import { View, Text } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useThemeClass } from '@/context/theme-context'
+import { tAppError } from '@/lib/appError'
 import { useT, useNavTitle } from '@/i18n'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { PageHeader } from '@/components/page-header'
@@ -74,7 +75,7 @@ export default function MyActivitiesPage() {
         <ListState
           loading={mineLoading}
           isEmpty={mine.length === 0}
-          error={mineError}
+          error={tAppError(t, mineError)}
           emptyText={t('myActivities.empty')}
           onRetry={() => void load()}
         >

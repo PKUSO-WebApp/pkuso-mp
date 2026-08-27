@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { subscribeSync } from '@/lib/dataSync'
+import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import type { AnnouncementRow } from '@/types/database'
 
 // 公告 hook（成员端）：获取最新一条公告。
@@ -11,32 +12,36 @@ import type { AnnouncementRow } from '@/types/database'
 export function useAnnouncements(client: typeof defaultClient = defaultClient) {
   const [data, setData] = useState<AnnouncementRow | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppErrorCode | null>(null)
   const mountedRef = useRef(true)
   const fetchSeqRef = useRef(0)
 
   // 获取最新一条公告（供成员端展示）
-  const fetch = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!mountedRef.current) return
-    const seq = ++fetchSeqRef.current
-    if (!opts?.silent) setLoading(true)
-    setError(null)
-    const { data: rows, error: dbError } = await client
-      .from('announcements')
-      .select('id, content, created_at')
-      .order('created_at', { ascending: false })
-      .limit(1)
-    if (!mountedRef.current || seq !== fetchSeqRef.current) return
-    setLoading(false)
-    if (dbError) {
-      // 错误归一化：加载失败统一中文文案
-      setError('数据加载失败，请重试')
-      setData(null)
-      return
-    }
-    const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as AnnouncementRow) : null
-    setData(row)
-  }, [client])
+  const fetch = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!mountedRef.current) return
+      const seq = ++fetchSeqRef.current
+      if (!opts?.silent) setLoading(true)
+      setError(null)
+      const { data: rows, error: dbError } = await client
+        .from('announcements')
+        .select('id, content, created_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (!mountedRef.current || seq !== fetchSeqRef.current) return
+      setLoading(false)
+      if (dbError) {
+        // 错误码化（P2-7）：原始错误仅记录
+        console.error('[useAnnouncements] 公告加载失败', dbError)
+        setError(APP_ERROR.loadFailed)
+        setData(null)
+        return
+      }
+      const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as AnnouncementRow) : null
+      setData(row)
+    },
+    [client]
+  )
 
   useEffect(() => {
     mountedRef.current = true

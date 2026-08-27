@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { dataSyncBump, subscribeSync } from '@/lib/dataSync'
+import { APP_ERROR } from '@/lib/appError'
 import type { LeaveRequestRow, LeaveRequestWithDetails } from '@/types/database'
 import { guessContentType, uploadLocalFile } from '@/lib/uploadLocalFile'
 
@@ -64,6 +65,7 @@ export type CancelOnSignInResult =
 export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
   const [data, setData] = useState<LeaveRequestWithDetails[]>([])
   const [loading, setLoading] = useState(true)
+  // 写路径业务提示与读路径错误共用一个 state：保持 string，load 失败写入 APP_ERROR.loadFailed 常量
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const mountedRef = useRef(true)
@@ -71,27 +73,30 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
   const fetchSeqRef = useRef(0)
 
   /** 查当前用户全部申请（含排练信息 join），按 created_at 倒序 */
-  const fetchMine = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!mountedRef.current) return null
-    const seq = ++fetchSeqRef.current
-    if (!opts?.silent) setLoading(true)
-    setError(null)
-    const { data: rows, error: dbError } = await client
-      .from('leave_requests')
-      .select('*, rehearsals(repertoire, title, start_time, end_time, location)')
-      .order('created_at', { ascending: false })
-    if (!mountedRef.current || seq !== fetchSeqRef.current) return null
-    setLoading(false)
-    if (dbError) {
-      // 错误归一化：加载失败统一中文文案
-      setError('数据加载失败，请重试')
-      setData([])
-      return null
-    }
-    const list = (rows as LeaveRequestWithDetails[]) ?? []
-    setData(list)
-    return list
-  }, [client])
+  const fetchMine = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!mountedRef.current) return null
+      const seq = ++fetchSeqRef.current
+      if (!opts?.silent) setLoading(true)
+      setError(null)
+      const { data: rows, error: dbError } = await client
+        .from('leave_requests')
+        .select('*, rehearsals(repertoire, title, start_time, end_time, location)')
+        .order('created_at', { ascending: false })
+      if (!mountedRef.current || seq !== fetchSeqRef.current) return null
+      setLoading(false)
+      if (dbError) {
+        console.error('[useLeaveRequests] 请假单加载失败', dbError)
+        setError(APP_ERROR.loadFailed)
+        setData([])
+        return null
+      }
+      const list = (rows as LeaveRequestWithDetails[]) ?? []
+      setData(list)
+      return list
+    },
+    [client]
+  )
 
   useEffect(() => {
     mountedRef.current = true

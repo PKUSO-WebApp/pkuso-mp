@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { dataSyncBump, emitSync, subscribeSync } from '@/lib/dataSync'
+import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import type { NotificationCategory, NotificationRow } from '@/types/database'
 
 /** 三个信箱分类（profile 页按钮共用） */
@@ -30,8 +31,8 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
     system: 0,
   })
   const [loading, setLoading] = useState(true)
-  // 未读数查询失败面（P2-6）：失败不再仅 console 静默，暴露给调用方
-  const [error, setError] = useState<string | null>(null)
+  // 未读数查询失败面（P2-6/P2-7）：失败产出稳定错误码，不再静默或透传 DB 原文
+  const [error, setError] = useState<AppErrorCode | null>(null)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -42,26 +43,29 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
   }, [])
 
   /** 重新拉取未读数（挂载时调用） */
-  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setLoading(true)
-    // 防御性取值：emitSync 可能触达已卸载测试实例的遗留监听器（其 mock 无此查询链），
-    // 结果为 undefined 时静默跳过，避免未处理拒绝
-    const res = await client.from('notifications').select('category').is('read_at', null)
-    if (!mountedRef.current || !res) return
-    setLoading(false)
-    const rows = (res.data ?? []) as { category: NotificationCategory }[]
-    if (res.error) {
-      console.error('[Notifications] 未读数查询失败', res.error.message)
-      if (mountedRef.current) setError('通知未读数加载失败，请重试')
-      return
-    }
-    if (mountedRef.current) setError(null)
-    const counts: UnreadCounts = { attendance: 0, activity: 0, system: 0 }
-    for (const row of rows) {
-      if (row.category in counts) counts[row.category] += 1
-    }
-    setUnreadCounts(counts)
-  }, [client])
+  const refresh = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setLoading(true)
+      // 防御性取值：emitSync 可能触达已卸载测试实例的遗留监听器（其 mock 无此查询链），
+      // 结果为 undefined 时静默跳过，避免未处理拒绝
+      const res = await client.from('notifications').select('category').is('read_at', null)
+      if (!mountedRef.current || !res) return
+      setLoading(false)
+      const rows = (res.data ?? []) as { category: NotificationCategory }[]
+      if (res.error) {
+        console.error('[Notifications] 未读数查询失败', res.error.message)
+        if (mountedRef.current) setError(APP_ERROR.loadFailed)
+        return
+      }
+      if (mountedRef.current) setError(null)
+      const counts: UnreadCounts = { attendance: 0, activity: 0, system: 0 }
+      for (const row of rows) {
+        if (row.category in counts) counts[row.category] += 1
+      }
+      setUnreadCounts(counts)
+    },
+    [client]
+  )
 
   // 心跳检测到未读数变化后静默重取（不翻 loading；红点由 NotificationBadgeSync 统一刷新）
   useEffect(() => {
@@ -80,7 +84,8 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
         .eq('category', category)
         .order('created_at', { ascending: false })
       if (dbError) {
-        return { rows: [], error: dbError.message }
+        console.error('[Notifications] 分类消息查询失败', dbError.message)
+        return { rows: [], error: APP_ERROR.loadFailed }
       }
       return { rows: (data as NotificationRow[]) ?? [], error: null }
     },

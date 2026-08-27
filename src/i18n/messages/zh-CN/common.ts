@@ -5,6 +5,7 @@ export const common = {
     save: '保存',
     cancel: '取消',
     confirm: '确定',
+    openSettings: '去设置',
     delete: '删除',
     edit: '编辑',
     lock: '锁定',
@@ -40,6 +41,10 @@ export const common = {
     copyFailed: '复制失败',
     copyButton: '复制错误信息',
     hint: '请把复制的信息发送给乐团管理员，以便尽快修复问题。',
+  },
+  errors: {
+    loadFailed: '数据加载失败，请重试',
+    saveFailed: '操作失败，请重试',
   },
   hidden: '（被隐藏）',
   joinDate: {

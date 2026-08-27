@@ -4,6 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useThemeClass } from '@/context/theme-context'
+import { tAppError } from '@/lib/appError'
 import { useT, useNavTitle } from '@/i18n'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
@@ -138,7 +139,7 @@ export default function Community() {
         <ListState
           loading={loading}
           isEmpty={list.length === 0}
-          error={error}
+          error={tAppError(t, error)}
           emptyText={t('community.empty', {
             type: t(view === 'ensemble' ? 'community.type.ensemble' : 'community.type.gathering'),
           })}

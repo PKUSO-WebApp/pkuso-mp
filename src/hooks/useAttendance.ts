@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
+import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import type { AttendanceRow, AttendanceRowWithUser, AttendanceStatus } from '@/types/database'
 
 export type AttendanceSignInInput = {
@@ -55,7 +56,7 @@ export type MyAttendanceMap = Record<number, { status: string; sign_in_time: str
 export function useAttendance(client: typeof defaultClient = defaultClient) {
   const [map, setMap] = useState<MyAttendanceMap>({})
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppErrorCode | null>(null)
   const [saving, setSaving] = useState(false)
   const mountedRef = useRef(true)
   const savingRef = useRef(false)
@@ -88,7 +89,8 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
       if (!mountedRef.current || seq !== fetchSeqRef.current) return
       setLoading(false)
       if (dbError) {
-        setError('考勤数据加载失败')
+        console.error('[useAttendance] 考勤数据加载失败', dbError)
+        setError(APP_ERROR.loadFailed)
         return
       }
       const newMap: MyAttendanceMap = {}
@@ -114,7 +116,8 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
         .select('*')
         .eq('rehearsal_id', rehearsalId)
       if (dbError) {
-        if (mountedRef.current) setError(dbError.message)
+        console.error('[useAttendance] 考勤列表查询失败', dbError)
+        if (mountedRef.current) setError(APP_ERROR.loadFailed)
         return []
       }
       return (rows as AttendanceRowWithUser[]) ?? []
@@ -140,7 +143,8 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
           p_accuracy: input.accuracy ?? null,
         })
         if (dbError) {
-          setError(dbError.message)
+          // 状态面只记稳定码；签到被拒的具体原因（如地理围栏外）经返回值透传给页面 toast
+          setError(APP_ERROR.saveFailed)
           return { error: dbError.message, row: null }
         }
         const rows = (data ?? []) as SignInResultRow[]
@@ -170,8 +174,9 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
 
       const { data: rows, error: dbError } = await query
       if (dbError) {
-        if (mountedRef.current) setError(dbError.message)
-        return { rows: [], error: dbError.message }
+        console.error('[useAttendance] 考勤历史查询失败', dbError)
+        if (mountedRef.current) setError(APP_ERROR.loadFailed)
+        return { rows: [], error: APP_ERROR.loadFailed }
       }
       return { rows: (rows as AttendanceHistoryRow[]) ?? [], error: null }
     },

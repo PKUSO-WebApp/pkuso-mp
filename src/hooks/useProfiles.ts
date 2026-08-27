@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
+import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import type { ProfileRow } from '@/types/database'
 
 type ProfileFilter = {
@@ -45,7 +46,7 @@ export type ProfileUpdatePayload = Partial<
 export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient = defaultClient) {
   const [data, setData] = useState<ProfileRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppErrorCode | null>(null)
   const [saving, setSaving] = useState(false)
   const fetchSeqRef = useRef(0)
   const mountedRef = useRef(true)
@@ -91,8 +92,8 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
     if (seq !== fetchSeqRef.current) return
     setLoading(false)
     if (dbError) {
-      // 错误归一化：加载失败统一中文文案
-      setError('数据加载失败，请重试')
+      console.error('[useProfiles] 花名册加载失败', dbError)
+      setError(APP_ERROR.loadFailed)
       setData([])
       return
     }
@@ -120,7 +121,7 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
       try {
         const { error: dbError } = await client.from('profiles').insert(profile as never)
         if (dbError) {
-          if (mountedRef.current) setError(dbError.message)
+          if (mountedRef.current) setError(APP_ERROR.saveFailed)
           return false
         }
         return true
@@ -150,11 +151,11 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
           .eq('id', id)
           .select('id')
         if (dbError) {
-          if (mountedRef.current) setError(dbError.message)
+          if (mountedRef.current) setError(APP_ERROR.saveFailed)
           return false
         }
         if (!rows || rows.length === 0) {
-          if (mountedRef.current) setError('无权限或记录不存在')
+          if (mountedRef.current) setError(APP_ERROR.saveFailed)
           return false
         }
         if (mountedRef.current) {
