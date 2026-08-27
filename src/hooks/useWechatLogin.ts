@@ -2,7 +2,6 @@ import { useCallback, useRef, useState } from 'react'
 import Taro from '@tarojs/taro'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { routeAfterLogin } from '@/lib/post-auth-route'
-import { establishSession } from '@/lib/single-session'
 
 export type WechatLoginResult = { error: string | null }
 
@@ -73,9 +72,10 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         return { error: '微信登录失败，请重试' }
       }
 
-      // 3.5 登录即把本机登记为当前活跃会话（覆写 profiles.session_token），
-      //     使单设备会话生效：后登录设备会挤掉先登录设备（详见 single-session.ts）
-      void establishSession(client)
+      // 3.5 单设备会话登记（覆写 profiles.session_token，使后登录设备挤掉先登录设备）
+      //     统一由 UserProvider 的 SIGNED_IN 事件经 applySession → establishSession 完成；
+      //     setSession 已触发该事件，此处不再显式调用，否则与事件路径重复发两次
+      //     touch_session（且绕过 establishedTokenRef 去重，存在自踢风险）。
 
       // 4. 按 profile 状态路由入口（资料补全 / 等待审核 / 审核未通过 / 首页；
       //    RPC 以会话 JWT 的 auth.uid() 为准，无需传 userId）
