@@ -56,10 +56,30 @@ export function UserProvider({ children }: { children: ReactNode }) {
   sessionRef.current = session
   const readyRef = useRef(ready)
   readyRef.current = ready
+  // 已登记为活跃会话的 access_token：同一会话只 touch_session 一次，避免 restore /
+  // onAuthStateChange / token 刷新等事件并发重复调用，导致本地令牌与 DB 令牌不一致而被
+  // 自己「挤下线」（自踢）
+  const establishedTokenRef = useRef<string | null>(null)
+  // 本设备被挤下线的「另一设备登录时刻」镜像（见 kick）；新会话建立时必须复位，否则卡死
+  const forcedOfflineAtRef = useRef<string | null>(null)
 
   // 设置会话并（当会话存在时）把本机登记为当前活跃会话（覆写 profiles.session_token），
   // 使单设备会话生效：后登录设备会挤掉先登录设备
   const applySession = useCallback((next: Session | null) => {
+    if (next) {
+      // 新会话建立：清掉上一次「被其他设备登录挤下线」的卡死标记。否则 forcedOfflineAtRef
+      // 永不复位，心跳会一直报 forcedOffline=true、checkNow 早退不再校验，登录后也恢复不了
+      forcedOfflineAtRef.current = null
+      setForcedOfflineAt(null)
+      // 同一会话只 establish 一次（见 establishedTokenRef 注释），防止并发自踢
+      if (next.access_token && next.access_token === establishedTokenRef.current) {
+        setSession(next)
+        return
+      }
+      establishedTokenRef.current = next.access_token ?? null
+    } else {
+      establishedTokenRef.current = null
+    }
     setSession(next)
     if (next) void establishSession(supabase)
   }, [])
@@ -85,7 +105,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // 本设备被挤下线的统一处理：记录时刻、弹通知、清本机会话令牌、本地登出
-  const forcedOfflineAtRef = useRef<string | null>(null)
   const kick = useCallback(
     (startedAt: string | null) => {
       if (forcedOfflineAtRef.current) return
@@ -221,7 +240,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
       <ForceOfflineModal
         opened={!!forcedOfflineAt}
         at={forcedOfflineAt}
-        onClose={() => setForcedOfflineAt(null)}
+        onClose={() => {
+          forcedOfflineAtRef.current = null
+          setForcedOfflineAt(null)
+        }}
       />
     </UserContext.Provider>
   )
