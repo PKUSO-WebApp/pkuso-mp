@@ -139,7 +139,7 @@ export default function Index() {
       {/* 公告条置于 header 之上（用户要求置顶）：点击展开详情；
          冷启动公告到达时会顶推下方 header/切换器，此为相对原滚动内置方案的取舍 */}
       {!announcementLoading && announcement?.content ? (
-        <View className='mb-3 mt-1 px-4' onClick={() => setShowAnnouncementDetail(true)}>
+        <View className='mb-3 mt-2 px-4' onClick={() => setShowAnnouncementDetail(true)}>
           <View className='flex items-center gap-2 rounded-xl border border-warning-bg bg-warning-bg/80 px-3 py-2'>
             <Text className='shrink-0 text-warning'>📢</Text>
             <View className='min-w-0 flex-1 max-h-[60px] overflow-hidden'>
