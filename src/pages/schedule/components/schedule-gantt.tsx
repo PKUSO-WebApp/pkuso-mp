@@ -138,7 +138,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
 
   return (
     <>
-      <View className='relative flex w-full' style={{ height: '480px' }}>
+      <View className='relative flex w-full' style={{ height: '480px', flexShrink: 0 }}>
         {/* 左侧时间轴（随容器同步滚动） */}
         <View className='flex w-12 flex-shrink-0 flex-col bg-gantt-sidebar'>
           {Array.from({ length: 24 }).map((_, hour) => (
