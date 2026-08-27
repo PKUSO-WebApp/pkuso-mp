@@ -136,6 +136,19 @@ export default function Index() {
         </View>
       )}
 
+      {/* 公告条置于 header 之上（用户要求置顶）：点击展开详情；
+         冷启动公告到达时会顶推下方 header/切换器，此为相对原滚动内置方案的取舍 */}
+      {!announcementLoading && announcement?.content ? (
+        <View className='mb-3 mt-1 px-4' onClick={() => setShowAnnouncementDetail(true)}>
+          <View className='flex items-center gap-2 rounded-xl border border-warning-bg bg-warning-bg/80 px-3 py-2'>
+            <Text className='shrink-0 text-warning'>📢</Text>
+            <View className='min-w-0 flex-1 max-h-[60px] overflow-hidden'>
+              <Text className='text-xs leading-relaxed text-warning'>{announcement.content}</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       <View className='mb-3 mt-1 px-4'>
         <PageHeader
           title={
@@ -167,22 +180,10 @@ export default function Index() {
       </View>
 
       {/* 排练列表（可滚动）：统一用原生 ScrollView，与成员页/请假页一致；
-          间距用 mb-3（space-y 在 WXSS 无效） */}
+        间距用 mb-3（space-y 在 WXSS 无效） */}
       <ScrollView scrollY className='flex-1 min-h-0'>
-        {/* 公告条置于滚动区内：冷启动公告到达时只影响滚动内容，
-            不再顶推头部/切换器/列表整体下移（P0-6） */}
-        {!announcementLoading && announcement?.content ? (
-          <View className='mb-3' onClick={() => setShowAnnouncementDetail(true)}>
-            <View className='flex items-center gap-2 rounded-xl border border-warning-bg bg-warning-bg/80 px-3 py-2'>
-              <Text className='shrink-0 text-warning'>📢</Text>
-              <View className='min-w-0 flex-1 max-h-[60px] overflow-hidden'>
-                <Text className='text-xs leading-relaxed text-warning'>{announcement.content}</Text>
-              </View>
-            </View>
-          </View>
-        ) : null}
         {/* 底部留白：自定义 tabBar 固定覆盖页面底部（高 50px + 安全区），
-            历史合排多时末行会被遮挡、无法滚到底，故内容底部补足留白（与成员页一致） */}
+           历史合排多时末行会被遮挡、无法滚到底，故内容底部补足留白（与成员页一致） */}
         <View className='px-4'>
           <ListState
             loading={rehearsalsLoading}
