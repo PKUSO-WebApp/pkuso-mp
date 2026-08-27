@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text } from '@tarojs/components'
+import { View, Text, ScrollView } from '@tarojs/components'
 import { useDidShow } from '@tarojs/taro'
 import { dataSyncBump } from '@/lib/dataSync'
 import { tAppError } from '@/lib/appError'
@@ -103,8 +103,8 @@ export default function Schedule() {
         <Text className='text-base font-medium text-text'>{formatDisplayDate(selectedDate)}</Text>
       </View>
 
-      {/* 甘特图：flex-1 占满剩余空间，内部独立滚动 */}
-      <View className='mb-4 flex-1 min-h-0 overflow-y-auto rounded-xl border border-border bg-card'>
+      {/* 甘特图：flex-1 占满剩余空间，内部独立滚动（用原生 ScrollView 兼容真机滚动） */}
+      <ScrollView scrollY className='mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'>
         {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
         <ListState loading={loading} isEmpty={false} error={tAppError(t, error)}>
           <ScheduleGantt
@@ -113,8 +113,8 @@ export default function Schedule() {
             user={user}
             remove={remove}
           />
-        </ListState>
-      </View>
+          </ListState>
+        </ScrollView>
 
       {/* 添加预约弹窗（成员写入排练房申请） */}
       <CreateScheduleModal
