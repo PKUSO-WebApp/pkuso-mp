@@ -81,8 +81,12 @@
 
 ## P3 — 基建与测试
 
-- [ ] **P3-1** GitHub Actions：跑 `pnpm verify` + build:weapp（对齐 web 仓 CI=verify 哲学）
-- [ ] **P3-2** README.md（架构 / 闸门 / 环境变量）
+- [x] **P3-1** GitHub Actions：`.github/workflows/ci.yml` 跑 `lint` + `typecheck` + `test` + `build:weapp`（对齐 web 仓 CLAUDE.md 的 verify 哲学 = lint+typecheck+test；本仓 `pnpm verify` 额外含 `format`，而全仓尚未 prettier 归一，故 CI 不跑 format 以免误红）
+  - ✅ 完成：commit `ci: add GitHub Actions verify (lint+typecheck+test+build)`
+  - ⚠️ 前置：执行中发现 HEAD 本身 `typecheck` 不通过——`rehearsal-detail/index.tsx` 与 `useAttendance.ts` 已在计划提交中带入 geo 签到代码，但其依赖（`src/lib/geo.ts`、database.types 的 geo 列与 `sign_in_attendance_location` RPC、i18n `signIn.*`/`revokeConfirmTitle` 键）此前仅存于未提交工作区。已按决定把 geo 作为独立 commit 提交（`feat: geo sign-in (location-based check-in)`，`b30978e`），HEAD 现自洽。
+- [x] **P3-2** README.md：架构 / 目录结构 / 交付闸门 / 环境变量（TARO_APP_SUPABASE_URL、TARO_APP_SUPABASE_ANON_KEY、TARO_APP_SESSION_DIAG）/ 已知坑
+  - ✅ 完成：commit `docs: add README (architecture/gate/env)`
 - [x] **P3-3** 补测试：签到状态机（attendance-utils.test.ts 已覆盖 hasSignedIn/canSignIn/judgeAttendanceStatus/getSignBlockReason）、postSeen 时间戳（createSeenStore.test.ts）、theme-context 切换（theme-context.test.tsx）、dataSync 心跳（dataSync.test.ts 事件总线 + 版本/未读数变化广播）
   - ✅ 完成：commit `test: add P3-3 regression tests (sign-in/postSeen/theme/dataSync)`
-- [ ] **P3-4** en 字典静态打进主包评估（消 en 冷启动中文闪）
+- [x] **P3-4** en 字典静态打进主包（消 en 冷启动中文闪）：`src/i18n/index.tsx` 静态 import `en`，并按 `resolveInitialLanguage()` 初始化 dict，首屏即按 storage 语言渲染，不再动态 import 等待 chunk
+  - ✅ 完成：commit `fix(i18n): static-bundle en dict to kill cold-start flash`
