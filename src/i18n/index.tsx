@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { zhCN } from './messages/zh-CN'
+import { en } from './messages/en'
 import type { ZHCNMessages } from './messages/zh-CN'
 import type { Path } from './types'
 import { resolveInitialLanguage, setStoredLanguage, type Locale } from './storage'
@@ -19,15 +20,17 @@ type LangCtx = { locale: Locale; t: TFn; setLocale: (l: Locale) => void }
 
 const LanguageContext = createContext<LangCtx | null>(null)
 
-// 默认语言（zh-CN）静态打包，避免首屏文案闪烁；其余语言按需动态 import 形成独立 chunk。
+// zh-CN 与 en 均静态打包进主包：en 作为第二语言使用频率高，动态 import 会在冷启动
+// 造成英文用户短暂的中文闪烁；静态引入后首屏即按 storage 中的语言渲染，无需等待 chunk。
 export const loaders: Record<Locale, () => Promise<{ default: Dict }>> = {
   'zh-CN': async () => ({ default: zhCN as Dict }),
-  en: () => import('./messages/en'),
+  en: async () => ({ default: en as Dict }),
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(resolveInitialLanguage)
-  const [dict, setDict] = useState<Dict>(zhCN as Dict)
+  const initialLocale = resolveInitialLanguage()
+  const [locale, setLocaleState] = useState<Locale>(initialLocale)
+  const [dict, setDict] = useState<Dict>(initialLocale === 'en' ? (en as Dict) : (zhCN as Dict))
 
   useEffect(() => {
     let active = true
