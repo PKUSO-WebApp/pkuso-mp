@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text } from '@tarojs/components'
+import { View, Text, ScrollView } from '@tarojs/components'
 import { useDidShow } from '@tarojs/taro'
 import { dataSyncBump } from '@/lib/dataSync'
 import { tAppError } from '@/lib/appError'
@@ -76,7 +76,7 @@ export default function Schedule() {
   }
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
+    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-tabbar`}>
       {/* 头部 */}
       <View className='mb-3 mt-1'>
         <PageHeader
@@ -103,10 +103,12 @@ export default function Schedule() {
         <Text className='text-base font-medium text-text'>{formatDisplayDate(selectedDate)}</Text>
       </View>
 
-      {/* 甘特图：flex-1 占满剩余空间；甘特图自身 height:100% 填满容器，24h 始终完整可见，
-          不依赖滚动到底。v2 web 版用固定 480px + overflow-y-auto，依赖浏览器原生滚动；
-          小程序 scroll-view 在固定高度子节点下无法可靠滚到底，故改为「填满容器、整日可见」。 */}
-      <View className='mb-4 flex-1 min-h-0 overflow-hidden rounded-xl border border-border bg-card'>
+      {/* 甘特图：flex-1 占满剩余空间，内部 ScrollView 独立滚动（固定 480px 比例尺，
+          24h × 20px/h）；页面已用 pb-tabbar 为自定义 tabBar 预留 50px+安全区，故可滚到底不遮挡 */}
+      <ScrollView
+        scrollY
+        className='mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'
+      >
         {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
         <ListState loading={loading} isEmpty={false} error={tAppError(t, error)}>
           <ScheduleGantt
@@ -116,7 +118,7 @@ export default function Schedule() {
             remove={remove}
           />
         </ListState>
-      </View>
+      </ScrollView>
 
       {/* 添加预约弹窗（成员写入排练房申请） */}
       <CreateScheduleModal
