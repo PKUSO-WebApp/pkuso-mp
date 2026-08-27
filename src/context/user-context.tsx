@@ -21,8 +21,9 @@ import { logDiag, setSessionStatusProvider, startSessionDiag } from '@/lib/sessi
 
 // 会话恢复超时阈值：弱网/挂起时不再无限等待（SDK 默认等待较长），超时降级为「未登录 + 恢复失败」
 const RESTORE_TIMEOUT_MS = 10000
-// 单设备会话心跳间隔：前台切换（useDidShow）之外，定时比对令牌以更快发现被挤下线
-const SESSION_CHECK_INTERVAL_MS = 60000
+// 单设备会话心跳间隔：前台切换（useDidShow）之外，定时比对令牌以更快发现被挤下线。
+// 15s：前台空闲最坏检测延迟约 15s（更短会显著增加 RPC 频次，收益递减）
+const SESSION_CHECK_INTERVAL_MS = 15000
 
 // 小程序端 user = 会话中的 auth 用户（profile 详情由后续任务加载）
 export type User = {
