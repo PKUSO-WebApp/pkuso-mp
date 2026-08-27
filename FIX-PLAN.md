@@ -83,5 +83,6 @@
 
 - [ ] **P3-1** GitHub Actions：跑 `pnpm verify` + build:weapp（对齐 web 仓 CI=verify 哲学）
 - [ ] **P3-2** README.md（架构 / 闸门 / 环境变量）
-- [ ] **P3-3** 补测试：签到状态机组件测试（最优先）、postSeen 时间戳、theme-context 切换、dataSync 心跳
+- [x] **P3-3** 补测试：签到状态机（attendance-utils.test.ts 已覆盖 hasSignedIn/canSignIn/judgeAttendanceStatus/getSignBlockReason）、postSeen 时间戳（createSeenStore.test.ts）、theme-context 切换（theme-context.test.tsx）、dataSync 心跳（dataSync.test.ts 事件总线 + 版本/未读数变化广播）
+  - ✅ 完成：commit `test: add P3-3 regression tests (sign-in/postSeen/theme/dataSync)`
 - [ ] **P3-4** en 字典静态打进主包评估（消 en 冷启动中文闪）
