@@ -119,11 +119,11 @@ export default function Index() {
   }
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
+    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg pb-safe`}>
       {/* 欢迎语（5 秒后淡出消失） */}
       {user && welcomeMounted && (
         <View
-          className={`mt-4 transition-opacity py-2 duration-300 ${
+          className={`mt-4 transition-opacity py-2 px-4 duration-300 ${
             welcomeVisible ? 'opacity-100' : 'opacity-0'
           }`}
         >
@@ -133,7 +133,7 @@ export default function Index() {
         </View>
       )}
 
-      <View className='mb-3 mt-1'>
+      <View className='mb-3 mt-1 px-4'>
         <PageHeader
           title={
             scheduleTab === 'history'
@@ -180,7 +180,7 @@ export default function Index() {
         ) : null}
         {/* 底部留白：自定义 tabBar 固定覆盖页面底部（高 50px + 安全区），
             历史合排多时末行会被遮挡、无法滚到底，故内容底部补足留白（与成员页一致） */}
-        <View className='pb-8'>
+        <View className='px-4 pb-8'>
           <ListState
             loading={rehearsalsLoading}
             isEmpty={list.length === 0}
