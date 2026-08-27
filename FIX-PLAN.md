@@ -73,7 +73,11 @@
   - ✅ 完成：commit `refactor(hooks): error-code refactor for read paths (P2-7)`
 - [x] **P2-8** tabBar 色板单一真相源（CustomTabBar LIGHT/DARK 从共享常量/theme-context 导入）
   - ✅ 完成：lib/theme.ts 新增 `THEME_PALETTE`（nav/window/tab/dot 全量），theme-context 与 CustomTabBar 共用；commit `refactor(theme): single-source THEME_PALETTE for nav/window/tabBar colors`
-- [ ] **P2-9** 其余低优先提取：ActionBar、StatusChip、`runContentCheckAndUpload`
+- [x] **P2-9** 其余低优先提取：ActionBar、StatusChip、`runContentCheckAndUpload`
+  - `runContentCheckAndUpload` 已提取（commit `e86123d`）
+  - 新增 `src/components/ui/StatusChip`（tone 派生彩色状态胶囊）+ `src/components/ui/ActionBar`（右下角操作行）
+  - 迁移：leave-requests/members/member-detail-modal/rehearsal-card 状态徽标 → StatusChip；setup/profile×2/feedback-modal/create-schedule-modal 操作行 → ActionBar
+  - ✅ 完成：commit `refactor(ui): extract StatusChip + ActionBar (P2-9)`
 
 ## P3 — 基建与测试
 

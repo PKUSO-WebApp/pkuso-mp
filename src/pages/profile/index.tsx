@@ -6,6 +6,7 @@ import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { LanguagePreview } from '@/components/LanguagePreview'
+import { ActionBar } from '@/components/ui/ActionBar'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useAuth } from '@/hooks/useAuth'
@@ -428,7 +429,7 @@ export default function Profile() {
               />
               {pwdError && <Text className='mt-3 block text-xs text-danger'>{pwdError}</Text>}
               {/* 双按钮操作行右下角（取消 + 确认修改）；取消按钮任一提交飞行中禁用 */}
-              <View className='mt-3 flex justify-end gap-2'>
+              <ActionBar className='mt-3'>
                 <View
                   className={`rounded-full border border-border bg-card px-4 py-2 text-xs font-medium text-text-muted ${
                     isUpdatingPwd || isRebindingEmail ? 'opacity-60' : ''
@@ -449,7 +450,7 @@ export default function Profile() {
                     ? t('profile.account.submitting')
                     : t('profile.account.confirmChange')}
                 </View>
-              </View>
+              </ActionBar>
             </View>
           ) : (
             <View className='mt-4'>
@@ -469,7 +470,7 @@ export default function Profile() {
                 }}
               />
               {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
-              <View className='mt-3 flex justify-end gap-2'>
+              <ActionBar className='mt-3'>
                 <View
                   className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
                     isRebindingEmail ? 'opacity-60' : ''
@@ -480,7 +481,7 @@ export default function Profile() {
                     ? t('profile.account.submitting')
                     : t('profile.account.sendVerifyEmail')}
                 </View>
-              </View>
+              </ActionBar>
             </View>
           )}
         </View>

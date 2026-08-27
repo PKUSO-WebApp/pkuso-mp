@@ -4,6 +4,7 @@ import { TextField, PickerField } from '@/components/ui/FormFields'
 import Taro from '@tarojs/taro'
 import { Modal } from '@/components/ui/Modal'
 import { useT } from '@/i18n'
+import { ActionBar } from '@/components/ui/ActionBar'
 
 // 时间选择最小单位 15 分钟：分钟列仅提供 00/15/30/45 四档。
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
@@ -197,7 +198,7 @@ export function CreateScheduleModal({
 
         {error && <Text className='block text-sm text-danger'>{error}</Text>}
 
-        <View className='flex items-center justify-end gap-2 pt-1'>
+        <ActionBar className='pt-1'>
           <View
             className='rounded-full px-4 py-1.5 text-label text-text-muted'
             onClick={busy ? undefined : () => handleClose()}
@@ -210,7 +211,7 @@ export function CreateScheduleModal({
           >
             {isSubmitting ? t('schedule.submitting') : t('common.actions.confirm')}
           </View>
-        </View>
+        </ActionBar>
       </View>
     </Modal>
   )

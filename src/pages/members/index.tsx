@@ -10,6 +10,7 @@ import { useMyProfile } from '@/hooks/useMyProfile'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 
 import { Card } from '@/components/ui/Card'
+import { StatusChip } from '@/components/ui/StatusChip'
 import { PageHeader } from '@/components/page-header'
 import { groupProfilesByInstrument } from '@/lib/roster-utils'
 import { filterByName } from '@/lib/name-search'
@@ -124,9 +125,7 @@ export default function Members() {
                                 (u.full_name ?? '—')}
                             </Text>
                             {u.is_section_leader && (
-                              <Text className='rounded-full bg-warning-bg px-1.5 py-1 text-xs text-warning'>
-                                {t('members.sectionLeader')}
-                              </Text>
+                              <StatusChip tone='warning'>{t('members.sectionLeader')}</StatusChip>
                             )}
                           </View>
                           <Text className='mt-1 block text-text-muted'>

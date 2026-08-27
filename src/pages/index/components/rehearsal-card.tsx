@@ -1,6 +1,7 @@
 import { View, Text } from '@tarojs/components'
 import { Card } from '@/components/ui/Card'
 import { UnreadDot } from '@/components/ui/UnreadDot'
+import { StatusChip } from '@/components/ui/StatusChip'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { getUpdatedFields } from '@/lib/rehearsal-sort'
 import { useT } from '@/i18n'
@@ -32,13 +33,13 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
               : t('home.rehearsalTimeUnset')}
           </Text>
           {updatedFields && updatedFields.length > 0 && (
-            <Text className='mt-1 inline-block rounded bg-warning-bg/80 px-1.5 py-1 text-xs text-warning'>
+            <StatusChip tone='warning' className='mt-1'>
               {t('home.updated', {
                 fields: updatedFields
                   .map((f) => t(`home.updatedField.${f}`))
                   .join('/'),
               })}
-            </Text>
+            </StatusChip>
           )}
           <Text className='mt-1 block text-xs text-text-muted'>
             {item.location || t('home.locationUnset')}

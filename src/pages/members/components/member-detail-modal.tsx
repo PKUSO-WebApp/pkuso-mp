@@ -1,6 +1,7 @@
 ﻿import { View, Text } from '@tarojs/components'
 import { Modal } from '@/components/ui/Modal'
 import { FieldRow } from '@/components/ui/FieldRow'
+import { StatusChip } from '@/components/ui/StatusChip'
 import { maskedValue } from '@/lib/privacy'
 import { useT } from '@/i18n'
 import { translateInstrument } from '@/lib/instrument-i18n'
@@ -25,11 +26,9 @@ export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetai
         <View className='mt-2'>
           <View className='flex flex-wrap items-center gap-2'>
             <Text className='text-base font-semibold text-text'>{user.full_name ?? '—'}</Text>
-            {user.is_section_leader && (
-              <Text className='rounded-full bg-warning-bg px-2 py-1 text-xs text-warning'>
-                {t('members.sectionLeader')}
-              </Text>
-            )}
+              {user.is_section_leader && (
+                <StatusChip tone='warning'>{t('members.sectionLeader')}</StatusChip>
+              )}
           </View>
           <FieldRow className='mt-3' label={t('members.fieldInstrument')} value={user.instrument ? translateInstrument(user.instrument, t) : user.instrument} />
           <FieldRow className='mt-3' label={t('members.fieldCollege')} value={user.college} />

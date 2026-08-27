@@ -3,6 +3,7 @@ import { Button, Text, View } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import Taro from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
+import { ActionBar } from '@/components/ui/ActionBar'
 import { useThemeClass } from '@/context/theme-context'
 import { useUser } from '@/context/user-context'
 import { useLogout } from '@/hooks/useLogout'
@@ -173,7 +174,7 @@ export default function SetupPage() {
         ) : null}
 
         {/* 双按钮操作行：右下角（取消 + 提交） */}
-        <View className='mt-5 flex justify-end gap-3'>
+        <ActionBar className='mt-5 gap-3'>
           <Button
             hoverClass='none'
             className='flex h-10 w-24 items-center justify-center rounded-2xl bg-muted text-sm font-medium text-text disabled:opacity-60'
@@ -190,7 +191,7 @@ export default function SetupPage() {
           >
             {submitting ? t('setup.submitting') : t('setup.submit')}
           </Button>
-        </View>
+        </ActionBar>
       </Card>
     </View>
   )

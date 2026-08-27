@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { getAppVersionLabel } from '@/lib/version'
 import { useT } from '@/i18n'
 import { Modal } from '@/components/ui/Modal'
+import { ActionBar } from '@/components/ui/ActionBar'
 
 type Props = {
   open: boolean
@@ -86,7 +87,7 @@ export function FeedbackModal({ open, onClose }: Props) {
           />
         </FormField>
         {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
-        <View className='mt-3 flex justify-end gap-2'>
+        <ActionBar className='mt-3'>
           <View
             className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
               submitting ? 'opacity-60' : ''
@@ -95,7 +96,7 @@ export function FeedbackModal({ open, onClose }: Props) {
           >
             {submitting ? t('profile.account.submitting') : t('common.actions.submit')}
           </View>
-        </View>
+        </ActionBar>
       </View>
     </Modal>
   )

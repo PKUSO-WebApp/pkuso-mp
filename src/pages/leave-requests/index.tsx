@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useNotifications } from '@/hooks/useNotifications'
 import { notifyNotificationsUpdated } from '@/components/notification-badge-sync'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
+import { StatusChip, type StatusTone } from '@/components/ui/StatusChip'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { useT } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
@@ -17,12 +18,12 @@ type RehearsalMini = {
 }
 type LeaveRequestWithRehearsal = LeaveRequestRow & { rehearsals: RehearsalMini | null }
 
-const STATUS_CLASS: Record<LeaveStatus, string> = {
-  approved: 'bg-success-bg text-success',
-  rejected: 'bg-danger-bg text-danger',
-  pending: 'bg-warning-bg text-warning',
-  withdrawn: 'bg-muted text-text-muted',
-  canceled: 'bg-muted text-text-muted',
+const STATUS_TONE: Record<LeaveStatus, StatusTone> = {
+  approved: 'success',
+  rejected: 'danger',
+  pending: 'warning',
+  withdrawn: 'neutral',
+  canceled: 'neutral',
 }
 
 type TabKey = 'all' | 'approved' | 'rejected' | 'pending'
@@ -134,11 +135,7 @@ export default function LeaveRequestsPage() {
                   </View>
                   {/* 状态：右下角彩色方框 */}
                   <View className='mt-3 flex justify-end'>
-                    <Text
-                      className={`inline-flex items-center rounded px-2 py-1 text-xs ${STATUS_CLASS[r.status]}`}
-                    >
-                      {statusLabels[r.status]}
-                    </Text>
+                    <StatusChip tone={STATUS_TONE[r.status]}>{statusLabels[r.status]}</StatusChip>
                   </View>
                 </View>
               )
