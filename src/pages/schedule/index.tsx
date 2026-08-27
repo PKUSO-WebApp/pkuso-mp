@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, ScrollView } from '@tarojs/components'
+import { View, Text } from '@tarojs/components'
 import { useDidShow } from '@tarojs/taro'
 import { dataSyncBump } from '@/lib/dataSync'
 import { tAppError } from '@/lib/appError'
@@ -103,20 +103,19 @@ export default function Schedule() {
         <Text className='text-base font-medium text-text'>{formatDisplayDate(selectedDate)}</Text>
       </View>
 
-      {/* 甘特图：外层普通 View 受限高度（flex-1 min-h-0 被正确应用），内层 ScrollView 填满并真正滚动。
-          直接把 flex-1 min-h-0 挂在 ScrollView 上会被 WeChat 忽略 min-h-0 而按内容撑开，导致无法滚到底。 */}
+      {/* 甘特图：flex-1 占满剩余空间；甘特图自身 height:100% 填满容器，24h 始终完整可见，
+          不依赖滚动到底。v2 web 版用固定 480px + overflow-y-auto，依赖浏览器原生滚动；
+          小程序 scroll-view 在固定高度子节点下无法可靠滚到底，故改为「填满容器、整日可见」。 */}
       <View className='mb-4 flex-1 min-h-0 overflow-hidden rounded-xl border border-border bg-card'>
-        <ScrollView scrollY className='h-full'>
-          {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
-          <ListState loading={loading} isEmpty={false} error={tAppError(t, error)}>
-            <ScheduleGantt
-              schedules={filteredSchedules}
-              selectedDate={selectedDate}
-              user={user}
-              remove={remove}
-            />
-          </ListState>
-        </ScrollView>
+        {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
+        <ListState loading={loading} isEmpty={false} error={tAppError(t, error)}>
+          <ScheduleGantt
+            schedules={filteredSchedules}
+            selectedDate={selectedDate}
+            user={user}
+            remove={remove}
+          />
+        </ListState>
       </View>
 
       {/* 添加预约弹窗（成员写入排练房申请） */}
