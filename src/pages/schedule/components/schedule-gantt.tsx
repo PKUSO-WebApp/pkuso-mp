@@ -156,12 +156,13 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
 
         {/* 右侧甘特图区域 */}
         <View className='relative flex-1'>
-          {/* 小时分隔线 */}
+          {/* 小时分隔线：与左侧时间轴一致用 border-t（顶边），确保两侧分隔线在同一位置
+              （border-b 在 0 高度绝对定位元素上会向上偏移 1px，造成 7:00/19:00 等处的错位） */}
           {Array.from({ length: 24 }).map((_, hour) => (
             <View
               key={hour}
               className={`absolute left-0 right-0 ${
-                hour % 4 === 0 && hour !== 0 ? 'border-b-2 border-text' : 'border-b border-border'
+                hour % 4 === 0 && hour !== 0 ? 'border-t-2 border-text' : 'border-t border-border'
               }`}
               style={{ top: `${(hour / 24) * 100}%` }}
             />
