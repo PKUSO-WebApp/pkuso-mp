@@ -41,6 +41,16 @@
   状态（选中/未读/主题/Modal 覆盖）来自模块级全局 store。
   tabBar 必须用普通 `View`（非 `CoverView`），隐藏用 `display:none`（而非 `opacity`），
   否则 `opacity:0` 的 CoverView 仍会拦截底部触摸，导致 Modal 底部按钮点不到。
+- **tabBar 遮挡：所有 tab 页根容器必须「内联」预留真实 50px**：底边栏是
+  `position: fixed; bottom: 0; height: calc(50px + env(safe-area-inset-bottom))` 的浮层
+  （见 `src/components/CustomTabBar.tsx`）。页面根用
+  `style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}`（真实 px）预留同样高度，
+  否则滚动内容末行会被永久遮挡、滚不到底。已在 index / community / members / profile / schedule
+  五个 tab 页根应用此内联预留。
+  **关键坑：Taro 会把样式表（`.wxss`、Tailwind 工具类、`@utility`、`pb-[50px]` 等）里的 `px`
+  自动编译成 `rpx`**（`50px`→`50rpx`≈25px）；而 tabBar 高度用的是**内联** `px`（不被转换）。所以写在
+  `app.css` / `className` 里的 `50px` 只留一半高度、照样遮挡——**只能在内联 `style` 里写真实 `px`**。
+  历史写法 `pb-safe`（仅安全区）、`pb-8`、`pb-[50px]` 均不足或被转 rpx，已废弃。
 - Modal 通过 `useLayoutEffect` 在绘制前隐藏 tabBar（`src/components/ui/Modal.tsx`）。
 - **新建页面必须有 `index.scss`（并 import）**：Taro 仅在页面 `import './index.scss'`
   且该文件有真实内容时才生成 `dist/.../index.wxss`；缺省会导致微信开发者工具报

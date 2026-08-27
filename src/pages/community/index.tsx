@@ -106,7 +106,10 @@ export default function Community() {
   }
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
+    <View
+      className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4`}
+      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+    >
       {/* 头部 */}
       <View className='mt-1 mb-3'>
         <PageHeader

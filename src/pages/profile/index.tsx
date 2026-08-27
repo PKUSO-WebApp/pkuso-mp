@@ -231,10 +231,13 @@ export default function Profile() {
   }
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg pb-safe`}>
+    <View
+      className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+    >
       <ScrollView scrollY className='flex-1 min-h-0'>
         {/* 底部留白 = 自定义底边栏高(50px)，避免末行被遮挡、滚不到底（横屏同样稳健） */}
-        <View className='px-4 pt-4 pb-[50px]'>
+        <View className='px-4 pt-4'>
           {/* 头像卡 */}
           <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
             <View className='flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-base font-medium text-primary-foreground'>

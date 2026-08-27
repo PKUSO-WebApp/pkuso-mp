@@ -119,7 +119,10 @@ export default function Index() {
   }
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg pb-safe`}>
+    <View
+      className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+    >
       {/* 欢迎语（5 秒后淡出消失） */}
       {user && welcomeMounted && (
         <View
@@ -180,7 +183,7 @@ export default function Index() {
         ) : null}
         {/* 底部留白：自定义 tabBar 固定覆盖页面底部（高 50px + 安全区），
             历史合排多时末行会被遮挡、无法滚到底，故内容底部补足留白（与成员页一致） */}
-        <View className='px-4 pb-8'>
+        <View className='px-4'>
           <ListState
             loading={rehearsalsLoading}
             isEmpty={list.length === 0}
