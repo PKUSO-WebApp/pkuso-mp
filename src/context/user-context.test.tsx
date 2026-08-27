@@ -44,7 +44,12 @@ vi.mock('@tarojs/components', () => {
     const { hoverClass, catchMove, ...rest } = props
     return React.createElement(tag, rest)
   }
-  return { View: create('div'), Text: create('span'), Button: create('button') }
+  return {
+    View: create('div'),
+    Text: create('span'),
+    Button: create('button'),
+    RootPortal: ({ children }: any) => React.createElement(React.Fragment, null, children),
+  }
 })
 vi.mock('@/components/ui/Modal', () => ({
   Modal: ({ opened, children }: any) =>
