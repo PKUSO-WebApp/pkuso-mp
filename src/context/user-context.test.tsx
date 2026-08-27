@@ -31,6 +31,7 @@ const { taroMock, store, didShowCbs } = vi.hoisted(() => {
       localDidShowCbs.length = 0
       localDidShowCbs.push(cb)
     }),
+    reLaunch: vi.fn().mockResolvedValue({}),
   }
   return { taroMock: localTaroMock, store: localStore, didShowCbs: localDidShowCbs }
 })
@@ -264,9 +265,12 @@ describe('UserProvider', () => {
       didShowCbs[didShowCbs.length - 1]()
     })
     await waitFor(() => expect(result.current.forcedOfflineAt).toBe('2026-08-22T11:00:00Z'))
-    expect(result.current.session).toBeNull()
-    expect(result.current.user).toBeNull()
+    // applySession(null) 延迟到 reLaunch 完成后执行，故 session/user 需等待
+    await waitFor(() => {
+      expect(result.current.session).toBeNull()
+      expect(result.current.user).toBeNull()
+    })
     expect(supabaseRpcMock).toHaveBeenCalledWith('get_my_session')
-    expect(authMock.signOut).toHaveBeenCalled()
+    await waitFor(() => expect(authMock.signOut).toHaveBeenCalled())
   })
 })

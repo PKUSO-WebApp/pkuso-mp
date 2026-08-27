@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import type { Session } from '@supabase/supabase-js'
 import {
@@ -104,7 +104,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 本设备被挤下线的统一处理：记录时刻、弹通知、清本机会话令牌、本地登出
+  // 本设备被挤下线的统一处理：记录时刻、弹通知、清本机会话令牌、跳登录页、本地登出
   const kick = useCallback(
     (startedAt: string | null) => {
       if (forcedOfflineAtRef.current) return
@@ -113,10 +113,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
         otherDeviceStartedAt: startedAt,
         localToken8: getStoredSessionToken()?.slice(0, 8) ?? null,
       })
+      // 先弹「被其他设备挤下线」通知，并立即跳登录页卸载当前已登录页面：
+      // 否则下方 applySession(null) 置空会话时，未加 user?. 守卫的页面读取 user.id 会抛错，
+      // 触发最外层 ErrorBoundary 把整棵子树（含本弹窗）替换为错误页，导致既无弹窗也无登录页。
       setForcedOfflineAt(startedAt)
       clearSessionToken()
-      applySession(null)
-      void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+      Taro.reLaunch({ url: '/pages/login/index' })
+        .then(() => {
+          applySession(null)
+          void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+        })
+        .catch(() => {
+          applySession(null)
+          void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+        })
     },
     [applySession]
   )
