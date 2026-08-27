@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
+import { ForceOfflineModal } from '@/components/force-offline-modal'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useWechatLogin } from '@/hooks/useWechatLogin'
@@ -18,7 +19,7 @@ import './index.scss'
 // ============================================================
 
 export default function LoginPage() {
-  const { ready, user, restoreFailed } = useUser()
+  const { ready, user, restoreFailed, forcedOffline, forcedOfflineAt, clearForcedOffline } = useUser()
   const { submitting: wechatSubmitting, loginWithWechat } = useWechatLogin()
   const darkClass = useThemeClass()
   const { t } = useT()
@@ -48,15 +49,11 @@ export default function LoginPage() {
   }, [ready, user])
 
   // 会话恢复完成前渲染占位，防止登录页闪烁
-  if (!ready) {
-    return (
-      <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
-      </View>
-    )
-  }
-
-  return (
+  const content = !ready ? (
+    <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
+      <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
+    </View>
+  ) : (
     <View className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}>
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
@@ -90,5 +87,18 @@ export default function LoginPage() {
         </Button>
       </Card>
     </View>
+  )
+
+  // 被其他设备挤下线：在登录页就地渲染强制下线警告窗（页面内 fixed 浮层，与 Modal 同机制，
+  // 确保稳定覆盖在登录页之上）。reLaunch 到登录页后本状态保持为真，弹窗即出现。
+  return (
+    <>
+      <ForceOfflineModal
+        opened={forcedOffline}
+        at={forcedOfflineAt}
+        onClose={clearForcedOffline}
+      />
+      {content}
+    </>
   )
 }

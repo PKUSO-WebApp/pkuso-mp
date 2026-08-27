@@ -18,7 +18,6 @@ import {
   verifySession,
 } from '@/lib/single-session'
 import { logDiag, setSessionStatusProvider, startSessionDiag } from '@/lib/session-diag'
-import { ForceOfflineModal } from '@/components/force-offline-modal'
 
 // 会话恢复超时阈值：弱网/挂起时不再无限等待（SDK 默认等待较长），超时降级为「未登录 + 恢复失败」
 const RESTORE_TIMEOUT_MS = 10000
@@ -41,6 +40,10 @@ export type UserContextValue = {
   restoreFailed: boolean
   // 本设备会话被其他设备登录挤下线时的「另一设备登录时刻」；非 null 时弹出强制下线通知
   forcedOfflineAt: string | null
+  // 是否处于「被其他设备挤下线」弹窗状态（与 forcedOfflineAt 解耦，避免 startedAt 为空时漏弹）
+  forcedOffline: boolean
+  // 关闭强制下线弹窗（仅在登录页渲染，供用户确认后复位）
+  clearForcedOffline: () => void
 }
 
 const UserContext = createContext<UserContextValue | undefined>(undefined)
@@ -141,6 +144,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
     },
     [applySession]
   )
+
+  // 关闭强制下线弹窗：复位卡死标记与显隐状态。弹窗由登录页在 forcedOffline 为真时就地渲染。
+  const clearForcedOffline = useCallback(() => {
+    forcedOfflineRef.current = false
+    forcedOfflineAtRef.current = null
+    setForcedOffline(false)
+    setForcedOfflineAt(null)
+  }, [])
 
   // 比对本地令牌与 DB 当前令牌；被挤下线则清会话 + 弹通知
   const checkNow = useCallback(async () => {
@@ -251,25 +262,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
   }, [session])
 
   const value = useMemo(
-    () => ({ session, user, ready, restoreFailed, forcedOfflineAt }),
-    [session, user, ready, restoreFailed, forcedOfflineAt]
+    () => ({ session, user, ready, restoreFailed, forcedOfflineAt, forcedOffline, clearForcedOffline }),
+    [session, user, ready, restoreFailed, forcedOfflineAt, forcedOffline, clearForcedOffline]
   )
 
-  return (
-    <UserContext.Provider value={value}>
-      {children}
-      <ForceOfflineModal
-        opened={forcedOffline}
-        at={forcedOfflineAt}
-        onClose={() => {
-          forcedOfflineRef.current = false
-          forcedOfflineAtRef.current = null
-          setForcedOffline(false)
-          setForcedOfflineAt(null)
-        }}
-      />
-    </UserContext.Provider>
-  )
+  return <UserContext.Provider value={value}>{children}</UserContext.Provider>
 }
 
 export function useUser() {
