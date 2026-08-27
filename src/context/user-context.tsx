@@ -50,6 +50,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
   const [restoreFailed, setRestoreFailed] = useState(false)
   const [forcedOfflineAt, setForcedOfflineAt] = useState<string | null>(null)
+  // 控制「被其他设备挤下线」弹窗显隐的独立布尔：与 forcedOfflineAt（另一设备登录时刻，可为
+  // null）解耦，确保即便 startedAt 为空弹窗也照常弹出，不会因 !!null 而永不显示
+  const [forcedOffline, setForcedOffline] = useState(false)
 
   // 镜像最新状态：诊断心跳提供者注册一次即可读到最新值，避免闭包过期
   const sessionRef = useRef(session)
@@ -62,6 +65,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const establishedTokenRef = useRef<string | null>(null)
   // 本设备被挤下线的「另一设备登录时刻」镜像（见 kick）；新会话建立时必须复位，否则卡死
   const forcedOfflineAtRef = useRef<string | null>(null)
+  // 是否已弹过强制下线通知（去重 + 控制弹窗显隐），与时刻无关，避免 startedAt 为空时漏弹
+  const forcedOfflineRef = useRef(false)
 
   // 设置会话并（当会话存在时）把本机登记为当前活跃会话（覆写 profiles.session_token），
   // 使单设备会话生效：后登录设备会挤掉先登录设备
@@ -71,6 +76,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       // 永不复位，心跳会一直报 forcedOffline=true、checkNow 早退不再校验，登录后也恢复不了
       forcedOfflineAtRef.current = null
       setForcedOfflineAt(null)
+      forcedOfflineRef.current = false
+      setForcedOffline(false)
       // 同一会话只 establish 一次（见 establishedTokenRef 注释），防止并发自踢
       if (next.access_token && next.access_token === establishedTokenRef.current) {
         setSession(next)
@@ -107,15 +114,19 @@ export function UserProvider({ children }: { children: ReactNode }) {
   // 本设备被挤下线的统一处理：记录时刻、弹通知、清本机会话令牌、跳登录页、本地登出
   const kick = useCallback(
     (startedAt: string | null) => {
-      if (forcedOfflineAtRef.current) return
-      forcedOfflineAtRef.current = startedAt
+      if (forcedOfflineRef.current) return
+      forcedOfflineRef.current = true
+      // forcedOfflineAtRef 仅作「是否已处理」标志，startedAt 可能为空，用哨兵值保证 truthy
+      forcedOfflineAtRef.current = startedAt ?? 'kicked'
       logDiag('forced_offline', {
         otherDeviceStartedAt: startedAt,
         localToken8: getStoredSessionToken()?.slice(0, 8) ?? null,
       })
-      // 先弹「被其他设备挤下线」通知，并立即跳登录页卸载当前已登录页面：
-      // 否则下方 applySession(null) 置空会话时，未加 user?. 守卫的页面读取 user.id 会抛错，
-      // 触发最外层 ErrorBoundary 把整棵子树（含本弹窗）替换为错误页，导致既无弹窗也无登录页。
+      // 先弹「被其他设备挤下线」通知（显隐用独立布尔 forcedOffline，与 startedAt 是否为空解耦），
+      // 并立即跳登录页卸载当前已登录页面：否则下方 applySession(null) 置空会话时，未加 user?.
+      // 守卫的页面读取 user.id 会抛错，触发最外层 ErrorBoundary 把整棵子树（含本弹窗）替换为错误页，
+      // 导致既无弹窗也无登录页。
+      setForcedOffline(true)
       setForcedOfflineAt(startedAt)
       clearSessionToken()
       Taro.reLaunch({ url: '/pages/login/index' })
@@ -248,10 +259,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
     <UserContext.Provider value={value}>
       {children}
       <ForceOfflineModal
-        opened={!!forcedOfflineAt}
+        opened={forcedOffline}
         at={forcedOfflineAt}
         onClose={() => {
+          forcedOfflineRef.current = false
           forcedOfflineAtRef.current = null
+          setForcedOffline(false)
           setForcedOfflineAt(null)
         }}
       />
