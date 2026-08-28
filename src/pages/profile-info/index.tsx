@@ -169,7 +169,7 @@ export default function ProfileInfoPage() {
   }
 
   return (
-    <View className={`${darkClass} min-h-full bg-page-bg`}>
+    <View className={`${darkClass} min-h-full bg-page-bg pb-safe`}>
       {/* 编辑入口（右上角） */}
       <View className='flex items-center justify-end px-4 pb-2 pt-3'>
         {!isEditing && (
@@ -360,7 +360,7 @@ export default function ProfileInfoPage() {
 
         {/* 编辑态底部操作：保存（大按钮·primary）/ 取消（大按钮·card） */}
         {isEditing && (
-          <View className='mt-6 mb-4 pb-safe'>
+          <View className='mt-6 pb-4'>
             <View
               className={`flex h-11 w-full items-center justify-center rounded-xl bg-primary text-base font-medium text-primary-foreground ${
                 submitting ? 'opacity-60' : ''

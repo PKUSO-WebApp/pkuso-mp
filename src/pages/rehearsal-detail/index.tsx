@@ -228,16 +228,16 @@ export default function RehearsalDetail() {
   const typeText = rehearsal.type === 'section' ? t('activityDetail.type.section') : t('activityDetail.type.full')
 
   return (
-    <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
+    <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg pb-safe`}>
       <ScrollView scrollY className='flex-1 min-h-0'>
-        <View className='w-full px-4 pt-2 pb-safe'>
+        <View className='w-full px-4 pt-2 pb-4'>
         <Text className='block text-2xl font-semibold text-text'>{timeText}</Text>
         <Text className='mt-1 block text-sm text-text-muted'>{typeText}</Text>
         <View className='my-4 h-px bg-border' />
         <FieldRow layout='stacked' label={t('activityDetail.rows.time')} value={timeText} />
         <FieldRow layout='stacked' label={t('activityDetail.rows.location')} value={rehearsal.location || t('activityDetail.unset')} />
         <FieldRow layout='stacked' label={t('activityDetail.rows.repertoire')} value={rehearsal.repertoire || t('activityDetail.unset')} />
-        <View className='mt-6 mb-4'>
+        <View className='mt-6'>
           <View
             className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${signClass} ${
               signDisabled ? 'opacity-90' : ''
