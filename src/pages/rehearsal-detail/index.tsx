@@ -37,6 +37,14 @@ export default function RehearsalDetail() {
   const [nowTick, setNowTick] = useState(() => Date.now())
   const { t } = useT()
 
+  // 列表/缓存预热时 rehearsalsLoading 可能为 false，但本页目标排练尚未进入列表首帧，
+  // 此时若直接判「排练不存在」会闪现误报。用 listReady 等待列表在本页挂载后至少被观察一次，
+  // 未就绪前统一按「加载中」处理，避免详情页进入瞬间闪「排练不存在」。
+  const [listReady, setListReady] = useState(false)
+  useEffect(() => {
+    setListReady(true)
+  }, [rehearsals])
+
   const rehearsal = useMemo<RehearsalRow | null>(
     () => rehearsals?.find((r) => r.id === id) ?? null,
     [rehearsals, id]
@@ -167,10 +175,11 @@ export default function RehearsalDetail() {
   }
 
   if (!rehearsal) {
+    const stillLoading = rehearsalsLoading || !listReady
     return (
     <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
       <View className='flex flex-1 items-center justify-center'>
-        <Text className='text-xs text-text-muted'>{rehearsalsLoading ? t('common.actions.loading') : t('activityDetail.notFound')}</Text>
+        <Text className='text-xs text-text-muted'>{stillLoading ? t('common.actions.loading') : t('activityDetail.notFound')}</Text>
       </View>
     </View>
     )
