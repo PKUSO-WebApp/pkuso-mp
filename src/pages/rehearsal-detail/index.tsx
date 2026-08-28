@@ -182,6 +182,7 @@ export default function RehearsalDetail() {
   const leaveStatus = leaveRequest?.status ?? null
   const hasActiveLeaveRequest = leaveStatus === 'pending' || leaveStatus === 'approved'
   const blockReason = getSignBlockReason(rehearsal.start_time, rehearsal.end_time ?? null, new Date(nowTick))
+  const rehearsalEnded = blockReason === 'ended'
   const canRequestLeave = !(attendance?.status === 'present' || attendance?.status === 'late')
 
   let signLabel = ''
@@ -251,7 +252,9 @@ export default function RehearsalDetail() {
             className='mt-3 flex items-center justify-center'
             onClick={() => Taro.navigateTo({ url: `/pages/leave-request/index?rehearsalId=${rehearsal.id}` })}
           >
-            <Text className='text-sm text-danger'>{t('activityDetail.requestLeave')} &gt;</Text>
+            <Text className='text-sm text-danger'>
+              {t(rehearsalEnded ? 'activityDetail.requestLeaveRetro' : 'activityDetail.requestLeave')} &gt;
+            </Text>
           </View>
         )}
        </View>

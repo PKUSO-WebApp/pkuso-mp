@@ -35,6 +35,8 @@ export default function LeaveRequestPage() {
   const [attachmentLoading, setAttachmentLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submittingRef = useRef(false)
+  // 记录已加载签名 URL 对应的旧附件地址，查看态↔编辑态切换时复用、避免重复拉取
+  const loadedAttUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!rehearsalId) return
@@ -60,26 +62,33 @@ export default function LeaveRequestPage() {
   }, [rehearsalId, fetchMine])
 
   useEffect(() => {
-    const needLoad =
+    const showOld =
       (mode === 'view' || (mode === 'form' && keepOldAttachment)) && !!current?.attachment_url
-    if (!needLoad) {
+    if (!showOld) {
       setViewAttachmentUrl(null)
+      setAttachmentLoading(false)
+      loadedAttUrlRef.current = null
+      return
+    }
+    // 同一旧附件地址在查看态↔编辑态之间切换时，复用已加载的签名 URL，不重复拉取；
+    // 仅当附件地址本身变化（如重新提交新附件）才重新请求
+    if (viewAttachmentUrl && loadedAttUrlRef.current === current.attachment_url) {
       setAttachmentLoading(false)
       return
     }
     let cancelled = false
     setAttachmentLoading(true)
     void (async () => {
-      const url = current.attachment_url!
-      const res = await getSignedUrl(url)
+      const res = await getSignedUrl(current.attachment_url!)
       if (cancelled) return
+      loadedAttUrlRef.current = current.attachment_url!
       setViewAttachmentUrl(res.url ?? null)
       setAttachmentLoading(false)
     })()
     return () => {
       cancelled = true
     }
-  }, [mode, current?.id, current?.attachment_url, keepOldAttachment, getSignedUrl])
+  }, [mode, current?.id, current?.attachment_url, keepOldAttachment, getSignedUrl, viewAttachmentUrl])
 
   const handleChooseImage = () => {
     Taro.chooseMedia({
