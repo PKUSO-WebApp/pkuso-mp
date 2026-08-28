@@ -10,9 +10,9 @@ import { translateInstrument } from '@/lib/instrument-i18n'
 import { translateJoinDate } from '@/lib/join-date-i18n'
 import { INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP } from '@/constants/instruments'
 import eyeIcon from '@/assets/icons/eye.png'
-import eyeDashedIcon from '@/assets/icons/eye-dashed.png'
+import eyeOffIcon from '@/assets/icons/eye-off.png'
 import eyeDarkIcon from '@/assets/icons/eye-dark.png'
-import eyeDashedDarkIcon from '@/assets/icons/eye-dashed-dark.png'
+import eyeOffDarkIcon from '@/assets/icons/eye-off-dark.png'
 import './index.scss'
 
 // 入团时间选择器：年份区间 + 春/秋两季；存储恒为规范值「YYYY春/YYYY秋」，展示层经 translateJoinDate 本地化
@@ -45,6 +45,8 @@ export default function ProfileInfoPage() {
   const { t } = useT()
   useNavTitle('profileInfo.title')
 
+  const notFilled = t('common.notFilled')
+
   const [isEditing, setIsEditing] = useState(false)
   const [editInstrument, setEditInstrument] = useState('')
   const [editPhone, setEditPhone] = useState('')
@@ -60,9 +62,9 @@ export default function ProfileInfoPage() {
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
 
-  const fullName = myProfile?.full_name ?? '—'
-  const email = myProfile?.email ?? '—'
-  const initials = fullName !== '—' ? fullName.slice(0, 2) || fullName.slice(0, 1) || '--' : '--'
+  const fullName = myProfile?.full_name ?? notFilled
+  const email = myProfile?.email ?? notFilled
+  const initials = fullName !== notFilled ? fullName.slice(0, 2) || fullName.slice(0, 1) || '--' : '--'
   // 视图态用资料实际隐藏状态；编辑态用本地草稿
   const hideEmail = isEditing ? editHideEmail : (myProfile?.hide_email ?? false)
   const hidePhone = isEditing ? editHidePhone : (myProfile?.hide_phone ?? false)
@@ -70,7 +72,7 @@ export default function ProfileInfoPage() {
   // 暗色模式换用高亮暗版眼图标，避免与深底色融为一体
   const isDark = darkClass === 'dark'
   const eyeImg = isDark ? eyeDarkIcon : eyeIcon
-  const eyeDashedImg = isDark ? eyeDashedDarkIcon : eyeDashedIcon
+  const eyeOffImg = isDark ? eyeOffDarkIcon : eyeOffIcon
 
   const instrumentOptions = [...INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP]
   const instrumentLabels = instrumentOptions.map((o) => translateInstrument(o, t))
@@ -168,17 +170,13 @@ export default function ProfileInfoPage() {
 
   return (
     <View className={`${darkClass} min-h-full bg-page-bg`}>
-      {/* 顶部标题 + 编辑入口 */}
-      <View className='flex items-center justify-between px-4 pb-2 pt-3'>
-        <View className='w-12' />
-        <Text className='text-base font-semibold text-text'>{t('profileInfo.title')}</Text>
-        <View className='flex w-12 items-center justify-end'>
-          {!isEditing && (
-            <Text className='text-sm font-medium text-primary' onClick={startEdit}>
-              {t('common.actions.edit')}
-            </Text>
-          )}
-        </View>
+      {/* 编辑入口（右上角） */}
+      <View className='flex items-center justify-end px-4 pb-2 pt-3'>
+        {!isEditing && (
+          <Text className='text-sm font-medium text-primary' onClick={startEdit}>
+            {t('common.actions.edit')}
+          </Text>
+        )}
       </View>
 
       {/* 居中头像 */}
@@ -214,7 +212,7 @@ export default function ProfileInfoPage() {
             </Picker>
           ) : (
             <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
-                <Text className='block text-sm text-text'>{translateInstrument(myProfile.instrument, t) || t('profileInfo.none')}</Text>
+                <Text className='block text-sm text-text'>{translateInstrument(myProfile.instrument, t) || notFilled}</Text>
             </View>
           )}
         </View>
@@ -244,7 +242,7 @@ export default function ProfileInfoPage() {
           ) : (
             <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
               <Text className='block text-sm text-text'>
-                {myProfile.join_date ? translateJoinDate(myProfile.join_date, t) : '—'}
+                {myProfile.join_date ? translateJoinDate(myProfile.join_date, t) : notFilled}
               </Text>
             </View>
           )}
@@ -291,11 +289,13 @@ export default function ProfileInfoPage() {
           <View className='flex-1 truncate rounded-xl border border-border bg-muted px-3 py-2'>
             <Text className='block truncate text-sm text-text'>{email}</Text>
           </View>
-          <Image
-            src={hideEmail ? eyeDashedImg : eyeImg}
-            className='h-5 w-5 shrink-0'
-            onClick={isEditing ? () => setEditHideEmail((v) => !v) : undefined}
-          />
+          {isEditing && (
+            <Image
+              src={hideEmail ? eyeOffImg : eyeImg}
+              className='h-5 w-5 shrink-0'
+              onClick={() => setEditHideEmail((v) => !v)}
+            />
+          )}
         </View>
 
         {/* 联系方式（可编辑 + 隐藏开关） */}
@@ -315,14 +315,16 @@ export default function ProfileInfoPage() {
             </View>
           ) : (
             <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
-              <Text className='block text-sm text-text'>{myProfile.phone_number ?? '—'}</Text>
+              <Text className='block text-sm text-text'>{myProfile.phone_number ?? notFilled}</Text>
             </View>
           )}
-          <Image
-            src={hidePhone ? eyeDashedImg : eyeImg}
-            className='h-5 w-5 shrink-0'
-            onClick={isEditing ? () => setEditHidePhone((v) => !v) : undefined}
-          />
+          {isEditing && (
+            <Image
+              src={hidePhone ? eyeOffImg : eyeImg}
+              className='h-5 w-5 shrink-0'
+              onClick={() => setEditHidePhone((v) => !v)}
+            />
+          )}
         </View>
 
         {/* 学院（可编辑 + 隐藏开关） */}
@@ -342,14 +344,16 @@ export default function ProfileInfoPage() {
             </View>
           ) : (
             <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
-              <Text className='block text-sm text-text'>{myProfile.college ?? '—'}</Text>
+              <Text className='block text-sm text-text'>{myProfile.college ?? notFilled}</Text>
             </View>
           )}
-          <Image
-            src={hideCollege ? eyeDashedImg : eyeImg}
-            className='h-5 w-5 shrink-0'
-            onClick={isEditing ? () => setEditHideCollege((v) => !v) : undefined}
-          />
+          {isEditing && (
+            <Image
+              src={hideCollege ? eyeOffImg : eyeImg}
+              className='h-5 w-5 shrink-0'
+              onClick={() => setEditHideCollege((v) => !v)}
+            />
+          )}
         </View>
 
         {error && <Text className='mt-3 block text-xs text-danger'>{error}</Text>}

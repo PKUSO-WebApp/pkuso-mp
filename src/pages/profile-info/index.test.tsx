@@ -67,9 +67,9 @@ vi.mock('@/constants/instruments', () => ({
   OTHER_INSTRUMENT_GROUP: '其他',
 }))
 vi.mock('@/assets/icons/eye.png', () => ({ default: 'eye.png' }))
-vi.mock('@/assets/icons/eye-dashed.png', () => ({ default: 'eye-dashed.png' }))
+vi.mock('@/assets/icons/eye-off.png', () => ({ default: 'eye-off.png' }))
 vi.mock('@/assets/icons/eye-dark.png', () => ({ default: 'eye-dark.png' }))
-vi.mock('@/assets/icons/eye-dashed-dark.png', () => ({ default: 'eye-dashed-dark.png' }))
+vi.mock('@/assets/icons/eye-off-dark.png', () => ({ default: 'eye-off-dark.png' }))
 
 vi.mock('@/i18n', async () => {
   const mod = await import('@/i18n/messages/zh-CN')
@@ -89,12 +89,12 @@ describe('ProfileInfoPage', () => {
   })
 
   it('渲染乐器、学院与分隔线说明', () => {
-    const { container } = render(<ProfileInfoPage />)
+    render(<ProfileInfoPage />)
     expect(screen.getByText('长笛')).toBeTruthy()
     expect(screen.getByText('元培学院')).toBeTruthy()
-    expect(screen.getByText('以下信息可对外隐藏')).toBeTruthy()
-    // 三个对外隐藏眼图标
-    expect(container.querySelectorAll('img').length).toBe(3)
+    expect(screen.getByText('以下信息可编辑隐藏')).toBeTruthy()
+    // 查看态不显示眼图标（仅编辑态显示）
+    expect(document.querySelectorAll('img').length).toBe(0)
   })
 
   it('点击「编辑」进入编辑态，点击「保存」写入 profiles', async () => {

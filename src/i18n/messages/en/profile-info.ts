@@ -9,7 +9,7 @@ export const profileInfo = {
   statusLabel: 'Membership',
   statusActive: 'Active',
   statusInactive: 'Inactive',
-  hideHint: 'The following info can be hidden',
+  hideHint: 'The following info can be edited and hidden',
   emailLabel: 'Bound Email',
   contactLabel: 'Contact',
   phonePlaceholder: '11-digit phone number',
