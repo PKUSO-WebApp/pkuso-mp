@@ -10,7 +10,7 @@ vi.mock('@tarojs/components', () => {
     const { hoverClass, catchMove, ...rest } = props
     return React.createElement(tag, rest)
   }
-  return { View: create('div'), Text: create('span'), Button: create('button') }
+  return { View: create('div'), Text: create('span'), Button: create('button'), ScrollView: create('div') }
 })
 
 // Modal 不再调用原生 tabBar API（custom tabBar 由 webview 渲染、位于 Modal 之下）；

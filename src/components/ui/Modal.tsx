@@ -1,4 +1,4 @@
-import { Button, View } from '@tarojs/components'
+import { Button, View, ScrollView } from '@tarojs/components'
 import type { ReactNode } from 'react'
 import { useLayoutEffect } from 'react'
 import { setOverlayOpen } from '@/lib/overlayStore'
@@ -59,7 +59,7 @@ export function Modal({
     >
       <View
         catchMove
-        className={`relative w-full max-w-md ${radius} border border-border bg-surface p-4 shadow-xl`}
+        className={`relative flex w-full max-w-md flex-col ${radius} border border-border bg-surface p-4 shadow-xl max-h-[85vh]`}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
@@ -77,7 +77,9 @@ export function Modal({
             </View>
           </View>
         )}
-        {children}
+        <ScrollView scrollY className='min-h-0 flex-1'>
+          {children}
+        </ScrollView>
       </View>
     </View>
   )

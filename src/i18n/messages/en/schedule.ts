@@ -51,7 +51,7 @@ export const schedule = {
     endTime: 'End Time',
   },
   placeholders: {
-    title: 'e.g. Rehearsal Room A',
+    title: 'e.g. Practice',
     startTime: 'Select start time',
     endTime: 'Select end time',
   },

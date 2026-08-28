@@ -41,6 +41,7 @@ vi.mock('@tarojs/components', () => {
   const Image = (props: any) => React.createElement('img', props)
   return {
     View: create('div'),
+    ScrollView: create('div'),
     Text: create('span'),
     Button: create('button'),
     Image,

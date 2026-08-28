@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, Textarea, Image } from '@tarojs/components'
+import { View, Text, Textarea, Image, ScrollView } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useLeaveRequests, type UploadFileLike } from '@/hooks/useLeaveRequests'
 import { useUser } from '@/context/user-context'
@@ -247,7 +247,7 @@ export default function LeaveRequestPage() {
 
   return (
         <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
-      <View className='flex-1 overflow-y-auto px-4 pb-safe'>
+      <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
        <View className='pt-2 pb-2'>
         <Text className='block text-sm text-text-muted'>{subtitle}</Text>
         <View className='my-4 h-px bg-border' />
@@ -347,7 +347,7 @@ export default function LeaveRequestPage() {
           </View>
         )}
        </View>
-       </View>
-       </View>
-   )
+        </ScrollView>
+        </View>
+    )
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, Input, Textarea, Image } from '@tarojs/components'
+import { View, Text, Input, Textarea, Image, ScrollView } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useThemeClass } from '@/context/theme-context'
@@ -156,7 +156,7 @@ export default function PostEditPage() {
 
   return (
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}>
-      <View className='flex-1 overflow-y-auto px-4 pb-safe'>
+      <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
         <View className='pt-2 pb-2'>
           <PageHeader
             title={t('postEdit.title')}
@@ -262,7 +262,7 @@ export default function PostEditPage() {
             </View>
           </View>
         </View>
-      </View>
+      </ScrollView>
     </View>
   )
 }

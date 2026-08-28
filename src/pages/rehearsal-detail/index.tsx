@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text } from '@tarojs/components'
+import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useRehearsals } from '@/hooks/useRehearsals'
 import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
@@ -229,7 +229,7 @@ export default function RehearsalDetail() {
 
   return (
     <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
-      <View className='flex-1 overflow-y-auto px-4 pb-safe'>
+      <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
        <View className='pt-2 pb-2'>
         <Text className='block text-2xl font-semibold text-text'>{timeText}</Text>
         <Text className='mt-1 block text-sm text-text-muted'>{typeText}</Text>
@@ -258,7 +258,7 @@ export default function RehearsalDetail() {
           </View>
         )}
        </View>
-      </View>
+      </ScrollView>
     </View>
   )
 }

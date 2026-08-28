@@ -54,7 +54,7 @@ export const schedule = {
     endTime: '结束时间',
   },
   placeholders: {
-    title: '如：排练房A预约',
+    title: '如：练习',
     startTime: '请选择开始时间',
     endTime: '请选择结束时间',
   },

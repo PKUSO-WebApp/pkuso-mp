@@ -57,7 +57,7 @@ export default function EmailSignupPage() {
 
   if (!ready) {
     return (
-      <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
+      <View className={`${darkClass} flex min-h-full items-center justify-center bg-page-bg`}>
         <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
@@ -75,7 +75,7 @@ export default function EmailSignupPage() {
 
   return (
     <View
-      className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}
+      className={`${darkClass} flex min-h-full flex-col items-center justify-center bg-page-bg px-5`}
     >
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>

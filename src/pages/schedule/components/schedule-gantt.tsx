@@ -246,7 +246,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, onAdd, he
             {isAuthor && (
               <View className='mt-3 border-t border-border pt-2'>
                 <View
-                  className={`rounded-lg border border-danger py-2 text-center text-sm font-medium text-danger ${
+                  className={`rounded-lg bg-danger py-2 text-center text-sm font-medium text-white ${
                     deleting ? 'opacity-50' : ''
                   }`}
                   onClick={deleting ? undefined : () => void handleDelete()}

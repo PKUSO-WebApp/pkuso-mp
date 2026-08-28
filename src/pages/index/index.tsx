@@ -217,11 +217,9 @@ export default function Index() {
               time: formatDateTimeInChina(announcement?.created_at ?? null),
             })}
           </Text>
-          <View className='max-h-[60vh] overflow-y-auto'>
-            <Text className='whitespace-pre-wrap break-words text-sm leading-relaxed text-text'>
-              {announcement?.content}
-            </Text>
-          </View>
+          <Text className='whitespace-pre-wrap break-words text-sm leading-relaxed text-text'>
+            {announcement?.content}
+          </Text>
         </View>
       </Modal>
     </View>
