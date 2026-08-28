@@ -5,7 +5,6 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
-import { LanguagePreview } from '@/components/LanguagePreview'
 import { ActionBar } from '@/components/ui/ActionBar'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { useProfiles } from '@/hooks/useProfiles'
@@ -346,7 +345,9 @@ export default function Profile() {
                 className='border-b border-border px-4 py-3'
                 onClick={() => setIsLangOpen(true)}
               >
-                <LanguagePreview className='text-sm font-medium text-text' />
+                <Text className='text-sm font-medium text-text'>
+                  {t('profile.settings.language')}
+                </Text>
               </View>
               {/* 外观：亮色 / 暗色 / 跟随系统 三态主题切换 */}
               <View
