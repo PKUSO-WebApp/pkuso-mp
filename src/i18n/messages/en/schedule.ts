@@ -1,6 +1,6 @@
 // 日程预约页文案（按页分：schedule）
 export const schedule = {
-  navTitle: 'Schedule',
+  navTitle: 'B108 Booking',
   title: 'Schedule',
   subtitle: 'View and request rehearsal room bookings',
   addReservation: 'Add Booking',

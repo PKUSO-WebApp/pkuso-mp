@@ -10,7 +10,6 @@ import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 
-import { PageHeader } from '@/components/page-header'
 import { ListState } from '@/components/ui/ListState'
 import { getLocalDateString, parseLocalISO, formatDisplayDate } from '@/lib/date-utils'
 import { DateSelector } from './components/date-selector'
@@ -80,21 +79,6 @@ export default function Schedule() {
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4`}
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
-      {/* 头部 */}
-      <View className='mb-3 mt-1'>
-        <PageHeader
-          title={t('schedule.title')}
-          rightButton={
-            <View
-              className='rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'
-              onClick={() => setCreateOpen(true)}
-            >
-              {t('schedule.addReservation')}
-            </View>
-          }
-        />
-      </View>
-
       {/* 日期选择器 */}
       <View className='mb-4'>
         <DateSelector selectedDate={selectedDate} onDateChange={setSelectedDate} />
@@ -123,6 +107,15 @@ export default function Schedule() {
           />
         </ListState>
       </ScrollView>
+
+      {/* 添加预约悬浮按钮（右下角，层级高于甘特图卡片与底边栏） */}
+      <View
+        className='flex items-center justify-center rounded-full bg-primary px-4 py-2 text-label font-medium text-primary-foreground shadow-lg'
+        style={{ position: 'fixed', right: '16px', bottom: 'calc(50px + env(safe-area-inset-bottom) + 16px)', zIndex: 40 }}
+        onClick={() => setCreateOpen(true)}
+      >
+        {t('schedule.addReservation')}
+      </View>
 
       {/* 添加预约弹窗（成员写入排练房申请） */}
       <CreateScheduleModal

@@ -169,10 +169,15 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
           ))}
 
           {/* 预约块 */}
-          {scheduleItems.map((schedule) => (
+          {scheduleItems.map((schedule) => {
+            const isSelfBlock = schedule.author_id === user?.id
+            const colorClass = isSelfBlock ? getScheduleColorClass(schedule.id) : 'bg-muted'
+            const titleCls = isSelfBlock ? 'text-schedule-text' : 'text-primary'
+            const subCls = isSelfBlock ? 'text-schedule-text-muted' : 'text-primary'
+            return (
             <View
               key={schedule.id}
-              className={`absolute left-2 right-2 rounded-lg ${getScheduleColorClass(schedule.id)}`}
+              className={`absolute left-2 right-2 rounded-lg ${colorClass}`}
               style={{
                 top: `${schedule.top}%`,
                 height: `${schedule.height}%`,
@@ -180,15 +185,16 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
               onClick={() => void handleScheduleClick(schedule)}
             >
               <View className='flex h-full flex-col justify-center px-2 py-1'>
-                <Text className='block truncate text-xs font-medium text-schedule-text'>
+                <Text className={`block truncate text-xs font-medium ${titleCls}`}>
                   {schedule.title || t('schedule.unnamed')}
                 </Text>
-                <Text className='block text-xs text-schedule-text-muted'>
+                <Text className={`block text-xs ${subCls}`}>
                   {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
                 </Text>
               </View>
             </View>
-          ))}
+            )
+          })}
         </View>
       </View>
 

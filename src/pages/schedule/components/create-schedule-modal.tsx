@@ -24,6 +24,16 @@ function indicesToTime(indices: number[]): string {
   return `${h}:${m}`
 }
 
+// 预约日期限制：今天起 7 天（与日程页浏览条一致）
+function shiftDays(n: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + n)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 type Props = {
   open: boolean
   /** 默认预约日期（取自日程页当前选中日） */
@@ -151,7 +161,7 @@ export function CreateScheduleModal({
           label={t('schedule.labels.date')}
           labelClass='block text-label text-text-muted'
         >
-          <Picker mode='date' value={date} onChange={(e) => setDate(e.detail.value)}>
+          <Picker mode='date' value={date} start={shiftDays(0)} end={shiftDays(7)} onChange={(e) => setDate(e.detail.value)}>
             <Text className='text-xs text-text'>{date}</Text>
           </Picker>
         </PickerField>
