@@ -83,7 +83,8 @@ describe('Community 公告页（只读）', () => {
 
   it('默认显示重奏，切换分类正确过滤', () => {
     render(<Community />)
-    expect(screen.getByText('公告板')).toBeTruthy()
+    // 删页头后仅保留 Toggle 与右下角发布悬浮按钮
+    expect(screen.getByText('发布')).toBeTruthy()
     // 默认重奏：重奏A 可见，团建B 隐藏
     expect(screen.getByText('重奏A')).toBeTruthy()
     expect(screen.queryByText('团建B')).toBeNull()
