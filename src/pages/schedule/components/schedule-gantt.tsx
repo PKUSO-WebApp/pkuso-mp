@@ -179,7 +179,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, onAdd }: 
             return (
             <View
               key={schedule.id}
-              className={`absolute left-2 right-2 rounded-lg ${colorClass}`}
+              className={`absolute left-2 right-2 rounded-lg border border-border ${colorClass}`}
               style={{
                 top: `${schedule.top}%`,
                 height: `${schedule.height}%`,
@@ -202,7 +202,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, onAdd }: 
         {/* 添加预约按钮（甘特图内左下角，层级高于预约块） */}
         <View
           className='absolute flex items-center justify-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground shadow-lg'
-          style={{ left: '8px', bottom: '8px', zIndex: 50 }}
+          style={{ right: '8px', bottom: '8px', zIndex: 50 }}
           onClick={onAdd}
         >
           {t('schedule.addReservation')}
