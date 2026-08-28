@@ -179,7 +179,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, onAdd }: 
             return (
             <View
               key={schedule.id}
-              className={`absolute left-2 right-2 rounded-lg border border-border ${colorClass}`}
+              className={`absolute left-2 right-2 rounded-lg border border-text ${colorClass}`}
               style={{
                 top: `${schedule.top}%`,
                 height: `${schedule.height}%`,
