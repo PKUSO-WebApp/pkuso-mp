@@ -29,7 +29,7 @@ export function Modal({
   const { t } = useT()
   // 打开时通知 custom tabBar 隐藏自身，确保弹窗盖在 tabBar 之上。
   // 用 useLayoutEffect（而非 useEffect）在「绘制前」同步隐藏底边栏，
-  // 避免底边栏(CoverView，原生层恒在 Modal 之上)在 Modal 出现后、display:none 生效前的那一帧覆盖 Modal 造成闪烁。
+  // 避免底边栏在 Modal 出现后、display:none 生效前的那一帧覆盖 Modal 造成闪烁（底边栏为普通 View，非 CoverView）。
   useLayoutEffect(() => {
     if (!open) return
     setOverlayOpen(true)
@@ -39,7 +39,7 @@ export function Modal({
   const align = position === 'center' ? 'items-center' : 'items-end'
   const radius = position === 'center' ? 'rounded-2xl' : 'rounded-t-3xl'
 
-  // custom tabBar 是 CoverView（原生层恒在页面 Modal 之上），故打开弹窗时需主动将其
+  // custom tabBar 是普通 View（见 CustomTabBar.tsx），由 overlayStore 在打开弹窗时将其
   // display:none 隐藏；上述 useLayoutEffect 保证隐藏与弹窗出现发生在同一帧，避免闪烁。
   // 弹窗遮罩自然铺满到设备屏幕底边（同时解决原 hideTabBar 闪白条问题）。
 
