@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { THEME_PALETTE } from '@/lib/theme'
+import { getThemeMode, useThemeMode } from '@/lib/themeStore'
 import { zhCN } from './messages/zh-CN'
 import { en } from './messages/en'
 import type { ZHCNMessages } from './messages/zh-CN'
@@ -84,9 +86,13 @@ export function useLanguage(): LangCtx {
  */
 export function useNavTitle(key: Path<ZHCNMessages>, params?: Record<string, string | number>) {
   const { t, locale } = useT()
+  const mode = useThemeMode()
   useDidShow(() => {
     try {
       Taro.setNavigationBarTitle({ title: t(key, params) })
+      // 切回 tab 时微信会回退到 app.json 默认（白底），按当前主题重设顶栏配色
+      const p = THEME_PALETTE[getThemeMode()]
+      void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(() => {})
     } catch {
       /* 部分环境无 Taro 运行时，忽略 */
     }
@@ -99,4 +105,13 @@ export function useNavTitle(key: Path<ZHCNMessages>, params?: Record<string, str
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locale])
+  // 主题切换时即时同步当前页顶栏配色（切 tab 由 useDidShow 负责重设）
+  useEffect(() => {
+    const p = THEME_PALETTE[mode]
+    try {
+      void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(() => {})
+    } catch {
+      /* ignore */
+    }
+  }, [mode])
 }
