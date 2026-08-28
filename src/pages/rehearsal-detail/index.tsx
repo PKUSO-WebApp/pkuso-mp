@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import { useRehearsals } from '@/hooks/useRehearsals'
+import { supabase } from '@/lib/supabase'
 import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
 import { useLeaveRequests } from '@/hooks/useLeaveRequests'
 import { useUser } from '@/context/user-context'
@@ -31,24 +31,42 @@ export default function RehearsalDetail() {
   const id = Number(router?.params?.id)
   const darkClass = useThemeClass()
   const { user } = useUser()
-  const { data: rehearsals, loading: rehearsalsLoading } = useRehearsals()
   const { map: attendanceMap, loading: attendanceLoading, fetchMyAttendances, signIn } = useAttendance()
   const { data: leaveRequests, cancelOnSignIn, fetchMine } = useLeaveRequests()
   const [nowTick, setNowTick] = useState(() => Date.now())
   const { t } = useT()
 
-  // 列表/缓存预热时 rehearsalsLoading 可能为 false，但本页目标排练尚未进入列表首帧，
-  // 此时若直接判「排练不存在」会闪现误报。用 listReady 等待列表在本页挂载后至少被观察一次，
-  // 未就绪前统一按「加载中」处理，避免详情页进入瞬间闪「排练不存在」。
-  const [listReady, setListReady] = useState(false)
+  // 详情页按 id 直接取这一条，不依赖排练列表/缓存的时序：
+  // 列表在 subscribeSync 静默重取时可能某帧不含本排练，若靠列表查找会在 loading=false 时误显「排练不存在」。
+  const [rehearsal, setRehearsal] = useState<RehearsalRow | null>(null)
+  const [rehearsalLoading, setRehearsalLoading] = useState(true)
   useEffect(() => {
-    setListReady(true)
-  }, [rehearsals])
-
-  const rehearsal = useMemo<RehearsalRow | null>(
-    () => rehearsals?.find((r) => r.id === id) ?? null,
-    [rehearsals, id]
-  )
+    if (!id) {
+      setRehearsal(null)
+      setRehearsalLoading(false)
+      return
+    }
+    let cancelled = false
+    setRehearsalLoading(true)
+    void (async () => {
+      const { data, error } = await supabase
+        .from('rehearsals')
+        .select('*')
+        .eq('id', id)
+        .single()
+      if (cancelled) return
+      if (error) {
+        setRehearsal(null)
+        setRehearsalLoading(false)
+        return
+      }
+      setRehearsal((data as RehearsalRow) ?? null)
+      setRehearsalLoading(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
   const attendance = attendanceMap[id] ?? null
   // 考勤记录加载中（map 尚无该行且请求未完成）：签到按钮渲染中性 disabled 态，
   // 与「已查无记录」区分，避免「可签到蓝 → 结果色」两段变色闪烁（P1-6）
@@ -175,11 +193,10 @@ export default function RehearsalDetail() {
   }
 
   if (!rehearsal) {
-    const stillLoading = rehearsalsLoading || !listReady
     return (
     <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
       <View className='flex flex-1 items-center justify-center'>
-        <Text className='text-xs text-text-muted'>{stillLoading ? t('common.actions.loading') : t('activityDetail.notFound')}</Text>
+        <Text className='text-xs text-text-muted'>{rehearsalLoading ? t('common.actions.loading') : t('activityDetail.notFound')}</Text>
       </View>
     </View>
     )

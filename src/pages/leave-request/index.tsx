@@ -3,11 +3,11 @@ import { View, Text, Textarea, Image, ScrollView } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useLeaveRequests, type UploadFileLike } from '@/hooks/useLeaveRequests'
 import { useUser } from '@/context/user-context'
-import { useRehearsals } from '@/hooks/useRehearsals'
+import { supabase } from '@/lib/supabase'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { useT } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
-import type { LeaveRequestRow } from '@/types/database'
+import type { LeaveRequestRow, RehearsalRow } from '@/types/database'
 
 const isActive = (r: LeaveRequestRow) =>
   r.status !== 'withdrawn' && r.status !== 'canceled'
@@ -23,8 +23,35 @@ export default function LeaveRequestPage() {
   const decodedEnd = paramEnd ? decodeURIComponent(paramEnd) : null
   const darkClass = useThemeClass()
   const { user } = useUser()
-  const { data: rehearsals, loading: rehearsalsLoading } = useRehearsals()
-  const rehearsal = rehearsals?.find((r) => r.id === rehearsalId) ?? null
+  const [rehearsal, setRehearsal] = useState<RehearsalRow | null>(null)
+  const [rehearsalLoading, setRehearsalLoading] = useState(true)
+  useEffect(() => {
+    if (!rehearsalId) {
+      setRehearsal(null)
+      setRehearsalLoading(false)
+      return
+    }
+    let cancelled = false
+    setRehearsalLoading(true)
+    void (async () => {
+      const { data, error } = await supabase
+        .from('rehearsals')
+        .select('*')
+        .eq('id', rehearsalId)
+        .single()
+      if (cancelled) return
+      if (error) {
+        setRehearsal(null)
+        setRehearsalLoading(false)
+        return
+      }
+      setRehearsal((data as RehearsalRow) ?? null)
+      setRehearsalLoading(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [rehearsalId])
   const { fetchMine, create, updateReason, reapply, cancelRequest, uploadAttachment, getSignedUrl, saving } =
     useLeaveRequests()
   const { t } = useT()
@@ -250,7 +277,7 @@ export default function LeaveRequestPage() {
     ? formatRehearsalRange(decodedStart, decodedEnd || null)
     : rehearsal?.start_time
       ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
-      : rehearsalsLoading
+      : rehearsalLoading
         ? ''
         : t('leaveRequest.notFound')
   const hasAttachment = mode === 'view' ? !!viewAttachmentUrl : !!keepOldAttachment
