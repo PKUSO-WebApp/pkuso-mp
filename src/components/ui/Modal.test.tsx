@@ -13,8 +13,8 @@ vi.mock('@tarojs/components', () => {
   return { View: create('div'), Text: create('span'), Button: create('button'), ScrollView: create('div') }
 })
 
-// Modal 不再调用原生 tabBar API（custom tabBar 由 webview 渲染、位于 Modal 之下）；
-// 此处仍 stub 掉 Taro，避免测试环境无 Taro 运行时时引入真实 runtime。
+// Modal 打开时叠加调用原生 hideTabBar/showTabBar（计数式）以在框架层隐藏 custom tabBar 槽位；
+// 此处 stub 掉 Taro，避免测试环境无 Taro 运行时时引入真实 runtime。
 vi.mock('@tarojs/taro', () => ({
   default: {
     hideTabBar: vi.fn(() => Promise.resolve()),
