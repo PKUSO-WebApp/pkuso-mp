@@ -237,7 +237,7 @@ export default function RehearsalDetail() {
         <FieldRow layout='stacked' label={t('activityDetail.rows.time')} value={timeText} />
         <FieldRow layout='stacked' label={t('activityDetail.rows.location')} value={rehearsal.location || t('activityDetail.unset')} />
         <FieldRow layout='stacked' label={t('activityDetail.rows.repertoire')} value={rehearsal.repertoire || t('activityDetail.unset')} />
-        <View className='mt-6'>
+        <View className='mt-6 mb-4'>
           <View
             className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${signClass} ${
               signDisabled ? 'opacity-90' : ''

@@ -245,7 +245,7 @@ export default function PostEditPage() {
           {error && <Text className='mt-3 block text-xs text-danger'>{error}</Text>}
 
           {/* 底部大按钮：保存 / 取消（各自独立大按钮，不拆分同级） */}
-          <View className='mt-6 pb-safe'>
+          <View className='mt-6 mb-4'>
             <View
               className={`flex h-11 w-full items-center justify-center rounded-xl bg-primary text-base font-medium text-primary-foreground ${
                 busy ? 'opacity-90' : ''

@@ -322,7 +322,7 @@ export default function LeaveRequestPage() {
             {error && <Text className='mt-3 block text-xs text-danger'>{error}</Text>}
           </>
         )}
-        <View className='mt-6'>
+        <View className='mt-6 mb-4'>
           <View
             className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${submitClass} ${
               submitDisabled ? 'opacity-90' : ''
