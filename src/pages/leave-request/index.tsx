@@ -17,7 +17,7 @@ export default function LeaveRequestPage() {
   const rehearsalId = Number(router?.params?.rehearsalId)
   const darkClass = useThemeClass()
   const { user } = useUser()
-  const { data: rehearsals } = useRehearsals()
+  const { data: rehearsals, loading: rehearsalsLoading } = useRehearsals()
   const rehearsal = rehearsals?.find((r) => r.id === rehearsalId) ?? null
   const { fetchMine, create, updateReason, reapply, cancelRequest, uploadAttachment, getSignedUrl, saving } =
     useLeaveRequests()
@@ -242,7 +242,9 @@ export default function LeaveRequestPage() {
 
   const subtitle = rehearsal?.start_time
     ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
-    : t('leaveRequest.notFound')
+    : rehearsalsLoading
+      ? ''
+      : t('leaveRequest.notFound')
   const hasAttachment = mode === 'view' ? !!viewAttachmentUrl : !!keepOldAttachment
 
   return (
