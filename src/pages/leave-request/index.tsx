@@ -15,6 +15,12 @@ const isActive = (r: LeaveRequestRow) =>
 export default function LeaveRequestPage() {
   const router = Taro.getCurrentInstance().router
   const rehearsalId = Number(router?.params?.rehearsalId)
+  // 详情页已把时间区间随路由传入，副标题可瞬时正确显示，避免依赖排练列表/缓存
+  // （小程序各页面分包独立编译，模块级缓存不跨页共享，列表需异步重取，首帧会误显「排练不存在」）。
+  const paramStart = router?.params?.start
+  const paramEnd = router?.params?.end
+  const decodedStart = paramStart ? decodeURIComponent(paramStart) : null
+  const decodedEnd = paramEnd ? decodeURIComponent(paramEnd) : null
   const darkClass = useThemeClass()
   const { user } = useUser()
   const { data: rehearsals, loading: rehearsalsLoading } = useRehearsals()
@@ -240,11 +246,13 @@ export default function LeaveRequestPage() {
           : t('leaveRequest.submit')
   }
 
-  const subtitle = rehearsal?.start_time
-    ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
-    : rehearsalsLoading
-      ? ''
-      : t('leaveRequest.notFound')
+  const subtitle = decodedStart
+    ? formatRehearsalRange(decodedStart, decodedEnd || null)
+    : rehearsal?.start_time
+      ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
+      : rehearsalsLoading
+        ? ''
+        : t('leaveRequest.notFound')
   const hasAttachment = mode === 'view' ? !!viewAttachmentUrl : !!keepOldAttachment
 
   return (

@@ -250,7 +250,13 @@ export default function RehearsalDetail() {
         {canRequestLeave && (
           <View
             className='mt-3 flex items-center justify-center'
-            onClick={() => Taro.navigateTo({ url: `/pages/leave-request/index?rehearsalId=${rehearsal.id}` })}
+            onClick={() =>
+              Taro.navigateTo({
+                url: `/pages/leave-request/index?rehearsalId=${rehearsal.id}&start=${encodeURIComponent(
+                  rehearsal.start_time ?? '',
+                )}&end=${encodeURIComponent(rehearsal.end_time ?? '')}`,
+              })
+            }
           >
             <Text className='text-sm text-danger'>
               {t(rehearsalEnded ? 'activityDetail.requestLeaveRetro' : 'activityDetail.requestLeave')} &gt;
