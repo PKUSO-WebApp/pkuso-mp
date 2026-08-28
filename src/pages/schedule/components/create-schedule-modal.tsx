@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { View, Text, Picker } from '@tarojs/components'
 import { TextField, PickerField } from '@/components/ui/FormFields'
 import Taro from '@tarojs/taro'
@@ -71,10 +71,17 @@ export function CreateScheduleModal({
   const submittingRef = useRef(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // 切换打开时复位表单（defaultDate 随页面选中日更新）
-  if (open && date !== defaultDate && !isSubmitting) {
-    setDate(defaultDate)
-  }
+  // 仅在打开弹窗时复位表单（defaultDate 随页面选中日更新）。
+  // 注意：不能在渲染期依据 date !== defaultDate 复位，否则用户选了非今日日期会被立刻重置回今日。
+  useEffect(() => {
+    if (open) {
+      setTitle('')
+      setDate(defaultDate)
+      setStartTime('')
+      setEndTime('')
+      setError(null)
+    }
+  }, [open, defaultDate])
 
   const handleClose = () => {
     if (isSubmitting) return

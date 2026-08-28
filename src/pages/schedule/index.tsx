@@ -104,18 +104,10 @@ export default function Schedule() {
             selectedDate={selectedDate}
             user={user}
             remove={remove}
+            onAdd={() => setCreateOpen(true)}
           />
         </ListState>
       </ScrollView>
-
-      {/* 添加预约悬浮按钮（右下角，层级高于甘特图卡片与底边栏） */}
-      <View
-        className='flex items-center justify-center rounded-full bg-primary px-4 py-2 text-label font-medium text-primary-foreground shadow-lg'
-        style={{ position: 'fixed', right: '16px', bottom: 'calc(50px + env(safe-area-inset-bottom) + 16px)', zIndex: 40 }}
-        onClick={() => setCreateOpen(true)}
-      >
-        {t('schedule.addReservation')}
-      </View>
 
       {/* 添加预约弹窗（成员写入排练房申请） */}
       <CreateScheduleModal
