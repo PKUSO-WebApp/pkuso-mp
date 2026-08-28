@@ -246,7 +246,7 @@ export default function LeaveRequestPage() {
   const hasAttachment = mode === 'view' ? !!viewAttachmentUrl : !!keepOldAttachment
 
   return (
-        <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
+        <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
       <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
        <View className='pt-2 pb-2'>
         <Text className='block text-sm text-text-muted'>{subtitle}</Text>

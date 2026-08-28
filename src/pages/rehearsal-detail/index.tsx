@@ -168,7 +168,7 @@ export default function RehearsalDetail() {
 
   if (!rehearsal) {
     return (
-    <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
+    <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
       <View className='flex flex-1 items-center justify-center'>
         <Text className='text-xs text-text-muted'>{rehearsalsLoading ? t('common.actions.loading') : t('activityDetail.notFound')}</Text>
       </View>
@@ -228,9 +228,9 @@ export default function RehearsalDetail() {
   const typeText = rehearsal.type === 'section' ? t('activityDetail.type.section') : t('activityDetail.type.full')
 
   return (
-    <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
+    <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
       <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
-       <View className='pt-2 pb-2'>
+        <View className='w-full pt-2 pb-2'>
         <Text className='block text-2xl font-semibold text-text'>{timeText}</Text>
         <Text className='mt-1 block text-sm text-text-muted'>{typeText}</Text>
         <View className='my-4 h-px bg-border' />

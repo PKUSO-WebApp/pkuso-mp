@@ -104,9 +104,9 @@ export default function PostCreatePage() {
   const showSections = type === 'ensemble'
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}>
+    <View className={`${darkClass} flex h-full min-h-0 w-full flex-col overflow-hidden bg-page-bg`}>
       <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
-        <View className='pt-2 pb-2'>
+        <View className='w-full pt-2 pb-2'>
           <PageHeader title={t('postCreate.title')} />
 
           <View className='mt-4'>

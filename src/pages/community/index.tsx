@@ -153,21 +153,36 @@ export default function Community() {
                       )}
                       {formatPostDate(post.created_at) && ` · ${formatPostDate(post.created_at)}`}
                     </Text>
+
+                    {post.type === 'ensemble' && hasSectionText(post.current_sections) && (
+                      <Text className='mt-1.5 block text-xs text-text-muted'>
+                        {t('community.haveSections', {
+                          sections: (post.current_sections ?? '')
+                            .split(/[,，、\s]+/)
+                            .filter(Boolean)
+                            .map((s) => translateInstrument(s, t))
+                            .join('、'),
+                        })}
+                      </Text>
+                    )}
                     {post.type === 'ensemble' && hasSectionText(post.missing_sections) && (
-                      <View className='mt-2'>
-                        <Text className='inline-flex rounded-full bg-primary px-2 py-0.5 text-caption font-bold text-primary-foreground'>
-                          {t('community.missing', {
-                            sections: (post.missing_sections ?? '')
-                              .split(/[,，、\s]+/)
-                              .filter(Boolean)
-                              .map((s) => translateInstrument(s, t))
-                              .join('、'),
-                          })}
-                        </Text>
-                      </View>
+                      <Text className='mt-1 block text-xs text-text-muted'>
+                        {t('community.missing', {
+                          sections: (post.missing_sections ?? '')
+                            .split(/[,，、\s]+/)
+                            .filter(Boolean)
+                            .map((s) => translateInstrument(s, t))
+                            .join('、'),
+                        })}
+                      </Text>
                     )}
                     {hasSectionText(post.content) && (
                       <Text className='mt-1 block text-xs text-text-muted'>{post.content}</Text>
+                    )}
+                    {post.profiles?.full_name && (
+                      <Text className='mt-1 block text-xs text-text-muted'>
+                        {t('community.creator', { name: post.profiles.full_name ?? '' })}
+                      </Text>
                     )}
                   </View>
                 </View>

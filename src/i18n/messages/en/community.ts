@@ -6,5 +6,7 @@ export const community = {
   publish: 'Post',
   type: { ensemble: 'Ensemble', gathering: 'Gathering' },
   empty: 'No "{type}" posts yet.',
+  haveSections: 'Have: {sections}',
   missing: 'Missing: {sections}',
+  creator: 'Posted by: {name}',
 }

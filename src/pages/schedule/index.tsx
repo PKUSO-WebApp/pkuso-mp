@@ -8,6 +8,7 @@ import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
+import { useOverlayOpen } from '@/lib/overlayStore'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 
 import { ListState } from '@/components/ui/ListState'
@@ -42,6 +43,8 @@ export default function Schedule() {
 
   const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString)
   const [createOpen, setCreateOpen] = useState(false)
+  // 任意 Modal 打开时隐藏「添加预约」按钮，避免部分 iOS 上按钮浮于底部弹窗之上
+  const overlayOpen = useOverlayOpen()
   // 甘特图高度：短屏保底 480px（24h×20px/h，字号不挤），长屏按可用空间撑满（无底部空白）
   const [ganttHeight, setGanttHeight] = useState(480)
   useLayoutEffect(() => {
@@ -131,14 +134,17 @@ export default function Schedule() {
           </ListState>
         </ScrollView>
 
-        {/* 添加预约按钮：钉在甘特图容器右下角，不随内部滚动移动 */}
-        <View
-          className='absolute flex items-center justify-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground shadow-lg'
-          style={{ right: '8px', bottom: '8px', zIndex: 50 }}
-          onClick={() => setCreateOpen(true)}
-        >
-          {t('schedule.addReservation')}
-        </View>
+        {/* 添加预约按钮：钉在甘特图容器右下角，不随内部滚动移动；
+            任意 Modal 打开时隐藏，避免部分 iOS 上按钮盖在底部弹窗之上 */}
+        {!overlayOpen && (
+          <View
+            className='absolute flex items-center justify-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground shadow-lg'
+            style={{ right: '8px', bottom: '8px' }}
+            onClick={() => setCreateOpen(true)}
+          >
+            {t('schedule.addReservation')}
+          </View>
+        )}
       </View>
 
       {/* 添加预约弹窗（成员写入排练房申请） */}
