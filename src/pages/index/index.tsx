@@ -140,7 +140,7 @@ export default function Index() {
          冷启动公告到达时会顶推下方 header/切换器，此为相对原滚动内置方案的取舍 */}
       {!announcementLoading && announcement?.content ? (
         <View className='mb-3 mt-4 px-4' onClick={() => setShowAnnouncementDetail(true)}>
-          <View className='flex items-center gap-2 rounded-xl border border-warning-bg bg-warning-bg/80 px-3 py-2'>
+          <View className='flex items-center gap-2 rounded-xl border border-warning bg-warning-bg px-3 py-2'>
             <Text className='shrink-0 text-warning'>📢</Text>
             <View className='min-w-0 flex-1 max-h-[60px] overflow-hidden'>
               <Text className='text-xs leading-relaxed text-warning'>{announcement.content}</Text>

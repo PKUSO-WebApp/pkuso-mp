@@ -144,7 +144,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
           {Array.from({ length: 24 }).map((_, hour) => (
             <View
               key={hour}
-              className={`flex items-start justify-center pt-1 text-xs text-text-muted ${
+              className={`flex items-start justify-center pt-1 text-xs text-gantt-sidebar-text ${
                 hour % 4 === 0 ? 'font-medium' : ''
               } ${hour % 4 === 0 && hour !== 0 ? 'border-t-2 border-text' : 'border-t border-border'}`}
               style={{ height: `${100 / 24}%` }}
