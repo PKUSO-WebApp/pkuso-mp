@@ -155,9 +155,9 @@ export default function PostEditPage() {
   }
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}>
+    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg pb-safe`}>
       <ScrollView scrollY className='flex-1 min-h-0'>
-        <View className='w-full px-4 pt-2 pb-safe'>
+        <View className='w-full px-4 pt-2 pb-4'>
           <PageHeader
             title={t('postEdit.title')}
           />
@@ -245,7 +245,7 @@ export default function PostEditPage() {
           {error && <Text className='mt-3 block text-xs text-danger'>{error}</Text>}
 
           {/* 底部大按钮：保存 / 取消（各自独立大按钮，不拆分同级） */}
-          <View className='mt-6 mb-4'>
+          <View className='mt-6'>
             <View
               className={`flex h-11 w-full items-center justify-center rounded-xl bg-primary text-base font-medium text-primary-foreground ${
                 busy ? 'opacity-90' : ''
