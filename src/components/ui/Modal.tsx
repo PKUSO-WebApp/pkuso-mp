@@ -1,8 +1,7 @@
 import { Button, View, ScrollView } from '@tarojs/components'
 import type { ReactNode } from 'react'
 import { useLayoutEffect } from 'react'
-import Taro from '@tarojs/taro'
-import { setOverlayOpen, getOverlayOpen } from '@/lib/overlayStore'
+import { setOverlayOpen } from '@/lib/overlayStore'
 import { useT } from '@/i18n'
 
 type ModalProps = {
@@ -33,17 +32,8 @@ export function Modal({
   // 避免底边栏(CoverView，原生层恒在 Modal 之上)在 Modal 出现后、display:none 生效前的那一帧覆盖 Modal 造成闪烁。
   useLayoutEffect(() => {
     if (!open) return
-    const wasOpen = getOverlayOpen()
     setOverlayOpen(true)
-    if (!wasOpen) {
-      void Taro.hideTabBar({ animation: false }).catch(() => {})
-    }
-    return () => {
-      setOverlayOpen(false)
-      if (!getOverlayOpen()) {
-        void Taro.showTabBar({ animation: false }).catch(() => {})
-      }
-    }
+    return () => setOverlayOpen(false)
   }, [open])
 
   const align = position === 'center' ? 'items-center' : 'items-end'
@@ -64,13 +54,7 @@ export function Modal({
       ariaRole='dialog'
       aria-modal='true'
       catchMove
-      style={{
-        paddingBottom:
-          position === 'bottom'
-            ? 'calc(50px + env(safe-area-inset-bottom))'
-            : 'env(safe-area-inset-bottom)',
-      }}
-      className={`fixed left-0 right-0 top-0 bottom-0 z-[60] flex ${align} justify-center bg-overlay px-4`}
+      className={`fixed left-0 right-0 top-0 bottom-0 z-[60] flex ${align} justify-center bg-overlay px-4 pb-[env(safe-area-inset-bottom)]`}
       onClick={closeOnOverlay ? onClose : undefined}
     >
       <View
