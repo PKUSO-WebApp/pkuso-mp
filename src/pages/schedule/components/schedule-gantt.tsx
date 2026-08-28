@@ -14,8 +14,6 @@ type Props = {
   user?: { id: string | undefined } | null
   /** 删除预约（仅创建者本人可删除自己添加的预约） */
   remove: (id: number, date?: string) => Promise<boolean>
-  /** 打开「添加预约」弹窗（按钮位于甘特图内左下角） */
-  onAdd?: () => void
   /** 甘特图高度（px）：短屏保底 480，长屏按可用空间撑满；默认 480 */
   height?: number
 }
@@ -48,7 +46,7 @@ export function parseTimeToHours(timeStr: string | null): number {
 /** 只读甘特图：24 小时时间轴 + 预约块（demo 阶段只读，无添加/删除）。
  *  点击预约块打开详情弹窗；预约人姓名经 profiles_roster 查询，
  *  竞态守卫用 ref 记录当前选中 id（快速连点时丢弃过期响应）。 */
-export function ScheduleGantt({ schedules, selectedDate, user, remove, onAdd, height = 480 }: Props) {
+export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 480 }: Props) {
   const { t } = useT()
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleRow | null>(null)
   const [authorName, setAuthorName] = useState<string | null>(null)
@@ -199,15 +197,6 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, onAdd, he
             </View>
             )
           }          )}
-        </View>
-
-        {/* 添加预约按钮（甘特图内左下角，层级高于预约块） */}
-        <View
-          className='absolute flex items-center justify-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground shadow-lg'
-          style={{ right: '8px', bottom: '8px', zIndex: 50 }}
-          onClick={onAdd}
-        >
-          {t('schedule.addReservation')}
         </View>
       </View>
 

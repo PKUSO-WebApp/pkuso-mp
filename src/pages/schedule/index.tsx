@@ -116,7 +116,7 @@ export default function Schedule() {
             其实际高度由 createSelectorQuery 测量后取 max(480, 实测) 赋给甘特图，使长屏撑满、矮屏保底
             480px 不挤字。页面根已预留 tabBar 50px+安全区，故可滚到底不遮挡 */}
       <View
-        className='mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'
+        className='relative mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'
       >
         <ScrollView scrollY id='schedule-gantt-scroll' className='h-full'>
           {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
@@ -127,10 +127,18 @@ export default function Schedule() {
               user={user}
               remove={remove}
               height={ganttHeight}
-              onAdd={() => setCreateOpen(true)}
             />
           </ListState>
         </ScrollView>
+
+        {/* 添加预约按钮：钉在甘特图容器右下角，不随内部滚动移动 */}
+        <View
+          className='absolute flex items-center justify-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground shadow-lg'
+          style={{ right: '8px', bottom: '8px', zIndex: 50 }}
+          onClick={() => setCreateOpen(true)}
+        >
+          {t('schedule.addReservation')}
+        </View>
       </View>
 
       {/* 添加预约弹窗（成员写入排练房申请） */}
