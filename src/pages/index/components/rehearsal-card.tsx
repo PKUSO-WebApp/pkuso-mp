@@ -27,7 +27,7 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
       <View className='flex gap-3'>
         {/* 排练信息（时间/地点/更新提示 chip） */}
         <View className='min-w-0 flex-1 leading-tight'>
-          <Text className='block text-base font-semibold text-text'>
+          <Text className='block text-base font-normal text-text'>
             {item.start_time
               ? formatRehearsalRange(item.start_time, item.end_time ?? null)
               : t('home.rehearsalTimeUnset')}
