@@ -25,7 +25,11 @@ export default defineAppConfig({
         'pages/my-activities/index',
         'pages/post-edit/index',
       ],
-   lazyCodeLoading: 'requiredComponents',
+    // 原生 darkmode：系统暗色时原生顶栏/窗口按 theme.json 零延迟上色，消除冷启动白闪；
+    // 手动覆盖仍由 setNavigationBarColor（useNavTitle / ThemeProvider）接管
+    darkmode: true,
+    themeLocation: 'theme.json',
+    lazyCodeLoading: 'requiredComponents',
   permission: {
     'scope.userLocation': {
       desc: '用于核验您已到达排练地点完成签到',
