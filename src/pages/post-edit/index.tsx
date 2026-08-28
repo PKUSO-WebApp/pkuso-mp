@@ -156,8 +156,8 @@ export default function PostEditPage() {
 
   return (
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}>
-      <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
-        <View className='pt-2 pb-2'>
+      <ScrollView scrollY className='flex-1 min-h-0'>
+        <View className='w-full px-4 pt-2 pb-safe'>
           <PageHeader
             title={t('postEdit.title')}
           />

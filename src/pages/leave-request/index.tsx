@@ -247,8 +247,8 @@ export default function LeaveRequestPage() {
 
   return (
         <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
-      <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
-       <View className='pt-2 pb-2'>
+      <ScrollView scrollY className='flex-1 min-h-0'>
+        <View className='w-full px-4 pt-2 pb-safe'>
         <Text className='block text-sm text-text-muted'>{subtitle}</Text>
         <View className='my-4 h-px bg-border' />
 
