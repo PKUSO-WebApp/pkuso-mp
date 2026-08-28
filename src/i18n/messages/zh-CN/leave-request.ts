@@ -19,5 +19,7 @@ export const leaveRequest = {
   resubmit: '重新申请',
   modify: '修改申请',
   withdraw: '撤销申请',
+  withdrawConfirmTitle: '撤销申请',
+  withdrawConfirmContent: '撤销后需重新提交申请，确定要撤销吗？',
   editLink: '编辑申请',
 }

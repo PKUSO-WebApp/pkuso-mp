@@ -169,6 +169,13 @@ export default function LeaveRequestPage() {
   const handleCancel = async () => {
     if (submittingRef.current || isSubmitting) return
     if (!current) return
+    const res = await Taro.showModal({
+      title: t('leaveRequest.withdrawConfirmTitle'),
+      content: t('leaveRequest.withdrawConfirmContent'),
+      confirmText: t('leaveRequest.withdraw'),
+      cancelText: t('common.actions.cancel'),
+    })
+    if (!res.confirm) return
     submittingRef.current = true
     setIsSubmitting(true)
     setError(null)
