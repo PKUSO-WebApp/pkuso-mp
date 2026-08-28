@@ -156,11 +156,6 @@ export default function Index() {
               ? t('home.schedule.historyTitle')
               : t('home.schedule.weekTitle')
           }
-          subtitle={
-            scheduleTab === 'history'
-              ? t('home.schedule.historySubtitle')
-              : t('home.schedule.weekSubtitle')
-          }
         />
         <View className='mt-2'>
           <Toggle

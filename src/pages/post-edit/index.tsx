@@ -160,9 +160,6 @@ export default function PostEditPage() {
         <View className='pt-2 pb-2'>
           <PageHeader
             title={t('postEdit.title')}
-            subtitle={t('postEdit.subtitle', {
-              type: t(type === 'ensemble' ? 'postEdit.type.ensemble' : 'postEdit.type.gathering'),
-            })}
           />
 
           {/* 标题 */}

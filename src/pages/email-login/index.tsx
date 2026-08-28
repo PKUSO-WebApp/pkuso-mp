@@ -58,7 +58,6 @@ export default function EmailLoginPage() {
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
           <Text className='text-xl font-semibold text-text'>{t('emailLogin.title')}</Text>
-          <Text className='mt-1 block text-xs text-text-muted'>{t('emailLogin.subtitle')}</Text>
         </View>
 
         <TextField

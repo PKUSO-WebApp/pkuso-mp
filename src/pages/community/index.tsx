@@ -114,7 +114,6 @@ export default function Community() {
       <View className='mt-1 mb-3'>
         <PageHeader
           title={t('community.title')}
-          subtitle={t('community.subtitle')}
           rightButton={
             <View
               className='inline-flex items-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'

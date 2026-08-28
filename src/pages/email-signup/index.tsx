@@ -80,7 +80,6 @@ export default function EmailSignupPage() {
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
           <Text className='text-xl font-semibold text-text'>{t('emailSignup.title')}</Text>
-          <Text className='mt-1 block text-xs text-text-muted'>{t('emailSignup.subtitle')}</Text>
         </View>
 
         <TextField

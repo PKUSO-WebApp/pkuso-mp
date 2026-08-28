@@ -23,16 +23,6 @@ describe('PageHeader', () => {
     expect(screen.getByText('公告板')).toBeTruthy()
   })
 
-  it('有 subtitle 时渲染副标题', () => {
-    render(<PageHeader title='公告板' subtitle='重奏与团建信息' />)
-    expect(screen.getByText('公告板')).toBeTruthy()
-    expect(screen.getByText('重奏与团建信息')).toBeTruthy()
-  })
-
-  it('无 subtitle 时不渲染副标题', () => {
-    render(<PageHeader title='公告板' />)
-    expect(screen.queryByText('重奏与团建信息')).toBeNull()
-  })
 
   it('rightButton 渲染在标题行右侧', () => {
     render(<PageHeader title='日程预约' rightButton={<button>添加预约</button>} />)

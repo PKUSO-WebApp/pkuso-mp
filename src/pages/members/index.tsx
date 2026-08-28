@@ -72,7 +72,7 @@ export default function Members() {
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
       <View className='mt-1 mb-3 px-4'>
-        <PageHeader title={t('members.title')} subtitle={t('members.subtitle')} />
+        <PageHeader title={t('members.title')} />
       </View>
 
       <ScrollView scrollY className='flex-1 min-h-0'>

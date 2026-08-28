@@ -107,7 +107,7 @@ export default function PostCreatePage() {
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}>
       <View className='flex-1 overflow-y-auto px-4 pb-safe'>
         <View className='pt-2 pb-2'>
-          <PageHeader title={t('postCreate.title')} subtitle={t('postCreate.subtitle')} />
+          <PageHeader title={t('postCreate.title')} />
 
           <View className='mt-4'>
             <Text className='block text-sm font-medium text-text'>{t('postCreate.fieldType')}</Text>
