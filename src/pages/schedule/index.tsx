@@ -48,10 +48,11 @@ export default function Schedule() {
     const measure = () => {
       try {
         Taro.createSelectorQuery()
-          .select('#schedule-gantt-body')
+          .select('#schedule-gantt-scroll')
           .boundingClientRect((rect) => {
             const r = Array.isArray(rect) ? rect[0] : rect
-            if (r && r.height > 0) setGanttHeight(Math.max(480, r.height))
+            // 取滚动视口真实高度（避开外层边框带来的 2px 偏差），向下取整消除亚像素滚动
+            if (r && r.height > 0) setGanttHeight(Math.max(480, Math.floor(r.height)))
           })
           .exec()
       } catch {
@@ -115,10 +116,9 @@ export default function Schedule() {
             其实际高度由 createSelectorQuery 测量后取 max(480, 实测) 赋给甘特图，使长屏撑满、矮屏保底
             480px 不挤字。页面根已预留 tabBar 50px+安全区，故可滚到底不遮挡 */}
       <View
-        id='schedule-gantt-body'
         className='mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'
       >
-        <ScrollView scrollY className='h-full'>
+        <ScrollView scrollY id='schedule-gantt-scroll' className='h-full'>
           {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
           <ListState loading={loading} isEmpty={false} error={tAppError(t, error)}>
             <ScheduleGantt
