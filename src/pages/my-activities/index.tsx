@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { View, Text } from '@tarojs/components'
+import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useThemeClass } from '@/context/theme-context'
@@ -68,10 +68,10 @@ export default function MyActivitiesPage() {
   return (
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       <View className='mt-1 mb-3'>
-        <PageHeader title={t('myActivities.title')} subtitle={t('myActivities.subtitle')} />
+        <PageHeader title={t('myActivities.title')} />
       </View>
 
-      <View className='flex-1 min-h-0 overflow-y-auto'>
+      <ScrollView scrollY className='flex-1 min-h-0'>
         <ListState
           loading={mineLoading}
           isEmpty={mine.length === 0}
@@ -171,7 +171,7 @@ export default function MyActivitiesPage() {
             })}
           </View>
         </ListState>
-      </View>
+      </ScrollView>
 
       {/* 删除确认 */}
       <Modal

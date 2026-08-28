@@ -9,7 +9,7 @@ export const profileInfo = {
   statusLabel: '在团情况',
   statusActive: '在团',
   statusInactive: '不在团',
-  hideHint: '以下信息可对外隐藏',
+  hideHint: '以下信息可编辑隐藏',
   emailLabel: '绑定邮箱',
   contactLabel: '联系方式',
   phonePlaceholder: '11 位手机号',

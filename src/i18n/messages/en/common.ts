@@ -47,6 +47,7 @@ export const common = {
     saveFailed: 'Operation failed, please retry',
   },
   hidden: '（Hidden）',
+  notFilled: 'Not filled',
   joinDate: {
     tpl: '{season} {year}',
     season: {

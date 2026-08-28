@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, Textarea, Image } from '@tarojs/components'
+import { View, Text, Textarea, Image, ScrollView } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useLeaveRequests, type UploadFileLike } from '@/hooks/useLeaveRequests'
 import { useUser } from '@/context/user-context'
@@ -35,6 +35,8 @@ export default function LeaveRequestPage() {
   const [attachmentLoading, setAttachmentLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submittingRef = useRef(false)
+  // 记录已加载签名 URL 对应的旧附件地址，查看态↔编辑态切换时复用、避免重复拉取
+  const loadedAttUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!rehearsalId) return
@@ -60,26 +62,33 @@ export default function LeaveRequestPage() {
   }, [rehearsalId, fetchMine])
 
   useEffect(() => {
-    const needLoad =
+    const showOld =
       (mode === 'view' || (mode === 'form' && keepOldAttachment)) && !!current?.attachment_url
-    if (!needLoad) {
+    if (!showOld) {
       setViewAttachmentUrl(null)
+      setAttachmentLoading(false)
+      loadedAttUrlRef.current = null
+      return
+    }
+    // 同一旧附件地址在查看态↔编辑态之间切换时，复用已加载的签名 URL，不重复拉取；
+    // 仅当附件地址本身变化（如重新提交新附件）才重新请求
+    if (viewAttachmentUrl && loadedAttUrlRef.current === current.attachment_url) {
       setAttachmentLoading(false)
       return
     }
     let cancelled = false
     setAttachmentLoading(true)
     void (async () => {
-      const url = current.attachment_url!
-      const res = await getSignedUrl(url)
+      const res = await getSignedUrl(current.attachment_url!)
       if (cancelled) return
+      loadedAttUrlRef.current = current.attachment_url!
       setViewAttachmentUrl(res.url ?? null)
       setAttachmentLoading(false)
     })()
     return () => {
       cancelled = true
     }
-  }, [mode, current?.id, current?.attachment_url, keepOldAttachment, getSignedUrl])
+  }, [mode, current?.id, current?.attachment_url, keepOldAttachment, getSignedUrl, viewAttachmentUrl])
 
   const handleChooseImage = () => {
     Taro.chooseMedia({
@@ -169,6 +178,13 @@ export default function LeaveRequestPage() {
   const handleCancel = async () => {
     if (submittingRef.current || isSubmitting) return
     if (!current) return
+    const res = await Taro.showModal({
+      title: t('leaveRequest.withdrawConfirmTitle'),
+      content: t('leaveRequest.withdrawConfirmContent'),
+      confirmText: t('leaveRequest.withdraw'),
+      cancelText: t('common.actions.cancel'),
+    })
+    if (!res.confirm) return
     submittingRef.current = true
     setIsSubmitting(true)
     setError(null)
@@ -230,8 +246,8 @@ export default function LeaveRequestPage() {
   const hasAttachment = mode === 'view' ? !!viewAttachmentUrl : !!keepOldAttachment
 
   return (
-        <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
-      <View className='flex-1 overflow-y-auto px-4 pb-safe'>
+        <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
+      <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
        <View className='pt-2 pb-2'>
         <Text className='block text-sm text-text-muted'>{subtitle}</Text>
         <View className='my-4 h-px bg-border' />
@@ -331,7 +347,7 @@ export default function LeaveRequestPage() {
           </View>
         )}
        </View>
-       </View>
-       </View>
-   )
+        </ScrollView>
+        </View>
+    )
 }

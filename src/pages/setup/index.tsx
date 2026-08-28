@@ -125,7 +125,7 @@ export default function SetupPage() {
   // 未就绪/未登录时渲染占位，避免跳转前闪烁
   if (!ready || !user) {
     return (
-      <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
+      <View className={`${darkClass} flex min-h-full items-center justify-center bg-page-bg`}>
         <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
@@ -133,12 +133,11 @@ export default function SetupPage() {
 
   return (
     <View
-      className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-6 pb-safe`}
+      className={`${darkClass} flex min-h-full flex-col items-center justify-center bg-page-bg px-6 pb-safe`}
     >
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
           <Text className='text-xl font-semibold text-text'>{t('setup.title')}</Text>
-          <Text className='mt-1 block text-xs text-text-muted'>{t('setup.subtitle')}</Text>
         </View>
 
         <TextField

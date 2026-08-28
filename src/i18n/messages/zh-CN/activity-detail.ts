@@ -29,6 +29,7 @@ export const activityDetail = {
   rows: { time: '排练时间', location: '排练地点', repertoire: '排练曲目' },
   unset: '未定',
   requestLeave: '我要请假',
+  requestLeaveRetro: '我要补请假',
   revokeConfirmTitle: '已提交请假',
   revokeHint: '签到会撤销请假申请，确定继续吗？',
 }

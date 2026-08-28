@@ -47,6 +47,7 @@ export const common = {
     saveFailed: '操作失败，请重试',
   },
   hidden: '（被隐藏）',
+  notFilled: '未填写',
   joinDate: {
     tpl: '{year}{season}',
     season: {

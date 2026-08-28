@@ -50,15 +50,14 @@ export default function LoginPage() {
 
   // 会话恢复完成前渲染占位，防止登录页闪烁
   const content = !ready ? (
-    <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
+    <View className={`${darkClass} flex min-h-full items-center justify-center bg-page-bg`}>
       <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
     </View>
   ) : (
-    <View className={`${darkClass} flex h-full flex-col items-center justify-center bg-page-bg px-5`}>
+    <View className={`${darkClass} flex min-h-full flex-col items-center justify-center bg-page-bg px-5`}>
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
           <Text className='text-xl font-semibold text-text'>{t('login.title')}</Text>
-          <Text className='mt-1 block text-xs text-text-muted'>{t('login.subtitle')}</Text>
         </View>
 
         {restoreFailed ? (

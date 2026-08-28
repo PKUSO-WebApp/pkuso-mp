@@ -156,11 +156,6 @@ export default function Index() {
               ? t('home.schedule.historyTitle')
               : t('home.schedule.weekTitle')
           }
-          subtitle={
-            scheduleTab === 'history'
-              ? t('home.schedule.historySubtitle')
-              : t('home.schedule.weekSubtitle')
-          }
         />
         <View className='mt-2'>
           <Toggle
@@ -222,11 +217,9 @@ export default function Index() {
               time: formatDateTimeInChina(announcement?.created_at ?? null),
             })}
           </Text>
-          <View className='max-h-[60vh] overflow-y-auto'>
-            <Text className='whitespace-pre-wrap break-words text-sm leading-relaxed text-text'>
-              {announcement?.content}
-            </Text>
-          </View>
+          <Text className='whitespace-pre-wrap break-words text-sm leading-relaxed text-text'>
+            {announcement?.content}
+          </Text>
         </View>
       </Modal>
     </View>

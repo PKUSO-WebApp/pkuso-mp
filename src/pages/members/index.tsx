@@ -11,10 +11,8 @@ import { AdminBlockedPage } from '@/components/admin-blocked-page'
 
 import { Card } from '@/components/ui/Card'
 import { StatusChip } from '@/components/ui/StatusChip'
-import { PageHeader } from '@/components/page-header'
 import { groupProfilesByInstrument } from '@/lib/roster-utils'
 import { filterByName } from '@/lib/name-search'
-import { maskedValue } from '@/lib/privacy'
 import { useT, useNavTitle } from '@/i18n'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { translateJoinDate } from '@/lib/join-date-i18n'
@@ -71,10 +69,6 @@ export default function Members() {
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
-      <View className='mt-1 mb-3 px-4'>
-        <PageHeader title={t('members.title')} subtitle={t('members.subtitle')} />
-      </View>
-
       <ScrollView scrollY className='flex-1 min-h-0'>
         {/* 底部留白：底边栏固定覆盖在页面底部（高 50px + 安全区），
             花名册成员多时 ScrollView 末行会被底边栏遮挡、无法滚到底，故内容底部补足留白 */}
@@ -122,34 +116,35 @@ export default function Members() {
                           onClick={() => setSelectedUser(u)}
                         >
                           <View className='flex flex-wrap items-center gap-1.5'>
-                            <Text className='font-medium text-text'>
-                              {(translateInstrument(u.instrument, t) || '—') +
-                                ' - ' +
-                                (u.full_name ?? '—')}
+                            <Text className='text-base font-normal text-text'>
+                              {u.full_name ?? '—'}
                             </Text>
                             {u.is_section_leader && (
                               <StatusChip tone='warning'>{t('members.sectionLeader')}</StatusChip>
                             )}
                           </View>
-                          <Text className='mt-1 block text-text-muted'>
-                            {t('members.collegeLabel')}
-                            {u.college?.trim() || '—'}
-                          </Text>
-                          <Text className='mt-1 block text-text-muted'>
-                            {t('members.emailLabel')}
-                            {maskedValue(!isSelf && u.hide_email, u.email)}
-                          </Text>
-                          <Text className='mt-1 block text-text-subtle'>
-                            {t('members.joinDateLabel')}
-                            {translateJoinDate(
-                              maskedValue(!isSelf && u.hide_join_date, u.join_date),
-                              t
-                            )}
-                            {/* 在团标记（"-" 连接）：true=团员，false=团友；null 未填写则不追加 */}
-                            {u.is_in_orchestra == null
-                              ? ''
-                              : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagFriend')}`}
-                          </Text>
+                          {u.college?.trim() && !(u.hide_college && !isSelf) && (
+                            <Text className='mt-1 block text-xs text-text-muted'>
+                              {t('members.collegeLabel')}
+                              {u.college}
+                            </Text>
+                          )}
+                          {u.email && !(u.hide_email && !isSelf) && (
+                            <Text className='mt-1 block text-xs text-text-muted'>
+                              {t('members.emailLabel')}
+                              {u.email}
+                            </Text>
+                          )}
+                          {u.join_date && !(u.hide_join_date && !isSelf) && (
+                            <Text className='mt-1 block text-xs text-text-muted'>
+                              {t('members.joinDateLabel')}
+                              {translateJoinDate(u.join_date, t)}
+                              {/* 在团标记（"-" 连接）：true=团员，false=团友；null 未填写则不追加 */}
+                              {u.is_in_orchestra == null
+                                ? ''
+                                : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagFriend')}`}
+                            </Text>
+                          )}
                         </View>
                       )
                     })}

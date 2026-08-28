@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { View, Text, Input, Textarea, Image } from '@tarojs/components'
+import { View, Text, Input, Textarea, Image, ScrollView } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { usePosts, type CreatePostInput } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
@@ -104,10 +104,10 @@ export default function PostCreatePage() {
   const showSections = type === 'ensemble'
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}>
-      <View className='flex-1 overflow-y-auto px-4 pb-safe'>
-        <View className='pt-2 pb-2'>
-          <PageHeader title={t('postCreate.title')} subtitle={t('postCreate.subtitle')} />
+    <View className={`${darkClass} flex h-full min-h-0 w-full flex-col overflow-hidden bg-page-bg`}>
+      <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
+        <View className='w-full pt-2 pb-2'>
+          <PageHeader title={t('postCreate.title')} />
 
           <View className='mt-4'>
             <Text className='block text-sm font-medium text-text'>{t('postCreate.fieldType')}</Text>
@@ -216,7 +216,7 @@ export default function PostCreatePage() {
             </View>
           </View>
         </View>
-      </View>
+      </ScrollView>
     </View>
   )
 }

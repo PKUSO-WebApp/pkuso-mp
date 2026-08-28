@@ -14,6 +14,8 @@ type Props = {
   user?: { id: string | undefined } | null
   /** 删除预约（仅创建者本人可删除自己添加的预约） */
   remove: (id: number, date?: string) => Promise<boolean>
+  /** 甘特图高度（px）：短屏保底 480，长屏按可用空间撑满；默认 480 */
+  height?: number
 }
 
 // 7 个预约色 token（按 id 哈希分配）。
@@ -44,7 +46,7 @@ export function parseTimeToHours(timeStr: string | null): number {
 /** 只读甘特图：24 小时时间轴 + 预约块（demo 阶段只读，无添加/删除）。
  *  点击预约块打开详情弹窗；预约人姓名经 profiles_roster 查询，
  *  竞态守卫用 ref 记录当前选中 id（快速连点时丢弃过期响应）。 */
-export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) {
+export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 480 }: Props) {
   const { t } = useT()
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleRow | null>(null)
   const [authorName, setAuthorName] = useState<string | null>(null)
@@ -138,7 +140,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
 
   return (
     <>
-      <View className='relative flex w-full' style={{ height: '480px', flexShrink: 0 }}>
+      <View className='relative flex w-full' style={{ height: `${height}px`, flexShrink: 0 }}>
         {/* 左侧时间轴（随容器同步滚动） */}
         <View className='flex w-12 flex-shrink-0 flex-col bg-gantt-sidebar'>
           {Array.from({ length: 24 }).map((_, hour) => (
@@ -169,10 +171,15 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
           ))}
 
           {/* 预约块 */}
-          {scheduleItems.map((schedule) => (
+          {scheduleItems.map((schedule) => {
+            const isSelfBlock = schedule.author_id === user?.id
+            const colorClass = isSelfBlock ? getScheduleColorClass(schedule.id) : 'bg-schedule-other'
+            const titleCls = isSelfBlock ? 'text-schedule-text' : 'text-primary'
+            const subCls = isSelfBlock ? 'text-schedule-text-muted' : 'text-primary'
+            return (
             <View
               key={schedule.id}
-              className={`absolute left-2 right-2 rounded-lg ${getScheduleColorClass(schedule.id)}`}
+              className={`absolute left-2 right-2 rounded-lg border border-text ${colorClass}`}
               style={{
                 top: `${schedule.top}%`,
                 height: `${schedule.height}%`,
@@ -180,15 +187,16 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
               onClick={() => void handleScheduleClick(schedule)}
             >
               <View className='flex h-full flex-col justify-center px-2 py-1'>
-                <Text className='block truncate text-xs font-medium text-schedule-text'>
+                <Text className={`block truncate text-xs font-medium ${titleCls}`}>
                   {schedule.title || t('schedule.unnamed')}
                 </Text>
-                <Text className='block text-xs text-schedule-text-muted'>
+                <Text className={`block text-xs ${subCls}`}>
                   {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
                 </Text>
               </View>
             </View>
-          ))}
+            )
+          }          )}
         </View>
       </View>
 
@@ -227,7 +235,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove }: Props) 
             {isAuthor && (
               <View className='mt-3 border-t border-border pt-2'>
                 <View
-                  className={`rounded-lg border border-danger py-2 text-center text-sm font-medium text-danger ${
+                  className={`rounded-lg bg-danger py-2 text-center text-sm font-medium text-white ${
                     deleting ? 'opacity-50' : ''
                   }`}
                   onClick={deleting ? undefined : () => void handleDelete()}

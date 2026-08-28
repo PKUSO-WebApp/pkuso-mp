@@ -10,7 +10,7 @@ type CardProps = {
 export function Card({ children, className = '', onClick }: CardProps) {
   // text-sm 两种形态共用，保证文字字号一致；
   // 可点形态用 text-left 对齐 Web 版（小程序无鼠标态，Web 的 cursor/hover 反馈不适用）
-  const base = 'rounded-2xl border border-border bg-card p-3 text-sm'
+  const base = 'rounded-lg border border-border bg-card p-3 text-sm'
   const shadow = 'shadow-sm'
   const interactive = onClick ? 'text-left' : ''
 

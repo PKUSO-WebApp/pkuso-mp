@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text } from '@tarojs/components'
+import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useRehearsals } from '@/hooks/useRehearsals'
 import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
@@ -168,7 +168,7 @@ export default function RehearsalDetail() {
 
   if (!rehearsal) {
     return (
-    <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
+    <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
       <View className='flex flex-1 items-center justify-center'>
         <Text className='text-xs text-text-muted'>{rehearsalsLoading ? t('common.actions.loading') : t('activityDetail.notFound')}</Text>
       </View>
@@ -182,6 +182,7 @@ export default function RehearsalDetail() {
   const leaveStatus = leaveRequest?.status ?? null
   const hasActiveLeaveRequest = leaveStatus === 'pending' || leaveStatus === 'approved'
   const blockReason = getSignBlockReason(rehearsal.start_time, rehearsal.end_time ?? null, new Date(nowTick))
+  const rehearsalEnded = blockReason === 'ended'
   const canRequestLeave = !(attendance?.status === 'present' || attendance?.status === 'late')
 
   let signLabel = ''
@@ -227,9 +228,9 @@ export default function RehearsalDetail() {
   const typeText = rehearsal.type === 'section' ? t('activityDetail.type.section') : t('activityDetail.type.full')
 
   return (
-    <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
-      <View className='flex-1 overflow-y-auto px-4 pb-safe'>
-       <View className='pt-2 pb-2'>
+    <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
+      <ScrollView scrollY className='flex-1 min-h-0 px-4 pb-safe'>
+        <View className='w-full pt-2 pb-2'>
         <Text className='block text-2xl font-semibold text-text'>{timeText}</Text>
         <Text className='mt-1 block text-sm text-text-muted'>{typeText}</Text>
         <View className='my-4 h-px bg-border' />
@@ -251,11 +252,13 @@ export default function RehearsalDetail() {
             className='mt-3 flex items-center justify-center'
             onClick={() => Taro.navigateTo({ url: `/pages/leave-request/index?rehearsalId=${rehearsal.id}` })}
           >
-            <Text className='text-sm text-danger'>{t('activityDetail.requestLeave')} &gt;</Text>
+            <Text className='text-sm text-danger'>
+              {t(rehearsalEnded ? 'activityDetail.requestLeaveRetro' : 'activityDetail.requestLeave')} &gt;
+            </Text>
           </View>
         )}
        </View>
-      </View>
+      </ScrollView>
     </View>
   )
 }

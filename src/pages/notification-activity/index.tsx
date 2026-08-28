@@ -32,7 +32,6 @@ export default function NotificationActivityPage() {
     <View className={`${darkClass} min-h-full bg-page-bg`}>
       <NotificationList
         category='activity'
-        title={t('notification.activityTitle')}
         topSlot={<SegmentTabs tabs={tabs} value={view} onChange={(k) => setView(k)} />}
         typeFilter={view}
       />

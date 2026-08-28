@@ -1,6 +1,6 @@
 // 日程预约页文案（按页分：schedule）
 export const schedule = {
-  navTitle: '日程',
+  navTitle: 'b108预约',
   title: '日程预约',
   subtitle: '查看与申请排练房预约',
   addReservation: '添加预约',
@@ -54,7 +54,7 @@ export const schedule = {
     endTime: '结束时间',
   },
   placeholders: {
-    title: '如：排练房A预约',
+    title: '如：练习',
     startTime: '请选择开始时间',
     endTime: '请选择结束时间',
   },

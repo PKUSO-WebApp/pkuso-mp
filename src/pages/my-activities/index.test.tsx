@@ -68,7 +68,7 @@ vi.mock('@tarojs/components', () => {
     return React.createElement(tag, rest)
   }
   const Image = (props: any) => React.createElement('img', props)
-  return { View: create('div'), Text: create('span'), Button: create('button'), Image }
+  return { View: create('div'), ScrollView: create('div'), Text: create('span'), Button: create('button'), Image }
 })
 
 vi.mock('@tarojs/taro', () => ({ default: mocks.taro, useDidShow: mocks.taro.useDidShow }))

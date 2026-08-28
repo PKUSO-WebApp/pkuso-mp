@@ -12,7 +12,6 @@ import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Toggle } from '@/components/ui/Toggle'
 import { Card } from '@/components/ui/Card'
 import { ListState } from '@/components/ui/ListState'
-import { PageHeader } from '@/components/page-header'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
 import {
   dismissCommunityDot,
@@ -110,31 +109,17 @@ export default function Community() {
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4`}
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
-      {/* 头部 */}
+      {/* 分类切换 */}
       <View className='mt-1 mb-3'>
-        <PageHeader
-          title={t('community.title')}
-          subtitle={t('community.subtitle')}
-          rightButton={
-            <View
-              className='inline-flex items-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'
-              onClick={handleCreate}
-            >
-              {t('community.publish')}
-            </View>
+        <Toggle
+          options={['ensemble', 'gathering']}
+          value={view}
+          onChange={(v) => handleSwitchType(v as PostType)}
+          getLabel={(k) =>
+            k === 'ensemble' ? t('community.type.ensemble') : t('community.type.gathering')
           }
+          badges={{ ensemble: hasUnviewedEnsemble, gathering: hasUnviewedGathering }}
         />
-        <View className='mt-2'>
-          <Toggle
-            options={['ensemble', 'gathering']}
-            value={view}
-            onChange={(v) => handleSwitchType(v as PostType)}
-            getLabel={(k) =>
-              k === 'ensemble' ? t('community.type.ensemble') : t('community.type.gathering')
-            }
-            badges={{ ensemble: hasUnviewedEnsemble, gathering: hasUnviewedGathering }}
-          />
-        </View>
       </View>
 
       {/* 公告列表（可滚动） */}
@@ -168,21 +153,36 @@ export default function Community() {
                       )}
                       {formatPostDate(post.created_at) && ` · ${formatPostDate(post.created_at)}`}
                     </Text>
+
+                    {post.type === 'ensemble' && hasSectionText(post.current_sections) && (
+                      <Text className='mt-1.5 block text-xs text-text-muted'>
+                        {t('community.haveSections', {
+                          sections: (post.current_sections ?? '')
+                            .split(/[,，、\s]+/)
+                            .filter(Boolean)
+                            .map((s) => translateInstrument(s, t))
+                            .join('、'),
+                        })}
+                      </Text>
+                    )}
                     {post.type === 'ensemble' && hasSectionText(post.missing_sections) && (
-                      <View className='mt-2'>
-                        <Text className='inline-flex rounded-full bg-primary px-2 py-0.5 text-caption font-bold text-primary-foreground'>
-                          {t('community.missing', {
-                            sections: (post.missing_sections ?? '')
-                              .split(/[,，、\s]+/)
-                              .filter(Boolean)
-                              .map((s) => translateInstrument(s, t))
-                              .join('、'),
-                          })}
-                        </Text>
-                      </View>
+                      <Text className='mt-1 block text-xs text-text-muted'>
+                        {t('community.missing', {
+                          sections: (post.missing_sections ?? '')
+                            .split(/[,，、\s]+/)
+                            .filter(Boolean)
+                            .map((s) => translateInstrument(s, t))
+                            .join('、'),
+                        })}
+                      </Text>
                     )}
                     {hasSectionText(post.content) && (
                       <Text className='mt-1 block text-xs text-text-muted'>{post.content}</Text>
+                    )}
+                    {post.profiles?.full_name && (
+                      <Text className='mt-1 block text-xs text-text-muted'>
+                        {t('community.creator', { name: post.profiles.full_name ?? '' })}
+                      </Text>
                     )}
                   </View>
                 </View>
@@ -190,6 +190,19 @@ export default function Community() {
             ))}
           </View>
         </ListState>
+      </View>
+
+      {/* 发布悬浮按钮（右下角，浮于底边栏之上） */}
+      <View
+        className='fixed flex items-center justify-center rounded-full bg-primary px-4 py-2 text-label font-medium text-primary-foreground shadow-lg'
+        style={{
+          right: '16px',
+          bottom: 'calc(50px + env(safe-area-inset-bottom) + 16px)',
+          zIndex: 50,
+        }}
+        onClick={handleCreate}
+      >
+        {t('community.publish')}
       </View>
     </View>
   )

@@ -7,7 +7,7 @@ export const profile = {
     appearance: 'Appearance',
     account: 'Account & Password',
     feedback: 'Feedback',
-    language: 'Language Setting',
+    language: 'Language settings',
     logout: 'Log Out',
   },
   language: {

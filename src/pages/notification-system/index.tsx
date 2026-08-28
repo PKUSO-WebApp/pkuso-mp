@@ -113,10 +113,7 @@ export default function NotificationSystemPage() {
 
   return (
     <View className={`${darkClass} pk-page min-h-screen bg-page-bg px-4 py-4`}>
-      <Text className='block text-lg font-semibold text-text'>{t('notification.systemTitle')}</Text>
-      <View className='mt-2'>
-        <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
-      </View>
+      <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
       <View className='mt-3'>
         {loading ? (
           <Text className='block py-10 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>

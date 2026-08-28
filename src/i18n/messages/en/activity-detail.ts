@@ -29,6 +29,7 @@ export const activityDetail = {
   rows: { time: 'Rehearsal Time', location: 'Location', repertoire: 'Repertoire' },
   unset: 'TBD',
   requestLeave: 'Request Leave',
+  requestLeaveRetro: 'Retroactive Leave Request',
   revokeConfirmTitle: 'Leave request active',
   revokeHint: 'Signing in will revoke your leave request. Continue?',
 }
