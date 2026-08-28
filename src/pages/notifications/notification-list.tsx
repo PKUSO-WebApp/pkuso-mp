@@ -11,7 +11,8 @@ import { ListState } from '@/components/ui/ListState'
 
 type Props = {
   category: NotificationCategory
-  title: string
+  /** 页内标题（可选）：留空则不渲染页头标题（nav 标题仍由 useNavTitle 控制） */
+  title?: string
   /** 列表上方的自定义插槽（如活动页的三 tab 切换） */
   topSlot?: ReactNode
   /** 帖子类型筛选（活动页三 tab 用）：'all' 或未传 = 不过滤；按内容模板归类，未命中的仅留在「全部」 */
@@ -61,7 +62,7 @@ export function NotificationList({ category, title, topSlot, typeFilter }: Props
   return (
     <View className='pk-page min-h-screen bg-page-bg px-4 py-4'>
       {topSlot}
-      <Text className='block text-lg font-semibold text-text'>{title}</Text>
+      {title && <Text className='block text-lg font-semibold text-text'>{title}</Text>}
       <View className='mt-3'>
         <ListState
           loading={loading}

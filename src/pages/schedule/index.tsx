@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
-import { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { dataSyncBump } from '@/lib/dataSync'
 import { tAppError } from '@/lib/appError'
 import { useSchedule } from '@/hooks/useSchedule'
@@ -42,6 +42,28 @@ export default function Schedule() {
 
   const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString)
   const [createOpen, setCreateOpen] = useState(false)
+  // 甘特图高度：短屏保底 480px（24h×20px/h，字号不挤），长屏按可用空间撑满（无底部空白）
+  const [ganttHeight, setGanttHeight] = useState(480)
+  useLayoutEffect(() => {
+    const measure = () => {
+      try {
+        Taro.createSelectorQuery()
+          .select('#schedule-gantt-body')
+          .boundingClientRect((rect) => {
+            const r = Array.isArray(rect) ? rect[0] : rect
+            if (r && r.height > 0) setGanttHeight(Math.max(480, r.height))
+          })
+          .exec()
+      } catch {
+        /* 非小程序环境（如单测）忽略测量 */
+      }
+    }
+    Taro.nextTick(measure)
+    if (typeof Taro.onWindowResize === 'function') Taro.onWindowResize(measure)
+    return () => {
+      if (typeof Taro.offWindowResize === 'function') Taro.offWindowResize(measure)
+    }
+  }, [])
   const selectedDateRef = useRef(selectedDate)
   selectedDateRef.current = selectedDate
 
@@ -89,25 +111,27 @@ export default function Schedule() {
         <Text className='text-base font-medium text-text'>{formatDisplayDate(selectedDate)}</Text>
       </View>
 
-      {/* 甘特图：固定 480px 比例尺（24h × 20px/h）。容器 flex-1 占满剩余空间、min-h-0 允许
-          矮屏收缩并内部滚动；maxHeight 480px（内联真实 px，避免被 Taro 转 rpx）使长屏时
-          容器紧贴甘特图、不向下补白。页面根已预留 tabBar 50px+安全区，故可滚到底不遮挡 */}
-      <ScrollView
-        scrollY
+       {/* 甘特图：外层 View 用 flex-1 占满页面剩余空间（含 tabBar 预留），min-h-0 允许矮屏内部滚动；
+            其实际高度由 createSelectorQuery 测量后取 max(480, 实测) 赋给甘特图，使长屏撑满、矮屏保底
+            480px 不挤字。页面根已预留 tabBar 50px+安全区，故可滚到底不遮挡 */}
+      <View
+        id='schedule-gantt-body'
         className='mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'
-        style={{ maxHeight: '480px' }}
       >
-        {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
-        <ListState loading={loading} isEmpty={false} error={tAppError(t, error)}>
-          <ScheduleGantt
-            schedules={filteredSchedules}
-            selectedDate={selectedDate}
-            user={user}
-            remove={remove}
-            onAdd={() => setCreateOpen(true)}
-          />
-        </ListState>
-      </ScrollView>
+        <ScrollView scrollY className='h-full'>
+          {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
+          <ListState loading={loading} isEmpty={false} error={tAppError(t, error)}>
+            <ScheduleGantt
+              schedules={filteredSchedules}
+              selectedDate={selectedDate}
+              user={user}
+              remove={remove}
+              height={ganttHeight}
+              onAdd={() => setCreateOpen(true)}
+            />
+          </ListState>
+        </ScrollView>
+      </View>
 
       {/* 添加预约弹窗（成员写入排练房申请） */}
       <CreateScheduleModal
