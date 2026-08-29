@@ -6,13 +6,14 @@ import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
-import type { NotificationRow } from '@/types/database'
+import type { NotificationCategory, NotificationRow } from '@/types/database'
 import './index.scss'
 
 type Tab = 'unread' | 'read'
 
 /**
  * 系统通知页（「我的-通知-系统」进入）：
+ * 合并展示「系统通知」与「活动通知」两类（活动通知并入系统通知显示），
  * 服务端 read_at 作为已读唯一来源（与考勤/活动一致，非本地存储）。
  * 顶部「未读 / 已读」分段切换，默认进入「未读」。
  * 快照式曝光即已读：进入页面立即把本次拉取到的未读全部标为已读（红点即时清零），
@@ -37,53 +38,63 @@ export default function NotificationSystemPage() {
   const { t } = useT()
   useNavTitle('notification.systemNavTitle')
 
+  // 按分类把未读行批量标记已读（合并展示后两类都需标读）
+  const markReadFor = useCallback(
+    (source: NotificationRow[]) => {
+      const pending = source.filter((m) => m.read_at === null && !handledRef.current.has(m.id))
+      if (pending.length === 0) return Promise.resolve(false)
+      pending.forEach((m) => handledRef.current.add(m.id))
+      const byCat: Record<NotificationCategory, NotificationRow[]> = {
+        attendance: [],
+        activity: [],
+        system: [],
+      }
+      pending.forEach((m) => {
+        if (m.category in byCat) byCat[m.category].push(m)
+      })
+      return Promise.all(
+        (Object.keys(byCat) as NotificationCategory[])
+          .filter((c) => byCat[c].length > 0)
+          .map(async (c) => {
+            const ids = byCat[c].map((m) => m.id)
+            const ok = await markCategoryRead(c, ids)
+            if (ok) {
+              const now = new Date().toISOString()
+              setMessages((prev) => prev.map((m) => (ids.includes(m.id) ? { ...m, read_at: now } : m)))
+            } else {
+              ids.forEach((id) => handledRef.current.delete(id))
+            }
+            return ok
+          })
+      ).then((results) => results.some(Boolean))
+    },
+    [markCategoryRead]
+  )
+
   useEffect(() => {
     const seq = ++seqRef.current
-    void fetchByCategory('system').then(({ rows, error }) => {
+    void Promise.all([fetchByCategory('system'), fetchByCategory('activity')]).then(([sys, act]) => {
       if (seq !== seqRef.current) return
       setLoading(false)
-      if (error) {
-        setFailed(true)
-        setMessages([])
-        setSnapshotIds(new Set())
-        return
-      }
-      setMessages(rows)
-      // 曝光即已读（主路径，页面存活期内执行，红点经 hook 内 emitSync 即时同步）
-      const unreadIds = rows.filter((m) => m.read_at === null).map((m) => m.id)
+      // 两类任一成功即展示该类；仅当两类都失败才标记整体失败
+      setFailed(sys.error !== null && act.error !== null)
+      const sysRows = sys.error ? [] : sys.rows
+      const actRows = act.error ? [] : act.rows
+      // 合并两类并按创建时间倒序
+      const merged = [...sysRows, ...actRows].sort((a, b) =>
+        a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0
+      )
+      setMessages(merged)
+      const unreadIds = merged.filter((m) => m.read_at === null).map((m) => m.id)
       setSnapshotIds(new Set(unreadIds))
-      if (unreadIds.length === 0) return
-      unreadIds.forEach((id) => handledRef.current.add(id))
-      void markCategoryRead('system', unreadIds).then((ok) => {
-        if (!ok) {
-          // 失败放行：交由离开页面的兜底提交重试
-          unreadIds.forEach((id) => handledRef.current.delete(id))
-        }
-      })
+      if (unreadIds.length > 0) void markReadFor(merged)
     })
-  }, [fetchByCategory, markCategoryRead])
+  }, [fetchByCategory, markReadFor])
 
   // 兜底提交：仅处理初始标记失败（不在 handled 中）的未读行；服务端另有 .is("read_at", null) 守卫
   const submitUnreadReads = useCallback(() => {
-    const ids = messagesRef.current
-      .filter((m) => m.read_at === null && !handledRef.current.has(m.id))
-      .map((m) => m.id)
-    ids.forEach((id) => handledRef.current.add(id))
-    if (ids.length === 0) return Promise.resolve(false)
-    return markCategoryRead('system', ids).then((ok) => {
-      if (!ok) {
-        // 失败放行，允许下次离开时重试
-        ids.forEach((id) => handledRef.current.delete(id))
-        return false
-      }
-      const now = new Date().toISOString()
-      setMessages((prev) =>
-        prev.map((m) => (m.read_at === null ? { ...m, read_at: now } : m))
-      )
-      // 红点/行内数字刷新由 hook 内 emitSync('notifications') 统一广播，此处无需重复触发
-      return true
-    })
-  }, [markCategoryRead])
+    return markReadFor(messagesRef.current)
+  }, [markReadFor])
 
   // 兜底路径：didHide 与卸载清理双保险——只重试初始标记失败的行
   useDidHide(() => {
@@ -99,7 +110,10 @@ export default function NotificationSystemPage() {
   const tabs = [
     {
       key: 'unread' as Tab,
-      label: unreadCount > 0 ? t('notification.systemTabs.unreadCount', { n: unreadCount }) : t('notification.systemTabs.unread'),
+      label:
+        unreadCount > 0
+          ? t('notification.systemTabs.unreadCount', { n: unreadCount })
+          : t('notification.systemTabs.unread'),
     },
     { key: 'read' as Tab, label: t('notification.systemTabs.read') },
   ]

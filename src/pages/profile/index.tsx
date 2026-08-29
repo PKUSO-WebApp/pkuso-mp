@@ -48,7 +48,6 @@ export default function Profile() {
   // 通知栏目：信箱按钮 → 通知分类映射（Issue #188 语义）
   const notificationItems: { label: string; category: NotificationCategory }[] = [
     { label: t('profile.notifications.attendance'), category: 'attendance' },
-    { label: t('profile.notifications.activity'), category: 'activity' },
     { label: t('profile.notifications.system'), category: 'system' },
   ]
   // 账号与密码弹窗 tab 文案（Issue #214 语义）
@@ -270,8 +269,6 @@ export default function Profile() {
                       // 活动 / 系统通知改用独立信箱页，均不再弹通用通知 Modal
                       if (category === 'attendance') {
                         void Taro.navigateTo({ url: '/pages/leave-requests/index' })
-                      } else if (category === 'activity') {
-                        void Taro.navigateTo({ url: '/pages/notification-activity/index' })
                       } else {
                         void Taro.navigateTo({ url: '/pages/notification-system/index' })
                       }

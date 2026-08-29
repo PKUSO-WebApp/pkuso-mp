@@ -4,16 +4,14 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { useRehearsals } from '@/hooks/useRehearsals'
 import { useAnnouncements } from '@/hooks/useAnnouncements'
 import { useMyProfile } from '@/hooks/useMyProfile'
-import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { dataSyncBump } from '@/lib/dataSync'
 import { tAppError } from '@/lib/appError'
 import { formatDateTimeInChina } from '@/lib/date-utils'
-import { Toggle } from '@/components/ui/Toggle'
 import { ListState } from '@/components/ui/ListState'
 import { Modal } from '@/components/ui/Modal'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
-import { PageHeader } from '@/components/page-header'
+import { SegmentTabs } from '@/components/ui/SegmentTabs'
 
 import { isRehearsalWithinNextWeek } from '@/lib/rehearsal-utils'
 import {
@@ -43,7 +41,6 @@ export default function Index() {
     loading: announcementLoading,
     fetch: fetchAnnouncement,
   } = useAnnouncements()
-  const { user } = useUser()
   const { profile: myProfile } = useMyProfile()
   const darkClass = useThemeClass()
   const { t } = useT()
@@ -57,24 +54,13 @@ export default function Index() {
     dataSyncBump()
   })
 
-  const profileName = myProfile?.full_name ?? null
-
   const [scheduleTab, setScheduleTab] = useState<'full' | 'section' | 'history'>('full')
+  const scheduleTabs: { key: 'full' | 'section' | 'history'; label: string }[] = [
+    { key: 'full', label: t('home.tabs.full') },
+    { key: 'section', label: t('home.tabs.section') },
+    { key: 'history', label: t('home.tabs.history') },
+  ]
   const [nowTick, setNowTick] = useState(() => Date.now())
-
-  // 欢迎语：显示 5 秒后淡出
-  const [welcomeVisible, setWelcomeVisible] = useState(true)
-  const [welcomeMounted, setWelcomeMounted] = useState(true)
-
-  useEffect(() => {
-    if (!user) return
-    const fadeTimer = setTimeout(() => setWelcomeVisible(false), 5000)
-    const unmountTimer = setTimeout(() => setWelcomeMounted(false), 5500)
-    return () => {
-      clearTimeout(fadeTimer)
-      clearTimeout(unmountTimer)
-    }
-  }, [user])
 
   // 每分钟更新 nowTick，驱动列表过滤
   useEffect(() => {
@@ -123,19 +109,6 @@ export default function Index() {
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
-      {/* 欢迎语（5 秒后淡出消失） */}
-      {user && welcomeMounted && (
-        <View
-          className={`mt-4 transition-opacity py-2 px-4 duration-300 ${
-            welcomeVisible ? 'opacity-100' : 'opacity-0'
-          }`}
-        >
-          <Text className='text-sm text-text-muted'>
-            {profileName ? t('home.welcomeWithName', { name: profileName }) : t('home.welcome')}
-          </Text>
-        </View>
-      )}
-
       {/* 公告条置于 header 之上（用户要求置顶）：点击展开详情；
          冷启动公告到达时会顶推下方 header/切换器，此为相对原滚动内置方案的取舍 */}
       {!announcementLoading && announcement?.content ? (
@@ -150,28 +123,7 @@ export default function Index() {
       ) : null}
 
       <View className='mb-3 mt-1 px-4'>
-        <PageHeader
-          title={
-            scheduleTab === 'history'
-              ? t('home.schedule.historyTitle')
-              : t('home.schedule.weekTitle')
-          }
-        />
-        <View className='mt-2'>
-          <Toggle
-            options={['full', 'section', 'history']}
-            value={scheduleTab}
-            onChange={(v) => setScheduleTab(v as 'full' | 'section' | 'history')}
-            getLabel={(k) => {
-              const labels: Record<string, string> = {
-                full: t('home.tabs.full'),
-                section: t('home.tabs.section'),
-                history: t('home.tabs.history'),
-              }
-              return labels[k] ?? k
-            }}
-          />
-        </View>
+        <SegmentTabs tabs={scheduleTabs} value={scheduleTab} onChange={(k) => setScheduleTab(k)} />
       </View>
 
       {/* 排练列表（可滚动）：统一用原生 ScrollView，与成员页/请假页一致；

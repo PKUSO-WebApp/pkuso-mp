@@ -24,9 +24,22 @@ const rows = [
   },
 ]
 
+const activityRows = [
+  {
+    id: '3',
+    category: 'activity' as const,
+    title: '活动通知A',
+    content: '活动内容',
+    created_at: '2026-01-03T10:00:00',
+    read_at: null,
+  },
+]
+
 const { taroMock, fetchMock, markCategoryMock, notifyMock, hideHolder } = vi.hoisted(() => ({
   taroMock: { showToast: vi.fn() },
-  fetchMock: vi.fn(() => Promise.resolve({ rows: [] as any[], error: null })),
+  fetchMock: vi.fn((category?: string) =>
+    Promise.resolve({ rows: category === 'activity' ? (activityRows as any[]) : (rows as any[]), error: null })
+  ),
   markCategoryMock: vi.fn(() => Promise.resolve(true)),
   notifyMock: vi.fn(),
   hideHolder: { cb: () => {} },
@@ -78,12 +91,16 @@ vi.mock('@/i18n', async () => {
 
 describe('系统通知页', () => {
   beforeEach(() => {
-    fetchMock.mockResolvedValue({ rows, error: null })
+    fetchMock.mockImplementation((category?: string) =>
+      Promise.resolve({ rows: category === 'activity' ? activityRows : rows, error: null })
+    )
   })
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
-    fetchMock.mockResolvedValue({ rows, error: null })
+    fetchMock.mockImplementation((category?: string) =>
+      Promise.resolve({ rows: category === 'activity' ? activityRows : rows, error: null })
+    )
   })
 
   it('进入页面即把未读标为已读，未读 tab 按快照仍显示', async () => {
@@ -104,10 +121,10 @@ describe('系统通知页', () => {
 
   it('离开时兜底提交不重复标记（成功过的 id 已在 handled 中）', async () => {
     render(<NotificationSystemPage />)
-    await waitFor(() => expect(markCategoryMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(markCategoryMock).toHaveBeenCalledTimes(2))
     await act(async () => {
       hideHolder.cb()
     })
-    expect(markCategoryMock).toHaveBeenCalledTimes(1)
+    expect(markCategoryMock).toHaveBeenCalledTimes(2)
   })
 })
