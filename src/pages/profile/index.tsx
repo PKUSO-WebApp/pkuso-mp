@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, Image } from '@tarojs/components'
+import { View, Text, ScrollView, Image, Input } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
-import { ActionBar } from '@/components/ui/ActionBar'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useAuth } from '@/hooks/useAuth'
@@ -23,8 +22,8 @@ import { dataSyncBump } from '@/lib/dataSync'
 import { ThemeModal } from './components/theme-modal'
 import './index.scss'
 
-// 账号与密码弹窗 tab（Issue #214 语义）：修改密码 / 换绑邮箱 两个区块
-const ACCOUNT_TAB_OPTIONS = ['password', 'email'] as const
+// 邮箱与密码弹窗 tab：换绑邮箱（默认）/ 修改密码
+const ACCOUNT_TAB_OPTIONS = ['email', 'password'] as const
 type AccountTab = (typeof ACCOUNT_TAB_OPTIONS)[number]
 
 /**
@@ -48,7 +47,7 @@ export default function Profile() {
     { label: t('profile.notifications.attendance'), category: 'attendance' },
     { label: t('profile.notifications.system'), category: 'system' },
   ]
-  // 账号与密码弹窗 tab 文案（Issue #214 语义）
+  // 邮箱与密码弹窗 tab 文案
   const accountTabLabel = (v: AccountTab) =>
     v === 'password' ? t('profile.account.tabPassword') : t('profile.account.tabEmail')
 
@@ -75,25 +74,27 @@ export default function Profile() {
   // 显示用邮箱：若为合成占位邮箱，显示「未填写」
   const displayEmail = isSyntheticEmail(email) ? t('profile.common.notFilled') : email
 
-  // ---- 账号与密码弹窗（Issue #214 语义：修改密码 / 换绑邮箱 双 tab）----
-  // 重开弹窗默认回到「修改密码」tab；切换 tab 不清空各自输入（输入 state 在组件层，
-  // 条件渲染仅影响显示）；提交中允许切换（两区块提交各自独立双重 guard 互不干扰），
-  // 弹窗关闭守卫同时检查两个提交态——任一提交进行中都无法关窗
+  // ---- 邮箱与密码弹窗：修改密码 / 换绑邮箱 双 tab ----
   const [isPwdModalOpen, setIsPwdModalOpen] = useState(false)
-  const [accountTab, setAccountTab] = useState<AccountTab>('password')
+  const [accountTab, setAccountTab] = useState<AccountTab>('email')
+  // 修改密码
   const [newPwd, setNewPwd] = useState('')
-  const [confirmPwd, setConfirmPwd] = useState('')
   const [pwdError, setPwdError] = useState<string | null>(null)
   const [isUpdatingPwd, setIsUpdatingPwd] = useState(false)
-  const pwdSubmittingRef = useRef(false) // 同步 guard，阻断竞态窗口
-  // 换绑邮箱（Issue #199 语义）：新邮箱输入 + 提交中状态 + 同步 guard
+  const pwdSubmittingRef = useRef(false)
+  // 换绑邮箱
   const [newEmail, setNewEmail] = useState('')
   const [isRebindingEmail, setIsRebindingEmail] = useState(false)
-  const rebindSubmittingRef = useRef(false) // 同步 guard，阻断竞态窗口
-  // 换绑输入最新值 ref：async 闭包读 state 是提交时的旧值，改密成功关窗需判断
-  // 「换绑是否有未提交输入」，在 onChange 中与 state 同步更新（render 期写 ref
-  // 被 react-hooks/refs 规则禁止），供改密成功关窗逻辑同步读取
+  const rebindSubmittingRef = useRef(false)
   const newEmailRef = useRef('')
+  // 验证码通用状态
+  const [verifyCode, setVerifyCode] = useState('')
+  const [codeSent, setCodeSent] = useState(false)
+  const [codeCountdown, setCodeCountdown] = useState(0)
+  const [codeTarget, setCodeTarget] = useState<'bound' | 'new' | null>(null)
+  const [codeSending, setCodeSending] = useState(false)
+  const codeSendingRef = useRef(false)
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // ---- 外观 ----
   const [isThemeOpen, setIsThemeOpen] = useState(false)
@@ -141,47 +142,127 @@ export default function Profile() {
       })
   }, [myProfile?.email, user?.id, updateProfile])
 
+  // 发送验证码：调用 Edge Function
+  const handleSendCode = async () => {
+    if (codeSendingRef.current || codeSending) return
+
+    if (accountTab === 'password') {
+      // 修改密码：先校验密码格式
+      if (!newPwd.trim()) {
+        setPwdError(t('profile.account.pwdMinLength'))
+        return
+      }
+      if (newPwd.trim().length < 6) {
+        setPwdError(t('profile.account.pwdMinLength'))
+        return
+      }
+    } else {
+      // 换绑邮箱：先校验邮箱格式
+      if (!newEmail.trim()) {
+        void Taro.showToast({ title: t('profile.account.emailEmpty'), icon: 'none' })
+        return
+      }
+      if (!isValidEmail(newEmail.trim())) {
+        void Taro.showToast({ title: t('profile.account.emailInvalid'), icon: 'none' })
+        return
+      }
+      if (newEmail.trim().toLowerCase() === (user?.email ?? '').toLowerCase()) {
+        void Taro.showToast({ title: t('profile.account.emailSame'), icon: 'none' })
+        return
+      }
+    }
+
+    codeSendingRef.current = true
+    setCodeSending(true)
+    try {
+      const purpose = accountTab === 'password' ? 'password_change' : 'email_change'
+      const payload: Record<string, unknown> = { purpose }
+      if (purpose === 'email_change') {
+        payload.new_email = newEmail.trim()
+      }
+      const { error } = await supabase.functions.invoke('send-verification-code', {
+        body: payload,
+      })
+      if (error) {
+        void Taro.showToast({ title: t('profile.account.sendFailed'), icon: 'none' })
+        return
+      }
+      setCodeSent(true)
+      setCodeTarget(accountTab === 'password' ? 'bound' : 'new')
+      setCodeCountdown(60)
+      // 启动倒计时
+      if (countdownRef.current) clearInterval(countdownRef.current)
+      countdownRef.current = setInterval(() => {
+        setCodeCountdown((prev) => {
+          if (prev <= 1) {
+            if (countdownRef.current) clearInterval(countdownRef.current)
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    } catch {
+      void Taro.showToast({ title: t('profile.account.sendFailed'), icon: 'none' })
+    } finally {
+      codeSendingRef.current = false
+      setCodeSending(false)
+    }
+  }
+
+  // 修改密码：调用 Edge Function 验证码 + 修改
   const handleUpdatePassword = async () => {
-    if (newPwd.trim() !== confirmPwd.trim()) {
-      setPwdError(t('profile.account.pwdMismatch'))
+    if (!newPwd.trim()) {
+      setPwdError(t('profile.account.pwdMinLength'))
       return
     }
     if (newPwd.trim().length < 6) {
-      setPwdError(t('profile.account.pwdTooShort'))
+      setPwdError(t('profile.account.pwdMinLength'))
       return
     }
-    // 双重 guard 防重复提交：ref 同步阻断 + state 异步兜底
+    if (!verifyCode.trim()) {
+      void Taro.showToast({ title: t('profile.account.verificationCode') + '？', icon: 'none' })
+      return
+    }
     if (pwdSubmittingRef.current || isUpdatingPwd) return
     pwdSubmittingRef.current = true
     setIsUpdatingPwd(true)
     setPwdError(null)
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPwd.trim() })
-      if (error) {
-        setPwdError(error.message)
+      const { data, error } = await supabase.functions.invoke('verify-and-update', {
+        body: {
+          purpose: 'password_change',
+          code: verifyCode.trim(),
+          new_password: newPwd.trim(),
+        },
+      })
+      if (error || !data?.success) {
+        const errMsg = (data?.error as string) ?? error?.message ?? ''
+        if (errMsg.includes('expired')) {
+          void Taro.showToast({ title: t('profile.account.codeExpired'), icon: 'none' })
+        } else if (errMsg.includes('mismatch') || errMsg.includes('code')) {
+          void Taro.showToast({ title: t('profile.account.codeInvalid'), icon: 'none' })
+        } else {
+          setPwdError(errMsg || 'Failed')
+        }
         return
       }
       void Taro.showToast({ title: t('profile.account.pwdSuccess'), icon: 'success' })
       setNewPwd('')
-      setConfirmPwd('')
-      // 换绑提交进行中不关闭弹窗；换绑区块存在未提交输入时也不关闭
-      // （与当前 tab 无关——「提交中允许切换」使「改密飞行中切到换绑填输入」合法）。
-      // newEmailRef 为 latest ref：本闭包里的 newEmail state 是提交时的旧值（空），
-      // 直接判断会误关，必须同步读最新值
+      setVerifyCode('')
+      setCodeSent(false)
+      setCodeTarget(null)
+      if (countdownRef.current) clearInterval(countdownRef.current)
       if (!rebindSubmittingRef.current && !newEmailRef.current.trim()) {
         setIsPwdModalOpen(false)
       }
     } finally {
-      // 无论成败都复位：避免抛异常时 isUpdatingPwd 卡 true，弹窗被守卫锁死无法关闭
       pwdSubmittingRef.current = false
       setIsUpdatingPwd(false)
     }
   }
 
-  // 换绑邮箱（Issue #199 语义）：提交后 Supabase 向新邮箱发确认邮件，
-  // 点击邮件内链接才完成换绑；未确认前 auth 仍用旧邮箱，因此只清空输入、不关闭弹窗
+  // 换绑邮箱：调用 Edge Function 验证码 + 换绑
   const handleRebindEmail = async () => {
-    if (!user) return
     const emailInput = newEmail.trim()
     if (!emailInput) {
       void Taro.showToast({ title: t('profile.account.emailEmpty'), icon: 'none' })
@@ -191,30 +272,47 @@ export default function Profile() {
       void Taro.showToast({ title: t('profile.account.emailInvalid'), icon: 'none' })
       return
     }
-    if (emailInput.toLowerCase() === (user.email ?? '').toLowerCase()) {
+    if (emailInput.toLowerCase() === (user?.email ?? '').toLowerCase()) {
       void Taro.showToast({ title: t('profile.account.emailSame'), icon: 'none' })
       return
     }
-    // 双重 guard 防重复提交：ref 同步阻断 + state 异步兜底
+    if (!verifyCode.trim()) {
+      void Taro.showToast({ title: t('profile.account.verificationCode') + '？', icon: 'none' })
+      return
+    }
     if (rebindSubmittingRef.current || isRebindingEmail) return
     rebindSubmittingRef.current = true
     setIsRebindingEmail(true)
     try {
-      const { error } = await supabase.auth.updateUser({ email: emailInput })
-      if (error) {
-        void Taro.showToast({ title: error.message, icon: 'none' })
+      const { data, error } = await supabase.functions.invoke('verify-and-update', {
+        body: {
+          purpose: 'email_change',
+          code: verifyCode.trim(),
+          new_email: emailInput,
+        },
+      })
+      if (error || !data?.success) {
+        const errMsg = (data?.error as string) ?? error?.message ?? ''
+        if (errMsg.includes('expired')) {
+          void Taro.showToast({ title: t('profile.account.codeExpired'), icon: 'none' })
+        } else if (errMsg.includes('mismatch') || errMsg.includes('code')) {
+          void Taro.showToast({ title: t('profile.account.codeInvalid'), icon: 'none' })
+        } else {
+          void Taro.showToast({ title: errMsg || 'Failed', icon: 'none' })
+        }
         return
       }
-      void Taro.showToast({
-        title: t('profile.account.rebindSent'),
-        icon: 'none',
-      })
+      void Taro.showToast({ title: t('profile.account.emailSuccess'), icon: 'success' })
       setNewEmail('')
-      // 与 onChange 同步逻辑对称：清空 state 时同步清空 ref，
-      // 否则 newEmailRef 残留旧值，后续改密成功关窗条件误判「存在未提交输入」不关窗
       newEmailRef.current = ''
+      setVerifyCode('')
+      setCodeSent(false)
+      setCodeTarget(null)
+      if (countdownRef.current) clearInterval(countdownRef.current)
+      if (!pwdSubmittingRef.current && !newPwd.trim()) {
+        setIsPwdModalOpen(false)
+      }
     } finally {
-      // 无论成败都复位：避免抛异常时 isRebindingEmail 卡 true，输入被永久禁用
       rebindSubmittingRef.current = false
       setIsRebindingEmail(false)
     }
@@ -222,9 +320,27 @@ export default function Profile() {
 
   const handleLogout = async () => {
     await signOut()
-    // 会话已清，回到登录页（tab 页只能用 reLaunch 切换）
     void Taro.reLaunch({ url: '/pages/login/index' })
   }
+
+  // 弹窗打开时重置 tab 到「换绑邮箱」
+  useEffect(() => {
+    if (isPwdModalOpen) {
+      setAccountTab('email')
+      setVerifyCode('')
+      setCodeSent(false)
+      setCodeTarget(null)
+      setCodeCountdown(0)
+      if (countdownRef.current) clearInterval(countdownRef.current)
+    }
+  }, [isPwdModalOpen])
+
+  // 倒计时清理
+  useEffect(() => {
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current)
+    }
+  }, [])
 
   // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
   if (myProfile?.role === 'admin') {
@@ -312,10 +428,13 @@ export default function Profile() {
               <View
                 className='border-b border-border px-4 py-3'
                 onClick={() => {
-                  // 重开弹窗默认回到「修改密码」tab（accountTab 是组件层 state，不重置会残留上次选择）
-                  setAccountTab('password')
+                  setAccountTab('email')
                   setNewPwd('')
-                  setConfirmPwd('')
+                  setVerifyCode('')
+                  setCodeSent(false)
+                  setCodeTarget(null)
+                  setCodeCountdown(0)
+                  if (countdownRef.current) clearInterval(countdownRef.current)
                   setPwdError(null)
                   setIsPwdModalOpen(true)
                 }}
@@ -387,13 +506,10 @@ export default function Profile() {
         </View>
       </ScrollView>
 
-      {/* 账号与密码 Modal（Issue #214 语义 tab 化）：标题下方、内容上方左对齐
-           放置「修改密码 / 换绑邮箱」tab，激活 tab 显示对应区块；切换 tab 不清空
-           各自输入；关闭守卫仍含两个提交态（任一提交进行中不允许关闭） */}
+      {/* 邮箱与密码 Modal：标题下方放置「换绑邮箱 / 修改密码」tab，激活 tab 显示对应区块 */}
       <Modal
         open={isPwdModalOpen}
         onClose={() => {
-          // 任一提交进行中不允许关闭（改密/换绑各自守卫，互不干扰）
           if (isUpdatingPwd || isRebindingEmail) {
             void Taro.showToast({ title: t('profile.account.submittingClose'), icon: 'none' })
             return
@@ -413,6 +529,7 @@ export default function Profile() {
           />
 
           {accountTab === 'password' ? (
+            /* ---- 修改密码 tab ---- */
             <View className='mt-4'>
               <TextField
                 label={t('profile.account.newPassword')}
@@ -424,45 +541,54 @@ export default function Profile() {
                   setPwdError(null)
                 }}
               />
-              <TextField
-                className='mt-3'
-                label={t('profile.account.confirmPassword')}
-                password
-                placeholder={t('profile.account.confirmPasswordPlaceholder')}
-                value={confirmPwd}
-                onInput={(e) => {
-                  setConfirmPwd(e.detail.value)
-                  setPwdError(null)
-                }}
-              />
+              {/* 验证码行：输入框 + 发送按钮 */}
+              <View className='mt-3'>
+                <Text className='mb-1 block text-xs font-medium text-text-muted'>
+                  {t('profile.account.verificationCode')}
+                  {codeSent && codeTarget === 'bound' && (
+                    <Text className='text-primary'>{t('profile.account.codeSentToBound')}</Text>
+                  )}
+                </Text>
+                <View className='flex items-center gap-2'>
+                  <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
+                    <Input
+                      className='h-10 w-full bg-transparent text-sm text-text'
+                      placeholder={t('profile.account.verificationCodePlaceholder')}
+                      value={verifyCode}
+                      onInput={(e) => setVerifyCode(e.detail.value)}
+                    />
+                  </View>
+                  <View
+                    className={`flex-shrink-0 rounded-xl px-3 py-2 text-xs font-medium ${
+                      codeCountdown > 0 || codeSending
+                        ? 'bg-muted text-text-muted'
+                        : 'bg-primary text-primary-foreground'
+                    }`}
+                    onClick={codeCountdown > 0 || codeSending ? undefined : () => void handleSendCode()}
+                  >
+                    {codeSending
+                      ? t('profile.account.submitting')
+                      : codeCountdown > 0
+                        ? t('profile.account.resendCode', { seconds: String(codeCountdown) })
+                        : t('profile.account.sendCode')}
+                  </View>
+                </View>
+              </View>
               {pwdError && <Text className='mt-3 block text-xs text-danger'>{pwdError}</Text>}
-              {/* 双按钮操作行右下角（取消 + 确认修改）；取消按钮任一提交飞行中禁用 */}
-              <ActionBar className='mt-3'>
+              <View className='mt-4 flex justify-end'>
                 <View
-                  className={`rounded-full border border-border bg-card px-4 py-2 text-xs font-medium text-text-muted ${
+                  className={`rounded-full bg-primary px-6 py-2 text-xs font-medium text-primary-foreground ${
                     isUpdatingPwd || isRebindingEmail ? 'opacity-60' : ''
                   }`}
-                  onClick={
-                    isUpdatingPwd || isRebindingEmail ? undefined : () => setIsPwdModalOpen(false)
-                  }
+                  onClick={isUpdatingPwd || isRebindingEmail ? undefined : () => void handleUpdatePassword()}
                 >
-                  {t('common.actions.cancel')}
+                  {isUpdatingPwd ? t('profile.account.submitting') : t('profile.account.confirmChange')}
                 </View>
-                <View
-                  className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
-                    isUpdatingPwd ? 'opacity-60' : ''
-                  }`}
-                  onClick={isUpdatingPwd ? undefined : () => void handleUpdatePassword()}
-                >
-                  {isUpdatingPwd
-                    ? t('profile.account.submitting')
-                    : t('profile.account.confirmChange')}
-                </View>
-              </ActionBar>
+              </View>
             </View>
           ) : (
+            /* ---- 换绑邮箱 tab ---- */
             <View className='mt-4'>
-              {/* 当前邮箱只读展示（Issue #199 语义）；「换绑邮箱」小标题由 tab 承担 */}
               <Text className='block text-xs text-text-subtle'>
                 {t('profile.account.currentEmail', { email: displayEmail })}
               </Text>
@@ -474,22 +600,52 @@ export default function Profile() {
                 disabled={isRebindingEmail}
                 onInput={(e) => {
                   setNewEmail(e.detail.value)
-                  newEmailRef.current = e.detail.value // 同步最新值（async 闭包读 ref）
+                  newEmailRef.current = e.detail.value
                 }}
               />
-              {/* 单主操作按钮右对齐（双按钮行规范的唯一按钮豁免） */}
-              <ActionBar className='mt-3'>
-                <View
-                  className={`rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground ${
-                    isRebindingEmail ? 'opacity-60' : ''
-                  }`}
-                  onClick={isRebindingEmail ? undefined : () => void handleRebindEmail()}
-                >
-                  {isRebindingEmail
-                    ? t('profile.account.submitting')
-                    : t('profile.account.sendVerifyEmail')}
+              {/* 验证码行：输入框 + 发送按钮 */}
+              <View className='mt-3'>
+                <Text className='mb-1 block text-xs font-medium text-text-muted'>
+                  {t('profile.account.verificationCode')}
+                  {codeSent && codeTarget === 'new' && (
+                    <Text className='text-primary'>{t('profile.account.codeSentToNew')}</Text>
+                  )}
+                </Text>
+                <View className='flex items-center gap-2'>
+                  <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
+                    <Input
+                      className='h-10 w-full bg-transparent text-sm text-text'
+                      placeholder={t('profile.account.verificationCodePlaceholder')}
+                      value={verifyCode}
+                      onInput={(e) => setVerifyCode(e.detail.value)}
+                    />
+                  </View>
+                  <View
+                    className={`flex-shrink-0 rounded-xl px-3 py-2 text-xs font-medium ${
+                      codeCountdown > 0 || codeSending
+                        ? 'bg-muted text-text-muted'
+                        : 'bg-primary text-primary-foreground'
+                    }`}
+                    onClick={codeCountdown > 0 || codeSending ? undefined : () => void handleSendCode()}
+                  >
+                    {codeSending
+                      ? t('profile.account.submitting')
+                      : codeCountdown > 0
+                        ? t('profile.account.resendCode', { seconds: String(codeCountdown) })
+                        : t('profile.account.sendCode')}
+                  </View>
                 </View>
-              </ActionBar>
+              </View>
+              <View className='mt-4 flex justify-end'>
+                <View
+                  className={`rounded-full bg-primary px-6 py-2 text-xs font-medium text-primary-foreground ${
+                    isRebindingEmail || isUpdatingPwd ? 'opacity-60' : ''
+                  }`}
+                  onClick={isRebindingEmail || isUpdatingPwd ? undefined : () => void handleRebindEmail()}
+                >
+                  {isRebindingEmail ? t('profile.account.submitting') : t('profile.account.confirmChange')}
+                </View>
+              </View>
             </View>
           )}
         </View>
