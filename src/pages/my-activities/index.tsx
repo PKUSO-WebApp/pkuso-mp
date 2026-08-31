@@ -91,7 +91,7 @@ export default function MyActivitiesPage() {
                         className='px-1 py-0.5 text-xs leading-none text-primary'
                         onClick={() => setMenuId(menuOpen ? null : post.id)}
                       >
-                        <Text className='text-sm leading-none text-primary'>…</Text>
+                        <Text className='text-base leading-none text-primary'>…</Text>
                       </View>
                       {menuOpen && (
                         <>
