@@ -33,6 +33,7 @@ export type AttendanceHistoryFilter = {
 /** 考勤 join 排练的返回行（仅取展示所需排练列，不含 profiles 敏感列） */
 export type AttendanceHistoryRow = AttendanceRow & {
   rehearsals?: {
+    id?: number | null
     start_time?: string | null
     end_time?: string | null
     location?: string | null
@@ -166,7 +167,7 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
     async (userId: string, filter: AttendanceHistoryFilter): Promise<AttendanceHistoryResult> => {
       let query = client
         .from('attendances')
-        .select('*, rehearsals!inner(start_time, end_time, location, repertoire)')
+        .select('*, rehearsals!inner(id, start_time, end_time, location, repertoire)')
         .eq('user_id', userId)
       if (filter.startDate) query = query.gte('rehearsals.start_time', filter.startDate)
       if (filter.endDate) query = query.lt('rehearsals.start_time', nextDayString(filter.endDate))

@@ -2,7 +2,7 @@ export const members = {
   navTitle: 'Members',
   title: 'All Members',
   subtitle: 'View the latest orchestra roster',
-  searchPlaceholder: 'Search by name (Chinese / pinyin / initials)',
+  searchPlaceholder: 'Search name, section',
   emptyApproved: 'No approved members yet',
   emptyMatch: 'No matching members found',
   sectionLeader: '🏅 Section Leader',

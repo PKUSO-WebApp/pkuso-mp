@@ -101,11 +101,7 @@ vi.mock('@/components/ui/Toggle', () => ({
     ),
 }))
 vi.mock('@/lib/validation', () => ({ isValidEmail: () => true, isValidPhoneNumber: () => true }))
-vi.mock('@/pages/profile/components/attendance-history-modal', () => ({
-  AttendanceHistoryModal: () => null,
-}))
 vi.mock('@/pages/profile/components/theme-modal', () => ({ ThemeModal: () => null }))
-vi.mock('@/pages/profile/components/feedback-modal', () => ({ FeedbackModal: () => null }))
 
 vi.mock('@/i18n', async () => {
   const mod = await import('@/i18n/messages/zh-CN')

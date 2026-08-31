@@ -2,7 +2,7 @@ export const members = {
   navTitle: '成员',
   title: '全团成员',
   subtitle: '查看乐团最新花名册',
-  searchPlaceholder: '搜索姓名（支持中文/拼音/首字母）',
+  searchPlaceholder: '搜索姓名，声部',
   emptyApproved: '暂无已通过成员',
   emptyMatch: '未找到匹配的成员',
   sectionLeader: '🏅 声部长',

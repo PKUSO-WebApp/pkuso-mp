@@ -193,6 +193,39 @@ export function formatRehearsalRange(startValue: string, endValue: string | null
   return `${datePart}${dateTimeSep}${startTime}${timeRangeSep}${endTimeFormatted}`
 }
 
+export type RehearsalCardParts = {
+  dateLabel: string
+  weekdayLabel: string
+  timeRange: string
+}
+
+/**
+ * 将排练起止时间拆为卡片所需的日期行与时间行
+ * - dateLabel: "8月30日"（不含星期）
+ * - weekdayLabel: "周六"
+ * - timeRange: "14:00 - 17:00"
+ */
+export function formatRehearsalCardParts(startValue: string, endValue: string | null): RehearsalCardParts {
+  const start = parseLocalISO(startValue)
+  if (Number.isNaN(start.getTime())) return { dateLabel: startValue, weekdayLabel: '', timeRange: '' }
+  const end = endValue ? parseLocalISO(endValue) : null
+
+  const month = translateCurrent(`schedule.monthAbbr.${MONTH_CODES[start.getMonth()]}`)
+  const day = String(start.getDate())
+  const dateLabel = `${month}${day}日`
+  const weekdayLabel = translateCurrent(`schedule.weekdayShort.${DOW_CODES[start.getDay()]}`)
+
+  const hasIntlSupport = hasIntl()
+  const timeFormatter = hasIntlSupport
+    ? new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : null
+  const startTime = timeFormatter ? timeFormatter.format(start) : formatTimeManual(start)
+  if (!end || Number.isNaN(end.getTime())) return { dateLabel, weekdayLabel, timeRange: startTime }
+  const endTime = timeFormatter ? timeFormatter.format(end) : formatTimeManual(end)
+  const sep = translateCurrent('schedule.timeRangeSep')
+  return { dateLabel, weekdayLabel, timeRange: `${startTime}${sep}${endTime}` }
+}
+
 /**
  * 判断排练是否已过期（结束时间（或开始时间）+ 12 小时后仍早于当前时间）
  * 供 member/admin 两端共用（原位于 member 端私有 utils，迁移至此消除跨端 import）

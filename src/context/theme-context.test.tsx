@@ -15,9 +15,6 @@ vi.mock('@tarojs/taro', () => ({
     setStorage: async ({ key, data }: { key: string; data: unknown }) => {
       storage[key] = data
     },
-    getSystemInfoSync: () => ({ theme: 'light' }),
-    onThemeChange: () => {},
-    offThemeChange: () => {},
     setNavigationBarColor: () => Promise.resolve(),
     setBackgroundColor: () => Promise.resolve(),
   },
@@ -31,24 +28,23 @@ function Consumer() {
       <span data-testid='mode'>{mode}</span>
       <button onClick={() => setPreference('dark')}>toDark</button>
       <button onClick={() => setPreference('light')}>toLight</button>
-      <button onClick={() => setPreference('system')}>toSystem</button>
     </div>
   )
 }
 
-describe('ThemeProvider 切换（P3-3）', () => {
+describe('ThemeProvider 切换', () => {
   beforeEach(() => {
     for (const k of Object.keys(storage)) delete storage[k]
   })
   afterEach(cleanup)
 
-  it('默认 preference=system，mode 跟随系统（light）', () => {
+  it('默认 preference=light，mode=light', () => {
     render(
       <ThemeProvider>
         <Consumer />
       </ThemeProvider>
     )
-    expect(screen.getByTestId('pref').textContent).toBe('system')
+    expect(screen.getByTestId('pref').textContent).toBe('light')
     expect(screen.getByTestId('mode').textContent).toBe('light')
   })
 
@@ -67,6 +63,7 @@ describe('ThemeProvider 切换（P3-3）', () => {
   })
 
   it('setPreference(light) → mode=light', async () => {
+    storage['pkuso-theme'] = 'dark'
     render(
       <ThemeProvider>
         <Consumer />
@@ -75,19 +72,6 @@ describe('ThemeProvider 切换（P3-3）', () => {
     await act(async () => {
       screen.getByText('toLight').click()
     })
-    expect(screen.getByTestId('mode').textContent).toBe('light')
-  })
-
-  it('setPreference(system) → mode 跟随系统（light）', async () => {
-    render(
-      <ThemeProvider>
-        <Consumer />
-      </ThemeProvider>
-    )
-    await act(async () => {
-      screen.getByText('toSystem').click()
-    })
-    expect(screen.getByTestId('pref').textContent).toBe('system')
     expect(screen.getByTestId('mode').textContent).toBe('light')
   })
 })

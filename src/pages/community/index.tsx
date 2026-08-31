@@ -104,20 +104,11 @@ export default function Community() {
                   void Taro.navigateTo({ url: `/pages/post-detail/index?id=${post.id}` })
                 }
               >
-                <View className='flex items-start justify-between gap-2'>
-                  <View className='min-w-0 flex-1'>
-                    <Text className='block text-sm font-semibold text-text'>{post.title}</Text>
-                    <Text className='mt-0.5 block text-label text-text-muted'>
-                      {t(
-                        post.type === 'ensemble'
-                          ? 'community.type.ensemble'
-                          : 'community.type.gathering'
-                      )}
-                      {formatPostDate(post.created_at) && ` · ${formatPostDate(post.created_at)}`}
-                    </Text>
+                <View className='min-w-0'>
+                    <Text className='block text-base font-normal text-primary'>{post.title}</Text>
 
                     {post.type === 'ensemble' && hasSectionText(post.current_sections) && (
-                      <Text className='mt-1.5 block text-xs text-text-muted'>
+                      <Text className='mt-1 block text-sm leading-relaxed text-primary'>
                         {t('community.haveSections', {
                           sections: (post.current_sections ?? '')
                             .split(/[,，、\s]+/)
@@ -128,7 +119,7 @@ export default function Community() {
                       </Text>
                     )}
                     {post.type === 'ensemble' && hasSectionText(post.missing_sections) && (
-                      <Text className='mt-1 block text-xs text-text-muted'>
+                      <Text className='mt-0.5 block text-sm leading-relaxed text-primary'>
                         {t('community.missing', {
                           sections: (post.missing_sections ?? '')
                             .split(/[,，、\s]+/)
@@ -139,14 +130,20 @@ export default function Community() {
                       </Text>
                     )}
                     {hasSectionText(post.content) && (
-                      <Text className='mt-1 block text-xs text-text-muted'>{post.content}</Text>
+                      <Text className='mt-1 block text-sm leading-relaxed text-primary line-clamp-2'>{post.content}</Text>
                     )}
-                    {post.profiles?.full_name && (
-                      <Text className='mt-1 block text-xs text-text-muted'>
-                        {t('community.creator', { name: post.profiles.full_name ?? '' })}
-                      </Text>
-                    )}
-                  </View>
+                    <View className='mt-1 flex items-center justify-between'>
+                      {post.profiles?.full_name && (
+                        <Text className='block text-xs text-text-muted'>
+                          {t('community.creator', { name: post.profiles.full_name ?? '' })}
+                        </Text>
+                      )}
+                      {formatPostDate(post.created_at) && (
+                        <Text className='block text-xs text-text-muted'>
+                          {formatPostDate(post.created_at)}
+                        </Text>
+                      )}
+                    </View>
                 </View>
               </Card>
             ))}

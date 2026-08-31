@@ -14,7 +14,7 @@ import { StatusChip } from '@/components/ui/StatusChip'
 import { groupProfilesByInstrument } from '@/lib/roster-utils'
 import { filterByName } from '@/lib/name-search'
 import { useT, useNavTitle } from '@/i18n'
-import { translateInstrument } from '@/lib/instrument-i18n'
+import { translateInstrument, matchInstrumentSection } from '@/lib/instrument-i18n'
 import { translateJoinDate } from '@/lib/join-date-i18n'
 import type { ProfileRow } from '@/types/database'
 import { MemberDetailModal } from './components/member-detail-modal'
@@ -51,9 +51,13 @@ export default function Members() {
     [allProfiles]
   )
 
+  const sectionMatch = useMemo(() => matchInstrumentSection(searchQuery), [searchQuery])
+
   const filteredRows = useMemo(
-    () => filterByName(rosterRows, searchQuery),
-    [rosterRows, searchQuery]
+    () => sectionMatch
+      ? rosterRows.filter((r) => sectionMatch.includes(r.instrument ?? ''))
+      : filterByName(rosterRows, searchQuery),
+    [rosterRows, searchQuery, sectionMatch]
   )
 
   const grouped = useMemo(() => groupProfilesByInstrument(filteredRows), [filteredRows])
@@ -153,6 +157,7 @@ export default function Members() {
               ))}
             </View>
           )}
+          <View style={{ height: '8px' }} />
         </View>
       </ScrollView>
 

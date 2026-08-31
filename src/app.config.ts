@@ -22,8 +22,10 @@ export default defineAppConfig({
         'pages/post-detail/index',
          'pages/notification-system/index',
         'pages/my-activities/index',
-        'pages/post-edit/index',
-      ],
+         'pages/post-edit/index',
+          'pages/feedback/index',
+          'pages/attendance/index',
+        ],
     // 原生 darkmode：系统暗色时原生顶栏/窗口按 theme.json 零延迟上色，消除冷启动白闪；
     // 手动覆盖仍由 setNavigationBarColor（useNavTitle / ThemeProvider）接管
     darkmode: true,

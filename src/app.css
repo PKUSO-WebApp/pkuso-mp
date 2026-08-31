@@ -53,33 +53,33 @@
    由 theme-context 的 useThemeClass 在页面根节点挂 .dark 类触发，
    Tailwind 工具类引用 var(--color-*)，随祖先类切换整体换肤 */
 .dark {
-  --color-primary: #f4f4f5;
-  --color-primary-foreground: #18181b;
+  --color-primary: #ffffff;
+  --color-primary-foreground: #2c2c2f;
 
-  /* 签到蓝暗色变体：暂与亮色同值（中调蓝在暗底上对比度已足够），如需调优改此处 */
-  --color-signin: #6198cb;
+  /* 签到蓝暗色变体：+20 调亮 */
+  --color-signin: #75acdf;
   --color-signin-foreground: #ffffff;
 
-  --color-surface: #09090b;
-  --color-card: #18181b;
-  --color-muted: #27272a;
-  --color-page-bg: #09090b;
+  --color-surface: #1d1d1f;
+  --color-card: #2c2c2f;
+  --color-muted: #3b3b3e;
+  --color-page-bg: #1d1d1f;
 
-  --color-text: #f4f4f5;
-  --color-text-muted: #a1a1aa;
-  --color-text-subtle: #71717a;
+  --color-text: #ffffff;
+  --color-text-muted: #b5b5be;
+  --color-text-subtle: #85858e;
 
-  --color-border: #27272a;
-  --color-border-light: #18181b;
+  --color-border: #3b3b3e;
+  --color-border-light: #2c2c2f;
 
-  --color-gantt-sidebar: #0c4a6e;
-  --color-gantt-sidebar-text: #bae6fd;
+  --color-gantt-sidebar: #205e82;
+  --color-gantt-sidebar-text: #ceefff;
   --color-schedule-text: #ffffff;
-  --color-schedule-text-muted: rgba(255, 255, 255, 0.8);
-  --color-schedule-other: #3f3f46;
+  --color-schedule-text-muted: rgba(255, 255, 255, 0.85);
+  --color-schedule-other: #53535a;
 
-  --color-danger: #f87171;
-  --color-danger-bg: #1f1315;
+  --color-danger: #ff9191;
+  --color-danger-bg: #332123;
   --color-danger-foreground: #ffffff;
   --color-success: #34d399;
   --color-success-bg: #0a1f1a;

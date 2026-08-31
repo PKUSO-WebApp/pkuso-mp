@@ -9,7 +9,6 @@ import {
 } from 'react'
 import Taro from '@tarojs/taro'
 import {
-  getSystemDark,
   readStoredThemeSync,
   resolveTheme,
   writeThemePreference,
@@ -20,68 +19,47 @@ import {
 import { setThemeMode } from '@/lib/themeStore'
 
 export type ThemeContextValue = {
-  /** 用户三态选择（亮色 / 暗色 / 跟随系统） */
+  /** 用户二态选择（亮色 / 暗色） */
   preference: ThemePreference
-  /** 实际生效的亮/暗模式（system 时由系统偏好解析） */
+  /** 实际生效的亮/暗模式 */
   mode: ThemeMode
-  /** 切换偏好：即时生效 + 持久化（显式选择，含 system） */
+  /** 切换偏好：即时生效 + 持久化 */
   setPreference: (value: ThemePreference) => void
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
 
 /**
- * 全局主题 Provider：全站共享一份主题状态与系统外观监听（Web Issue #203 语义）。
- * 默认（无存储 = 跟随系统）；系统外观变化实时跟随（Taro.onThemeChange）。
+ * 全局主题 Provider：全站共享一份主题状态。
+ * 默认（无存储 = 亮色）。
  * 生效方式：
- * - 页面内容：useThemeClass 在页面根节点挂 .dark 类（app.css 中 .dark 覆盖
- *   语义 token，Tailwind 工具类引用 var(--color-*) 随祖先类切换）；
+ * - 页面内容：useThemeClass 在页面根节点挂 .dark 类；
  * - 导航栏：Taro.setNavigationBarColor 同步。
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  // 同步初始化：getStorageSync 在首帧渲染前读出存储偏好（暗色冷启动无白闪）；
-  // 无存储时回退跟随系统
   const [preference, setPreferenceState] = useState<ThemePreference>(
-    () => readStoredThemeSync() ?? 'system'
+    () => readStoredThemeSync() ?? 'light'
   )
-  const [systemDark, setSystemDark] = useState<boolean>(() => getSystemDark())
-  const mode = resolveTheme(preference, systemDark)
+  const mode = resolveTheme(preference)
 
-  // 导航栏/窗口底色跟随实际模式；custom tabBar 自管主题（见 themeStore），不再调用 setTabBarStyle。
-  // 配色取自 lib/theme.ts THEME_PALETTE 单一真相源（P2-8）
+  // 导航栏/窗口底色跟随实际模式
   useEffect(() => {
     const p = THEME_PALETTE[mode]
-    // 非 tab 页调部分 API 会 reject，统一 catch 静默（非页面环境如测试同样跳过）
     const noop = () => {}
     try {
       void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(noop)
-      // page 元素背景（窗口底色）：页面根 View 盖不到滚动阻尼露出的区域
       void Taro.setBackgroundColor({ backgroundColor: p.windowBg }).catch(noop)
     } catch {
       // 非页面环境（如测试）静默跳过
     }
   }, [mode])
 
-  // 推送当前模式到模块级 themeStore，供 custom tabBar 订阅（其不继承 theme-context）
+  // 推送当前模式到模块级 themeStore，供 custom tabBar 订阅
   useEffect(() => {
     setThemeMode(mode)
   }, [mode])
 
-  // system 模式下监听系统外观变化实时跟随；切到 light/dark 时清理监听
-  useEffect(() => {
-    if (preference !== 'system') return
-    if (typeof Taro.onThemeChange !== 'function') return
-    const handler = (res: { theme?: string }) => {
-      setSystemDark(res.theme === 'dark')
-    }
-    Taro.onThemeChange(handler)
-    // Taro 无 offThemeChange 对称 API 时监听常驻（Provider 全局唯一，可接受）
-    return () => {
-      if (typeof Taro.offThemeChange === 'function') Taro.offThemeChange(handler)
-    }
-  }, [preference])
-
-  /** 切换偏好：即时更新状态 + 持久化（显式选择，含 system） */
+  /** 切换偏好：即时更新状态 + 持久化 */
   const setPreference = useCallback((value: ThemePreference) => {
     setPreferenceState(value)
     void writeThemePreference(value)
@@ -103,7 +81,7 @@ export function useThemeContext(): ThemeContextValue {
   return ctx
 }
 
-/** 页面根节点暗色类名：mode 为 dark 时返回 'dark'，否则空串（供各页根 View className 拼接） */
+/** 页面根节点暗色类名：mode 为 dark 时返回 'dark'，否则空串 */
 export function useThemeClass(): string {
   const { mode } = useThemeContext()
   return mode === 'dark' ? 'dark' : ''

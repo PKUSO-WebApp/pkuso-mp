@@ -20,9 +20,7 @@ import { getAppVersionLabel } from '@/lib/version'
 import type { NotificationCategory } from '@/types/database'
 import { dataSyncBump } from '@/lib/dataSync'
 
-import { AttendanceHistoryModal } from './components/attendance-history-modal'
 import { ThemeModal } from './components/theme-modal'
-import { FeedbackModal } from './components/feedback-modal'
 import './index.scss'
 
 // 账号与密码弹窗 tab（Issue #214 语义）：修改密码 / 换绑邮箱 两个区块
@@ -97,12 +95,8 @@ export default function Profile() {
   // 被 react-hooks/refs 规则禁止），供改密成功关窗逻辑同步读取
   const newEmailRef = useRef('')
 
-  // ---- 考勤查看（打开时才条件挂载查询组件，见下方渲染）----
-  const [isAttendanceOpen, setIsAttendanceOpen] = useState(false)
-
-  // ---- 外观 / 问题与反馈 ----
+  // ---- 外观 ----
   const [isThemeOpen, setIsThemeOpen] = useState(false)
-  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
 
   // ---- 通知信箱 ----
   // 未读数和标记已读收敛在 useNotifications；挂载时拉取一次未读数，
@@ -334,7 +328,7 @@ export default function Profile() {
               <View
                 className='border-b border-border px-4 py-3'
                 onClick={() => {
-                  if (user) setIsAttendanceOpen(true)
+                  void Taro.navigateTo({ url: '/pages/attendance/index' })
                 }}
               >
                 <Text className='text-sm font-medium text-text'>
@@ -356,7 +350,7 @@ export default function Profile() {
                 onClick={() => setIsLangOpen(true)}
               >
                 <Text className='text-sm font-medium text-text'>
-                  {t('profile.settings.language')}
+                  语言设置 / Language Settings
                 </Text>
               </View>
               {/* 外观：亮色 / 暗色 / 跟随系统 三态主题切换 */}
@@ -371,7 +365,7 @@ export default function Profile() {
               {/* 问题与反馈：匿名提交，底部弹窗 */}
               <View
                 className='border-b border-border px-4 py-3'
-                onClick={() => setIsFeedbackOpen(true)}
+                onClick={() => void Taro.navigateTo({ url: '/pages/feedback/index' })}
               >
                 <Text className='text-sm font-medium text-text'>
                   {t('profile.settings.feedback')}
@@ -501,18 +495,10 @@ export default function Profile() {
         </View>
       </Modal>
 
-      {/* 考勤查看 Modal：条件渲染挂载——打开时才挂载并查询，关闭即卸载清态 */}
-      {isAttendanceOpen && user && (
-        <AttendanceHistoryModal userId={user.id} onClose={() => setIsAttendanceOpen(false)} />
-      )}
-
       {/* 外观 Modal：亮色 / 暗色 / 跟随系统 三态主题切换 */}
       <ThemeModal open={isThemeOpen} onClose={() => setIsThemeOpen(false)} />
 
-      {/* 问题与反馈 Modal：多行输入匿名提交 */}
-      <FeedbackModal open={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
-
-      {/* 语言选择：默认跟随系统，手动选择后持久化 */}
+      {/* 语言选择：手动选择后持久化 */}
       <Modal
         open={isLangOpen}
         onClose={() => setIsLangOpen(false)}
