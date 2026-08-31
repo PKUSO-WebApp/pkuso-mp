@@ -1,5 +1,6 @@
 // 请假申请页文案（按页分：leave-request；对应「活动报名 / 申请」）
 export const leaveRequest = {
+  navTitle: '请假申请',
   notFound: '排练未找到',
   reasonLabel: '申请原因',
   attachmentLabel: '附件',

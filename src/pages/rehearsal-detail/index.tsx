@@ -12,7 +12,7 @@ import { withinCheckinGeofence } from '@/lib/geo'
 import { logDiag } from '@/lib/session-diag'
 import { FieldRow } from '@/components/ui/FieldRow'
 import type { RehearsalRow } from '@/types/database'
-import { useT } from '@/i18n'
+import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 
 const mapSignInError = (tf: (key: string, params?: Record<string, unknown>) => string, err: string): string => {
@@ -35,6 +35,7 @@ export default function RehearsalDetail() {
   const { data: leaveRequests, cancelOnSignIn, fetchMine } = useLeaveRequests()
   const [nowTick, setNowTick] = useState(() => Date.now())
   const { t } = useT()
+  useNavTitle('activityDetail.navTitle')
 
   // 详情页按 id 直接取这一条，不依赖排练列表/缓存的时序：
   // 列表在 subscribeSync 静默重取时可能某帧不含本排练，若靠列表查找会在 loading=false 时误显「排练不存在」。

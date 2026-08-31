@@ -5,7 +5,7 @@ import { useLeaveRequests, type UploadFileLike } from '@/hooks/useLeaveRequests'
 import { useUser } from '@/context/user-context'
 import { supabase } from '@/lib/supabase'
 import { formatRehearsalRange } from '@/lib/date-utils'
-import { useT } from '@/i18n'
+import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import type { LeaveRequestRow, RehearsalRow } from '@/types/database'
 
@@ -22,6 +22,7 @@ export default function LeaveRequestPage() {
   const decodedStart = paramStart ? decodeURIComponent(paramStart) : null
   const decodedEnd = paramEnd ? decodeURIComponent(paramEnd) : null
   const darkClass = useThemeClass()
+  useNavTitle('leaveRequest.navTitle')
   const { user } = useUser()
   const [rehearsal, setRehearsal] = useState<RehearsalRow | null>(null)
   const [rehearsalLoading, setRehearsalLoading] = useState(true)

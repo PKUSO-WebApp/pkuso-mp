@@ -1,4 +1,5 @@
 export const activityDetail = {
+  navTitle: 'Rehearsal Detail',
   signIn: {
     locating: 'Locating…',
     authRequired: 'Please sign in first',

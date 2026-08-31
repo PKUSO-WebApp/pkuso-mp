@@ -7,7 +7,7 @@ import { notifyNotificationsUpdated } from '@/components/notification-badge-sync
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { StatusChip, type StatusTone } from '@/components/ui/StatusChip'
 import { formatRehearsalRange } from '@/lib/date-utils'
-import { useT } from '@/i18n'
+import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import type { LeaveRequestRow, LeaveStatus } from '@/types/database'
 
@@ -30,6 +30,7 @@ type TabKey = 'all' | 'approved' | 'rejected' | 'pending'
 
 export default function LeaveRequestsPage() {
   const { t } = useT()
+  useNavTitle('leaveRequests.navTitle')
   const darkClass = useThemeClass()
   const [tab, setTab] = useState<TabKey>('all')
   const [requests, setRequests] = useState<LeaveRequestWithRehearsal[]>([])

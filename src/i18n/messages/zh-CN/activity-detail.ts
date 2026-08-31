@@ -1,4 +1,5 @@
 export const activityDetail = {
+  navTitle: '排练详情',
   signIn: {
     locating: '定位中…',
     authRequired: '请先登录',
