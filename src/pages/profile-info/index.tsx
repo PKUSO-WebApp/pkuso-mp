@@ -170,7 +170,7 @@ export default function ProfileInfoPage() {
     }
   }
 
-  // 头像上传：读本地临时文件 → 上传 Supabase Storage → 更新本地状态
+  // 头像上传：读本地临时文件 → 上传 Supabase Storage → 图片审核 → 更新本地状态
   const uploadAvatar = useCallback(async (tempFilePath: string) => {
     if (!user || avatarUploading) return
     setAvatarUploading(true)
@@ -185,6 +185,24 @@ export default function ProfileInfoPage() {
 
       const { data: urlData } = supabase.storage.from('avatar_images').getPublicUrl(fileName)
       const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`
+
+      // 图片内容审核
+      const imgRes = await supabase.functions.invoke('wechat-content-check', {
+        body: { kind: 'image', imageUrl: publicUrl },
+      })
+      const imgData = imgRes.data as { result?: string; ok?: boolean; error?: string } | null
+      if (imgRes.error) {
+        console.warn('[ProfileInfo] 图片审核调用失败，放行：', imgRes.error)
+      } else if (imgData?.result === 'block') {
+        // 审核不通过：删除已上传文件，提示用户
+        await supabase.storage.from('avatar_images').remove([fileName])
+        void Taro.showToast({ title: t('profile.avatarModerationFailed'), icon: 'none' })
+        return
+      } else if (imgData?.ok === false) {
+        await supabase.storage.from('avatar_images').remove([fileName])
+        void Taro.showToast({ title: imgData.error || t('profile.avatarModerationFailed'), icon: 'none' })
+        return
+      }
 
       const { error: profileError } = await supabase
         .from('profiles')

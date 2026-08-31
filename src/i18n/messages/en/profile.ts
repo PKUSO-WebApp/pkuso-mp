@@ -93,6 +93,7 @@ export const profile = {
   avatarTooLarge: 'Image too large, please select an image under 2MB',
   avatarSaved: 'Avatar saved',
   avatarSaveFailed: 'Failed to save avatar, please try again',
+  avatarModerationFailed: 'Avatar image did not pass review',
   avatarSourceTitle: 'Choose avatar source',
   avatarSourceWechat: 'Use WeChat avatar',
   avatarSourceFile: 'Choose from album',

@@ -77,8 +77,13 @@ export default function Schedule() {
   }, [selectedDate, fetch])
 
   // A：每次切回本 tab 重新拉取当前日期预约，并重置全局轮询计时器。
-  // 静默重取：已有数据时不翻 loading，避免切 tab 整页闪烁
+  // 静默重取：已有数据时不翻 loading，避免切 tab 整页闪烁。
+  // 跨天检测：若 selectedDate 已过期则自动切到今天，避免凌晨后仍停在昨天。
   useDidShow(() => {
+    const today = getLocalDateString()
+    if (selectedDateRef.current < today) {
+      setSelectedDate(today)
+    }
     void fetch(selectedDateRef.current, { silent: true })
     dataSyncBump()
   })

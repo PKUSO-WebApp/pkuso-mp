@@ -101,6 +101,7 @@ export const profile = {
   avatarTooLarge: '图片过大，请选择 2MB 以内的图片',
   avatarSaved: '头像已保存',
   avatarSaveFailed: '头像保存失败，请重试',
+  avatarModerationFailed: '头像图片未通过审核',
   avatarSourceTitle: '选择头像来源',
   avatarSourceWechat: '使用微信头像',
   avatarSourceFile: '从相册选择',

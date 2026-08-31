@@ -10,7 +10,8 @@ type Props = {
 /** 日期条：今天起 8 天的横向滚轮选择（今天/明天/X日），点击切换选中日 */
 export function DateSelector({ selectedDate, onDateChange }: Props) {
   const { t } = useT()
-  // 缓存日期列表，避免每次渲染重新计算
+  // 缓存日期列表，避免每次渲染重新计算；todayStr 保证跨天后自动重算
+  const todayStr = new Date().toISOString().slice(0, 10)
   const dates = useMemo(() => {
     const dateList: { date: string; label: string; dayOfWeek: string }[] = []
     const today = new Date()
@@ -42,7 +43,9 @@ export function DateSelector({ selectedDate, onDateChange }: Props) {
       dateList.push({ date: dateStr, label, dayOfWeek: weekDays[date.getDay()] })
     }
     return dateList
-  }, [t])
+    // todayStr 保证跨天后重算日期列表（ESLint 误判为不必要依赖）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t, todayStr])
 
   return (
     <View className='flex gap-2 overflow-x-auto pb-2'>
