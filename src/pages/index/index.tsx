@@ -142,7 +142,9 @@ export default function Index() {
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
-      <SegmentTabs tabs={scheduleTabs} value={scheduleTab} onChange={(k) => setScheduleTab(k)} />
+      <View className='mb-3'>
+        <SegmentTabs tabs={scheduleTabs} value={scheduleTab} onChange={(k) => setScheduleTab(k)} />
+      </View>
 
       {/* 排练列表（可滚动）：统一用原生 ScrollView，与成员页/请假页一致；
         间距用 mb-3（space-y 在 WXSS 无效） */}

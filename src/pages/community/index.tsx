@@ -80,7 +80,7 @@ export default function Community() {
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
       {/* 分类切换 */}
-      <View className='mb-3 mt-1'>
+      <View className='mb-3'>
         <SegmentTabs tabs={communityTabs} value={view} onChange={handleSwitchType} />
       </View>
 
