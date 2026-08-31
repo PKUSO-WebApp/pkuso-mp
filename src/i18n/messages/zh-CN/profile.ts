@@ -62,6 +62,7 @@ export const profile = {
     emailSuccess: '邮箱换绑成功',
     submittingClose: '提交进行中，请稍候再关闭',
     sendFailed: '验证码发送失败，请重试',
+    emailTaken: '该邮箱已被其他用户使用',
   },
   // 问题与反馈弹窗
   feedback: {

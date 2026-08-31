@@ -57,6 +57,7 @@ export const profile = {
     emailSuccess: 'Email updated',
     submittingClose: 'Submitting, please close later',
     sendFailed: 'Failed to send code, please retry',
+    emailTaken: 'This email is already in use',
   },
   feedback: {
     empty: 'Please enter your feedback',

@@ -297,6 +297,8 @@ export default function Profile() {
           void Taro.showToast({ title: t('profile.account.codeExpired'), icon: 'none' })
         } else if (errMsg.includes('mismatch') || errMsg.includes('code')) {
           void Taro.showToast({ title: t('profile.account.codeInvalid'), icon: 'none' })
+        } else if (errMsg.includes('email_taken')) {
+          void Taro.showToast({ title: t('profile.account.emailTaken'), icon: 'none' })
         } else {
           void Taro.showToast({ title: errMsg || 'Failed', icon: 'none' })
         }
@@ -369,7 +371,7 @@ export default function Profile() {
               <Text className='mt-1 block text-sm text-text-muted'>
                 {t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}
               </Text>
-              <Text className='mt-1 block text-xs text-text-muted'>
+              <Text className='mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted'>
                 {t('profile.card.email', { email: displayEmail })}
               </Text>
             </View>
@@ -545,9 +547,7 @@ export default function Profile() {
               <View className='mt-3'>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>
                   {t('profile.account.verificationCode')}
-                  {codeSent && codeTarget === 'bound' && (
-                    <Text className='text-primary'>{t('profile.account.codeSentToBound')}</Text>
-                  )}
+                  {codeSent && codeTarget === 'bound' && t('profile.account.codeSentToBound')}
                 </Text>
                 <View className='flex items-center gap-2'>
                   <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
@@ -607,9 +607,7 @@ export default function Profile() {
               <View className='mt-3'>
                 <Text className='mb-1 block text-xs font-medium text-text-muted'>
                   {t('profile.account.verificationCode')}
-                  {codeSent && codeTarget === 'new' && (
-                    <Text className='text-primary'>{t('profile.account.codeSentToNew')}</Text>
-                  )}
+                  {codeSent && codeTarget === 'new' && t('profile.account.codeSentToNew')}
                 </Text>
                 <View className='flex items-center gap-2'>
                   <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>

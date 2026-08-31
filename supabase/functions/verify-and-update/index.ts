@@ -120,6 +120,18 @@ Deno.serve(async (req) => {
   }
   const newEmail = body.new_email.trim()
 
+  // 检查新邮箱是否已被其他用户占用
+  const { data: existingUser } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('email', newEmail)
+    .neq('id', userId)
+    .maybeSingle()
+
+  if (existingUser) {
+    return json(400, { error: 'email_taken' })
+  }
+
   // 更新 auth.users.email
   const { error: updateEmailError } = await supabase.auth.admin.updateUserById(userId, {
     email: newEmail,
