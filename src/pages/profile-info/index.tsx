@@ -231,22 +231,24 @@ export default function ProfileInfoPage() {
       <View className='flex flex-col items-center py-6'>
         <View className='relative'>
           {isEditing ? (
-            <Button
-              openType='chooseAvatar'
-              onChooseAvatar={handleWechatAvatar}
-              className='h-20 w-20 rounded-full overflow-hidden bg-primary p-0 m-0 leading-normal min-h-0'
-            >
-              {avatarUrl ? (
-                <Image src={avatarUrl} className='h-full w-full rounded-full' mode='aspectFill' />
-              ) : (
-                <View className='flex h-full w-full items-center justify-center'>
-                  <Text className='text-2xl font-medium text-primary-foreground'>{initials}</Text>
-                </View>
-              )}
-              <View className='absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full bg-white border-2 border-primary'>
+            <>
+              <Button
+                openType='chooseAvatar'
+                onChooseAvatar={handleWechatAvatar}
+                className='h-20 w-20 rounded-full overflow-hidden bg-primary p-0 m-0 leading-normal min-h-0'
+              >
+                {avatarUrl ? (
+                  <Image src={avatarUrl} className='h-full w-full rounded-full' mode='aspectFill' />
+                ) : (
+                  <View className='flex h-full w-full items-center justify-center'>
+                    <Text className='text-2xl font-medium text-primary-foreground'>{initials}</Text>
+                  </View>
+                )}
+              </Button>
+              <View className='absolute bottom-0 right-0 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-primary bg-white dark:bg-card'>
                 <Image src={pencilImg} className='h-4 w-4' />
               </View>
-            </Button>
+            </>
           ) : (
             <View className='h-20 w-20 rounded-full overflow-hidden bg-primary'>
               {avatarUrl ? (
