@@ -74,7 +74,7 @@ export default function Members() {
             花名册成员多时 ScrollView 末行会被底边栏遮挡、无法滚到底，故内容底部补足留白 */}
         <View className='px-4'>
           <TextField
-            boxClass='mb-4 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'
+            boxClass='mt-3 mb-4 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'
             placeholder={t('members.searchPlaceholder')}
             value={searchQuery}
             onInput={(e) => setSearchQuery(e.detail.value)}

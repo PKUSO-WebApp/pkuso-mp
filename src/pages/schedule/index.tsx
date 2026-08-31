@@ -106,7 +106,7 @@ export default function Schedule() {
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
       {/* 日期选择器 */}
-      <View className='mb-4'>
+      <View className='mt-3 mb-4'>
         <DateSelector selectedDate={selectedDate} onDateChange={setSelectedDate} />
       </View>
 
