@@ -126,7 +126,7 @@ export default function NotificationSystemPage() {
   )
 
   return (
-    <View className={`${darkClass} pk-page min-h-screen bg-page-bg pt-4`}>
+    <View className={`${darkClass} pk-page min-h-screen bg-page-bg`}>
       <View className='mb-3'>
         <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
       </View>
