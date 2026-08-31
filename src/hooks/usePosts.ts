@@ -140,11 +140,17 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
         if (!title || !content) return { ok: false, error: '请填写标题与内容' }
 
         // 1) 内容安全（文本+图片审核/上传）——共用流程见 lib/contentModeration
+        const currentSections = input.type === 'ensemble' ? input.current_sections?.trim() || null : null
+        const missingSections = input.type === 'ensemble' ? input.missing_sections?.trim() || null : null
+        const contactInfo = input.contact_info?.trim() || null
         const mod = await moderateAndUploadPostImage(client, {
           uid,
           title,
           content,
           imageFile: input.imageFile,
+          currentSections,
+          missingSections,
+          contactInfo,
         })
         if (!mod.ok) return { ok: false, error: mod.error }
         const imageUrl = mod.imageUrl
@@ -267,11 +273,17 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
           uid = (await client.auth.getUser()).data.user?.id ?? null
           if (!uid) return { ok: false, error: '登录状态失效，请重新登录' }
         }
+        const currentSections = input.type === 'ensemble' ? input.current_sections?.trim() || null : null
+        const missingSections = input.type === 'ensemble' ? input.missing_sections?.trim() || null : null
+        const contactInfo = input.contact_info?.trim() || null
         const mod = await moderateAndUploadPostImage(client, {
           uid: uid ?? '',
           title,
           content,
           imageFile: input.imageFile,
+          currentSections,
+          missingSections,
+          contactInfo,
         })
         if (!mod.ok) return { ok: false, error: mod.error }
         let imageUrl: string | null | undefined

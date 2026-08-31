@@ -22,5 +22,6 @@ export const profileInfo = {
   emptyJoinDate: 'currently empty',
   saved: 'Profile updated',
   saveFailed: 'Save failed, please retry',
+  collegeModerationFailed: 'College name contains inappropriate content',
   saving: 'Saving…',
 }

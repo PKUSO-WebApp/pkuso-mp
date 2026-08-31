@@ -148,6 +148,20 @@ export default function ProfileInfoPage() {
     setSubmitting(true)
     setError(null)
     try {
+      // 学院字段内容审核
+      const collegeText = editCollege.trim()
+      if (collegeText) {
+        const textRes = await supabase.functions.invoke('wechat-content-check', {
+          body: { kind: 'text', content: collegeText },
+        })
+        const textData = textRes.data as { result?: string; ok?: boolean } | null
+        if (textRes.error) {
+          console.warn('[ProfileInfo] 学院审核调用失败，放行：', textRes.error)
+        } else if (textData?.result === 'block') {
+          setError(t('profileInfo.collegeModerationFailed'))
+          return
+        }
+      }
       const ok = await updateProfile(user.id, {
         instrument: editInstrument.trim() || null,
         phone_number: phone || null,

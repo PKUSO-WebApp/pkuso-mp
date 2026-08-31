@@ -22,5 +22,6 @@ export const profileInfo = {
   emptyJoinDate: '当前为空',
   saved: '个人信息已更新',
   saveFailed: '保存失败，请重试',
+  collegeModerationFailed: '学院名称包含违规内容',
   saving: '保存中…',
 }

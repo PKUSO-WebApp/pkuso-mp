@@ -80,7 +80,11 @@ vi.mock('@/lib/supabase', () => ({
       from: () => ({
         upload: vi.fn().mockResolvedValue({ error: null }),
         getPublicUrl: () => ({ data: { publicUrl: 'https://example.com/avatar.jpg' } }),
+        remove: vi.fn().mockResolvedValue({ error: null }),
       }),
+    },
+    functions: {
+      invoke: vi.fn().mockResolvedValue({ data: { result: 'pass' }, error: null }),
     },
   },
 }))

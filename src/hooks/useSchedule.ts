@@ -85,6 +85,20 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       savingRef.current = true
       setSaving(true)
       try {
+        // 文本审核：日程标题
+        const title = typeof payload.title === 'string' ? payload.title.trim() : ''
+        if (title) {
+          const textRes = await client.functions.invoke('wechat-content-check', {
+            body: { kind: 'text', content: title },
+          })
+          const textData = textRes.data as { result?: string; ok?: boolean } | null
+          if (textRes.error) {
+            console.warn('[useSchedule] 标题审核调用失败，放行：', textRes.error)
+          } else if (textData?.result === 'block') {
+            if (mountedRef.current) setError(APP_ERROR.saveFailed)
+            return false
+          }
+        }
         const { error: dbError } = await client.from('schedules').insert([payload] as never)
         if (dbError) {
           if (mountedRef.current) {

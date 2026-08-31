@@ -7,17 +7,32 @@ export type ModerationResult =
 
 /**
  * 公告发布/编辑共用的内容安全流程（P2-9 提取，原 usePosts create/updatePost 两份复制）：
- * 1) 文本审核（标题+内容）——审核基础设施故障放行，仅 console.warn（避免误伤正常发帖）；
+ * 1) 文本审核（标题+内容+声部+联系方式）——审核基础设施故障放行，仅 console.warn（避免误伤正常发帖）；
  * 2) 有图则上传公开桶 + 图片审核——block / ok:false 拦截（微信拒收或函数侧主动拦截）。
  * 失败时 error 即页面可展示文案；成功时携带最终 imageUrl（无图为 null）。
  */
 export async function moderateAndUploadPostImage(
   client: typeof defaultClient,
-  input: { uid: string; title: string; content: string; imageFile?: UploadFileLike | null }
+  input: {
+    uid: string
+    title: string
+    content: string
+    imageFile?: UploadFileLike | null
+    currentSections?: string | null
+    missingSections?: string | null
+    contactInfo?: string | null
+  }
 ): Promise<ModerationResult> {
-  // 1) 文本审核（标题 + 内容）
+  // 1) 文本审核（标题 + 内容 + 声部 + 联系方式）
+  const textParts = [
+    input.title,
+    input.content,
+    input.currentSections,
+    input.missingSections,
+    input.contactInfo,
+  ].filter(Boolean).join('\n')
   const textRes = await client.functions.invoke('wechat-content-check', {
-    body: { kind: 'text', content: `${input.title}\n${input.content}` },
+    body: { kind: 'text', content: textParts },
   })
   if (textRes.error) {
     // 审核基础设施故障：放行发布，仅记录

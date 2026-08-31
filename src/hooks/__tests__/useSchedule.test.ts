@@ -51,6 +51,7 @@ function mockClient<T>(responses: T[]) {
       }),
     }),
     __calls: calls,
+    functions: { invoke: vi.fn().mockResolvedValue({ data: { result: 'pass' }, error: null }) },
   }
 }
 
