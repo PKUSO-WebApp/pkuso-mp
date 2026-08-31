@@ -18,7 +18,7 @@ function hasText(value: string | null | undefined): boolean {
 
 /**
  * 我的活动管理页（「我的-设置-我的活动」进入）。
- * 列出当前用户发布的活动（含已锁定，便于解锁），卡片含右上角「···」小菜单（锁定/删除）
+ * 列出当前用户发布的活动（含已锁定，便于解锁），卡片含右上角「…」小菜单（锁定/删除）
  * 与右下角「编辑 ›」入口；删除走二次确认弹窗。锁定即置 is_locked，
  * 与社区公告过滤（is_locked=false）联动，对他人不可见。
  */
@@ -81,7 +81,7 @@ export default function MyActivitiesPage() {
               const menuOpen = menuId === post.id
               return (
                 <Card key={post.id} className='relative mb-3'>
-                  {/* 顶行：标题 + ··· 小菜单 */}
+                  {/* 顶行：标题 + … 小菜单 */}
                   <View className='flex items-start justify-between gap-2'>
                     <Text className='min-w-0 flex-1 text-sm font-semibold text-text'>
                       {post.title}
@@ -91,7 +91,7 @@ export default function MyActivitiesPage() {
                         className='px-1 py-0.5 text-xs leading-none text-primary'
                         onClick={() => setMenuId(menuOpen ? null : post.id)}
                       >
-                        <Text className='text-xs leading-none text-primary'>···</Text>
+                        <Text className='text-xs leading-none text-primary'>…</Text>
                       </View>
                       {menuOpen && (
                         <>

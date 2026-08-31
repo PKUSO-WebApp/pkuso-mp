@@ -124,9 +124,9 @@ describe('我的活动管理页', () => {
     expect(screen.getByText('联系方式：wx-admin-lock')).toBeTruthy()
   })
 
-  it('点击 ··· 打开菜单，锁定调用 setLocked(true)', () => {
+  it('点击 … 打开菜单，锁定调用 setLocked(true)', () => {
     render(<MyActivities />)
-    fireEvent.click(screen.getAllByText('···')[0])
+    fireEvent.click(screen.getAllByText('…')[0])
     fireEvent.click(screen.getByText('锁定'))
     expect(mocks.setLocked).toHaveBeenCalledWith('a', true)
   })
@@ -140,7 +140,7 @@ describe('我的活动管理页', () => {
   it('管理员锁定的帖子：显示「无法解锁」提示，菜单无锁定/解锁项', () => {
     render(<MyActivities />)
     expect(screen.getByText('帖子被管理员锁定，无法解锁')).toBeTruthy()
-    fireEvent.click(screen.getAllByText('···')[2])
+    fireEvent.click(screen.getAllByText('…')[2])
     expect(screen.queryByText('锁定')).toBeNull()
     expect(screen.queryByText('解锁')).toBeNull()
     // 删除不受限
@@ -149,7 +149,7 @@ describe('我的活动管理页', () => {
 
   it('删除需二次确认，确认后调用 deletePost', () => {
     render(<MyActivities />)
-    fireEvent.click(screen.getAllByText('···')[1])
+    fireEvent.click(screen.getAllByText('…')[1])
     fireEvent.click(screen.getByText('删除'))
     expect(screen.getByText('删除后不可恢复，确定删除该活动？')).toBeTruthy()
     fireEvent.click(screen.getByText('删除'))
