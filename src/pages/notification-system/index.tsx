@@ -126,9 +126,11 @@ export default function NotificationSystemPage() {
   )
 
   return (
-    <View className={`${darkClass} pk-page min-h-screen bg-page-bg px-4 py-4`}>
-      <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
-      <View className='mt-3'>
+    <View className={`${darkClass} pk-page min-h-screen bg-page-bg pt-4`}>
+      <View className='mb-3'>
+        <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
+      </View>
+      <View className='px-4'>
         {loading ? (
           <Text className='block py-10 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
         ) : failed ? (
