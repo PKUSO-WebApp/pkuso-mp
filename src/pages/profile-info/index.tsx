@@ -245,7 +245,7 @@ export default function ProfileInfoPage() {
                   </View>
                 )}
               </Button>
-              <View className='absolute bottom-0 right-0 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-primary bg-white dark:bg-card'>
+              <View className='absolute bottom-0 right-0 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-primary' style={{ backgroundColor: 'var(--color-muted)' }}>
                 <Image src={pencilImg} className='h-4 w-4' />
               </View>
             </>
