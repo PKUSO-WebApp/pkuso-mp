@@ -76,7 +76,7 @@ export default function Community() {
 
   return (
     <View
-      className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4`}
+      className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
       {/* 分类切换 */}
@@ -85,7 +85,7 @@ export default function Community() {
       </View>
 
       {/* 公告列表（可滚动） */}
-      <View className='flex-1 min-h-0 overflow-y-auto'>
+      <View className='flex-1 min-h-0 overflow-y-auto px-4'>
         <ListState
           loading={loading}
           isEmpty={list.length === 0}
