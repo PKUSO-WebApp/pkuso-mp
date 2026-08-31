@@ -78,10 +78,6 @@ export default function EmailSignupPage() {
       className={`${darkClass} flex min-h-full flex-col items-center justify-center bg-page-bg px-5`}
     >
       <Card className='w-full px-5 py-6'>
-        <View className='mb-4 text-center'>
-          <Text className='text-xl font-semibold text-text'>{t('emailSignup.title')}</Text>
-        </View>
-
         <TextField
           className='mb-3'
           labelClass='text-sm font-medium text-text-muted'

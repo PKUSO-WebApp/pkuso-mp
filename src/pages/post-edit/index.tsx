@@ -4,7 +4,6 @@ import Taro from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
-import { PageHeader } from '@/components/page-header'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 import './index.scss'
@@ -158,10 +157,6 @@ export default function PostEditPage() {
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg pb-safe`}>
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='w-full px-4 pt-2 pb-4'>
-          <PageHeader
-            title={t('postEdit.title')}
-          />
-
           {/* 标题 */}
           <Text className='block text-sm font-medium text-text'>{t('postEdit.titleLabel')}</Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>

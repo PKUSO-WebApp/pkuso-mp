@@ -7,7 +7,6 @@ import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Toggle } from '@/components/ui/Toggle'
-import { PageHeader } from '@/components/page-header'
 import type { PostType } from '@/types/database'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 
@@ -107,8 +106,6 @@ export default function PostCreatePage() {
     <View className={`${darkClass} flex h-full min-h-0 w-full flex-col overflow-hidden bg-page-bg pb-safe`}>
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='w-full px-4 pt-2 pb-4'>
-          <PageHeader title={t('postCreate.title')} />
-
           <View className='mt-4'>
             <Text className='block text-sm font-medium text-text'>{t('postCreate.fieldType')}</Text>
             <View className='mt-2'>

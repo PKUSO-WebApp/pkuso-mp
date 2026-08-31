@@ -6,7 +6,6 @@ import { useThemeClass } from '@/context/theme-context'
 import { tAppError } from '@/lib/appError'
 import { useT, useNavTitle } from '@/i18n'
 import { translateInstrument } from '@/lib/instrument-i18n'
-import { PageHeader } from '@/components/page-header'
 import { Card } from '@/components/ui/Card'
 import { ListState } from '@/components/ui/ListState'
 import { Modal } from '@/components/ui/Modal'
@@ -67,11 +66,7 @@ export default function MyActivitiesPage() {
 
   return (
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
-      <View className='mt-1 mb-3'>
-        <PageHeader title={t('myActivities.title')} />
-      </View>
-
-      <ScrollView scrollY className='flex-1 min-h-0'>
+      <ScrollView scrollY className='flex-1 min-h-0 mt-1'>
         <ListState
           loading={mineLoading}
           isEmpty={mine.length === 0}
@@ -93,10 +88,10 @@ export default function MyActivitiesPage() {
                     </Text>
                     <View className='relative shrink-0'>
                       <View
-                        className='px-1 py-0.5 text-[10px] leading-none text-text-muted'
+                        className='px-1 py-0.5 text-xs leading-none text-primary'
                         onClick={() => setMenuId(menuOpen ? null : post.id)}
                       >
-                        <Text className='text-[10px] leading-none text-text-muted'>···</Text>
+                        <Text className='text-xs leading-none text-primary'>···</Text>
                       </View>
                       {menuOpen && (
                         <>
