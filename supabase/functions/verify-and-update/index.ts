@@ -120,15 +120,13 @@ Deno.serve(async (req) => {
   }
   const newEmail = body.new_email.trim()
 
-  // 检查新邮箱是否已被其他用户占用
-  const { data: existingUser } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('email', newEmail)
-    .neq('id', userId)
-    .maybeSingle()
+  // 检查新邮箱是否已被其他用户占用（查 auth.users）
+  const { data: emailCheck } = await supabase.rpc('check_email_taken' as never, {
+    p_email: newEmail,
+    p_exclude_user_id: userId,
+  } as never)
 
-  if (existingUser) {
+  if (emailCheck === true) {
     return json(400, { error: 'email_taken' })
   }
 
@@ -137,6 +135,10 @@ Deno.serve(async (req) => {
     email: newEmail,
   })
   if (updateEmailError) {
+    const msg = updateEmailError.message ?? ''
+    if (msg.includes('already') || msg.includes('duplicate') || msg.includes('unique')) {
+      return json(400, { error: 'email_taken' })
+    }
     console.error('[verify-and-update] email update error', updateEmailError)
     return json(500, { error: 'failed to update email' })
   }
