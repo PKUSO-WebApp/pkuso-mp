@@ -1,4 +1,4 @@
-﻿import { View, Text } from '@tarojs/components'
+﻿import { View, Text, Image } from '@tarojs/components'
 import { Modal } from '@/components/ui/Modal'
 import { FieldRow } from '@/components/ui/FieldRow'
 import { StatusChip } from '@/components/ui/StatusChip'
@@ -23,6 +23,20 @@ export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetai
     <Modal open={open} onClose={onClose} title={t('members.detailTitle')} position='bottom'>
       {user && (
         <View className='mt-2'>
+          {/* 头像 */}
+          <View className='mb-3 flex justify-center'>
+            <View className='h-16 w-16 rounded-full overflow-hidden bg-primary'>
+              {user.avatar_url ? (
+                <Image src={user.avatar_url} className='h-full w-full' mode='aspectFill' />
+              ) : (
+                <View className='flex h-full w-full items-center justify-center'>
+                  <Text className='text-xl font-medium text-primary-foreground'>
+                    {(user.full_name ?? '—').slice(0, 1)}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
           <View className='flex flex-wrap items-center gap-2'>
             <Text className='text-base font-semibold text-text'>{user.full_name ?? '—'}</Text>
               {user.is_section_leader && (
