@@ -2,6 +2,11 @@
 
 项目说明与协作规则（agent 必须遵守）。
 
+## 关联项目
+
+- 本小程序的 **Web 端** 位于 `../../pkuso-web-v2`（即 `C:\Users\dddam\Desktop\pkusoweb\pkuso-web-v2`）。
+- Web 端的指导文件是其根目录的 `CLAUDE.md`，需要了解 Web 端约定时请阅读该文件。
+
 ## 交付闸门（Delivery Gate）
 
 每次声明「完成 / 交付」前，必须依次执行且**全部通过（全绿）**才允许交付；任一环节失败不得宣告完成：

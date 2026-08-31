@@ -29,7 +29,8 @@ vi.mock('@tarojs/components', () => {
   }
   const Input = (props: any) => React.createElement('input', props)
   const Image = (props: any) => React.createElement('img', props)
-  return { View: create('div'), Text: create('span'), Input, Picker, Image }
+  const Button = (props: any) => React.createElement('button', props)
+  return { View: create('div'), Text: create('span'), Input, Picker, Image, Button }
 })
 
 vi.mock('@tarojs/taro', () => ({ default: taroMock }))
@@ -70,6 +71,19 @@ vi.mock('@/assets/icons/eye.png', () => ({ default: 'eye.png' }))
 vi.mock('@/assets/icons/eye-off.png', () => ({ default: 'eye-off.png' }))
 vi.mock('@/assets/icons/eye-dark.png', () => ({ default: 'eye-dark.png' }))
 vi.mock('@/assets/icons/eye-off-dark.png', () => ({ default: 'eye-off-dark.png' }))
+vi.mock('@/assets/icons/pencil-line.png', () => ({ default: 'pencil-line.png' }))
+vi.mock('@/assets/icons/pencil-line-dark.png', () => ({ default: 'pencil-line-dark.png' }))
+vi.mock('@/components/ui/ImageCropper', () => ({ ImageCropper: ({ children }: any) => React.createElement('div', { 'data-testid': 'image-cropper' }, children) }))
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    storage: {
+      from: () => ({
+        upload: vi.fn().mockResolvedValue({ error: null }),
+        getPublicUrl: () => ({ data: { publicUrl: 'https://example.com/avatar.jpg' } }),
+      }),
+    },
+  },
+}))
 
 vi.mock('@/i18n', async () => {
   const mod = await import('@/i18n/messages/zh-CN')
@@ -93,7 +107,7 @@ describe('ProfileInfoPage', () => {
     expect(screen.getByText('长笛')).toBeTruthy()
     expect(screen.getByText('元培学院')).toBeTruthy()
     expect(screen.getByText('以下信息可编辑隐藏')).toBeTruthy()
-    // 查看态不显示眼图标（仅编辑态显示）
+    // 查看态不显示头像编辑图标
     expect(document.querySelectorAll('img').length).toBe(0)
   })
 
@@ -112,8 +126,8 @@ describe('ProfileInfoPage', () => {
     const { container } = render(<ProfileInfoPage />)
     fireEvent.click(screen.getByText('编辑'))
     const imgs = container.querySelectorAll('img')
-    // 三个眼图标依次为：绑定邮箱 / 联系方式 / 学院；点击首个（绑定邮箱）
-    fireEvent.click(imgs[0])
+    // imgs[0] 是头像编辑图标，imgs[1-3] 依次为：绑定邮箱 / 联系方式 / 学院眼图标
+    fireEvent.click(imgs[1])
     fireEvent.click(screen.getByText('保存'))
     await waitFor(() => expect(updateProfileMock).toHaveBeenCalled())
     const payload = updateProfileMock.mock.calls[0][1]

@@ -31,6 +31,10 @@ export const profile = {
     instrument: '声部 {instrument}',
     email: '邮箱 {email}',
   },
+  // 通用
+  common: {
+    notFilled: '未填写',
+  },
   // 账号与密码弹窗
   account: {
     tabPassword: '修改密码',
@@ -92,4 +96,12 @@ export const profile = {
     repertoire: '曲目：{repertoire}',
     totalRehearsals: '共 {count} 次排练',
   },
+  // 头像裁剪上传
+  avatarCropTitle: '裁剪头像',
+  avatarTooLarge: '图片过大，请选择 2MB 以内的图片',
+  avatarSaved: '头像已保存',
+  avatarSaveFailed: '头像保存失败，请重试',
+  avatarSourceTitle: '选择头像来源',
+  avatarSourceWechat: '使用微信头像',
+  avatarSourceFile: '从相册选择',
 }

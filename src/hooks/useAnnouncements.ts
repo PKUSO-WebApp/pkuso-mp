@@ -4,19 +4,15 @@ import { subscribeSync } from '@/lib/dataSync'
 import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import type { AnnouncementRow } from '@/types/database'
 
-// 公告 hook（成员端）：获取最新一条公告。
-// 与 Web 版差异：
-// - 小程序为成员端，无 admin 服务端 REST（fetchAll/publish/remove/update 依赖
-//   /api/admin/announcement + window.fetch），已移除；
-// - 加载失败错误归一化为中文文案；卸载后不再 setState（mountedRef 标志位）。
+// 公告 hook（成员端）：获取所有公告，供首页按“当前/历史”分组展示
 export function useAnnouncements(client: typeof defaultClient = defaultClient) {
-  const [data, setData] = useState<AnnouncementRow | null>(null)
+  const [data, setData] = useState<AnnouncementRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<AppErrorCode | null>(null)
   const mountedRef = useRef(true)
   const fetchSeqRef = useRef(0)
 
-  // 获取最新一条公告（供成员端展示）
+  // 获取所有公告（按 created_at 降序）
   const fetch = useCallback(
     async (opts?: { silent?: boolean }) => {
       if (!mountedRef.current) return
@@ -25,20 +21,17 @@ export function useAnnouncements(client: typeof defaultClient = defaultClient) {
       setError(null)
       const { data: rows, error: dbError } = await client
         .from('announcements')
-        .select('id, content, created_at')
+        .select('id, content, created_at, title, end_time')
         .order('created_at', { ascending: false })
-        .limit(1)
       if (!mountedRef.current || seq !== fetchSeqRef.current) return
       setLoading(false)
       if (dbError) {
-        // 错误码化（P2-7）：原始错误仅记录
         console.error('[useAnnouncements] 公告加载失败', dbError)
         setError(APP_ERROR.loadFailed)
-        setData(null)
+        setData([])
         return
       }
-      const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as AnnouncementRow) : null
-      setData(row)
+      setData((Array.isArray(rows) ? rows : []) as AnnouncementRow[])
     },
     [client]
   )
@@ -51,7 +44,7 @@ export function useAnnouncements(client: typeof defaultClient = defaultClient) {
     }
   }, [fetch])
 
-  // 心跳检测到「最新公告」版本变化后静默重取（公告后续会展示在成员主页，届时即自动生效）
+  // 心跳检测到公告版本变化后静默重取
   useEffect(() => {
     const handler = () => {
       void fetch({ silent: true })

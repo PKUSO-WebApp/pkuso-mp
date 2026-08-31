@@ -18,17 +18,23 @@ export type Database = {
         Row: {
           content: string | null
           created_at: string | null
+          end_time: string
           id: string
+          title: string
         }
         Insert: {
           content?: string | null
           created_at?: string | null
+          end_time: string
           id?: string
+          title: string
         }
         Update: {
           content?: string | null
           created_at?: string | null
+          end_time?: string
           id?: string
+          title?: string
         }
         Relationships: []
       }
@@ -315,6 +321,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          avatar_url: string | null
           college: string | null
           created_at: string | null
           email: string | null
@@ -336,6 +343,7 @@ export type Database = {
           wechat_openid: string | null
         }
         Insert: {
+          avatar_url?: string | null
           college?: string | null
           created_at?: string | null
           email?: string | null
@@ -357,6 +365,7 @@ export type Database = {
           wechat_openid?: string | null
         }
         Update: {
+          avatar_url?: string | null
           college?: string | null
           created_at?: string | null
           email?: string | null
@@ -589,6 +598,7 @@ export type Database = {
     Views: {
       profiles_roster: {
         Row: {
+          avatar_url: string | null
           college: string | null
           created_at: string | null
           email: string | null
@@ -607,6 +617,7 @@ export type Database = {
           status: Database["public"]["Enums"]["profileStatus"] | null
         }
         Insert: {
+          avatar_url?: string | null
           college?: string | null
           created_at?: string | null
           email?: never
@@ -625,6 +636,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["profileStatus"] | null
         }
         Update: {
+          avatar_url?: string | null
           college?: string | null
           created_at?: string | null
           email?: never

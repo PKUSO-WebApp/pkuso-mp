@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { View, Text, Input, Picker, Image } from '@tarojs/components'
+import { useRef, useState, useCallback } from 'react'
+import { View, Text, Input, Picker, Image, Button } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -9,10 +9,14 @@ import { isValidPhoneNumber } from '@/lib/validation'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { translateJoinDate } from '@/lib/join-date-i18n'
 import { INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP } from '@/constants/instruments'
+import { supabase } from '@/lib/supabase'
+import { uploadLocalFile } from '@/lib/uploadLocalFile'
 import eyeIcon from '@/assets/icons/eye.png'
 import eyeOffIcon from '@/assets/icons/eye-off.png'
 import eyeDarkIcon from '@/assets/icons/eye-dark.png'
 import eyeOffDarkIcon from '@/assets/icons/eye-off-dark.png'
+import pencilIcon from '@/assets/icons/pencil-line.png'
+import pencilDarkIcon from '@/assets/icons/pencil-line-dark.png'
 import './index.scss'
 
 // 入团时间选择器：年份区间 + 春/秋两季；存储恒为规范值「YYYY春/YYYY秋」，展示层经 translateJoinDate 本地化
@@ -62,6 +66,9 @@ export default function ProfileInfoPage() {
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
 
+  // 头像上传相关状态
+  const [avatarUploading, setAvatarUploading] = useState(false)
+
   const fullName = myProfile?.full_name ?? notFilled
   const email = myProfile?.email ?? notFilled
   const initials = fullName !== notFilled ? fullName.slice(0, 2) || fullName.slice(0, 1) || '--' : '--'
@@ -73,6 +80,9 @@ export default function ProfileInfoPage() {
   const isDark = darkClass === 'dark'
   const eyeImg = isDark ? eyeDarkIcon : eyeIcon
   const eyeOffImg = isDark ? eyeOffDarkIcon : eyeOffIcon
+  const pencilImg = isDark ? pencilDarkIcon : pencilIcon
+
+  const avatarUrl = myProfile?.avatar_url ?? null
 
   const instrumentOptions = [...INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP]
   const instrumentLabels = instrumentOptions.map((o) => translateInstrument(o, t))
@@ -160,6 +170,44 @@ export default function ProfileInfoPage() {
     }
   }
 
+  // 头像上传：读本地临时文件 → 上传 Supabase Storage → 更新本地状态
+  const uploadAvatar = useCallback(async (tempFilePath: string) => {
+    if (!user || avatarUploading) return
+    setAvatarUploading(true)
+    try {
+      const userId = user.id
+      const fileName = `${userId}/avatar.jpg`
+
+      const { error: uploadError } = await uploadLocalFile(
+        supabase, 'avatar_images', fileName, tempFilePath, 'image/jpeg', true
+      )
+      if (uploadError) throw uploadError
+
+      const { data: urlData } = supabase.storage.from('avatar_images').getPublicUrl(fileName)
+      const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', userId)
+      if (profileError) throw profileError
+
+      updateProfile(userId, { avatar_url: publicUrl })
+      void Taro.showToast({ title: t('profile.avatarSaved'), icon: 'success' })
+    } catch (e) {
+      console.error('[ProfileInfo] 头像上传失败:', e)
+      void Taro.showToast({ title: t('profile.avatarSaveFailed'), icon: 'none' })
+    } finally {
+      setAvatarUploading(false)
+    }
+  }, [user, avatarUploading, updateProfile, t])
+
+  // 微信头像选择回调：chooseAvatar 返回本地临时路径，直接上传
+  const handleWechatAvatar = useCallback((e: any) => {
+    const tempPath = e.detail?.avatarUrl
+    if (tempPath) void uploadAvatar(tempPath)
+  }, [uploadAvatar])
+
   if (!myProfile) {
     return (
       <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
@@ -179,10 +227,37 @@ export default function ProfileInfoPage() {
         )}
       </View>
 
-      {/* 居中头像 */}
+      {/* 居中头像：编辑态下整体是 chooseAvatar 按钮 */}
       <View className='flex flex-col items-center py-6'>
-        <View className='flex h-20 w-20 items-center justify-center rounded-full bg-primary text-2xl font-medium text-primary-foreground'>
-          {initials}
+        <View className='relative'>
+          {isEditing ? (
+            <Button
+              openType='chooseAvatar'
+              onChooseAvatar={handleWechatAvatar}
+              className='h-20 w-20 rounded-full overflow-hidden bg-primary p-0 m-0 leading-normal min-h-0'
+            >
+              {avatarUrl ? (
+                <Image src={avatarUrl} className='h-full w-full rounded-full' mode='aspectFill' />
+              ) : (
+                <View className='flex h-full w-full items-center justify-center'>
+                  <Text className='text-2xl font-medium text-primary-foreground'>{initials}</Text>
+                </View>
+              )}
+              <View className='absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full bg-white border-2 border-primary'>
+                <Image src={pencilImg} className='h-4 w-4' />
+              </View>
+            </Button>
+          ) : (
+            <View className='h-20 w-20 rounded-full overflow-hidden bg-primary'>
+              {avatarUrl ? (
+                <Image src={avatarUrl} className='h-full w-full rounded-full' mode='aspectFill' />
+              ) : (
+                <View className='flex h-full w-full items-center justify-center'>
+                  <Text className='text-2xl font-medium text-primary-foreground'>{initials}</Text>
+                </View>
+              )}
+            </View>
+          )}
         </View>
       </View>
 
@@ -379,6 +454,7 @@ export default function ProfileInfoPage() {
             </View>
           </View>
         )}
+
       </View>
     </View>
   )

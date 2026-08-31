@@ -11,7 +11,7 @@ export const home = {
   tabs: {
     full: 'Ensemble',
     section: 'Section',
-    history: 'Past',
+    history: 'History',
   },
   loadFailed: 'Failed to load: {error}',
   emptySchedule: 'No schedule yet',
@@ -26,4 +26,5 @@ export const home = {
     location: 'Location',
     repertoire: 'Repertoire',
   },
+  announcementDefaultTitle: 'Announcement',
 }

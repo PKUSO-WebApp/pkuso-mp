@@ -27,27 +27,27 @@ describe('useAnnouncements', () => {
     cleanup()
   })
 
-  it('fetch 获取最新公告', async () => {
+  it('fetch 获取所有公告', async () => {
     const c = mockClient([{ data: [{ id: '1', content: '测试' }], error: null }])
     const { result } = renderHook(() => useAnnouncements(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.data).toMatchObject({ content: '测试' })
+    expect(result.current.data).toEqual([{ id: '1', content: '测试' }])
   })
 
-  it('fetch 失败：错误归一化为中文文案，data 置 null', async () => {
+  it('fetch 失败：错误归一化为中文文案，data 置空数组', async () => {
     const c = mockClient([{ data: null, error: { message: 'connection refused' } }])
     const { result } = renderHook(() => useAnnouncements(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
     // 与 Web 差异：不透传 dbError.message，统一中文文案（不抛）
     expect(result.current.error).toBe('loadFailed')
-    expect(result.current.data).toBeNull()
+    expect(result.current.data).toEqual([])
   })
 
-  it('无公告：data 为 null 且无错误', async () => {
+  it('无公告：data 为空数组且无错误', async () => {
     const c = mockClient([{ data: [], error: null }])
     const { result } = renderHook(() => useAnnouncements(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.data).toBeNull()
+    expect(result.current.data).toEqual([])
     expect(result.current.error).toBeNull()
   })
 
@@ -58,12 +58,12 @@ describe('useAnnouncements', () => {
     ])
     const { result } = renderHook(() => useAnnouncements(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.data).toMatchObject({ content: '旧公告' })
+    expect(result.current.data).toEqual([{ id: '1', content: '旧公告' }])
 
     await act(async () => {
       await result.current.fetch()
     })
-    expect(result.current.data).toMatchObject({ content: '新公告' })
+    expect(result.current.data).toEqual([{ id: '2', content: '新公告' }])
   })
 
   it('卸载后手动 fetch 不再发起请求（mountedRef 拦截 setState）', async () => {

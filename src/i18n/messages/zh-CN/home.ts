@@ -11,7 +11,7 @@ export const home = {
   tabs: {
     full: '合排',
     section: '分排',
-    history: '历史合排',
+    history: '历史日程',
   },
   loadFailed: '加载失败：{error}',
   emptySchedule: '暂无安排',
@@ -26,4 +26,5 @@ export const home = {
     location: '地点',
     repertoire: '曲目',
   },
+  announcementDefaultTitle: '乐团公告',
 }

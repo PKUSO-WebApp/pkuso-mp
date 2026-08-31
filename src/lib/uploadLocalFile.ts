@@ -150,13 +150,14 @@ export async function uploadLocalFile(
   bucket: string,
   path: string,
   tempFilePath: string,
-  contentType?: string
+  contentType?: string,
+  upsert = false
 ): Promise<{ data: { path: string } | null; error: { message: string } | null }> {
   try {
     const body = await readTempFileBytes(tempFilePath)
     const { error } = await client.storage
       .from(bucket)
-      .upload(path, body, { upsert: false, ...(contentType ? { contentType } : {}) })
+      .upload(path, body, { upsert, ...(contentType ? { contentType } : {}) })
     if (error) return { data: null, error }
     return { data: { path }, error: null }
   } catch (e) {

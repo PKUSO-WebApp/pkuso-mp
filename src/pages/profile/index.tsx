@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView } from '@tarojs/components'
+import { View, Text, ScrollView, Image } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
@@ -57,7 +57,7 @@ export default function Profile() {
   const [isLangOpen, setIsLangOpen] = useState(false)
 
   // 资料：头像卡 / 邮箱展示 / 换绑邮箱同步
-  const { data: profileData, update: updateProfile } = useProfiles({ userId: user?.id })
+  const { data: profileData, update: updateProfile, fetch: refetchProfiles } = useProfiles({ userId: user?.id })
   const myProfile = profileData[0]
 
   // 头像卡展示信息
@@ -67,7 +67,15 @@ export default function Profile() {
   // （wechat_<openid>@placeholder.local），资料补全写入的真实邮箱在 profiles.email；
   // 邮箱注册用户两者一致（换绑邮箱确认后由同步 effect 对齐），无感知差异
   const email = myProfile?.email ?? user?.email ?? '—'
-  const initials = fullName !== '—' ? fullName.slice(0, 2) || fullName.slice(0, 1) || '--' : '--'
+  // 中文名：仅取首字；非中文：取前 2 字，兜底 1 字
+  const isChineseName = fullName !== '—' && /[\u4e00-\u9fff]/.test(fullName)
+  const initials = fullName !== '—'
+    ? (isChineseName ? fullName.slice(0, 1) : fullName.slice(0, 2) || fullName.slice(0, 1) || '--')
+    : '--'
+  const avatarUrl = myProfile?.avatar_url ?? null
+
+  // 显示用邮箱：若为合成占位邮箱，显示「未填写」
+  const displayEmail = isSyntheticEmail(email) ? t('profile.common.notFilled') : email
 
   // ---- 账号与密码弹窗（Issue #214 语义：修改密码 / 换绑邮箱 双 tab）----
   // 重开弹窗默认回到「修改密码」tab；切换 tab 不清空各自输入（输入 state 在组件层，
@@ -110,6 +118,7 @@ export default function Profile() {
   useDidShow(() => {
     void refreshNotifications()
     dataSyncBump()
+    void refetchProfiles()
   })
 
   // 换绑邮箱后同步 profiles.email（Issue #199 语义）：
@@ -238,8 +247,12 @@ export default function Profile() {
         <View className='px-4 pt-4'>
           {/* 头像卡 */}
           <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
-            <View className='flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-base font-medium text-primary-foreground'>
-              {initials}
+            <View className='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary'>
+              {avatarUrl ? (
+                <Image src={avatarUrl} className='h-full w-full' mode='aspectFill' />
+              ) : (
+                <Text className='text-base font-medium text-primary-foreground'>{initials}</Text>
+              )}
             </View>
             <View className='min-w-0 flex-1'>
               <Text className='block text-lg font-semibold text-text'>{fullName}</Text>
@@ -247,7 +260,7 @@ export default function Profile() {
                 {t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}
               </Text>
               <Text className='mt-1 block text-xs text-text-muted'>
-                {t('profile.card.email', { email })}
+                {t('profile.card.email', { email: displayEmail })}
               </Text>
             </View>
           </View>
@@ -457,7 +470,7 @@ export default function Profile() {
             <View className='mt-4'>
               {/* 当前邮箱只读展示（Issue #199 语义）；「换绑邮箱」小标题由 tab 承担 */}
               <Text className='block text-xs text-text-subtle'>
-                {t('profile.account.currentEmail', { email })}
+                {t('profile.account.currentEmail', { email: displayEmail })}
               </Text>
               <TextField
                 className='mt-3'

@@ -22,6 +22,7 @@ type ProfileInsert = {
 export type ProfileUpdatePayload = Partial<
   Pick<
     ProfileRow,
+    | 'avatar_url'
     | 'full_name'
     | 'instrument'
     | 'college'

@@ -28,6 +28,9 @@ export const profile = {
     instrument: 'Section {instrument}',
     email: 'Email {email}',
   },
+  common: {
+    notFilled: 'Not filled in',
+  },
   account: {
     tabPassword: 'Change Password',
     tabEmail: 'Change Email',
@@ -86,4 +89,11 @@ export const profile = {
     repertoire: 'Repertoire: {repertoire}',
     totalRehearsals: '{count} rehearsals total',
   },
+  avatarCropTitle: 'Crop Avatar',
+  avatarTooLarge: 'Image too large, please select an image under 2MB',
+  avatarSaved: 'Avatar saved',
+  avatarSaveFailed: 'Failed to save avatar, please try again',
+  avatarSourceTitle: 'Choose avatar source',
+  avatarSourceWechat: 'Use WeChat avatar',
+  avatarSourceFile: 'Choose from album',
 }

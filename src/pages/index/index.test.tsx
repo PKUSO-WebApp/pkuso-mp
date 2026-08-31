@@ -116,9 +116,9 @@ describe('首页排练页', () => {
     expect(screen.queryByText('分排排练')).toBeNull()
   })
 
-  it('切到「历史合排」tab 只显示已结束的合排，不含分排与未来排练', () => {
+  it('切到「历史日程」tab 只显示已结束的合排，不含分排与未来排练', () => {
     render(<Index />)
-    fireEvent.click(screen.getByText('历史合排'))
+    fireEvent.click(screen.getByText('历史日程'))
     expect(screen.getByText('历史合排1')).toBeTruthy()
     expect(screen.queryByText('未来合排')).toBeNull()
     expect(screen.queryByText('分排排练')).toBeNull()

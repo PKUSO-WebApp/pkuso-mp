@@ -60,7 +60,7 @@ export const THEME_PALETTE: Record<ThemeMode, ThemePalette> = {
   light: {
     windowBg: '#f4f4f5',
     navFront: '#000000',
-    navBg: '#f4f4f5',
+    navBg: '#ffffff',
     tabBg: '#ffffff',
     tabBorder: '#e4e4e7',
     tabActive: '#18181b',

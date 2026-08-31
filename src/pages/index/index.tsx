@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { View, Text, ScrollView } from '@tarojs/components'
+import { View, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useRehearsals } from '@/hooks/useRehearsals'
 import { useAnnouncements } from '@/hooks/useAnnouncements'
@@ -7,9 +7,8 @@ import { useMyProfile } from '@/hooks/useMyProfile'
 import { useThemeClass } from '@/context/theme-context'
 import { dataSyncBump } from '@/lib/dataSync'
 import { tAppError } from '@/lib/appError'
-import { formatDateTimeInChina } from '@/lib/date-utils'
+import { parseLocalISO } from '@/lib/date-utils'
 import { ListState } from '@/components/ui/ListState'
-import { Modal } from '@/components/ui/Modal'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 
@@ -27,6 +26,7 @@ import {
 } from '@/lib/rehearsalSeen'
 import { useT, useNavTitle } from '@/i18n'
 import { RehearsalCard } from './components/rehearsal-card'
+import { AnnouncementCard } from './components/announcement-card'
 import './index.scss'
 
 export default function Index() {
@@ -37,7 +37,7 @@ export default function Index() {
     fetch: fetchRehearsals,
   } = useRehearsals()
   const {
-    data: announcement,
+    data: announcements,
     loading: announcementLoading,
     fetch: fetchAnnouncement,
   } = useAnnouncements()
@@ -68,32 +68,65 @@ export default function Index() {
     return () => clearInterval(timer)
   }, [])
 
-  // 公告详情弹窗（成员主页顶部公告条点击打开）
-  const [showAnnouncementDetail, setShowAnnouncementDetail] = useState(false)
-
-  // 过滤 + 排序后的排练列表
-  const list = useMemo(() => {
+// 过滤 + 排序后的排练列表
+  const rehearsalList = useMemo(() => {
     if (!rehearsals) return []
     const now = new Date(nowTick)
-    // 历史合排（Issue #154）：全部已结束的合排，不限一周窗口
+    // 历史日程（Issue #154）：全部已结束的合排，不限一周窗口
     if (scheduleTab === 'history') {
       return sortEndedFullRehearsals(rehearsals, now)
     }
-    const filtered = rehearsals.filter(
-      (r) => r.type === scheduleTab && isRehearsalWithinNextWeek(r.start_time, now)
-    )
+    // 合排 tab：显示所有未来的合排（取消「未来一周」限制，但仍过滤掉已结束的）
+    // 分排 tab：保持「未来一周」限制
+    const filtered = rehearsals.filter((r) => {
+      if (r.type !== scheduleTab) return false
+      if (scheduleTab === 'full') return !isRehearsalEnded(r, now)
+      return isRehearsalWithinNextWeek(r.start_time, now)
+    })
     return sortRehearsalsForMember(filtered, now)
   }, [rehearsals, scheduleTab, nowTick])
 
-  // 未查看红点：列表中存在尚未打开详情页且**尚未结束**的排练时点亮首页 tabBar 红点。
+  // 公告列表：根据 tab 和公告状态决定显示
+  // - 合排 tab：仅显示最新的一条未过期公告（end_time > now）
+  // - 历史合排 tab：显示所有已过期公告（end_time <= now），按时间倒序
+  const announcementList = useMemo(() => {
+    if (announcementLoading || !announcements?.length) return []
+    const now = new Date(nowTick)
+
+    const parseEndTime = (raw: string | null): Date | null => {
+      if (!raw) return null
+      const normalized = raw.replace(' ', 'T').split('+')[0].split('.')[0]
+      return parseLocalISO(normalized)
+    }
+
+    const withExpiry = announcements.map((a) => ({
+      ...a,
+      endTime: parseEndTime(a.end_time),
+      isExpired: !!parseEndTime(a.end_time) && parseEndTime(a.end_time)! <= now,
+    }))
+
+    if (scheduleTab === 'full') {
+      // 合排 tab：找最新的一条未过期公告
+      const current = withExpiry.find((a) => !a.isExpired)
+      return current ? [current] : []
+    }
+    if (scheduleTab === 'history') {
+      // 历史合排 tab：所有过期公告（已按 created_at 降序）
+      return withExpiry.filter((a) => a.isExpired)
+    }
+    return []
+  }, [announcements, announcementLoading, scheduleTab, nowTick])
+
+  // 未查看红点：仅计算排练（不含公告）
   // 历史合排（已结束）不显示红气泡、也不计入未读（Issue #154 语义补充）
   const [seenTick, setSeenTick] = useState(0)
   useEffect(() => subscribeRehearsalSeen(() => setSeenTick((n) => n + 1)), [])
   const hasUnviewed = useMemo(
-    () => list.some((r) => !isRehearsalSeen(r.id) && !isRehearsalEnded(r, new Date(nowTick))),
+    () =>
+      rehearsalList.some((r) => !isRehearsalSeen(r.id) && !isRehearsalEnded(r, new Date(nowTick))),
     // seenTick 用于强制在「标记已查看」事件后重算未查看红点
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [list, seenTick]
+    [rehearsalList, seenTick]
   )
   useEffect(() => {
     setRehearsalUnviewedFlag(hasUnviewed)
@@ -109,19 +142,6 @@ export default function Index() {
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
-      {/* 公告条置于 header 之上（用户要求置顶）：点击展开详情；
-         冷启动公告到达时会顶推下方 header/切换器，此为相对原滚动内置方案的取舍 */}
-      {!announcementLoading && announcement?.content ? (
-        <View className='mb-3 mt-4 px-4' onClick={() => setShowAnnouncementDetail(true)}>
-          <View className='flex items-center gap-2 rounded-xl border border-warning bg-warning-bg px-3 py-2'>
-            <Text className='shrink-0 text-warning'>📢</Text>
-            <View className='min-w-0 flex-1 max-h-[60px] overflow-hidden'>
-              <Text className='text-xs leading-relaxed text-warning'>{announcement.content}</Text>
-            </View>
-          </View>
-        </View>
-      ) : null}
-
       <View className='mb-3 mt-1 px-4'>
         <SegmentTabs tabs={scheduleTabs} value={scheduleTab} onChange={(k) => setScheduleTab(k)} />
       </View>
@@ -134,12 +154,17 @@ export default function Index() {
         <View className='px-4'>
           <ListState
             loading={rehearsalsLoading}
-            isEmpty={list.length === 0}
+            isEmpty={announcementList.length === 0 && rehearsalList.length === 0}
             error={tAppError(t, rehearsalsError)}
             emptyText={t('home.emptySchedule')}
             onRetry={() => void fetchRehearsals()}
           >
-            {list.map((r) => (
+            {announcementList.map((ann) => (
+                <View key={`announcement-${ann.id}`} className='mb-3'>
+                  <AnnouncementCard item={ann} isExpired={ann.isExpired} />
+                </View>
+              ))}
+            {rehearsalList.map((r) => (
               <View key={String(r.id)} className='mb-3'>
                 <RehearsalCard
                   item={r}
@@ -155,25 +180,6 @@ export default function Index() {
           </ListState>
         </View>
       </ScrollView>
-
-      {/* 公告详情弹窗（顶部公告条点击打开，只读） */}
-      <Modal
-        open={showAnnouncementDetail}
-        onClose={() => setShowAnnouncementDetail(false)}
-        title={t('home.announcementDetail')}
-        position='bottom'
-      >
-        <View>
-          <Text className='mb-3 block text-xs text-text-muted'>
-            {t('home.publishTime', {
-              time: formatDateTimeInChina(announcement?.created_at ?? null),
-            })}
-          </Text>
-          <Text className='whitespace-pre-wrap break-words text-sm leading-relaxed text-text'>
-            {announcement?.content}
-          </Text>
-        </View>
-      </Modal>
     </View>
   )
 }
