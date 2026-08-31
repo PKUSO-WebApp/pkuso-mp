@@ -180,20 +180,11 @@ export default function Profile() {
       if (purpose === 'email_change') {
         payload.new_email = newEmail.trim()
       }
-      let respData: Record<string, unknown> | null = null
-      let respErr: string | null = null
-      try {
-        const resp = await supabase.functions.invoke('send-verification-code', {
-          body: payload,
-        })
-        respData = resp.data
-        respErr = resp.error?.message ?? null
-      } catch (e: unknown) {
-        // functions.invoke throws on non-2xx; extract response body from error
-        respErr = (e as { message?: string })?.message ?? String(e)
-      }
-      const errMsg = (respData?.error as string) ?? respErr ?? ''
-      if (respErr || respData?.error) {
+      const { data, error } = await supabase.functions.invoke('send-verification-code', {
+        body: payload,
+      })
+      const errMsg = (data?.error as string) ?? error?.message ?? ''
+      if (data?.error || error) {
         if (errMsg.includes('email_taken')) {
           void Taro.showToast({ title: t('profile.account.emailTaken'), icon: 'none' })
         } else if (errMsg.includes('invalid email')) {
@@ -246,23 +237,15 @@ export default function Profile() {
     setIsUpdatingPwd(true)
     setPwdError(null)
     try {
-      let respData: Record<string, unknown> | null = null
-      let respErr: string | null = null
-      try {
-        const resp = await supabase.functions.invoke('verify-and-update', {
-          body: {
-            purpose: 'password_change',
-            code: verifyCode.trim(),
-            new_password: newPwd.trim(),
-          },
-        })
-        respData = resp.data
-        respErr = resp.error?.message ?? null
-      } catch (e: unknown) {
-        respErr = (e as { message?: string })?.message ?? String(e)
-      }
-      const errMsg = (respData?.error as string) ?? respErr ?? ''
-      if (respErr || !respData?.success) {
+      const { data, error } = await supabase.functions.invoke('verify-and-update', {
+        body: {
+          purpose: 'password_change',
+          code: verifyCode.trim(),
+          new_password: newPwd.trim(),
+        },
+      })
+      const errMsg = (data?.error as string) ?? error?.message ?? ''
+      if (data?.error || error) {
         if (errMsg.includes('expired')) {
           void Taro.showToast({ title: t('profile.account.codeExpired'), icon: 'none' })
         } else if (errMsg.includes('mismatch') || errMsg.includes('code')) {
@@ -310,23 +293,15 @@ export default function Profile() {
     rebindSubmittingRef.current = true
     setIsRebindingEmail(true)
     try {
-      let respData: Record<string, unknown> | null = null
-      let respErr: string | null = null
-      try {
-        const resp = await supabase.functions.invoke('verify-and-update', {
-          body: {
-            purpose: 'email_change',
-            code: verifyCode.trim(),
-            new_email: emailInput,
-          },
-        })
-        respData = resp.data
-        respErr = resp.error?.message ?? null
-      } catch (e: unknown) {
-        respErr = (e as { message?: string })?.message ?? String(e)
-      }
-      const errMsg = (respData?.error as string) ?? respErr ?? ''
-      if (respErr || !respData?.success) {
+      const { data, error } = await supabase.functions.invoke('verify-and-update', {
+        body: {
+          purpose: 'email_change',
+          code: verifyCode.trim(),
+          new_email: emailInput,
+        },
+      })
+      const errMsg = (data?.error as string) ?? error?.message ?? ''
+      if (data?.error || error) {
         if (errMsg.includes('expired')) {
           void Taro.showToast({ title: t('profile.account.codeExpired'), icon: 'none' })
         } else if (errMsg.includes('mismatch') || errMsg.includes('code')) {

@@ -21,9 +21,9 @@ const SMTP_FROM_NAME = Deno.env.get('SMTP_FROM_NAME') ?? 'PKU Symphony'
 const CODE_LENGTH = 6
 const CODE_EXPIRY_MINUTES = 5
 
-const json = (status: number, body: Record<string, unknown>): Response =>
+const ok = (body: Record<string, unknown>): Response =>
   new Response(JSON.stringify(body), {
-    status,
+    status: 200,
     headers: { 'Content-Type': 'application/json' },
   })
 
@@ -148,21 +148,21 @@ Deno.serve(async (req) => {
       },
     })
   }
-  if (req.method !== 'POST') return json(405, { error: 'method not allowed' })
+  if (req.method !== 'POST') return ok({ error: 'method not allowed' })
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    return json(500, { error: 'server misconfigured' })
+    return ok({ error: 'server misconfigured' })
   }
 
   // JWT 认证
   const authHeader = req.headers.get('Authorization')
-  if (!authHeader) return json(401, { error: 'missing authorization header' })
+  if (!authHeader) return ok({ error: 'missing authorization header' })
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
   // 从 JWT 获取 user_id
   const token = authHeader.replace('Bearer ', '')
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-  if (authError || !user) return json(401, { error: 'invalid token' })
+  if (authError || !user) return ok({ error: 'invalid token' })
 
   const userId = user.id
   const body = await req.json().catch(() => null) as {
@@ -171,7 +171,7 @@ Deno.serve(async (req) => {
   } | null
 
   if (!body?.purpose || !['password_change', 'email_change'].includes(body.purpose)) {
-    return json(400, { error: 'invalid purpose' })
+    return ok({ error: 'invalid purpose' })
   }
 
   const purpose = body.purpose as 'password_change' | 'email_change'
@@ -180,16 +180,16 @@ Deno.serve(async (req) => {
   let targetEmail: string
   if (purpose === 'password_change') {
     targetEmail = user.email ?? ''
-    if (!targetEmail) return json(400, { error: 'no bound email' })
+    if (!targetEmail) return ok({ error: 'no bound email' })
   } else {
     // email_change: 需要 new_email 参数
-    if (!body.new_email) return json(400, { error: 'missing new_email' })
+    if (!body.new_email) return ok({ error: 'missing new_email' })
     const newEmail = body.new_email.trim()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
-      return json(400, { error: 'invalid email format' })
+      return ok({ error: 'invalid email format' })
     }
     if (newEmail.toLowerCase() === (user.email ?? '').toLowerCase()) {
-      return json(400, { error: 'new email same as current' })
+      return ok({ error: 'new email same as current' })
     }
     // 检查新邮箱是否已被其他用户占用
     const { data: emailCheck } = await supabase.rpc('check_email_taken' as never, {
@@ -197,7 +197,7 @@ Deno.serve(async (req) => {
       p_exclude_user_id: userId,
     } as never)
     if (emailCheck === true) {
-      return json(400, { error: 'email_taken' })
+      return ok({ error: 'email_taken' })
     }
     targetEmail = newEmail
   }
@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
 
   if (insertError) {
     console.error('[send-verification-code] insert error', insertError)
-    return json(500, { error: 'failed to store code' })
+    return ok({ error: 'failed to store code' })
   }
 
   // 发送邮件
@@ -238,8 +238,8 @@ Deno.serve(async (req) => {
     await sendEmail(targetEmail, subject, htmlBody)
   } catch (err) {
     console.error('[send-verification-code] smtp error', err)
-    return json(500, { error: 'failed to send email' })
+    return ok({ error: 'failed to send email' })
   }
 
-  return json(200, { success: true })
+  return ok({ success: true })
 })

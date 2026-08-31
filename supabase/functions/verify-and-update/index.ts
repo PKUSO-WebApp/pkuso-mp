@@ -7,15 +7,17 @@
 // - verify_jwt=true：仅登录用户可调用
 // - 每次校验消耗最新 alive 码，防止重放
 // - 密码修改用 admin API，不依赖用户当前密码（已在前端通过验证码确认身份）
+//
+// ** 所有响应统一 200，错误码放 body.error（兼容微信小程序 functions.invoke）**
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
-const json = (status: number, body: Record<string, unknown>): Response =>
+const ok = (body: Record<string, unknown>): Response =>
   new Response(JSON.stringify(body), {
-    status,
+    status: 200,
     headers: { 'Content-Type': 'application/json' },
   })
 
@@ -29,21 +31,21 @@ Deno.serve(async (req) => {
       },
     })
   }
-  if (req.method !== 'POST') return json(405, { error: 'method not allowed' })
+  if (req.method !== 'POST') return ok({ error: 'method not allowed' })
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    return json(500, { error: 'server misconfigured' })
+    return ok({ error: 'server misconfigured' })
   }
 
   // JWT 认证
   const authHeader = req.headers.get('Authorization')
-  if (!authHeader) return json(401, { error: 'missing authorization header' })
+  if (!authHeader) return ok({ error: 'missing authorization header' })
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
   // 从 JWT 获取 user_id
   const token = authHeader.replace('Bearer ', '')
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-  if (authError || !user) return json(401, { error: 'invalid token' })
+  if (authError || !user) return ok({ error: 'invalid token' })
 
   const userId = user.id
   const body = await req.json().catch(() => null) as {
@@ -54,10 +56,10 @@ Deno.serve(async (req) => {
   } | null
 
   if (!body?.purpose || !['password_change', 'email_change'].includes(body.purpose)) {
-    return json(400, { error: 'invalid purpose' })
+    return ok({ error: 'invalid purpose' })
   }
   if (!body.code || body.code.length !== 6) {
-    return json(400, { error: 'invalid code format' })
+    return ok({ error: 'invalid code format' })
   }
 
   const purpose = body.purpose as 'password_change' | 'email_change'
@@ -74,23 +76,22 @@ Deno.serve(async (req) => {
     .maybeSingle()
 
   if (queryError || !codeRow) {
-    return json(400, { error: 'no valid code found' })
+    return ok({ error: 'no valid code found' })
   }
 
   // 检查过期
   const expiresAt = new Date(codeRow.expires_at).getTime()
   if (Date.now() > expiresAt) {
-    // 标记过期码为 used
     await supabase
       .from('verification_codes')
       .update({ used: true })
       .eq('id', codeRow.id)
-    return json(400, { error: 'code expired' })
+    return ok({ error: 'code expired' })
   }
 
   // 校验码是否匹配
   if (codeRow.code !== body.code.trim()) {
-    return json(400, { error: 'code mismatch' })
+    return ok({ error: 'code mismatch' })
   }
 
   // 标记码为 used
@@ -102,21 +103,21 @@ Deno.serve(async (req) => {
   // 执行操作
   if (purpose === 'password_change') {
     if (!body.new_password || body.new_password.trim().length < 6) {
-      return json(400, { error: 'password too short' })
+      return ok({ error: 'password too short' })
     }
     const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
       password: body.new_password.trim(),
     })
     if (updateError) {
       console.error('[verify-and-update] password update error', updateError)
-      return json(500, { error: 'failed to update password' })
+      return ok({ error: 'failed to update password' })
     }
-    return json(200, { success: true })
+    return ok({ success: true })
   }
 
   // email_change
   if (!body.new_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.new_email.trim())) {
-    return json(400, { error: 'invalid new email' })
+    return ok({ error: 'invalid new email' })
   }
   const newEmail = body.new_email.trim()
 
@@ -127,7 +128,7 @@ Deno.serve(async (req) => {
   } as never)
 
   if (emailCheck === true) {
-    return json(400, { error: 'email_taken' })
+    return ok({ error: 'email_taken' })
   }
 
   // 更新 auth.users.email
@@ -137,10 +138,10 @@ Deno.serve(async (req) => {
   if (updateEmailError) {
     const msg = updateEmailError.message ?? ''
     if (msg.includes('already') || msg.includes('duplicate') || msg.includes('unique')) {
-      return json(400, { error: 'email_taken' })
+      return ok({ error: 'email_taken' })
     }
     console.error('[verify-and-update] email update error', updateEmailError)
-    return json(500, { error: 'failed to update email' })
+    return ok({ error: 'failed to update email' })
   }
 
   // 同步 profiles.email
@@ -151,8 +152,7 @@ Deno.serve(async (req) => {
 
   if (profileError) {
     console.error('[verify-and-update] profile sync error', profileError)
-    // 非致命：auth email 已更新，profiles 同步失败仅记录日志
   }
 
-  return json(200, { success: true })
+  return ok({ success: true })
 })
