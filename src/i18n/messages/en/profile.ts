@@ -49,6 +49,7 @@ export const profile = {
     codeInvalid: 'Invalid verification code',
     codeExpired: 'Code expired, please resend',
     pwdMinLength: 'Password too short: at least 6 characters',
+    codeRequired: 'Please enter the verification code',
     submitting: 'Submitting…',
     pwdSuccess: 'Password updated',
     emailEmpty: 'Please enter a new email',

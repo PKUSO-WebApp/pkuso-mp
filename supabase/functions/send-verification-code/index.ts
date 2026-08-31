@@ -191,6 +191,14 @@ Deno.serve(async (req) => {
     if (newEmail.toLowerCase() === (user.email ?? '').toLowerCase()) {
       return json(400, { error: 'new email same as current' })
     }
+    // 检查新邮箱是否已被其他用户占用
+    const { data: emailCheck } = await supabase.rpc('check_email_taken' as never, {
+      p_email: newEmail,
+      p_exclude_user_id: userId,
+    } as never)
+    if (emailCheck === true) {
+      return json(400, { error: 'email_taken' })
+    }
     targetEmail = newEmail
   }
 

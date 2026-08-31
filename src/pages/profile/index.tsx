@@ -180,11 +180,16 @@ export default function Profile() {
       if (purpose === 'email_change') {
         payload.new_email = newEmail.trim()
       }
-      const { error } = await supabase.functions.invoke('send-verification-code', {
+      const { data, error } = await supabase.functions.invoke('send-verification-code', {
         body: payload,
       })
-      if (error) {
-        void Taro.showToast({ title: t('profile.account.sendFailed'), icon: 'none' })
+      if (error || data?.error) {
+        const errMsg = (data?.error as string) ?? error?.message ?? ''
+        if (errMsg.includes('email_taken')) {
+          void Taro.showToast({ title: t('profile.account.emailTaken'), icon: 'none' })
+        } else {
+          void Taro.showToast({ title: t('profile.account.sendFailed'), icon: 'none' })
+        }
         return
       }
       setCodeSent(true)
@@ -220,7 +225,7 @@ export default function Profile() {
       return
     }
     if (!verifyCode.trim()) {
-      void Taro.showToast({ title: t('profile.account.verificationCode') + '？', icon: 'none' })
+      void Taro.showToast({ title: t('profile.account.codeRequired'), icon: 'none' })
       return
     }
     if (pwdSubmittingRef.current || isUpdatingPwd) return
@@ -277,7 +282,7 @@ export default function Profile() {
       return
     }
     if (!verifyCode.trim()) {
-      void Taro.showToast({ title: t('profile.account.verificationCode') + '？', icon: 'none' })
+      void Taro.showToast({ title: t('profile.account.codeRequired'), icon: 'none' })
       return
     }
     if (rebindSubmittingRef.current || isRebindingEmail) return

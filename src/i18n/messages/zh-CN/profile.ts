@@ -54,6 +54,7 @@ export const profile = {
     codeInvalid: '验证码不正确',
     codeExpired: '验证码已过期，请重新发送',
     pwdMinLength: '密码不符合要求：至少 6 位',
+    codeRequired: '请输入验证码',
     submitting: '提交中…',
     pwdSuccess: '密码修改成功',
     emailEmpty: '请输入新邮箱',
