@@ -71,6 +71,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const forcedOfflineAtRef = useRef<string | null>(null)
   // 是否已弹过强制下线通知（去重 + 控制弹窗显隐），与时刻无关，避免 startedAt 为空时漏弹
   const forcedOfflineRef = useRef(false)
+  // establishSession 进行中标记：防止 RPC 期间 checkNow 比对到新旧交替的中间态误判为被踢
+  const establishingRef = useRef(false)
 
   // 设置会话并（当会话存在时）把本机登记为当前活跃会话（覆写 profiles.session_token），
   // 使单设备会话生效：后登录设备会挤掉先登录设备
@@ -92,7 +94,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
       establishedTokenRef.current = null
     }
     setSession(next)
-    if (next) void establishSession(supabase)
+    if (next) {
+      establishingRef.current = true
+      void establishSession(supabase).finally(() => {
+        establishingRef.current = false
+      })
+    }
   }, [])
 
   // 诊断：注册心跳状态提供者并启动日志（幂等）
@@ -156,7 +163,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   // 比对本地令牌与 DB 当前令牌；被挤下线则清会话 + 弹通知
   const checkNow = useCallback(async () => {
-    if (!session || forcedOfflineAtRef.current) return
+    if (!session || forcedOfflineAtRef.current || establishingRef.current) return
     // 主动续期：临近过期（≤2 分钟）时刷新令牌。挂机久了微信会节流 JS 定时器，
     // supabase 自带刷新也可能不触发；这里在我们的 60s 心跳里兜底续期，避免 access
     // token 静默失效导致请求拿到空数据 / 静默登出。续期成功会触发 TOKEN_REFRESHED。
