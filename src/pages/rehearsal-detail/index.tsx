@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, useShareAppMessage } from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
 import { useLeaveRequests } from '@/hooks/useLeaveRequests'
@@ -95,6 +95,19 @@ export default function RehearsalDetail() {
   useDidShow(() => {
     if (user?.id && id) void fetchMyAttendances(user.id, [id])
     void fetchMine()
+  })
+
+  // 分享：标题 = 时间 + 地点，路径 = 当前页面
+  useShareAppMessage(() => {
+    const timeText = rehearsal?.start_time
+      ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
+      : ''
+    const location = rehearsal?.location ?? ''
+    const title = [timeText, location].filter(Boolean).join(' · ') || t('activityDetail.shareDefaultTitle')
+    return {
+      title,
+      path: `/pages/rehearsal-detail/index?id=${id}`,
+    }
   })
 
   // 定位签到状态

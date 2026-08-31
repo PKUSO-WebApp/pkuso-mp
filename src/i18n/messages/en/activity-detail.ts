@@ -32,4 +32,5 @@ export const activityDetail = {
   requestLeaveRetro: 'Retroactive Leave Request',
   revokeConfirmTitle: 'Leave request active',
   revokeHint: 'Signing in will revoke your leave request. Continue?',
+  shareDefaultTitle: 'Rehearsal Details',
 }

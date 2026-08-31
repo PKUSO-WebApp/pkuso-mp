@@ -32,4 +32,5 @@ export const activityDetail = {
   requestLeaveRetro: '我要补请假',
   revokeConfirmTitle: '已提交请假',
   revokeHint: '签到会撤销请假申请，确定继续吗？',
+  shareDefaultTitle: '排练详情',
 }
