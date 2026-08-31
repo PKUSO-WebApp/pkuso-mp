@@ -183,10 +183,16 @@ export default function Profile() {
       const { data, error } = await supabase.functions.invoke('send-verification-code', {
         body: payload,
       })
+      // 解析错误：data.error（正常 400）或 error.message（异常）
+      const rawErr = data?.error ?? error?.message ?? ''
+      const errMsg = typeof rawErr === 'string' ? rawErr : JSON.stringify(rawErr)
       if (error || data?.error) {
-        const errMsg = (data?.error as string) ?? error?.message ?? ''
         if (errMsg.includes('email_taken')) {
           void Taro.showToast({ title: t('profile.account.emailTaken'), icon: 'none' })
+        } else if (errMsg.includes('invalid email')) {
+          void Taro.showToast({ title: t('profile.account.emailInvalid'), icon: 'none' })
+        } else if (errMsg.includes('same as current')) {
+          void Taro.showToast({ title: t('profile.account.emailSame'), icon: 'none' })
         } else {
           void Taro.showToast({ title: t('profile.account.sendFailed'), icon: 'none' })
         }
@@ -296,8 +302,9 @@ export default function Profile() {
           new_email: emailInput,
         },
       })
+      const rawErr = data?.error ?? error?.message ?? ''
+      const errMsg = typeof rawErr === 'string' ? rawErr : JSON.stringify(rawErr)
       if (error || !data?.success) {
-        const errMsg = (data?.error as string) ?? error?.message ?? ''
         if (errMsg.includes('expired')) {
           void Taro.showToast({ title: t('profile.account.codeExpired'), icon: 'none' })
         } else if (errMsg.includes('mismatch') || errMsg.includes('code')) {
