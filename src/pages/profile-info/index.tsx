@@ -245,9 +245,14 @@ export default function ProfileInfoPage() {
                   </View>
                 )}
               </Button>
-              <View className='absolute bottom-0 right-0 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-primary' style={{ backgroundColor: 'var(--color-muted)' }}>
+              <Button
+                openType='chooseAvatar'
+                onChooseAvatar={handleWechatAvatar}
+                className='absolute bottom-0 right-0 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-primary p-0 m-0 leading-normal min-h-0'
+                style={{ backgroundColor: 'var(--color-page-bg)' }}
+              >
                 <Image src={pencilImg} className='h-4 w-4' />
-              </View>
+              </Button>
             </>
           ) : (
             <View className='h-20 w-20 rounded-full overflow-hidden bg-primary'>
