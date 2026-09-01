@@ -21,7 +21,7 @@ export const ui = {
   tabBar: {
     home: 'Home',
     community: 'Community',
-    schedule: 'Booking',
+    schedule: 'B108',
     members: 'Members',
     profile: 'Me',
   },
