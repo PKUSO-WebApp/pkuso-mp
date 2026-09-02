@@ -1,11 +1,11 @@
-name: Deploy to WeChat Dev
+name: CI Verify & Build
 
 on:
   push:
     branches: [dev]
 
 jobs:
-  build-and-upload:
+  build:
     runs-on: ubuntu-latest
     
     steps:
@@ -36,11 +36,11 @@ jobs:
       - name: Build for WeChat
         run: pnpm build:weapp
 
-      - name: Upload to WeChat Dev
-        env:
-          WX_APPID: ${{ secrets.WX_APPID }}
-          WX_PRIVATE_KEY: ${{ secrets.WX_PRIVATE_KEY }}
-        run: |
-          mkdir -p key
-          echo "$WX_PRIVATE_KEY" > key/private.key
-          node scripts/upload.js
+      # - name: Upload to WeChat Dev (暂时禁用，等待微信后台 IP 白名单配置)
+      #   env:
+      #     WX_APPID: ${{ secrets.WX_APPID }}
+      #     WX_PRIVATE_KEY: ${{ secrets.WX_PRIVATE_KEY }}
+      #   run: |
+      #     mkdir -p key
+      #     echo "$WX_PRIVATE_KEY" > key/private.key
+      #     node scripts/upload.js
