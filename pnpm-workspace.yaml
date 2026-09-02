@@ -10,4 +10,4 @@ allowBuilds:
   protobufjs: true
 
 overrides:
-  lru-cache: "^6.0.0"
+  '@babel/core': '7.24.4'
