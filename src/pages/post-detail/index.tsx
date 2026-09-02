@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { View, Text, Image } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useShareAppMessage } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { markPostSeen } from '@/lib/postSeen'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
@@ -68,31 +68,42 @@ export default function PostDetailPage() {
     }
   }
 
+  // 分享：标题 = post标题，路径 = 当前页面
+  useShareAppMessage(() => {
+    const title = post?.title || t('postDetail.shareDefaultTitle')
+    return {
+      title,
+      path: `/pages/post-detail/index?id=${id}`,
+    }
+  })
+
   const handleCopy = () => {
     if (!post?.contact_info) return
-      void Taro.setClipboardData({ data: post.contact_info }).then(() => {
-        void Taro.showToast({ title: t('postDetail.copied'), icon: 'success' })
-      })
+    void Taro.setClipboardData({ data: post.contact_info }).then(() => {
+      void Taro.showToast({ title: t('postDetail.copied'), icon: 'success' })
+    })
   }
 
   if (loading) {
     return (
       <View className={`${darkClass} flex min-h-screen items-center justify-center bg-page-bg`}>
-         <Text className='text-xs text-text-muted'>{t('common.actions.loading')}</Text>
+        <Text className='text-xs text-text-muted'>{t('common.actions.loading')}</Text>
       </View>
     )
   }
 
   if (notFound || !post) {
     return (
-      <View className={`${darkClass} flex min-h-screen flex-col items-center justify-center bg-page-bg px-4`}>
-         <Text className='text-sm text-text-muted'>{t('postDetail.notFound')}</Text>
-         <View
-           className='mt-4 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground'
-           onClick={() => void Taro.navigateBack()}
-         >
-           {t('postDetail.back')}
-         </View>
+      <View
+        className={`${darkClass} flex min-h-screen flex-col items-center justify-center bg-page-bg px-4`}
+      >
+        <Text className='text-sm text-text-muted'>{t('postDetail.notFound')}</Text>
+        <View
+          className='mt-4 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground'
+          onClick={() => void Taro.navigateBack()}
+        >
+          {t('postDetail.back')}
+        </View>
       </View>
     )
   }
@@ -103,10 +114,10 @@ export default function PostDetailPage() {
     <View className={`${darkClass} pk-page min-h-screen bg-page-bg px-4 py-4`}>
       {/* 标题（主字，中大）+ 类型（副字，中） */}
       <Text className='block text-xl font-semibold leading-snug text-text'>{post.title}</Text>
-       <Text className='mt-1 block text-base text-text-muted'>
-         {t(TYPE_KEYS[post.type as PostType])}
-         {dateText ? ` · ${dateText}` : ''}
-       </Text>
+      <Text className='mt-1 block text-base text-text-muted'>
+        {t(TYPE_KEYS[post.type as PostType])}
+        {dateText ? ` · ${dateText}` : ''}
+      </Text>
 
       {/* 分隔符 */}
       <View className='my-4 h-px w-full bg-border' />
@@ -114,7 +125,9 @@ export default function PostDetailPage() {
       {/* 已有声部（仅重奏） */}
       {post.type === 'ensemble' && hasSectionText(post.current_sections) && (
         <View className='mb-4'>
-          <Text className='block text-base font-medium text-text'>{t('postDetail.currentSections')}</Text>
+          <Text className='block text-base font-medium text-text'>
+            {t('postDetail.currentSections')}
+          </Text>
           <Text className='mt-1 block whitespace-pre-line text-sm leading-relaxed text-text-muted'>
             {translateInstrument(post.current_sections, t)}
           </Text>
@@ -124,7 +137,9 @@ export default function PostDetailPage() {
       {/* 需要声部（仅重奏） */}
       {post.type === 'ensemble' && hasSectionText(post.missing_sections) && (
         <View className='mb-4'>
-          <Text className='block text-base font-medium text-text'>{t('postDetail.missingSections')}</Text>
+          <Text className='block text-base font-medium text-text'>
+            {t('postDetail.missingSections')}
+          </Text>
           <Text className='mt-1 block whitespace-pre-line text-sm leading-relaxed text-text-muted'>
             {translateInstrument(post.missing_sections, t)}
           </Text>
@@ -166,7 +181,7 @@ export default function PostDetailPage() {
             className='shrink-0 rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground'
             onClick={handleCopy}
           >
-             {t('postDetail.copy')}
+            {t('postDetail.copy')}
           </View>
         </View>
       )}

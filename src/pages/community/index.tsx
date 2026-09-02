@@ -105,45 +105,47 @@ export default function Community() {
                 }
               >
                 <View className='min-w-0'>
-                    <Text className='block text-base font-normal text-primary'>{post.title}</Text>
+                  <Text className='block text-base font-normal text-primary'>{post.title}</Text>
 
-                    {post.type === 'ensemble' && hasSectionText(post.current_sections) && (
-                      <Text className='mt-1 block text-sm leading-relaxed text-primary'>
-                        {t('community.haveSections', {
-                          sections: (post.current_sections ?? '')
-                            .split(/[,，、\s]+/)
-                            .filter(Boolean)
-                            .map((s) => translateInstrument(s, t))
-                            .join('、'),
-                        })}
+                  {post.type === 'ensemble' && hasSectionText(post.current_sections) && (
+                    <Text className='mt-1 block text-sm leading-relaxed text-primary'>
+                      {t('community.haveSections', {
+                        sections: (post.current_sections ?? '')
+                          .split(/[,，、\s]+/)
+                          .filter(Boolean)
+                          .map((s) => translateInstrument(s, t))
+                          .join('、'),
+                      })}
+                    </Text>
+                  )}
+                  {post.type === 'ensemble' && hasSectionText(post.missing_sections) && (
+                    <Text className='mt-0.5 block text-sm leading-relaxed text-primary'>
+                      {t('community.missing', {
+                        sections: (post.missing_sections ?? '')
+                          .split(/[,，、\s]+/)
+                          .filter(Boolean)
+                          .map((s) => translateInstrument(s, t))
+                          .join('、'),
+                      })}
+                    </Text>
+                  )}
+                  {hasSectionText(post.content) && (
+                    <Text className='mt-1 block text-sm leading-relaxed text-primary line-clamp-2'>
+                      {post.content}
+                    </Text>
+                  )}
+                  <View className='mt-1 flex items-center justify-between'>
+                    {post.profiles?.full_name && (
+                      <Text className='block text-xs text-text-muted'>
+                        {t('community.creator', { name: post.profiles.full_name ?? '' })}
                       </Text>
                     )}
-                    {post.type === 'ensemble' && hasSectionText(post.missing_sections) && (
-                      <Text className='mt-0.5 block text-sm leading-relaxed text-primary'>
-                        {t('community.missing', {
-                          sections: (post.missing_sections ?? '')
-                            .split(/[,，、\s]+/)
-                            .filter(Boolean)
-                            .map((s) => translateInstrument(s, t))
-                            .join('、'),
-                        })}
+                    {formatPostDate(post.created_at) && (
+                      <Text className='block text-xs text-text-muted'>
+                        {formatPostDate(post.created_at)}
                       </Text>
                     )}
-                    {hasSectionText(post.content) && (
-                      <Text className='mt-1 block text-sm leading-relaxed text-primary line-clamp-2'>{post.content}</Text>
-                    )}
-                    <View className='mt-1 flex items-center justify-between'>
-                      {post.profiles?.full_name && (
-                        <Text className='block text-xs text-text-muted'>
-                          {t('community.creator', { name: post.profiles.full_name ?? '' })}
-                        </Text>
-                      )}
-                      {formatPostDate(post.created_at) && (
-                        <Text className='block text-xs text-text-muted'>
-                          {formatPostDate(post.created_at)}
-                        </Text>
-                      )}
-                    </View>
+                  </View>
                 </View>
               </Card>
             ))}

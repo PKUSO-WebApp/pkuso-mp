@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { View, Text, Button } from '@tarojs/components'
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import { useT } from '@/i18n'
@@ -16,7 +17,11 @@ export type ForceOfflineModalProps = {
  */
 export function ForceOfflineModal({ opened, at, onClose }: ForceOfflineModalProps) {
   const { t } = useT()
-  logDiag('force_offline_modal_render', { opened: !!opened })
+
+  useEffect(() => {
+    if (opened) logDiag('force_offline_modal_render', { opened: true })
+  }, [opened])
+
   if (!opened) return null
   const when = at ? formatDateTimeInChina(at) : t('ui.forceOffline.justNow')
   return (
@@ -25,7 +30,9 @@ export function ForceOfflineModal({ opened, at, onClose }: ForceOfflineModalProp
       catchMove
     >
       <View className='w-full max-w-sm rounded-2xl border border-border bg-surface p-5'>
-        <Text className='block text-base font-semibold text-text'>{t('ui.forceOffline.title')}</Text>
+        <Text className='block text-base font-semibold text-text'>
+          {t('ui.forceOffline.title')}
+        </Text>
         <Text className='mt-3 block text-sm leading-relaxed text-text-muted'>
           {t('ui.forceOffline.line1', { when })}
         </Text>

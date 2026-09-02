@@ -24,10 +24,7 @@ export default class CustomTabBarRoot extends Component {
 
   // componentDidShow 时机 getCurrentPages() 可能尚未就绪，故优先用 router.path 取当前页路径
   private computeSelected(): number {
-    const path = (Taro.getCurrentInstance()?.router?.path as string | undefined)?.replace(
-      /^\//,
-      ''
-    )
+    const path = (Taro.getCurrentInstance()?.router?.path as string | undefined)?.replace(/^\//, '')
     if (path) {
       const idx = TAB_PAGE_PATHS.findIndex((p) => p === `/${path}` || p === path)
       if (idx >= 0) return idx

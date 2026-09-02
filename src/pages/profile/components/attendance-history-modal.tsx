@@ -110,27 +110,35 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
       <View className='mt-4'>
         <View className='flex items-end gap-2'>
           <View className='flex-1'>
-            <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.attendance.startDate')}</Text>
+            <Text className='mb-1 block text-xs font-medium text-text-muted'>
+              {t('profile.attendance.startDate')}
+            </Text>
             <Picker
               mode='date'
               value={startDate}
               onChange={(e) => handleStartChange(String(e.detail.value))}
             >
               <View className='flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
-                <Text className='text-sm text-text'>{startDate || t('profile.attendance.unlimited')}</Text>
+                <Text className='text-sm text-text'>
+                  {startDate || t('profile.attendance.unlimited')}
+                </Text>
               </View>
             </Picker>
           </View>
           <Text className='pb-2 text-sm text-text-muted'>{t('profile.attendance.to')}</Text>
           <View className='flex-1'>
-            <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.attendance.endDate')}</Text>
+            <Text className='mb-1 block text-xs font-medium text-text-muted'>
+              {t('profile.attendance.endDate')}
+            </Text>
             <Picker
               mode='date'
               value={endDate}
               onChange={(e) => handleEndChange(String(e.detail.value))}
             >
               <View className='flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
-                <Text className='text-sm text-text'>{endDate || t('profile.attendance.unlimited')}</Text>
+                <Text className='text-sm text-text'>
+                  {endDate || t('profile.attendance.unlimited')}
+                </Text>
               </View>
             </Picker>
           </View>
@@ -142,7 +150,9 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
         {/* 考勤列表：罗列内容可滚动（max-h 容器，改用原生 ScrollView 以兼容真机） */}
         <ScrollView scrollY className='mt-3' style={{ maxHeight: '60vh' }}>
           {loading ? (
-            <Text className='block py-6 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
+            <Text className='block py-6 text-center text-xs text-text-muted'>
+              {t('common.actions.loading')}
+            </Text>
           ) : queryFailed ? (
             <Text className='block py-6 text-center text-sm text-text-muted'>
               {t('profile.attendance.loadFailed')}
@@ -178,10 +188,14 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
                     </Text>
                   </View>
                   <Text className='mt-1 block text-xs text-text-muted'>
-                    {t('profile.attendance.location', { location: row.rehearsals?.location ?? '—' })}
+                    {t('profile.attendance.location', {
+                      location: row.rehearsals?.location ?? '—',
+                    })}
                   </Text>
                   <Text className='mt-1 block text-xs text-text-muted'>
-                    {t('profile.attendance.repertoire', { repertoire: row.rehearsals?.repertoire ?? '—' })}
+                    {t('profile.attendance.repertoire', {
+                      repertoire: row.rehearsals?.repertoire ?? '—',
+                    })}
                   </Text>
                 </View>
               )

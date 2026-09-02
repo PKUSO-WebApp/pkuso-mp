@@ -73,7 +73,10 @@ vi.mock('@/assets/icons/eye-dark.png', () => ({ default: 'eye-dark.png' }))
 vi.mock('@/assets/icons/eye-off-dark.png', () => ({ default: 'eye-off-dark.png' }))
 vi.mock('@/assets/icons/pencil-line.png', () => ({ default: 'pencil-line.png' }))
 vi.mock('@/assets/icons/pencil-line-dark.png', () => ({ default: 'pencil-line-dark.png' }))
-vi.mock('@/components/ui/ImageCropper', () => ({ ImageCropper: ({ children }: any) => React.createElement('div', { 'data-testid': 'image-cropper' }, children) }))
+vi.mock('@/components/ui/ImageCropper', () => ({
+  ImageCropper: ({ children }: any) =>
+    React.createElement('div', { 'data-testid': 'image-cropper' }, children),
+}))
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     storage: {
@@ -93,12 +96,25 @@ vi.mock('@/i18n', async () => {
   const mod = await import('@/i18n/messages/zh-CN')
   const dict = mod.zhCN as Record<string, unknown>
   const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k.split('.').reduce<unknown>((o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined), dict)
+    const val = k
+      .split('.')
+      .reduce<unknown>(
+        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
+        dict
+      )
     let s = typeof val === 'string' ? val : k
-    if (p) s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
+    if (p)
+      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
     return s
   }
-  return { useT: () => ({ t: (k: string, p?: Record<string, unknown>) => get(k, p), locale: 'zh-CN', setLocale: vi.fn() }), useNavTitle: vi.fn() }
+  return {
+    useT: () => ({
+      t: (k: string, p?: Record<string, unknown>) => get(k, p),
+      locale: 'zh-CN',
+      setLocale: vi.fn(),
+    }),
+    useNavTitle: vi.fn(),
+  }
 })
 describe('ProfileInfoPage', () => {
   afterEach(() => {
@@ -138,4 +154,3 @@ describe('ProfileInfoPage', () => {
     expect(payload.hide_email).toBe(true)
   })
 })
-

@@ -8,9 +8,9 @@ import { formatRehearsalRange } from '@/lib/date-utils'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import type { LeaveRequestRow, RehearsalRow } from '@/types/database'
+import './index.scss'
 
-const isActive = (r: LeaveRequestRow) =>
-  r.status !== 'withdrawn' && r.status !== 'canceled'
+const isActive = (r: LeaveRequestRow) => r.status !== 'withdrawn' && r.status !== 'canceled'
 
 export default function LeaveRequestPage() {
   const router = Taro.getCurrentInstance().router
@@ -53,8 +53,16 @@ export default function LeaveRequestPage() {
       cancelled = true
     }
   }, [rehearsalId])
-  const { fetchMine, create, updateReason, reapply, cancelRequest, uploadAttachment, getSignedUrl, saving } =
-    useLeaveRequests()
+  const {
+    fetchMine,
+    create,
+    updateReason,
+    reapply,
+    cancelRequest,
+    uploadAttachment,
+    getSignedUrl,
+    saving,
+  } = useLeaveRequests()
   const { t } = useT()
 
   const [mode, setMode] = useState<'form' | 'view'>('view')
@@ -122,7 +130,14 @@ export default function LeaveRequestPage() {
     return () => {
       cancelled = true
     }
-  }, [mode, current?.id, current?.attachment_url, keepOldAttachment, getSignedUrl, viewAttachmentUrl])
+  }, [
+    mode,
+    current?.id,
+    current?.attachment_url,
+    keepOldAttachment,
+    getSignedUrl,
+    viewAttachmentUrl,
+  ])
 
   const handleChooseImage = () => {
     Taro.chooseMedia({
@@ -172,7 +187,7 @@ export default function LeaveRequestPage() {
     setIsSubmitting(true)
     setError(null)
     try {
-      let attachmentUrl = keepOldAttachment ? current?.attachment_url ?? null : null
+      let attachmentUrl = keepOldAttachment ? (current?.attachment_url ?? null) : null
       if (attachmentFile) {
         const up = await uploadAttachment(attachmentFile, user.id)
         if (up.error) {
@@ -183,13 +198,22 @@ export default function LeaveRequestPage() {
       }
       let ok: boolean
       if (editing) {
-        const payload = { reason: trimmed, attachment_url: attachmentUrl, old_attachment_url: current?.attachment_url ?? null }
+        const payload = {
+          reason: trimmed,
+          attachment_url: attachmentUrl,
+          old_attachment_url: current?.attachment_url ?? null,
+        }
         ok =
           editing.status === 'rejected'
             ? await reapply(editing.id, payload)
             : await updateReason(editing.id, payload)
       } else {
-        ok = await create({ rehearsal_id: rehearsal.id, user_id: user.id, reason: trimmed, attachment_url: attachmentUrl })
+        ok = await create({
+          rehearsal_id: rehearsal.id,
+          user_id: user.id,
+          reason: trimmed,
+          attachment_url: attachmentUrl,
+        })
       }
       if (!ok) return
       const rows = await fetchMine()
@@ -284,108 +308,137 @@ export default function LeaveRequestPage() {
   const hasAttachment = mode === 'view' ? !!viewAttachmentUrl : !!keepOldAttachment
 
   return (
-        <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg pb-safe`}>
+    <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg pb-safe`}>
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='w-full px-4 pt-2 pb-4'>
-        <Text className='block text-sm text-text-muted'>{subtitle}</Text>
-        <View className='my-4 h-px bg-border' />
+          <Text className='block text-sm text-text-muted'>{subtitle}</Text>
+          <View className='my-4 h-px bg-border' />
 
-        {mode === 'view' && current ? (
-          <>
-            <Text className='block text-sm font-medium text-text'>{t('leaveRequest.reasonLabel')}</Text>
-            <Text className='mt-1 block whitespace-pre-wrap text-sm text-text-muted'>{current.reason}</Text>
-            <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('leaveRequest.attachmentLabel')}</Text>
-            {attachmentLoading ? (
-              <Text className='text-xs text-text-muted'>{t('leaveRequest.attachmentLoading')}</Text>
-            ) : hasAttachment && viewAttachmentUrl ? (
-              <Image
-                src={viewAttachmentUrl}
-                mode='widthFix'
-                className='w-full rounded-lg border border-border'
-                onClick={() => viewAttachmentUrl && Taro.previewImage({ urls: [viewAttachmentUrl] })}
-              />
-            ) : (
-              <Text className='text-xs text-text-muted'>{t('leaveRequest.noAttachment')}</Text>
-            )}
-          </>
-        ) : (
-          <>
-            <Text className='block text-sm font-medium text-text'>{t('leaveRequest.reasonLabel')}</Text>
-            {/* 外层 View 约束宽度（AGENTS.md 表单模式），内层 Textarea 透明背景铺满 */}
-            <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface p-2'>
-              <Textarea
-                value={reason}
-                onInput={(e) => setReason(String((e.detail as { value?: string })?.value ?? ''))}
-                placeholder={t('leaveRequest.reasonPlaceholder')}
-                className='h-24 w-full bg-transparent text-sm text-text'
-              />
-            </View>
-            <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('leaveRequest.attachmentLabel')}</Text>
-            {attachmentPreview ? (
-              <View className='relative'>
-                <Image src={attachmentPreview} mode='widthFix' className='w-full rounded-lg border border-border' />
-                <View
-                  className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'
-                  onClick={handleClearAttachment}
-                >
-                  <Text className='text-sm text-danger'>{t('leaveRequest.deleteAttachment')}</Text>
-                </View>
-              </View>
-            ) : keepOldAttachment && viewAttachmentUrl ? (
-              <View className='relative'>
+          {mode === 'view' && current ? (
+            <>
+              <Text className='block text-sm font-medium text-text'>
+                {t('leaveRequest.reasonLabel')}
+              </Text>
+              <Text className='mt-1 block whitespace-pre-wrap text-sm text-text-muted'>
+                {current.reason}
+              </Text>
+              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+                {t('leaveRequest.attachmentLabel')}
+              </Text>
+              {attachmentLoading ? (
+                <Text className='text-xs text-text-muted'>
+                  {t('leaveRequest.attachmentLoading')}
+                </Text>
+              ) : hasAttachment && viewAttachmentUrl ? (
                 <Image
                   src={viewAttachmentUrl}
                   mode='widthFix'
                   className='w-full rounded-lg border border-border'
-                  onClick={() => viewAttachmentUrl && Taro.previewImage({ urls: [viewAttachmentUrl] })}
+                  onClick={() =>
+                    viewAttachmentUrl && Taro.previewImage({ urls: [viewAttachmentUrl] })
+                  }
                 />
-                <View
-                  className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'
-                  onClick={handleRemoveOldAttachment}
-                >
-                  <Text className='text-sm text-danger'>{t('leaveRequest.deleteAttachment')}</Text>
+              ) : (
+                <Text className='text-xs text-text-muted'>{t('leaveRequest.noAttachment')}</Text>
+              )}
+            </>
+          ) : (
+            <>
+              <Text className='block text-sm font-medium text-text'>
+                {t('leaveRequest.reasonLabel')}
+              </Text>
+              {/* 外层 View 约束宽度（AGENTS.md 表单模式），内层 Textarea 透明背景铺满 */}
+              <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface p-2'>
+                <Textarea
+                  value={reason}
+                  onInput={(e) => setReason(String((e.detail as { value?: string })?.value ?? ''))}
+                  placeholder={t('leaveRequest.reasonPlaceholder')}
+                  className='h-24 w-full bg-transparent text-sm text-text'
+                />
+              </View>
+              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+                {t('leaveRequest.attachmentLabel')}
+              </Text>
+              {attachmentPreview ? (
+                <View className='relative'>
+                  <Image
+                    src={attachmentPreview}
+                    mode='widthFix'
+                    className='w-full rounded-lg border border-border'
+                  />
+                  <View
+                    className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'
+                    onClick={handleClearAttachment}
+                  >
+                    <Text className='text-sm text-danger'>
+                      {t('leaveRequest.deleteAttachment')}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            ) : (
-              <View
-                className='inline-flex items-center rounded-full border border-border bg-surface px-3 py-1'
-                onClick={handleChooseImage}
-              >
-                <Text className='text-sm text-text'>{t('leaveRequest.addAttachment')}</Text>
-              </View>
-            )}
-            {attachmentFile === null && keepOldAttachment && (
-              <Text className='mt-1 block text-xs text-text-muted'>{t('leaveRequest.keepOldAttachment')}</Text>
-            )}
-            {error && <Text className='mt-3 block text-xs text-danger'>{error}</Text>}
-          </>
-        )}
-        <View className='mt-6'>
-          <View
-            className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${submitClass} ${
-              submitDisabled ? 'opacity-90' : ''
-            }`}
-            onClick={submitDisabled || busy ? undefined : handleSubmit}
-          >
-            {submitLabel}
+              ) : keepOldAttachment && viewAttachmentUrl ? (
+                <View className='relative'>
+                  <Image
+                    src={viewAttachmentUrl}
+                    mode='widthFix'
+                    className='w-full rounded-lg border border-border'
+                    onClick={() =>
+                      viewAttachmentUrl && Taro.previewImage({ urls: [viewAttachmentUrl] })
+                    }
+                  />
+                  <View
+                    className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'
+                    onClick={handleRemoveOldAttachment}
+                  >
+                    <Text className='text-sm text-danger'>
+                      {t('leaveRequest.deleteAttachment')}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View
+                  className='inline-flex items-center rounded-full border border-border bg-surface px-3 py-1'
+                  onClick={handleChooseImage}
+                >
+                  <Text className='text-sm text-text'>{t('leaveRequest.addAttachment')}</Text>
+                </View>
+              )}
+              {attachmentFile === null && keepOldAttachment && (
+                <Text className='mt-1 block text-xs text-text-muted'>
+                  {t('leaveRequest.keepOldAttachment')}
+                </Text>
+              )}
+              {error && <Text className='mt-3 block text-xs text-danger'>{error}</Text>}
+            </>
+          )}
+          <View className='mt-6'>
+            <View
+              className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${submitClass} ${
+                submitDisabled ? 'opacity-90' : ''
+              }`}
+              onClick={submitDisabled || busy ? undefined : handleSubmit}
+            >
+              {submitLabel}
+            </View>
           </View>
+          {mode === 'view' && showEdit && (
+            <View className='mt-3 flex items-center justify-center'>
+              <Text className='text-sm text-danger' onClick={handleEdit}>
+                {current?.status === 'rejected'
+                  ? t('leaveRequest.resubmit')
+                  : t('leaveRequest.editLink')}{' '}
+                &gt;
+              </Text>
+            </View>
+          )}
+          {mode === 'form' && leaveStatus === 'pending' && (
+            <View className='mt-3 flex items-center justify-center'>
+              <Text className='text-sm text-danger' onClick={handleCancel}>
+                {t('leaveRequest.withdraw')} &gt;
+              </Text>
+            </View>
+          )}
         </View>
-        {mode === 'view' && showEdit && (
-          <View className='mt-3 flex items-center justify-center'>
-            <Text className='text-sm text-danger' onClick={handleEdit}>
-              {current?.status === 'rejected' ? t('leaveRequest.resubmit') : t('leaveRequest.editLink')} &gt;
-            </Text>
-          </View>
-        )}
-        {mode === 'form' && leaveStatus === 'pending' && (
-          <View className='mt-3 flex items-center justify-center'>
-            <Text className='text-sm text-danger' onClick={handleCancel}>
-              {t('leaveRequest.withdraw')} &gt;
-            </Text>
-          </View>
-        )}
-       </View>
-        </ScrollView>
-        </View>
-    )
+      </ScrollView>
+    </View>
+  )
 }

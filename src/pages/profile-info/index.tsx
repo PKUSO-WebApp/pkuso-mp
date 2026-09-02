@@ -71,7 +71,8 @@ export default function ProfileInfoPage() {
 
   const fullName = myProfile?.full_name ?? notFilled
   const email = myProfile?.email ?? notFilled
-  const initials = fullName !== notFilled ? fullName.slice(0, 2) || fullName.slice(0, 1) || '--' : '--'
+  const initials =
+    fullName !== notFilled ? fullName.slice(0, 2) || fullName.slice(0, 1) || '--' : '--'
   // 视图态用资料实际隐藏状态；编辑态用本地草稿
   const hideEmail = isEditing ? editHideEmail : (myProfile?.hide_email ?? false)
   const hidePhone = isEditing ? editHidePhone : (myProfile?.hide_phone ?? false)
@@ -89,10 +90,7 @@ export default function ProfileInfoPage() {
   const selectedInstrumentIndex = Math.max(0, instrumentOptions.indexOf(editInstrument))
 
   // 在团情况选择器（与乐器同款滚动选择）：true=在团，false=不在团
-  const orchestraStatusLabels = [
-    t('profileInfo.statusActive'),
-    t('profileInfo.statusInactive'),
-  ]
+  const orchestraStatusLabels = [t('profileInfo.statusActive'), t('profileInfo.statusInactive')]
   // 季节滚轮：显示用本地化标签，索引 ↔ 规范值「春/秋」（存储格式受 DB CHECK 约束）
   const seasonLabels = [t('common.joinDate.season.spring'), t('common.joinDate.season.fall')]
 
@@ -185,60 +183,74 @@ export default function ProfileInfoPage() {
   }
 
   // 头像上传：读本地临时文件 → 上传 Supabase Storage → 图片审核 → 更新本地状态
-  const uploadAvatar = useCallback(async (tempFilePath: string) => {
-    if (!user || avatarUploading) return
-    setAvatarUploading(true)
-    try {
-      const userId = user.id
-      const fileName = `${userId}/avatar.jpg`
+  const uploadAvatar = useCallback(
+    async (tempFilePath: string) => {
+      if (!user || avatarUploading) return
+      setAvatarUploading(true)
+      try {
+        const userId = user.id
+        const fileName = `${userId}/avatar.jpg`
 
-      const { error: uploadError } = await uploadLocalFile(
-        supabase, 'avatar_images', fileName, tempFilePath, 'image/jpeg', true
-      )
-      if (uploadError) throw uploadError
+        const { error: uploadError } = await uploadLocalFile(
+          supabase,
+          'avatar_images',
+          fileName,
+          tempFilePath,
+          'image/jpeg',
+          true
+        )
+        if (uploadError) throw uploadError
 
-      const { data: urlData } = supabase.storage.from('avatar_images').getPublicUrl(fileName)
-      const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`
+        const { data: urlData } = supabase.storage.from('avatar_images').getPublicUrl(fileName)
+        const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`
 
-      // 图片内容审核
-      const imgRes = await supabase.functions.invoke('wechat-content-check', {
-        body: { kind: 'image', imageUrl: publicUrl },
-      })
-      const imgData = imgRes.data as { result?: string; ok?: boolean; error?: string } | null
-      if (imgRes.error) {
-        console.warn('[ProfileInfo] 图片审核调用失败，放行：', imgRes.error)
-      } else if (imgData?.result === 'block') {
-        // 审核不通过：删除已上传文件，提示用户
-        await supabase.storage.from('avatar_images').remove([fileName])
-        void Taro.showToast({ title: t('profile.avatarModerationFailed'), icon: 'none' })
-        return
-      } else if (imgData?.ok === false) {
-        await supabase.storage.from('avatar_images').remove([fileName])
-        void Taro.showToast({ title: imgData.error || t('profile.avatarModerationFailed'), icon: 'none' })
-        return
+        // 图片内容审核
+        const imgRes = await supabase.functions.invoke('wechat-content-check', {
+          body: { kind: 'image', imageUrl: publicUrl },
+        })
+        const imgData = imgRes.data as { result?: string; ok?: boolean; error?: string } | null
+        if (imgRes.error) {
+          console.warn('[ProfileInfo] 图片审核调用失败，放行：', imgRes.error)
+        } else if (imgData?.result === 'block') {
+          // 审核不通过：删除已上传文件，提示用户
+          await supabase.storage.from('avatar_images').remove([fileName])
+          void Taro.showToast({ title: t('profile.avatarModerationFailed'), icon: 'none' })
+          return
+        } else if (imgData?.ok === false) {
+          await supabase.storage.from('avatar_images').remove([fileName])
+          void Taro.showToast({
+            title: imgData.error || t('profile.avatarModerationFailed'),
+            icon: 'none',
+          })
+          return
+        }
+
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({ avatar_url: publicUrl })
+          .eq('id', userId)
+        if (profileError) throw profileError
+
+        updateProfile(userId, { avatar_url: publicUrl })
+        void Taro.showToast({ title: t('profile.avatarSaved'), icon: 'success' })
+      } catch (e) {
+        console.error('[ProfileInfo] 头像上传失败:', e)
+        void Taro.showToast({ title: t('profile.avatarSaveFailed'), icon: 'none' })
+      } finally {
+        setAvatarUploading(false)
       }
-
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ avatar_url: publicUrl })
-        .eq('id', userId)
-      if (profileError) throw profileError
-
-      updateProfile(userId, { avatar_url: publicUrl })
-      void Taro.showToast({ title: t('profile.avatarSaved'), icon: 'success' })
-    } catch (e) {
-      console.error('[ProfileInfo] 头像上传失败:', e)
-      void Taro.showToast({ title: t('profile.avatarSaveFailed'), icon: 'none' })
-    } finally {
-      setAvatarUploading(false)
-    }
-  }, [user, avatarUploading, updateProfile, t])
+    },
+    [user, avatarUploading, updateProfile, t]
+  )
 
   // 微信头像选择回调：chooseAvatar 返回本地临时路径，直接上传
-  const handleWechatAvatar = useCallback((e: any) => {
-    const tempPath = e.detail?.avatarUrl
-    if (tempPath) void uploadAvatar(tempPath)
-  }, [uploadAvatar])
+  const handleWechatAvatar = useCallback(
+    (e: any) => {
+      const tempPath = e.detail?.avatarUrl
+      if (tempPath) void uploadAvatar(tempPath)
+    },
+    [uploadAvatar]
+  )
 
   if (!myProfile) {
     return (
@@ -311,7 +323,9 @@ export default function ProfileInfoPage() {
 
         {/* 乐器（编辑态从声部列表选择） */}
         <View className='flex items-center gap-3 border-b border-border py-3'>
-          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.instrumentLabel')}</Text>
+          <Text className='w-20 shrink-0 text-sm text-primary'>
+            {t('profileInfo.instrumentLabel')}
+          </Text>
           {isEditing ? (
             <Picker
               className='flex-1'
@@ -321,19 +335,25 @@ export default function ProfileInfoPage() {
               onChange={(e) => setEditInstrument(instrumentOptions[Number(e.detail.value)] ?? '')}
             >
               <View className='rounded-xl border border-border bg-muted px-3 py-2'>
-                <Text className='text-sm text-text'>{translateInstrument(editInstrument, t) || t('profileInfo.selectInstrument')}</Text>
+                <Text className='text-sm text-text'>
+                  {translateInstrument(editInstrument, t) || t('profileInfo.selectInstrument')}
+                </Text>
               </View>
             </Picker>
           ) : (
             <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
-                <Text className='block text-sm text-text'>{translateInstrument(myProfile.instrument, t) || notFilled}</Text>
+              <Text className='block text-sm text-text'>
+                {translateInstrument(myProfile.instrument, t) || notFilled}
+              </Text>
             </View>
           )}
         </View>
 
         {/* 入团时间（编辑态年份 + 春/秋） */}
         <View className='flex items-center gap-3 border-b border-border py-3'>
-          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.joinTimeLabel')}</Text>
+          <Text className='w-20 shrink-0 text-sm text-primary'>
+            {t('profileInfo.joinTimeLabel')}
+          </Text>
           {isEditing ? (
             <Picker
               className='flex-1'
@@ -375,7 +395,9 @@ export default function ProfileInfoPage() {
             >
               <View className='rounded-xl border border-border bg-muted px-3 py-2'>
                 <Text className='text-sm text-text'>
-                  {editIsInOrchestra ? t('profileInfo.statusActive') : t('profileInfo.statusInactive')}
+                  {editIsInOrchestra
+                    ? t('profileInfo.statusActive')
+                    : t('profileInfo.statusInactive')}
                 </Text>
               </View>
             </Picker>
@@ -414,7 +436,9 @@ export default function ProfileInfoPage() {
 
         {/* 联系方式（可编辑 + 隐藏开关） */}
         <View className='flex items-center gap-3 border-b border-border py-3'>
-          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.contactLabel')}</Text>
+          <Text className='w-20 shrink-0 text-sm text-primary'>
+            {t('profileInfo.contactLabel')}
+          </Text>
           {isEditing ? (
             <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
               <Input
@@ -443,7 +467,9 @@ export default function ProfileInfoPage() {
 
         {/* 学院（可编辑 + 隐藏开关） */}
         <View className='flex items-center gap-3 border-b border-border py-3'>
-          <Text className='w-20 shrink-0 text-sm text-primary'>{t('profileInfo.collegeLabel')}</Text>
+          <Text className='w-20 shrink-0 text-sm text-primary'>
+            {t('profileInfo.collegeLabel')}
+          </Text>
           {isEditing ? (
             <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
               <Input
@@ -493,7 +519,6 @@ export default function ProfileInfoPage() {
             </View>
           </View>
         )}
-
       </View>
     </View>
   )

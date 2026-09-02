@@ -68,7 +68,7 @@ export default function Index() {
     return () => clearInterval(timer)
   }, [])
 
-// 过滤 + 排序后的排练列表
+  // 过滤 + 排序后的排练列表
   const rehearsalList = useMemo(() => {
     if (!rehearsals) return []
     const now = new Date(nowTick)
@@ -160,10 +160,10 @@ export default function Index() {
             onRetry={() => void fetchRehearsals()}
           >
             {announcementList.map((ann) => (
-                <View key={`announcement-${ann.id}`} className='mb-3'>
-                  <AnnouncementCard item={ann} isExpired={ann.isExpired} />
-                </View>
-              ))}
+              <View key={`announcement-${ann.id}`} className='mb-3'>
+                <AnnouncementCard item={ann} isExpired={ann.isExpired} />
+              </View>
+            ))}
             {rehearsalList.map((r) => (
               <View key={String(r.id)} className='mb-3'>
                 <RehearsalCard

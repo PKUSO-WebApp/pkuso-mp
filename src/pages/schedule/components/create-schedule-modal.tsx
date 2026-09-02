@@ -168,7 +168,13 @@ export function CreateScheduleModal({
           label={t('schedule.labels.date')}
           labelClass='block text-label text-text-muted'
         >
-          <Picker mode='date' value={date} start={shiftDays(0)} end={shiftDays(7)} onChange={(e) => setDate(e.detail.value)}>
+          <Picker
+            mode='date'
+            value={date}
+            start={shiftDays(0)}
+            end={shiftDays(7)}
+            onChange={(e) => setDate(e.detail.value)}
+          >
             <Text className='text-xs text-text'>{date}</Text>
           </Picker>
         </PickerField>

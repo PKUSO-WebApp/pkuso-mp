@@ -58,7 +58,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     setStoredLanguage(l)
   }, [])
 
-  return <LanguageContext.Provider value={{ locale, t, setLocale }}>{children}</LanguageContext.Provider>
+  return (
+    <LanguageContext.Provider value={{ locale, t, setLocale }}>{children}</LanguageContext.Provider>
+  )
 }
 
 export function useT(): LangCtx {
@@ -92,7 +94,9 @@ export function useNavTitle(key: Path<ZHCNMessages>, params?: Record<string, str
       Taro.setNavigationBarTitle({ title: t(key, params) })
       // 切回 tab 时微信会回退到 app.json 默认（白底），按当前主题重设顶栏配色
       const p = THEME_PALETTE[getThemeMode()]
-      void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(() => {})
+      void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(
+        () => {}
+      )
     } catch {
       /* 部分环境无 Taro 运行时，忽略 */
     }
@@ -109,7 +113,9 @@ export function useNavTitle(key: Path<ZHCNMessages>, params?: Record<string, str
   useEffect(() => {
     const p = THEME_PALETTE[mode]
     try {
-      void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(() => {})
+      void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(
+        () => {}
+      )
     } catch {
       /* ignore */
     }

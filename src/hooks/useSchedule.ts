@@ -123,12 +123,12 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       if (savingRef.current) return false
       savingRef.current = true
       setSaving(true)
-      const { data: updated, error: dbError } = await client
-        .from('schedules')
-        .update(payload as never)
-        .eq('id', id)
-        .select('id')
       try {
+        const { data: updated, error: dbError } = await client
+          .from('schedules')
+          .update(payload as never)
+          .eq('id', id)
+          .select('id')
         if (dbError) {
           if (mountedRef.current) {
             console.error('[useSchedule] 写操作失败', dbError)

@@ -1,2 +1,1 @@
-export default definePageConfig({
-})
+export default definePageConfig({})

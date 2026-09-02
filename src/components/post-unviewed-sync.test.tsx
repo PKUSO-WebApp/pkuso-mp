@@ -2,11 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
-import {
-  getPostUnviewedFlag,
-  setPostUnviewedFlag,
-  isCommunityDotOn,
-} from '@/lib/postSeen'
+import { getPostUnviewedFlag, setPostUnviewedFlag, isCommunityDotOn } from '@/lib/postSeen'
 import { PostUnviewedSync } from './post-unviewed-sync'
 
 const postMock = vi.hoisted(() => ({ data: [] as any[], fetch: vi.fn() }))
@@ -23,8 +19,12 @@ vi.mock('@tarojs/taro', () => ({
   },
   useDidShow: vi.fn(),
 }))
-vi.mock('@/hooks/usePosts', () => ({ usePosts: () => ({ data: postMock.data, fetch: postMock.fetch }) }))
-vi.mock('@/context/user-context', () => ({ useUser: () => ({ user: userMock.user, ready: userMock.ready }) }))
+vi.mock('@/hooks/usePosts', () => ({
+  usePosts: () => ({ data: postMock.data, fetch: postMock.fetch }),
+}))
+vi.mock('@/context/user-context', () => ({
+  useUser: () => ({ user: userMock.user, ready: userMock.ready }),
+}))
 
 afterEach(() => {
   cleanup()

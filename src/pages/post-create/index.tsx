@@ -9,6 +9,7 @@ import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Toggle } from '@/components/ui/Toggle'
 import type { PostType } from '@/types/database'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
+import './index.scss'
 
 const MAX_IMAGE_BYTES = 1024 * 1024
 
@@ -103,7 +104,9 @@ export default function PostCreatePage() {
   const showSections = type === 'ensemble'
 
   return (
-    <View className={`${darkClass} flex h-full min-h-0 w-full flex-col overflow-hidden bg-page-bg pb-safe`}>
+    <View
+      className={`${darkClass} flex h-full min-h-0 w-full flex-col overflow-hidden bg-page-bg pb-safe`}
+    >
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='w-full px-4 pt-2 pb-4'>
           <View className='mt-4'>
@@ -113,7 +116,9 @@ export default function PostCreatePage() {
                 options={['ensemble', 'gathering']}
                 value={type}
                 onChange={(v) => setType(v as PostType)}
-                getLabel={(k) => (k === 'ensemble' ? t('postCreate.type.ensemble') : t('postCreate.type.gathering'))}
+                getLabel={(k) =>
+                  k === 'ensemble' ? t('postCreate.type.ensemble') : t('postCreate.type.gathering')
+                }
               />
             </View>
           </View>
@@ -133,7 +138,9 @@ export default function PostCreatePage() {
           </View>
 
           {/* 内容 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postCreate.contentLabel')}</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+            {t('postCreate.contentLabel')}
+          </Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Textarea
               value={content}
@@ -147,7 +154,9 @@ export default function PostCreatePage() {
           {/* 重奏专属：声部 */}
           {showSections && (
             <>
-              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postCreate.currentSectionsLabel')}</Text>
+              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+                {t('postCreate.currentSectionsLabel')}
+              </Text>
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={currentSections}
@@ -156,7 +165,9 @@ export default function PostCreatePage() {
                   className='h-10 w-full bg-transparent text-sm text-text'
                 />
               </View>
-              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postCreate.missingSectionsLabel')}</Text>
+              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+                {t('postCreate.missingSectionsLabel')}
+              </Text>
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={missingSections}
@@ -169,7 +180,9 @@ export default function PostCreatePage() {
           )}
 
           {/* 联系方式 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postCreate.contactLabel')}</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+            {t('postCreate.contactLabel')}
+          </Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Input
               value={contactInfo}
@@ -180,10 +193,16 @@ export default function PostCreatePage() {
           </View>
 
           {/* 配图 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postCreate.imageLabel')}</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+            {t('postCreate.imageLabel')}
+          </Text>
           {imagePreview ? (
             <View className='relative'>
-              <Image src={imagePreview} mode='widthFix' className='w-full rounded-lg border border-border' />
+              <Image
+                src={imagePreview}
+                mode='widthFix'
+                className='w-full rounded-lg border border-border'
+              />
               <View
                 className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'
                 onClick={handleClearImage}

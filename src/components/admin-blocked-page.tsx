@@ -30,11 +30,11 @@ export function AdminBlockedPage() {
   const darkClass = useThemeClass()
 
   return (
-    <View className={`${darkClass} flex h-full flex-col items-center justify-center gap-4 bg-page-bg px-6 pb-safe`}>
+    <View
+      className={`${darkClass} flex h-full flex-col items-center justify-center gap-4 bg-page-bg px-6 pb-safe`}
+    >
       <Text className='text-lg font-semibold text-text'>{t('ui.adminBlocked.title')}</Text>
-      <Text className='text-center text-sm text-text-muted'>
-        {t('ui.adminBlocked.desc')}
-      </Text>
+      <Text className='text-center text-sm text-text-muted'>{t('ui.adminBlocked.desc')}</Text>
       <View
         className={`mt-2 rounded-full bg-primary px-6 py-2 text-sm font-medium text-primary-foreground ${
           signingOut ? 'opacity-60' : ''

@@ -1,9 +1,7 @@
 import type { supabase as defaultClient } from '@/lib/supabase'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 
-export type ModerationResult =
-  | { ok: true; imageUrl: string | null }
-  | { ok: false; error: string }
+export type ModerationResult = { ok: true; imageUrl: string | null } | { ok: false; error: string }
 
 /**
  * 公告发布/编辑共用的内容安全流程（P2-9 提取，原 usePosts create/updatePost 两份复制）：
@@ -30,7 +28,9 @@ export async function moderateAndUploadPostImage(
     input.currentSections,
     input.missingSections,
     input.contactInfo,
-  ].filter(Boolean).join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n')
   const textRes = await client.functions.invoke('wechat-content-check', {
     body: { kind: 'text', content: textParts },
   })
@@ -46,8 +46,7 @@ export async function moderateAndUploadPostImage(
 
   // 动态导入：避免模块加载即拉入 Taro（@tarojs/taro 在纯逻辑单测 jsdom 环境下缺少运行时全局）
   const { uploadLocalFile, guessContentType } = await import('@/lib/uploadLocalFile')
-  const rawName =
-    input.imageFile.name || input.imageFile.tempFilePath.split('/').pop() || 'image'
+  const rawName = input.imageFile.name || input.imageFile.tempFilePath.split('/').pop() || 'image'
   const safeName = rawName.replace(/[^A-Za-z0-9._-]/g, '-') || 'image'
   const path = `${input.uid}/${Date.now()}-${safeName}`
   const up = await uploadLocalFile(

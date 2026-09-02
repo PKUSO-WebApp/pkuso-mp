@@ -23,9 +23,7 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
     ? formatRehearsalCardParts(item.start_time, item.end_time ?? null)
     : { dateLabel: '', weekdayLabel: '', timeRange: t('home.rehearsalTimeUnset') }
 
-  const typeLabel = item.type === 'section'
-    ? t('home.tabs.section')
-    : t('home.tabs.full')
+  const typeLabel = item.type === 'section' ? t('home.tabs.section') : t('home.tabs.full')
 
   return (
     <Card onClick={onClick} className='relative'>
@@ -58,9 +56,7 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
         {updatedFields && updatedFields.length > 0 && (
           <StatusChip tone='warning' className='mt-1'>
             {t('home.updated', {
-              fields: updatedFields
-                .map((f) => t(`home.updatedField.${f}`))
-                .join('/'),
+              fields: updatedFields.map((f) => t(`home.updatedField.${f}`)).join('/'),
             })}
           </StatusChip>
         )}

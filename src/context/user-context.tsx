@@ -18,6 +18,7 @@ import {
   verifySession,
 } from '@/lib/single-session'
 import { logDiag, setSessionStatusProvider, startSessionDiag } from '@/lib/session-diag'
+import { __resetRehearsalsCache } from '@/hooks/useRehearsals'
 
 // 会话恢复超时阈值：弱网/挂起时不再无限等待（SDK 默认等待较长），超时降级为「未登录 + 恢复失败」
 const RESTORE_TIMEOUT_MS = 10000
@@ -92,6 +93,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       establishedTokenRef.current = next.access_token ?? null
     } else {
       establishedTokenRef.current = null
+      __resetRehearsalsCache()
     }
     setSession(next)
     if (next) {
@@ -111,9 +113,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         hasSession: !!s,
         userId8: s?.user.id.slice(0, 8) ?? null,
         expiresInSec:
-          typeof s?.expires_at === 'number'
-            ? Math.round(s.expires_at - Date.now() / 1000)
-            : null,
+          typeof s?.expires_at === 'number' ? Math.round(s.expires_at - Date.now() / 1000) : null,
         localToken8: getStoredSessionToken()?.slice(0, 8) ?? null,
         forcedOffline: !!forcedOfflineAtRef.current,
       }
@@ -146,9 +146,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         applySession(null)
         void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
       }
-      Taro.reLaunch({ url: '/pages/login/index' })
-        .then(openOnLogin)
-        .catch(openOnLogin)
+      Taro.reLaunch({ url: '/pages/login/index' }).then(openOnLogin).catch(openOnLogin)
     },
     [applySession]
   )
@@ -270,7 +268,15 @@ export function UserProvider({ children }: { children: ReactNode }) {
   }, [session])
 
   const value = useMemo(
-    () => ({ session, user, ready, restoreFailed, forcedOfflineAt, forcedOffline, clearForcedOffline }),
+    () => ({
+      session,
+      user,
+      ready,
+      restoreFailed,
+      forcedOfflineAt,
+      forcedOffline,
+      clearForcedOffline,
+    }),
     [session, user, ready, restoreFailed, forcedOfflineAt, forcedOffline, clearForcedOffline]
   )
 

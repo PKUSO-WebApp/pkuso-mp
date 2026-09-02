@@ -141,7 +141,9 @@ export default function PostEditPage() {
 
   if (notFound || !post) {
     return (
-      <View className={`${darkClass} flex min-h-screen flex-col items-center justify-center bg-page-bg px-4`}>
+      <View
+        className={`${darkClass} flex min-h-screen flex-col items-center justify-center bg-page-bg px-4`}
+      >
         <Text className='text-sm text-text-muted'>{t('postEdit.notFound')}</Text>
         <View
           className='mt-4 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground'
@@ -170,7 +172,9 @@ export default function PostEditPage() {
           </View>
 
           {/* 内容 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postEdit.contentLabel')}</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+            {t('postEdit.contentLabel')}
+          </Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Textarea
               value={content}
@@ -184,7 +188,9 @@ export default function PostEditPage() {
           {/* 重奏专属：声部 */}
           {showSections && (
             <>
-              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postEdit.currentSectionsLabel')}</Text>
+              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+                {t('postEdit.currentSectionsLabel')}
+              </Text>
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={currentSections}
@@ -193,7 +199,9 @@ export default function PostEditPage() {
                   className='h-10 w-full bg-transparent text-sm text-text'
                 />
               </View>
-              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postEdit.missingSectionsLabel')}</Text>
+              <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+                {t('postEdit.missingSectionsLabel')}
+              </Text>
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={missingSections}
@@ -206,7 +214,9 @@ export default function PostEditPage() {
           )}
 
           {/* 联系方式 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postEdit.contactLabel')}</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+            {t('postEdit.contactLabel')}
+          </Text>
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Input
               value={contactInfo}
@@ -217,10 +227,16 @@ export default function PostEditPage() {
           </View>
 
           {/* 配图 */}
-          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>{t('postEdit.imageLabel')}</Text>
+          <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
+            {t('postEdit.imageLabel')}
+          </Text>
           {previewSrc ? (
             <View className='relative'>
-              <Image src={previewSrc} mode='widthFix' className='w-full rounded-lg border border-border' />
+              <Image
+                src={previewSrc}
+                mode='widthFix'
+                className='w-full rounded-lg border border-border'
+              />
               <View
                 className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'
                 onClick={handleClearImage}

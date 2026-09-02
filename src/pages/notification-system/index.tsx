@@ -60,7 +60,9 @@ export default function NotificationSystemPage() {
             const ok = await markCategoryRead(c, ids)
             if (ok) {
               const now = new Date().toISOString()
-              setMessages((prev) => prev.map((m) => (ids.includes(m.id) ? { ...m, read_at: now } : m)))
+              setMessages((prev) =>
+                prev.map((m) => (ids.includes(m.id) ? { ...m, read_at: now } : m))
+              )
             } else {
               ids.forEach((id) => handledRef.current.delete(id))
             }
@@ -73,22 +75,24 @@ export default function NotificationSystemPage() {
 
   useEffect(() => {
     const seq = ++seqRef.current
-    void Promise.all([fetchByCategory('system'), fetchByCategory('activity')]).then(([sys, act]) => {
-      if (seq !== seqRef.current) return
-      setLoading(false)
-      // 两类任一成功即展示该类；仅当两类都失败才标记整体失败
-      setFailed(sys.error !== null && act.error !== null)
-      const sysRows = sys.error ? [] : sys.rows
-      const actRows = act.error ? [] : act.rows
-      // 合并两类并按创建时间倒序
-      const merged = [...sysRows, ...actRows].sort((a, b) =>
-        a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0
-      )
-      setMessages(merged)
-      const unreadIds = merged.filter((m) => m.read_at === null).map((m) => m.id)
-      setSnapshotIds(new Set(unreadIds))
-      if (unreadIds.length > 0) void markReadFor(merged)
-    })
+    void Promise.all([fetchByCategory('system'), fetchByCategory('activity')]).then(
+      ([sys, act]) => {
+        if (seq !== seqRef.current) return
+        setLoading(false)
+        // 两类任一成功即展示该类；仅当两类都失败才标记整体失败
+        setFailed(sys.error !== null && act.error !== null)
+        const sysRows = sys.error ? [] : sys.rows
+        const actRows = act.error ? [] : act.rows
+        // 合并两类并按创建时间倒序
+        const merged = [...sysRows, ...actRows].sort((a, b) =>
+          a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0
+        )
+        setMessages(merged)
+        const unreadIds = merged.filter((m) => m.read_at === null).map((m) => m.id)
+        setSnapshotIds(new Set(unreadIds))
+        if (unreadIds.length > 0) void markReadFor(merged)
+      }
+    )
   }, [fetchByCategory, markReadFor])
 
   // 兜底提交：仅处理初始标记失败（不在 handled 中）的未读行；服务端另有 .is("read_at", null) 守卫
@@ -132,16 +136,23 @@ export default function NotificationSystemPage() {
       </View>
       <View className='px-4'>
         {loading ? (
-          <Text className='block py-10 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
+          <Text className='block py-10 text-center text-xs text-text-muted'>
+            {t('common.actions.loading')}
+          </Text>
         ) : failed ? (
-          <Text className='block py-10 text-center text-sm text-text-muted'>{t('notification.list.failed')}</Text>
+          <Text className='block py-10 text-center text-sm text-text-muted'>
+            {t('notification.list.failed')}
+          </Text>
         ) : visible.length === 0 ? (
           <Text className='block py-10 text-center text-sm text-text-muted'>
             {tab === 'unread' ? t('notification.emptyUnread') : t('notification.list.empty')}
           </Text>
         ) : (
           visible.map((msg) => (
-            <View key={msg.id} className='relative mb-2 rounded-xl border border-border bg-card p-3'>
+            <View
+              key={msg.id}
+              className='relative mb-2 rounded-xl border border-border bg-card p-3'
+            >
               <View className='flex items-start justify-between gap-2 pr-16'>
                 <Text className='min-w-0 flex-1 text-sm font-medium text-text'>{msg.title}</Text>
                 <Text className='flex-shrink-0 text-xs text-text-muted'>

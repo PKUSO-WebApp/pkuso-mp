@@ -1,26 +1,13 @@
 import { Component } from 'react'
 import Taro from '@tarojs/taro'
 import { View, Image } from '@tarojs/components'
-import {
-  getTabBarUnread,
-  subscribeTabBarUnread,
-} from '@/lib/tabBarBadge'
-import {
-  getRehearsalUnviewedFlag,
-  subscribeRehearsalUnviewed,
-} from '@/lib/rehearsalSeen'
-import {
-  getPostUnviewedFlag,
-  subscribePostUnviewed,
-} from '@/lib/postSeen'
+import { getTabBarUnread, subscribeTabBarUnread } from '@/lib/tabBarBadge'
+import { getRehearsalUnviewedFlag, subscribeRehearsalUnviewed } from '@/lib/rehearsalSeen'
+import { getPostUnviewedFlag, subscribePostUnviewed } from '@/lib/postSeen'
 import { getThemeMode, subscribeThemeMode } from '@/lib/themeStore'
 import { THEME_PALETTE } from '@/lib/theme'
 import { getOverlayOpen, subscribeOverlayOpen } from '@/lib/overlayStore'
-import {
-  getTabBarSelected,
-  setTabBarSelected,
-  subscribeTabBarSelected,
-} from '@/lib/tabBarSelected'
+import { getTabBarSelected, setTabBarSelected, subscribeTabBarSelected } from '@/lib/tabBarSelected'
 import house from '@/assets/icons/house.png'
 import houseActive from '@/assets/icons/house-active.png'
 import houseActiveDark from '@/assets/icons/house-active-dark.png'
@@ -85,7 +72,13 @@ const LIST = [
 // active=选中文字色，inactive=未选中（更浅），dot=未读红点
 const paletteFor = (dark: boolean) => {
   const p = THEME_PALETTE[dark ? 'dark' : 'light']
-  return { bg: p.tabBg, border: p.tabBorder, active: p.tabActive, inactive: p.tabInactive, dot: p.tabDot }
+  return {
+    bg: p.tabBg,
+    border: p.tabBorder,
+    active: p.tabActive,
+    inactive: p.tabInactive,
+    dot: p.tabDot,
+  }
 }
 
 export default class CustomTabBar extends Component {
@@ -110,9 +103,7 @@ export default class CustomTabBar extends Component {
     this.unsubPost = subscribePostUnviewed(() =>
       this.setState({ postUnviewed: getPostUnviewedFlag() })
     )
-    this.unsubTheme = subscribeThemeMode(() =>
-      this.setState({ dark: getThemeMode() === 'dark' })
-    )
+    this.unsubTheme = subscribeThemeMode(() => this.setState({ dark: getThemeMode() === 'dark' }))
     this.unsubOverlay = subscribeOverlayOpen(() => this.setState({ overlay: getOverlayOpen() }))
     // 语言切换时重渲染 tab 文字（底边栏由框架独立槽位渲染，不在 React Provider 树内）
     this.unsubLocale = subscribeLocale(() => this.forceUpdate())
@@ -180,13 +171,7 @@ export default class CustomTabBar extends Component {
               <View style={{ position: 'relative', display: 'flex' }}>
                 <Image
                   // 暗色模式选中态用高亮暗版图标（active-dark），避免与深底色融为一体
-                  src={
-                    isSelected
-                      ? dark
-                        ? tab.selectedIconDark
-                        : tab.selectedIcon
-                      : tab.icon
-                  }
+                  src={isSelected ? (dark ? tab.selectedIconDark : tab.selectedIcon) : tab.icon}
                   style={{ width: '24px', height: '24px' }}
                 />
                 {idx === 4 && unread > 0 && (

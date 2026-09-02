@@ -3,7 +3,7 @@ export const home = {
   welcome: 'Welcome!',
   welcomeWithName: 'Welcome, {name}!',
   schedule: {
-    weekTitle: 'This Week\'s Rehearsal Schedule',
+    weekTitle: "This Week's Rehearsal Schedule",
     weekSubtitle: 'View ensemble and section rehearsals',
     historyTitle: 'Past Rehearsals',
     historySubtitle: 'View ended rehearsals',

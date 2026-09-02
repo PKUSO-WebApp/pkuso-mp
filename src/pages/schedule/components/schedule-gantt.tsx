@@ -173,30 +173,32 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
           {/* 预约块 */}
           {scheduleItems.map((schedule) => {
             const isSelfBlock = schedule.author_id === user?.id
-            const colorClass = isSelfBlock ? getScheduleColorClass(schedule.id) : 'bg-schedule-other'
+            const colorClass = isSelfBlock
+              ? getScheduleColorClass(schedule.id)
+              : 'bg-schedule-other'
             const titleCls = isSelfBlock ? 'text-schedule-text' : 'text-primary'
             const subCls = isSelfBlock ? 'text-schedule-text-muted' : 'text-primary'
             return (
-            <View
-              key={schedule.id}
-              className={`absolute left-2 right-2 rounded-lg border border-text ${colorClass}`}
-              style={{
-                top: `${schedule.top}%`,
-                height: `${schedule.height}%`,
-              }}
-              onClick={() => void handleScheduleClick(schedule)}
-            >
-              <View className='flex h-full flex-col justify-center px-2 py-1'>
-                <Text className={`block truncate text-xs font-medium ${titleCls}`}>
-                  {schedule.title || t('schedule.unnamed')}
-                </Text>
-                <Text className={`block text-xs ${subCls}`}>
-                  {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
-                </Text>
+              <View
+                key={schedule.id}
+                className={`absolute left-2 right-2 rounded-lg border border-text ${colorClass}`}
+                style={{
+                  top: `${schedule.top}%`,
+                  height: `${schedule.height}%`,
+                }}
+                onClick={() => void handleScheduleClick(schedule)}
+              >
+                <View className='flex h-full flex-col justify-center px-2 py-1'>
+                  <Text className={`block truncate text-xs font-medium ${titleCls}`}>
+                    {schedule.title || t('schedule.unnamed')}
+                  </Text>
+                  <Text className={`block text-xs ${subCls}`}>
+                    {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
+                  </Text>
+                </View>
               </View>
-            </View>
             )
-          }          )}
+          })}
         </View>
       </View>
 
@@ -210,23 +212,31 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
         {selectedSchedule && (
           <View className='mt-2'>
             <View>
-              <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.title')}</Text>
+              <Text className='mb-1 block text-xs text-text-muted'>
+                {t('schedule.detail.title')}
+              </Text>
               <Text className='block text-sm font-medium text-text'>
                 {selectedSchedule.title || t('schedule.unnamed')}
               </Text>
             </View>
             <View className='mt-3'>
-              <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.time')}</Text>
+              <Text className='mb-1 block text-xs text-text-muted'>
+                {t('schedule.detail.time')}
+              </Text>
               <Text className='block text-sm text-text'>
                 {formatTime(selectedSchedule.start_time)} - {formatTime(selectedSchedule.end_time)}
               </Text>
             </View>
             <View className='mt-3'>
-              <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.date')}</Text>
+              <Text className='mb-1 block text-xs text-text-muted'>
+                {t('schedule.detail.date')}
+              </Text>
               <Text className='block text-sm text-text'>{selectedDate}</Text>
             </View>
             <View className='mt-3'>
-              <Text className='mb-1 block text-xs text-text-muted'>{t('schedule.detail.author')}</Text>
+              <Text className='mb-1 block text-xs text-text-muted'>
+                {t('schedule.detail.author')}
+              </Text>
               <Text className='block text-sm text-text'>
                 {loadingAuthor ? t('common.actions.loading') : authorName || t('schedule.unknown')}
               </Text>

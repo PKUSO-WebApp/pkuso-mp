@@ -19,7 +19,8 @@ import './index.scss'
 // ============================================================
 
 export default function LoginPage() {
-  const { ready, user, restoreFailed, forcedOffline, forcedOfflineAt, clearForcedOffline } = useUser()
+  const { ready, user, restoreFailed, forcedOffline, forcedOfflineAt, clearForcedOffline } =
+    useUser()
   const { submitting: wechatSubmitting, loginWithWechat } = useWechatLogin()
   const darkClass = useThemeClass()
   const { t } = useT()
@@ -54,7 +55,9 @@ export default function LoginPage() {
       <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
     </View>
   ) : (
-    <View className={`${darkClass} flex min-h-full flex-col items-center justify-center bg-page-bg px-5`}>
+    <View
+      className={`${darkClass} flex min-h-full flex-col items-center justify-center bg-page-bg px-5`}
+    >
       <Card className='w-full px-5 py-6'>
         <View className='mb-4 text-center'>
           <Text className='text-xl font-semibold text-text'>{t('login.title')}</Text>
@@ -92,11 +95,7 @@ export default function LoginPage() {
   // 确保稳定覆盖在登录页之上）。reLaunch 到登录页后本状态保持为真，弹窗即出现。
   return (
     <>
-      <ForceOfflineModal
-        opened={forcedOffline}
-        at={forcedOfflineAt}
-        onClose={clearForcedOffline}
-      />
+      <ForceOfflineModal opened={forcedOffline} at={forcedOfflineAt} onClose={clearForcedOffline} />
       {content}
     </>
   )

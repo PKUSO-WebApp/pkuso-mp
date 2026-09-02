@@ -44,11 +44,14 @@ Deno.serve(async (req) => {
 
   // 从 JWT 获取 user_id
   const token = authHeader.replace('Bearer ', '')
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser(token)
   if (authError || !user) return ok({ error: 'invalid token' })
 
   const userId = user.id
-  const body = await req.json().catch(() => null) as {
+  const body = (await req.json().catch(() => null)) as {
     purpose?: string
     code?: string
     new_password?: string
@@ -82,10 +85,7 @@ Deno.serve(async (req) => {
   // 检查过期
   const expiresAt = new Date(codeRow.expires_at).getTime()
   if (Date.now() > expiresAt) {
-    await supabase
-      .from('verification_codes')
-      .update({ used: true })
-      .eq('id', codeRow.id)
+    await supabase.from('verification_codes').update({ used: true }).eq('id', codeRow.id)
     return ok({ error: 'code expired' })
   }
 
@@ -95,10 +95,7 @@ Deno.serve(async (req) => {
   }
 
   // 标记码为 used
-  await supabase
-    .from('verification_codes')
-    .update({ used: true })
-    .eq('id', codeRow.id)
+  await supabase.from('verification_codes').update({ used: true }).eq('id', codeRow.id)
 
   // 执行操作
   if (purpose === 'password_change') {
@@ -122,10 +119,13 @@ Deno.serve(async (req) => {
   const newEmail = body.new_email.trim()
 
   // 检查新邮箱是否已被其他用户占用（查 auth.users）
-  const { data: emailCheck } = await supabase.rpc('check_email_taken' as never, {
-    p_email: newEmail,
-    p_exclude_user_id: userId,
-  } as never)
+  const { data: emailCheck } = await supabase.rpc(
+    'check_email_taken' as never,
+    {
+      p_email: newEmail,
+      p_exclude_user_id: userId,
+    } as never
+  )
 
   if (emailCheck === true) {
     return ok({ error: 'email_taken' })

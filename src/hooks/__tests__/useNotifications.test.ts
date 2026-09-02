@@ -116,16 +116,25 @@ describe('useNotifications', () => {
 
   // markItemRead 专用 mock：支持 refresh（select('category').is()）与
   // 单条标记（update().eq().is().select('id')）两种调用链
-  function mockClient2(refreshRows: { category: string }[], markResult: { data: unknown[] | null; error: unknown }) {
+  function mockClient2(
+    refreshRows: { category: string }[],
+    markResult: { data: unknown[] | null; error: unknown }
+  ) {
     return {
       from: () => ({
         select: (cols?: string) =>
           cols === 'category'
-            ? { is: () => ({ then: (res: (v: unknown) => void) => res({ data: refreshRows, error: null }) }) }
+            ? {
+                is: () => ({
+                  then: (res: (v: unknown) => void) => res({ data: refreshRows, error: null }),
+                }),
+              }
             : { then: (res: (v: unknown) => void) => res({ data: [], error: null }) },
         update: () => ({
           eq: () => ({
-            is: () => ({ select: () => ({ then: (res: (v: unknown) => void) => res(markResult) }) }),
+            is: () => ({
+              select: () => ({ then: (res: (v: unknown) => void) => res(markResult) }),
+            }),
           }),
         }),
       }),
@@ -133,10 +142,10 @@ describe('useNotifications', () => {
   }
 
   it('markItemRead 单条标记成功且未读数 -1', async () => {
-    const c = mockClient2(
-      [{ category: 'system' }, { category: 'system' }],
-      { data: [{ id: '1' }], error: null }
-    )
+    const c = mockClient2([{ category: 'system' }, { category: 'system' }], {
+      data: [{ id: '1' }],
+      error: null,
+    })
     const { result } = renderHook(() => useNotifications(c as never))
     await act(async () => {
       await result.current.refresh()

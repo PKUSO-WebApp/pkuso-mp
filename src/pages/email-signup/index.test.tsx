@@ -98,12 +98,25 @@ vi.mock('@/i18n', async () => {
   const mod = await import('@/i18n/messages/zh-CN')
   const dict = mod.zhCN as Record<string, unknown>
   const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k.split('.').reduce<unknown>((o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined), dict)
+    const val = k
+      .split('.')
+      .reduce<unknown>(
+        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
+        dict
+      )
     let s = typeof val === 'string' ? val : k
-    if (p) s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
+    if (p)
+      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
     return s
   }
-  return { useT: () => ({ t: (k: string, p?: Record<string, unknown>) => get(k, p), locale: 'zh-CN', setLocale: vi.fn() }), useNavTitle: vi.fn() }
+  return {
+    useT: () => ({
+      t: (k: string, p?: Record<string, unknown>) => get(k, p),
+      locale: 'zh-CN',
+      setLocale: vi.fn(),
+    }),
+    useNavTitle: vi.fn(),
+  }
 })
 describe('EmailSignupPage', () => {
   beforeEach(() => {
@@ -114,7 +127,10 @@ describe('EmailSignupPage', () => {
     authMock.getUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
     authMock.signOut.mockReset()
     authMock.signOut.mockResolvedValue({ error: null })
-    authMock.getSession.mockResolvedValue({ data: { session: { user: { id: 'u1' } } }, error: null })
+    authMock.getSession.mockResolvedValue({
+      data: { session: { user: { id: 'u1' } } },
+      error: null,
+    })
     authMock.signUp.mockReset()
     taroMock.reLaunch.mockClear()
     taroMock.navigateTo.mockClear()
@@ -216,4 +232,3 @@ describe('EmailSignupPage', () => {
     expect(routeAfterLoginMock).not.toHaveBeenCalled()
   })
 })
-

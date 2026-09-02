@@ -54,7 +54,11 @@ export default function Profile() {
   const [isLangOpen, setIsLangOpen] = useState(false)
 
   // 资料：头像卡 / 邮箱展示 / 换绑邮箱同步
-  const { data: profileData, update: updateProfile, fetch: refetchProfiles } = useProfiles({ userId: user?.id })
+  const {
+    data: profileData,
+    update: updateProfile,
+    fetch: refetchProfiles,
+  } = useProfiles({ userId: user?.id })
   const myProfile = profileData[0]
 
   // 头像卡展示信息
@@ -66,9 +70,12 @@ export default function Profile() {
   const email = myProfile?.email ?? user?.email ?? '—'
   // 中文名：仅取首字；非中文：取前 2 字，兜底 1 字
   const isChineseName = fullName !== '—' && /[\u4e00-\u9fff]/.test(fullName)
-  const initials = fullName !== '—'
-    ? (isChineseName ? fullName.slice(0, 1) : fullName.slice(0, 2) || fullName.slice(0, 1) || '--')
-    : '--'
+  const initials =
+    fullName !== '—'
+      ? isChineseName
+        ? fullName.slice(0, 1)
+        : fullName.slice(0, 2) || fullName.slice(0, 1) || '--'
+      : '--'
   const avatarUrl = myProfile?.avatar_url ?? null
 
   // 显示用邮箱：若为合成占位邮箱，显示「未填写」
@@ -329,9 +336,16 @@ export default function Profile() {
     }
   }
 
+  const signingOutRef = useRef(false)
   const handleLogout = async () => {
-    await signOut()
-    void Taro.reLaunch({ url: '/pages/login/index' })
+    if (signingOutRef.current) return
+    signingOutRef.current = true
+    try {
+      await signOut()
+      void Taro.reLaunch({ url: '/pages/login/index' })
+    } finally {
+      signingOutRef.current = false
+    }
   }
 
   // 弹窗打开时重置 tab 到「换绑邮箱」
@@ -479,9 +493,7 @@ export default function Profile() {
                 className='border-b border-border px-4 py-3'
                 onClick={() => setIsLangOpen(true)}
               >
-                <Text className='text-sm font-medium text-text'>
-                  语言设置 / Language Settings
-                </Text>
+                <Text className='text-sm font-medium text-text'>语言设置 / Language Settings</Text>
               </View>
               {/* 外观：亮色 / 暗色 / 跟随系统 三态主题切换 */}
               <View
@@ -573,7 +585,9 @@ export default function Profile() {
                         ? 'bg-muted text-text-muted'
                         : 'bg-primary text-primary-foreground'
                     }`}
-                    onClick={codeCountdown > 0 || codeSending ? undefined : () => void handleSendCode()}
+                    onClick={
+                      codeCountdown > 0 || codeSending ? undefined : () => void handleSendCode()
+                    }
                   >
                     {codeSending
                       ? t('profile.account.submitting')
@@ -589,9 +603,15 @@ export default function Profile() {
                   className={`rounded-full bg-primary px-6 py-2 text-xs font-medium text-primary-foreground ${
                     isUpdatingPwd || isRebindingEmail ? 'opacity-60' : ''
                   }`}
-                  onClick={isUpdatingPwd || isRebindingEmail ? undefined : () => void handleUpdatePassword()}
+                  onClick={
+                    isUpdatingPwd || isRebindingEmail
+                      ? undefined
+                      : () => void handleUpdatePassword()
+                  }
                 >
-                  {isUpdatingPwd ? t('profile.account.submitting') : t('profile.account.confirmChange')}
+                  {isUpdatingPwd
+                    ? t('profile.account.submitting')
+                    : t('profile.account.confirmChange')}
                 </View>
               </View>
             </View>
@@ -633,7 +653,9 @@ export default function Profile() {
                         ? 'bg-muted text-text-muted'
                         : 'bg-primary text-primary-foreground'
                     }`}
-                    onClick={codeCountdown > 0 || codeSending ? undefined : () => void handleSendCode()}
+                    onClick={
+                      codeCountdown > 0 || codeSending ? undefined : () => void handleSendCode()
+                    }
                   >
                     {codeSending
                       ? t('profile.account.submitting')
@@ -648,9 +670,13 @@ export default function Profile() {
                   className={`rounded-full bg-primary px-6 py-2 text-xs font-medium text-primary-foreground ${
                     isRebindingEmail || isUpdatingPwd ? 'opacity-60' : ''
                   }`}
-                  onClick={isRebindingEmail || isUpdatingPwd ? undefined : () => void handleRebindEmail()}
+                  onClick={
+                    isRebindingEmail || isUpdatingPwd ? undefined : () => void handleRebindEmail()
+                  }
                 >
-                  {isRebindingEmail ? t('profile.account.submitting') : t('profile.account.confirmChange')}
+                  {isRebindingEmail
+                    ? t('profile.account.submitting')
+                    : t('profile.account.confirmChange')}
                 </View>
               </View>
             </View>

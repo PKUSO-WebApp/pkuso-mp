@@ -54,7 +54,11 @@ function interpolate(s: string, params?: Record<string, string | number>): strin
 }
 
 /** 纯函数翻译（便于单测）；缺失 key 时回退到 key 本身 */
-export function translate(dict: Dict, key: string, params?: Record<string, string | number>): string {
+export function translate(
+  dict: Dict,
+  key: string,
+  params?: Record<string, string | number>
+): string {
   return interpolate(getByPath(dict, key) ?? key, params)
 }
 

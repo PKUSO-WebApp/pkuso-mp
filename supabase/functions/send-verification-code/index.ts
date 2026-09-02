@@ -92,7 +92,8 @@ function buildEmailHtml(code: string, purpose: 'password_change' | 'email_change
     ? 'You are changing your password. Use the code below to complete the operation. This code <strong>expires in 5 minutes</strong>.'
     : 'You are changing your email. Use the code below to complete the operation. This code <strong>expires in 5 minutes</strong>.'
   const ignoreZh = '如果你没有请求此操作，请忽略本邮件，你的账号仍然安全。'
-  const ignoreEn = "If you didn't request this, you can safely ignore this email. Your account remains secure."
+  const ignoreEn =
+    "If you didn't request this, you can safely ignore this email. Your account remains secure."
 
   return `<div style="font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 28px 24px; color: #333333; background-color: #ffffff;">
   <h2 style="font-size: 20px; line-height: 1.5; color: #1a237e; margin: 0 0 20px; font-weight: 700;">
@@ -161,11 +162,14 @@ Deno.serve(async (req) => {
 
   // 从 JWT 获取 user_id
   const token = authHeader.replace('Bearer ', '')
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser(token)
   if (authError || !user) return ok({ error: 'invalid token' })
 
   const userId = user.id
-  const body = await req.json().catch(() => null) as {
+  const body = (await req.json().catch(() => null)) as {
     purpose?: string
     new_email?: string
   } | null
@@ -192,10 +196,13 @@ Deno.serve(async (req) => {
       return ok({ error: 'new email same as current' })
     }
     // 检查新邮箱是否已被其他用户占用
-    const { data: emailCheck } = await supabase.rpc('check_email_taken' as never, {
-      p_email: newEmail,
-      p_exclude_user_id: userId,
-    } as never)
+    const { data: emailCheck } = await supabase.rpc(
+      'check_email_taken' as never,
+      {
+        p_email: newEmail,
+        p_exclude_user_id: userId,
+      } as never
+    )
     if (emailCheck === true) {
       return ok({ error: 'email_taken' })
     }
@@ -215,15 +222,13 @@ Deno.serve(async (req) => {
   const expiresAt = new Date(Date.now() + CODE_EXPIRY_MINUTES * 60 * 1000).toISOString()
 
   // 存入 DB
-  const { error: insertError } = await supabase
-    .from('verification_codes')
-    .insert({
-      user_id: userId,
-      code,
-      purpose,
-      target_email: targetEmail,
-      expires_at: expiresAt,
-    })
+  const { error: insertError } = await supabase.from('verification_codes').insert({
+    user_id: userId,
+    code,
+    purpose,
+    target_email: targetEmail,
+    expires_at: expiresAt,
+  })
 
   if (insertError) {
     console.error('[send-verification-code] insert error', insertError)
