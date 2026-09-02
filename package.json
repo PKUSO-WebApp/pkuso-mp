@@ -49,6 +49,9 @@
     "defaults and fully supports es6-module",
     "maintained node versions"
   ],
+  "pnpm": {
+    "onlyBuiltDependencies": ["*"]
+  },
   "author": "",
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
