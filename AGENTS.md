@@ -15,7 +15,7 @@
 2. 类型检查：`pnpm typecheck`
 3. 代码规范：`pnpm lint`
 4. 单元测试：`pnpm test`
-交付时请提醒用户在开发者工具中点一次「设置 → 通用 → 清空缓存 / 重开项目」。
+   交付时请提醒用户在开发者工具中点一次「设置 → 通用 → 清空缓存 / 重开项目」。
 
 ## 技术栈
 
@@ -67,3 +67,36 @@
   背景，带 `w-full overflow-hidden`）包住内层 `Input`/`Textarea`（内层用
   `w-full bg-transparent`，高度如 `h-10`）」的写法（参考 `src/pages/login/index.tsx`
   的邮箱/密码框）。改动表单页时务必沿用此模式，避免输入框溢出。
+
+## 版本号管理
+
+脚本：`scripts/version.js`，通过 `node scripts/version.js <action>` 调用。
+
+### 版本号格式
+
+`<major>.<minor>.<patch>` 或 `<major>.<minor>.<patch>-<prerelease>.<num>`
+
+示例：`0.1.5`（正式版）、`0.1.5-dev.1`（开发版）、`0.1.5-rc.1`（审核版）
+
+### 使用场景
+
+| 场景 | 命令 | 效果 |
+|------|------|------|
+| 日常开发 | `pnpm version:dev` | `0.1.5` → `0.1.5-dev.1`（递增 dev 序号） |
+| 提交审核 | `pnpm version:rc` | `0.1.5-dev.1` → `0.1.5-rc.1` |
+| 审核通过发布 | `pnpm version:release` | `0.1.5-rc.1` → `0.1.5` |
+| 补丁升级 | `pnpm version:bump` | `0.1.5` → `0.1.6` |
+| 次版本升级 | `pnpm version:minor` | `0.1.5` → `0.2.0` |
+| 主版本升级 | `pnpm version:major` | `0.1.5` → `1.0.0` |
+
+### 发布流程
+
+1. **开发阶段**：`pnpm version:dev` → `pnpm dev:weapp` → 本地预览
+2. **准备审核**：`pnpm version:rc` → `pnpm build:weapp` → 微信开发者工具「上传」
+3. **审核通过**：`pnpm version:release` → `pnpm build:weapp` → 微信开发者工具「上传」→ 发布
+
+### 注意事项
+
+- 版本号存于 `package.json` 的 `version` 字段
+- `pnpm build:weapp` 编译时会注入 `APP_VERSION` 常量（显示在「我的」页脚）
+- 微信后台「版本管理」中可查看每个上传版本的版本号
