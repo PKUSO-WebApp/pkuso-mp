@@ -1,6 +1,6 @@
 {
   "name": "pkuso-miniprogram",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "PKUSO wechat miniprogram (member end)",
   "templateInfo": {
@@ -35,7 +35,13 @@
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
     "test": "vitest run",
-    "verify": "pnpm format && pnpm lint && pnpm typecheck && pnpm test"
+    "verify": "pnpm format && pnpm lint && pnpm typecheck && pnpm test",
+    "version:dev": "node scripts/version.js dev",
+    "version:rc": "node scripts/version.js rc",
+    "version:release": "node scripts/version.js release",
+    "version:bump": "node scripts/version.js bump",
+    "version:minor": "node scripts/version.js minor",
+    "version:major": "node scripts/version.js major"
   },
   "browserslist": [
     "defaults and fully supports es6-module",
