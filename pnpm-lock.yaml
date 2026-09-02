@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@babel/runtime':
-        specifier: ^7.24.4
-        version: 7.29.7
       '@supabase/supabase-js':
         specifier: ^2.112.4
         version: 2.112.4
