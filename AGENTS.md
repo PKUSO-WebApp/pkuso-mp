@@ -100,3 +100,63 @@
 - 版本号存于 `package.json` 的 `version` 字段
 - `pnpm build:weapp` 编译时会注入 `APP_VERSION` 常量（显示在「我的」页脚）
 - 微信后台「版本管理」中可查看每个上传版本的版本号
+
+## CI/CD 自动化
+
+### ⚠️ 重要：分支管理规则
+
+**禁止直接使用 `git checkout -b` 或 `git branch` 创建分支！**
+
+版本号与分支名绑定，必须通过 `pnpm branch:create` 创建分支，否则版本号无法正确管理。
+
+### 分支策略
+
+- **`main` 分支**：稳定发布分支，只接受从 `dev` 合并，用于生产环境发布
+- **`dev` 分支**：开发测试分支，CI 自动上传到微信开发版供测试
+- **功能分支**：从 `dev` 创建，开发完成后 squash merge 回 `dev`
+
+### 工作流
+
+1. **创建功能分支**：`pnpm branch:create <patch|minor|major> <描述>`
+   - 自动更新 `package.json` 版本号
+   - 自动创建并切换到新分支
+   - 示例：`pnpm branch:create patch 修复登录bug`
+
+2. **开发完成后**：squash merge 到 `dev` 分支
+   ```bash
+   git checkout dev
+   git merge --squash <branch-name>
+   git commit -m "feat: 功能描述"
+   git push origin dev
+   ```
+
+3. **自动部署**：推送 `dev` 分支后，GitHub Actions 自动：
+   - 运行 `pnpm verify`（format + lint + typecheck + test）
+   - 构建 `pnpm build:weapp`
+   - 上传到微信小程序开发版
+
+4. **正式发布**：测试通过后，将 `dev` 合并到 `main`
+   ```bash
+   git checkout main
+   git merge dev
+   git push origin main
+   ```
+
+### 配置 GitHub Secrets
+
+在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加：
+
+| Secret 名称 | 说明 |
+|------------|------|
+| `WX_APPID` | 小程序 AppID（`wx4813b0549427f8c3`） |
+| `WX_PRIVATE_KEY` | 上传密钥文件内容（从微信公众平台下载） |
+
+### 手动上传
+
+```bash
+# 本地上传到开发版
+pnpm upload
+
+# 指定版本号和描述
+pnpm upload 0.2.1 "测试上传"
+```
