@@ -8,3 +8,6 @@ allowBuilds:
   esbuild: true
   less: true
   protobufjs: true
+
+overrides:
+  lru-cache: "^6.0.0"
