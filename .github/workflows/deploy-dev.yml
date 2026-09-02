@@ -24,7 +24,9 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: |
+          rm -f pnpm-lock.yaml
+          pnpm install
 
       - name: Run checks
         run: |
