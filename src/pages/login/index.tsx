@@ -29,15 +29,20 @@ export default function LoginPage() {
   // 已登录用户（含冷启动会话恢复后）按 profile 状态路由，避免看到登录页。
   // 先经 getUser 校验会话真实性：storage 有 stale session 但服务端已吊销时
   // （如账号被禁用），静默清除本地会话留在登录页，避免无守卫地跳进首页
+  // 若存在 returnTo 参数（分享链接跳转），登录后直接返回原页面
   useEffect(() => {
     if (!ready || !user) return
+    const returnTo = Taro.getCurrentInstance().router?.params?.returnTo
     let cancelled = false
     const verifyAndEnter = async () => {
       try {
         await supabase.auth.getUser()
         if (cancelled) return
-        // 资料补全 / 等待审核 / 审核未通过 / 首页，与提交成功后的路由双触发：幂等，可接受
-        await routeAfterLogin(supabase)
+        if (returnTo) {
+          await Taro.reLaunch({ url: decodeURIComponent(returnTo) })
+        } else {
+          await routeAfterLogin(supabase)
+        }
       } catch {
         // 会话无效：静默登出清理本地残留，停留登录页
         if (!cancelled) void supabase.auth.signOut()

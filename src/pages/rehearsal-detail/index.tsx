@@ -35,7 +35,7 @@ export default function RehearsalDetail() {
   const router = Taro.getCurrentInstance().router
   const id = Number(router?.params?.id)
   const darkClass = useThemeClass()
-  const { user } = useUser()
+  const { ready, user } = useUser()
   const {
     map: attendanceMap,
     loading: attendanceLoading,
@@ -46,6 +46,21 @@ export default function RehearsalDetail() {
   const [nowTick, setNowTick] = useState(() => Date.now())
   const { t } = useT()
   useNavTitle('activityDetail.navTitle')
+
+  // 分享链接未登录守卫：跳转登录页并携带 returnTo，登录后直接返回本页
+  useEffect(() => {
+    if (!ready || user) return
+    const currentPath = router?.path || '/pages/rehearsal-detail/index'
+    const params = router?.params || {}
+    const query = Object.entries(params)
+      .filter(([k]) => k !== 'returnTo')
+      .map(([k, v]) => `${k}=${v}`)
+      .join('&')
+    const returnTo = query ? `${currentPath}?${query}` : currentPath
+    void Taro.redirectTo({
+      url: `/pages/login/index?returnTo=${encodeURIComponent(returnTo)}`,
+    })
+  }, [ready, user, router?.path, router?.params])
 
   // 详情页按 id 直接取这一条，不依赖排练列表/缓存的时序：
   // 列表在 subscribeSync 静默重取时可能某帧不含本排练，若靠列表查找会在 loading=false 时误显「排练不存在」。

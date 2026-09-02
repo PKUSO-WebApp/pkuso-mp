@@ -26,6 +26,7 @@ const { taroMock } = vi.hoisted(() => {
     reLaunch: vi.fn(),
     navigateTo: vi.fn(),
     navigateBack: vi.fn(),
+    getCurrentInstance: vi.fn(() => ({ router: { path: '/pages/login/index', params: {} } })),
     // 主题 Provider 依赖的系统/存储/窗口 API
     getSystemInfoSync: vi.fn(() => ({ theme: 'light' })),
     setNavigationBarColor: vi.fn(() => Promise.resolve()),
