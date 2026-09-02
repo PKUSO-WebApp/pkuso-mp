@@ -130,12 +130,9 @@ export default function RehearsalDetail() {
   // 定位签到状态
   const signingInRef = useRef(false)
 
-  const handleSignInSuccess = async (rehearsalId: number, row: SignInResultRow | null) => {
+  const handleSignInSuccess = async (rehearsalId: number, _row: SignInResultRow | null) => {
     void Taro.showToast({
-      title:
-        row?.status === 'late'
-          ? t('activityDetail.toastSignedLate')
-          : t('activityDetail.toastSigned'),
+      title: t('activityDetail.toastSigned'),
       icon: 'success',
     })
     const cancelResult = await cancelOnSignIn(rehearsalId)
@@ -252,7 +249,7 @@ export default function RehearsalDetail() {
     new Date(nowTick)
   )
   const rehearsalEnded = blockReason === 'ended'
-  const canRequestLeave = !(attendance?.status === 'present' || attendance?.status === 'late')
+  const canRequestLeave = !(attendance?.status === 'present')
 
   let signLabel = ''
   let signClass = 'bg-muted text-text-subtle'
@@ -262,13 +259,8 @@ export default function RehearsalDetail() {
     // 加载中：中性灰 disabled，不预判任何结果色
     signLabel = t('common.actions.loading')
   } else if (signedIn) {
-    if (attendance?.status === 'late') {
-      signLabel = t('activityDetail.status.late')
-      signClass = 'bg-warning-bg text-warning'
-    } else {
-      signLabel = t('activityDetail.status.present')
-      signClass = 'bg-success-bg text-success'
-    }
+    signLabel = t('activityDetail.status.present')
+    signClass = 'bg-success-bg text-success'
   } else if (blockReason === 'not-started') {
     signLabel = t('activityDetail.status.notStarted')
   } else if (blockReason === 'ended') {

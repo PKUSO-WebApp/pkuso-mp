@@ -13,7 +13,7 @@ import { useUser } from '@/context/user-context'
 import Taro from '@tarojs/taro'
 import './index.scss'
 
-const ATTENDANCE_SUMMARY_ITEMS: AttendanceSummaryKey[] = ['present', 'late', 'excused', 'absent']
+const ATTENDANCE_SUMMARY_ITEMS: AttendanceSummaryKey[] = ['present', 'excused', 'absent']
 
 const getAttendanceDisplay = (
   status: AttendanceRow['status'],

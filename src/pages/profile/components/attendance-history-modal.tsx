@@ -12,11 +12,11 @@ import type { AttendanceRow } from '@/types/database'
 
 // 统计栏目顺序（只声明 key 顺序）：文案取 STATUS_LABEL、颜色取 STATUS_TEXT_COLOR，
 // 均从 attendance-status 派生（单一事实源）；「未签到/未评定」不参与分类
-const ATTENDANCE_SUMMARY_ITEMS: AttendanceSummaryKey[] = ['present', 'late', 'excused', 'absent']
+const ATTENDANCE_SUMMARY_ITEMS: AttendanceSummaryKey[] = ['present', 'excused', 'absent']
 
 /**
  * 考勤状态展示（与 Web 端 profile 考勤弹窗同源语义）：
- * - present/late/excused：直接按 STATUS_LABEL 映射；
+ * - present/excused：直接按 STATUS_LABEL 映射；
  * - absent：新建排练时为全员预生成的默认占位（未签到）——排练未结束时
  *   不构成缺勤，显示「未签到」；已结束（或已签到补签）才确认缺勤；
  * - status 为 null（历史数据/未评定）：显示「—」。

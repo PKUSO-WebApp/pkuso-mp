@@ -49,8 +49,8 @@ describe('judgeAttendanceStatus（出勤状态判定）', () => {
     expect(judgeAttendanceStatus(new Date('2026-08-15T20:14:59'), start, end)).toBe('present')
   })
 
-  it('宽限期后至结束前为迟到', () => {
-    expect(judgeAttendanceStatus(new Date('2026-08-15T20:15:01'), start, end)).toBe('late')
+  it('宽限期后至结束前签到仍为出席', () => {
+    expect(judgeAttendanceStatus(new Date('2026-08-15T20:15:01'), start, end)).toBe('present')
   })
 
   it('结束后签到为缺席', () => {
