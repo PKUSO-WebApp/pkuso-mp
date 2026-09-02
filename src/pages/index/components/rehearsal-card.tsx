@@ -54,7 +54,7 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
         </Text>
 
         {updatedFields && updatedFields.length > 0 && (
-          <StatusChip tone='warning' className='absolute right-0 top-0'>
+          <StatusChip tone='warning' className='absolute bottom-0 right-0'>
             {t('home.updated', {
               fields: updatedFields.map((f) => t(`home.updatedField.${f}`)).join('/'),
             })}
@@ -62,7 +62,7 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
         )}
       </View>
 
-      {!seen && <UnreadDot className='absolute right-0 top-8' />}
+      {!seen && <UnreadDot className='absolute right-0 top-0' />}
     </Card>
   )
 }
