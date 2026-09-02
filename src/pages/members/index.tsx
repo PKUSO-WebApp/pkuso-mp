@@ -45,9 +45,15 @@ export default function Members() {
   // 详情弹窗：点击花名册成员打开（只读）
   const [selectedUser, setSelectedUser] = useState<ProfileRow | null>(null)
 
-  // 花名册不含管理端账号（与 Web 端一致）
+  // 花名册不含管理端账号和测试账号（姓名以 test 开头，不区分大小写）
   const rosterRows = useMemo(
-    () => (allProfiles ?? []).filter((r) => (r.role ?? '') !== 'admin') as ProfileRow[],
+    () =>
+      (allProfiles ?? []).filter((r) => {
+        if ((r.role ?? '') === 'admin') return false
+        const name = (r.full_name ?? '').trim().toLowerCase()
+        if (name.startsWith('test')) return false
+        return true
+      }) as ProfileRow[],
     [allProfiles]
   )
 
