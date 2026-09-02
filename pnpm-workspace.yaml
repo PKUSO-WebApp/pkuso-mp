@@ -11,3 +11,6 @@ allowBuilds:
   esbuild: true
   less: true
   protobufjs: true
+
+overrides:
+  '@babel/core': '7.24.4'
