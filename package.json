@@ -41,7 +41,9 @@
     "version:release": "node scripts/version.js release",
     "version:bump": "node scripts/version.js bump",
     "version:minor": "node scripts/version.js minor",
-    "version:major": "node scripts/version.js major"
+    "version:major": "node scripts/version.js major",
+    "branch:create": "node scripts/create-branch.js",
+    "upload": "node scripts/upload.js"
   },
   "browserslist": [
     "defaults and fully supports es6-module",
@@ -94,6 +96,7 @@
     "husky": "^9.1.7",
     "jsdom": "^30.0.1",
     "lint-staged": "^16.1.2",
+    "miniprogram-ci": "^2.1.31",
     "postcss": "^8.5.6",
     "prettier": "^3.9.6",
     "react-refresh": "^0.14.0",
