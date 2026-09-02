@@ -55,7 +55,12 @@ vi.mock('@/i18n', async () => {
   const mod = await import('@/i18n/messages/zh-CN')
   const dict = mod.zhCN as Record<string, unknown>
   const get = (k: string): string => {
-    const val = k.split('.').reduce<unknown>((o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined), dict)
+    const val = k
+      .split('.')
+      .reduce<unknown>(
+        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
+        dict
+      )
     return typeof val === 'string' ? val : k
   }
   return { useT: () => ({ t: get, locale: 'zh-CN', setLocale: vi.fn() }), useNavTitle: vi.fn() }
@@ -83,18 +88,16 @@ describe('NotificationList typeFilter（活动页三 tab 实筛选）', () => {
     expect(screen.getByText('帖子已被删除')).toBeTruthy()
   })
 
-  it("ensemble：只显示归类为重奏的通知；标记已读仍覆盖全量", async () => {
+  it('ensemble：只显示归类为重奏的通知；标记已读仍覆盖全量', async () => {
     render(<NotificationList category='activity' title='活动通知' typeFilter='ensemble' />)
     await waitFor(() => expect(screen.getByText('帖子已被锁定')).toBeTruthy())
     expect(screen.queryByText('帖子已被删除')).toBeNull()
     expect(screen.queryByText('系统维护')).toBeNull()
     // 曝光语义不变：未读标记覆盖该分类全部未读（含团建那条），已读的排除
-    await waitFor(() =>
-      expect(fetchMock.markMock).toHaveBeenCalledWith('activity', ['1', '2'])
-    )
+    await waitFor(() => expect(fetchMock.markMock).toHaveBeenCalledWith('activity', ['1', '2']))
   })
 
-  it("gathering：只显示归类为团建的通知", async () => {
+  it('gathering：只显示归类为团建的通知', async () => {
     render(<NotificationList category='activity' title='活动通知' typeFilter='gathering' />)
     await waitFor(() => expect(screen.getByText('帖子已被删除')).toBeTruthy())
     expect(screen.queryByText('帖子已被锁定')).toBeNull()

@@ -13,4 +13,5 @@ export const postDetail = {
   contact: '联系方式',
   copy: '一键复制',
   copied: '已复制',
+  shareDefaultTitle: '公告详情',
 }

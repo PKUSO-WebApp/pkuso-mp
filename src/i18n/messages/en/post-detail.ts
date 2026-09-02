@@ -13,4 +13,5 @@ export const postDetail = {
   contact: 'Contact',
   copy: 'Copy',
   copied: 'Copied',
+  shareDefaultTitle: 'Announcement',
 }

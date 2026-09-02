@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { usePosts } from '@/hooks/usePosts'
 import { useUser } from '@/context/user-context'
 import { parseLocalISO } from '@/lib/date-utils'
@@ -23,14 +23,19 @@ export function PostUnviewedSync() {
   const { data, fetch } = usePosts()
   const { user, ready } = useUser()
 
+  // 用 ref 追踪最新 data，避免 data 变化导致重新订阅
+  const dataRef = useRef(data)
+  dataRef.current = data
+
   // 会话就绪后重新拉取，修正冷启动空结果（镜像 NotificationBadgeSync 的 refresh 时机）
   useEffect(() => {
     if (ready || user?.id) void fetch()
   }, [ready, user?.id, fetch])
 
+  // 只订阅一次，compute 内部通过 ref 读取最新 data
   useEffect(() => {
     const compute = () => {
-      const latest = data.reduce((max, p) => {
+      const latest = dataRef.current.reduce((max, p) => {
         if (!p.created_at) return max
         const ts = parseLocalISO(p.created_at).getTime()
         return Number.isNaN(ts) ? max : Math.max(max, ts)
@@ -40,7 +45,7 @@ export function PostUnviewedSync() {
     compute()
     const unsub = subscribePostSeen(compute)
     return unsub
-  }, [data])
+  }, [])
 
   return null
 }

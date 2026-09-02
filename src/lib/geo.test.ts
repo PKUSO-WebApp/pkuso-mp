@@ -34,16 +34,16 @@ describe('withinCheckinGeofence', () => {
       withinCheckinGeofence({ latitude: 1, longitude: 1 }, { lat: null, lng: null, radiusM: null })
     ).toEqual({ ok: true, distanceM: 0 })
     expect(
-      withinCheckinGeofence({ latitude: 1, longitude: 1 }, { lat: 39.99, lng: 116.31, radiusM: null })
+      withinCheckinGeofence(
+        { latitude: 1, longitude: 1 },
+        { lat: 39.99, lng: 116.31, radiusM: null }
+      )
     ).toEqual({ ok: true, distanceM: 0 })
   })
 
   it('半径内通过', () => {
     // ~0.001 度经度在北纬 40° 约 85m
-    const r = withinCheckinGeofence(
-      { latitude: 39.99, longitude: 116.311, accuracy: 30 },
-      center
-    )
+    const r = withinCheckinGeofence({ latitude: 39.99, longitude: 116.311, accuracy: 30 }, center)
     expect(r.ok).toBe(true)
     expect(r.distanceM).toBeGreaterThan(50)
     expect(r.distanceM).toBeLessThan(120)
@@ -51,10 +51,7 @@ describe('withinCheckinGeofence', () => {
 
   it('半径外拒绝；accuracy 容差可救回边缘情况', () => {
     // ~0.01 度经度约 850m，远超 200m
-    const far = withinCheckinGeofence(
-      { latitude: 39.99, longitude: 116.32, accuracy: 10 },
-      center
-    )
+    const far = withinCheckinGeofence({ latitude: 39.99, longitude: 116.32, accuracy: 10 }, center)
     expect(far.ok).toBe(false)
 
     // 距离 ~170m、误差 60m：净距离 110m < 200m → 通过

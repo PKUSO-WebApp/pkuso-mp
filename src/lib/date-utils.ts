@@ -68,7 +68,20 @@ function formatChinaTimeManual(date: Date): string {
 }
 
 /** 月份 code（对齐 i18n schedule.monthAbbr），供本地化月份缩写 */
-const MONTH_CODES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+const MONTH_CODES = [
+  'jan',
+  'feb',
+  'mar',
+  'apr',
+  'may',
+  'jun',
+  'jul',
+  'aug',
+  'sep',
+  'oct',
+  'nov',
+  'dec',
+]
 /** 星期 code（对齐 i18n schedule.weekdayShort），0=周日 */
 const DOW_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
@@ -205,9 +218,13 @@ export type RehearsalCardParts = {
  * - weekdayLabel: "周六"
  * - timeRange: "14:00 - 17:00"
  */
-export function formatRehearsalCardParts(startValue: string, endValue: string | null): RehearsalCardParts {
+export function formatRehearsalCardParts(
+  startValue: string,
+  endValue: string | null
+): RehearsalCardParts {
   const start = parseLocalISO(startValue)
-  if (Number.isNaN(start.getTime())) return { dateLabel: startValue, weekdayLabel: '', timeRange: '' }
+  if (Number.isNaN(start.getTime()))
+    return { dateLabel: startValue, weekdayLabel: '', timeRange: '' }
   const end = endValue ? parseLocalISO(endValue) : null
 
   const month = translateCurrent(`schedule.monthAbbr.${MONTH_CODES[start.getMonth()]}`)
@@ -310,7 +327,11 @@ function formatEnDateTime(dateStr: string): string {
   const month = MONTH_CODES[d.getMonth()]
   const day = String(d.getDate())
   const weekday = DOW_CODES[d.getDay()]
-  return buildEnDatePart(month, day, weekday) + translateCurrent('schedule.dateTimeSep') + formatTimeManual(d)
+  return (
+    buildEnDatePart(month, day, weekday) +
+    translateCurrent('schedule.dateTimeSep') +
+    formatTimeManual(d)
+  )
 }
 
 /** 英文日期部分：按 {weekday}, {month} {day} 模板填充 */

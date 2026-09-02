@@ -79,10 +79,22 @@ export function classify(data: WechatCheckData): CheckResult | null {
   const errcode = data.errcode ?? -1
   if (errcode === 0) {
     if (data.suggest === 'risk') {
-      return { result: 'block', errcode, errmsg: data.errmsg ?? 'risk', label: data.label, keyword: data.keyword }
+      return {
+        result: 'block',
+        errcode,
+        errmsg: data.errmsg ?? 'risk',
+        label: data.label,
+        keyword: data.keyword,
+      }
     }
     if (data.suggest === 'review') {
-      return { result: 'review', errcode, errmsg: data.errmsg ?? 'review', label: data.label, keyword: data.keyword }
+      return {
+        result: 'review',
+        errcode,
+        errmsg: data.errmsg ?? 'review',
+        label: data.label,
+        keyword: data.keyword,
+      }
     }
     return { result: 'pass', errcode, errmsg: data.errmsg ?? 'ok' }
   }
@@ -96,7 +108,7 @@ async function checkText(
   content: string,
   openid: string,
   scene: number,
-  retried = false,
+  retried = false
 ): Promise<CheckResult> {
   const token = await getAccessToken()
   const url = `https://api.weixin.qq.com/wxa/msg_sec_check?access_token=${token}`
@@ -125,7 +137,7 @@ async function checkImage(
   imageUrl: string,
   openid: string,
   scene: number,
-  retried = false,
+  retried = false
 ): Promise<CheckResult> {
   const token = await getAccessToken()
   const imgRes = await fetch(imageUrl)
@@ -138,7 +150,11 @@ async function checkImage(
     throw new Error('图片过大，请压缩至 1MB 以内后重试')
   }
   const form = new FormData()
-  form.append('media', new Blob([buf], { type: imgRes.headers.get('content-type') || 'image/jpeg' }), 'image.jpg')
+  form.append(
+    'media',
+    new Blob([buf], { type: imgRes.headers.get('content-type') || 'image/jpeg' }),
+    'image.jpg'
+  )
   const url = `https://api.weixin.qq.com/wxa/img_sec_check?access_token=${token}`
   lastDebug.imageUrl = url.replace(token, '***')
   const { status, raw } = await wxFetch(url, { method: 'POST', body: form })
@@ -190,10 +206,12 @@ export async function handler(req: Request): Promise<Response> {
   try {
     let r: CheckResult
     if (body.kind === 'text') {
-      if (typeof body.content !== 'string' || !body.content) return json(400, { error: 'missing content' })
+      if (typeof body.content !== 'string' || !body.content)
+        return json(400, { error: 'missing content' })
       r = await checkText(body.content, openid, scene)
     } else if (body.kind === 'image') {
-      if (typeof body.imageUrl !== 'string' || !body.imageUrl) return json(400, { error: 'missing imageUrl' })
+      if (typeof body.imageUrl !== 'string' || !body.imageUrl)
+        return json(400, { error: 'missing imageUrl' })
       r = await checkImage(body.imageUrl, openid, scene)
     } else {
       return json(400, { error: 'unknown kind (expected text|image)' })

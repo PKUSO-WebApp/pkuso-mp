@@ -47,7 +47,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const p = THEME_PALETTE[mode]
     const noop = () => {}
     try {
-      void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(noop)
+      void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(
+        noop
+      )
       void Taro.setBackgroundColor({ backgroundColor: p.windowBg }).catch(noop)
     } catch {
       // 非页面环境（如测试）静默跳过

@@ -4,7 +4,8 @@ export type AppEnv = 'develop' | 'trial' | 'release' | 'unknown'
 
 function readMiniProgram(): { envVersion?: AppEnv; version?: string } {
   try {
-    const info = (Taro.getAccountInfoSync?.() as { miniProgram?: { envVersion?: AppEnv; version?: string } } | undefined)
+    const info = Taro.getAccountInfoSync?.() as
+      { miniProgram?: { envVersion?: AppEnv; version?: string } } | undefined
     return info?.miniProgram ?? {}
   } catch {
     return {}

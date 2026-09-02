@@ -36,7 +36,14 @@ vi.mock('@tarojs/components', () => {
     )
   }
   const Input = (props: any) => React.createElement('input', props)
-  return { View: create('div'), Text: create('span'), Button: create('button'), Picker, Input, ScrollView: create('div') }
+  return {
+    View: create('div'),
+    Text: create('span'),
+    Button: create('button'),
+    Picker,
+    Input,
+    ScrollView: create('div'),
+  }
 })
 
 vi.mock('@tarojs/taro', () => ({ default: taroMock, useDidShow: taroMock.useDidShow }))
@@ -107,13 +114,23 @@ vi.mock('@/i18n', async () => {
   const mod = await import('@/i18n/messages/zh-CN')
   const dict = mod.zhCN as Record<string, unknown>
   const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k.split('.').reduce<unknown>((o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined), dict)
+    const val = k
+      .split('.')
+      .reduce<unknown>(
+        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
+        dict
+      )
     let s = typeof val === 'string' ? val : k
-    if (p) s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
+    if (p)
+      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
     return s
   }
   return {
-    useT: () => ({ t: (k: string, p?: Record<string, unknown>) => get(k, p), locale: 'zh-CN', setLocale: vi.fn() }),
+    useT: () => ({
+      t: (k: string, p?: Record<string, unknown>) => get(k, p),
+      locale: 'zh-CN',
+      setLocale: vi.fn(),
+    }),
     useNavTitle: vi.fn(),
     loaders: {
       'zh-CN': () => Promise.resolve({ default: {} as Record<string, unknown> }),
@@ -141,4 +158,3 @@ describe('我的页', () => {
     expect(taroMock.navigateTo).toHaveBeenCalledWith({ url: '/pages/profile-info/index' })
   })
 })
-

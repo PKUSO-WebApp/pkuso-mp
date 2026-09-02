@@ -10,7 +10,13 @@ type ToggleProps<T extends string> = {
   badges?: Partial<Record<T, boolean>>
 }
 
-export function Toggle<T extends string>({ options, value, onChange, getLabel, badges }: ToggleProps<T>) {
+export function Toggle<T extends string>({
+  options,
+  value,
+  onChange,
+  getLabel,
+  badges,
+}: ToggleProps<T>) {
   return (
     <View className='inline-flex rounded-full bg-muted p-1'>
       {options.map((opt) => {

@@ -54,9 +54,10 @@ export default function Members() {
   const sectionMatch = useMemo(() => matchInstrumentSection(searchQuery), [searchQuery])
 
   const filteredRows = useMemo(
-    () => sectionMatch
-      ? rosterRows.filter((r) => sectionMatch.includes(r.instrument ?? ''))
-      : filterByName(rosterRows, searchQuery),
+    () =>
+      sectionMatch
+        ? rosterRows.filter((r) => sectionMatch.includes(r.instrument ?? ''))
+        : filterByName(rosterRows, searchQuery),
     [rosterRows, searchQuery, sectionMatch]
   )
 

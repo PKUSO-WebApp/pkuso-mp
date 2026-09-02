@@ -7,8 +7,10 @@ export const ui = {
   },
   forceOffline: {
     title: 'Your account signed in on another device',
-    line1: 'Your account was signed in on another device at {when}; this device has been signed out.',
-    line2: 'If this was not you, your password may be compromised. Please sign in again and change it as soon as possible.',
+    line1:
+      'Your account was signed in on another device at {when}; this device has been signed out.',
+    line2:
+      'If this was not you, your password may be compromised. Please sign in again and change it as soon as possible.',
     action: 'Sign In Again',
     justNow: 'just now',
   },

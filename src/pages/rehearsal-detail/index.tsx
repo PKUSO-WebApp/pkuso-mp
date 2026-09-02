@@ -14,11 +14,16 @@ import { FieldRow } from '@/components/ui/FieldRow'
 import type { RehearsalRow } from '@/types/database'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
+import './index.scss'
 
-const mapSignInError = (tf: (key: string, params?: Record<string, unknown>) => string, err: string): string => {
+const mapSignInError = (
+  tf: (key: string, params?: Record<string, unknown>) => string,
+  err: string
+): string => {
   const msg = err.toLowerCase()
   if (msg.includes('outside check-in geofence')) return tf('activityDetail.signIn.tooFar')
-  if (msg.includes('check-in location is required')) return tf('activityDetail.signIn.locationRequired')
+  if (msg.includes('check-in location is required'))
+    return tf('activityDetail.signIn.locationRequired')
   if (msg.includes('authentication required')) return tf('activityDetail.signIn.authRequired')
   if (msg.includes('not approved')) return tf('activityDetail.signIn.notApproved')
   if (msg.includes('outside the allowed window')) return tf('activityDetail.signIn.outsideWindow')
@@ -31,7 +36,12 @@ export default function RehearsalDetail() {
   const id = Number(router?.params?.id)
   const darkClass = useThemeClass()
   const { user } = useUser()
-  const { map: attendanceMap, loading: attendanceLoading, fetchMyAttendances, signIn } = useAttendance()
+  const {
+    map: attendanceMap,
+    loading: attendanceLoading,
+    fetchMyAttendances,
+    signIn,
+  } = useAttendance()
   const { data: leaveRequests, cancelOnSignIn, fetchMine } = useLeaveRequests()
   const [nowTick, setNowTick] = useState(() => Date.now())
   const { t } = useT()
@@ -50,11 +60,7 @@ export default function RehearsalDetail() {
     let cancelled = false
     setRehearsalLoading(true)
     void (async () => {
-      const { data, error } = await supabase
-        .from('rehearsals')
-        .select('*')
-        .eq('id', id)
-        .single()
+      const { data, error } = await supabase.from('rehearsals').select('*').eq('id', id).single()
       if (cancelled) return
       if (error) {
         setRehearsal(null)
@@ -98,15 +104,10 @@ export default function RehearsalDetail() {
     void fetchMine()
   })
 
-  // 分享：标题 = 时间 + 地点，路径 = 当前页面
+  // 分享：标题 = "排练通知"，路径 = 当前页面
   useShareAppMessage(() => {
-    const timeText = rehearsal?.start_time
-      ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
-      : ''
-    const location = rehearsal?.location ?? ''
-    const title = [timeText, location].filter(Boolean).join(' · ') || t('activityDetail.shareDefaultTitle')
     return {
-      title,
+      title: t('activityDetail.shareTitle'),
       path: `/pages/rehearsal-detail/index?id=${id}`,
     }
   })
@@ -116,7 +117,10 @@ export default function RehearsalDetail() {
 
   const handleSignInSuccess = async (rehearsalId: number, row: SignInResultRow | null) => {
     void Taro.showToast({
-      title: row?.status === 'late' ? t('activityDetail.toastSignedLate') : t('activityDetail.toastSigned'),
+      title:
+        row?.status === 'late'
+          ? t('activityDetail.toastSignedLate')
+          : t('activityDetail.toastSigned'),
       icon: 'success',
     })
     const cancelResult = await cancelOnSignIn(rehearsalId)
@@ -138,7 +142,11 @@ export default function RehearsalDetail() {
         const accuracy = typeof loc.accuracy === 'number' ? loc.accuracy : null
         const geo = withinCheckinGeofence(
           { latitude: loc.latitude, longitude: loc.longitude, accuracy },
-          { lat: r.checkin_lat ?? null, lng: r.checkin_lng ?? null, radiusM: r.checkin_radius_m ?? null }
+          {
+            lat: r.checkin_lat ?? null,
+            lng: r.checkin_lng ?? null,
+            radiusM: r.checkin_radius_m ?? null,
+          }
         )
         logDiag('checkin_distance', {
           rehearsalId: r.id,
@@ -208,11 +216,13 @@ export default function RehearsalDetail() {
 
   if (!rehearsal) {
     return (
-    <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
-      <View className='flex flex-1 items-center justify-center'>
-        <Text className='text-xs text-text-muted'>{rehearsalLoading ? t('common.actions.loading') : t('activityDetail.notFound')}</Text>
+      <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
+        <View className='flex flex-1 items-center justify-center'>
+          <Text className='text-xs text-text-muted'>
+            {rehearsalLoading ? t('common.actions.loading') : t('activityDetail.notFound')}
+          </Text>
+        </View>
       </View>
-    </View>
     )
   }
 
@@ -221,7 +231,11 @@ export default function RehearsalDetail() {
   const explicitStatus = attendance && attendance.status !== 'absent' ? attendance.status : null
   const leaveStatus = leaveRequest?.status ?? null
   const hasActiveLeaveRequest = leaveStatus === 'pending' || leaveStatus === 'approved'
-  const blockReason = getSignBlockReason(rehearsal.start_time, rehearsal.end_time ?? null, new Date(nowTick))
+  const blockReason = getSignBlockReason(
+    rehearsal.start_time,
+    rehearsal.end_time ?? null,
+    new Date(nowTick)
+  )
   const rehearsalEnded = blockReason === 'ended'
   const canRequestLeave = !(attendance?.status === 'present' || attendance?.status === 'late')
 
@@ -265,47 +279,60 @@ export default function RehearsalDetail() {
   const timeText = rehearsal.start_time
     ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
     : t('activityDetail.timeUnset')
-  const typeText = rehearsal.type === 'section' ? t('activityDetail.type.section') : t('activityDetail.type.full')
+  const typeText =
+    rehearsal.type === 'section' ? t('activityDetail.type.section') : t('activityDetail.type.full')
 
   return (
     <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg pb-safe`}>
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='w-full px-4 pt-2 pb-4'>
-        <Text className='block text-2xl font-semibold text-text'>{timeText}</Text>
-        <Text className='mt-1 block text-sm text-text-muted'>{typeText}</Text>
-        <View className='my-4 h-px bg-border' />
-        <FieldRow layout='stacked' label={t('activityDetail.rows.time')} value={timeText} />
-        <FieldRow layout='stacked' label={t('activityDetail.rows.location')} value={rehearsal.location || t('activityDetail.unset')} />
-        <FieldRow layout='stacked' label={t('activityDetail.rows.repertoire')} value={rehearsal.repertoire || t('activityDetail.unset')} />
-        <View className='mt-6'>
-          <View
-            className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${signClass} ${
-              signDisabled ? 'opacity-90' : ''
-            }`}
-            onClick={signDisabled ? undefined : (onSign ?? undefined)}
-          >
-            {signLabel}
+          <Text className='block text-2xl font-semibold text-text'>{timeText}</Text>
+          <Text className='mt-1 block text-sm text-text-muted'>{typeText}</Text>
+          <View className='my-4 h-px bg-border' />
+          <FieldRow layout='stacked' label={t('activityDetail.rows.time')} value={timeText} />
+          <FieldRow
+            layout='stacked'
+            label={t('activityDetail.rows.location')}
+            value={rehearsal.location || t('activityDetail.unset')}
+          />
+          <FieldRow
+            layout='stacked'
+            label={t('activityDetail.rows.repertoire')}
+            value={rehearsal.repertoire || t('activityDetail.unset')}
+          />
+          <View className='mt-6'>
+            <View
+              className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${signClass} ${
+                signDisabled ? 'opacity-90' : ''
+              }`}
+              onClick={signDisabled ? undefined : (onSign ?? undefined)}
+            >
+              {signLabel}
+            </View>
           </View>
+          {canRequestLeave && (
+            <View
+              className='mt-3 flex items-center justify-center'
+              onClick={() =>
+                Taro.navigateTo({
+                  url: `/pages/leave-request/index?rehearsalId=${rehearsal.id}&start=${encodeURIComponent(
+                    rehearsal.start_time ?? ''
+                  )}&end=${encodeURIComponent(rehearsal.end_time ?? '')}`,
+                })
+              }
+            >
+              <Text className='text-sm text-danger'>
+                {t(
+                  rehearsalEnded
+                    ? 'activityDetail.requestLeaveRetro'
+                    : 'activityDetail.requestLeave'
+                )}{' '}
+                &gt;
+              </Text>
+            </View>
+          )}
         </View>
-        {canRequestLeave && (
-          <View
-            className='mt-3 flex items-center justify-center'
-            onClick={() =>
-              Taro.navigateTo({
-                url: `/pages/leave-request/index?rehearsalId=${rehearsal.id}&start=${encodeURIComponent(
-                  rehearsal.start_time ?? '',
-                )}&end=${encodeURIComponent(rehearsal.end_time ?? '')}`,
-              })
-            }
-          >
-            <Text className='text-sm text-danger'>
-              {t(rehearsalEnded ? 'activityDetail.requestLeaveRetro' : 'activityDetail.requestLeave')} &gt;
-            </Text>
-          </View>
-        )}
-       </View>
       </ScrollView>
     </View>
   )
 }
-

@@ -10,6 +10,7 @@ import { formatRehearsalRange } from '@/lib/date-utils'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import type { LeaveRequestRow, LeaveStatus } from '@/types/database'
+import './index.scss'
 
 type RehearsalMini = {
   type: string | null
@@ -98,18 +99,24 @@ export default function LeaveRequestsPage() {
   )
 
   return (
-        <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
+    <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
       {/* 顶部 tab 过滤（主色中字，切换即过滤） */}
       <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
 
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='px-4 pb-safe pt-1'>
           {loading ? (
-            <Text className='block py-10 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
+            <Text className='block py-10 text-center text-xs text-text-muted'>
+              {t('common.actions.loading')}
+            </Text>
           ) : failed ? (
-            <Text className='block py-10 text-center text-sm text-text-muted'>{t('leaveRequests.loadFailed')}</Text>
+            <Text className='block py-10 text-center text-sm text-text-muted'>
+              {t('leaveRequests.loadFailed')}
+            </Text>
           ) : filtered.length === 0 ? (
-            <Text className='block py-10 text-center text-sm text-text-muted'>{t('leaveRequests.empty')}</Text>
+            <Text className='block py-10 text-center text-sm text-text-muted'>
+              {t('leaveRequests.empty')}
+            </Text>
           ) : (
             filtered.map((r) => {
               const rehearsal = r.rehearsals
@@ -127,12 +134,18 @@ export default function LeaveRequestsPage() {
                     <Text className='text-sm text-primary'>{typeText}</Text>
                   </View>
                   <View className='mt-1'>
-                    <Text className='text-sm text-text-muted'>{t('leaveRequests.labelReason')}</Text>
+                    <Text className='text-sm text-text-muted'>
+                      {t('leaveRequests.labelReason')}
+                    </Text>
                     <Text className='whitespace-pre-wrap text-sm text-primary'>{r.reason}</Text>
                   </View>
                   <View className='mt-1'>
-                    <Text className='text-sm text-text-muted'>{t('leaveRequests.labelReviewReason')}</Text>
-                    <Text className='whitespace-pre-wrap text-sm text-primary'>{r.reject_reason || '—'}</Text>
+                    <Text className='text-sm text-text-muted'>
+                      {t('leaveRequests.labelReviewReason')}
+                    </Text>
+                    <Text className='whitespace-pre-wrap text-sm text-primary'>
+                      {r.reject_reason || '—'}
+                    </Text>
                   </View>
                   {/* 状态：右下角彩色方框 */}
                   <View className='mt-3 flex justify-end'>

@@ -96,38 +96,50 @@ export default function AttendancePage() {
         <View className='px-4'>
           <View className='mt-3 flex items-end gap-2'>
             <View className='flex-1'>
-              <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.attendance.startDate')}</Text>
+              <Text className='mb-1 block text-xs font-medium text-text-muted'>
+                {t('profile.attendance.startDate')}
+              </Text>
               <Picker
                 mode='date'
                 value={startDate}
                 onChange={(e) => handleStartChange(String(e.detail.value))}
               >
                 <View className='flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
-                  <Text className='text-sm text-text'>{startDate || t('profile.attendance.unlimited')}</Text>
+                  <Text className='text-sm text-text'>
+                    {startDate || t('profile.attendance.unlimited')}
+                  </Text>
                 </View>
               </Picker>
             </View>
             <Text className='pb-2 text-sm text-text-muted'>{t('profile.attendance.to')}</Text>
             <View className='flex-1'>
-              <Text className='mb-1 block text-xs font-medium text-text-muted'>{t('profile.attendance.endDate')}</Text>
+              <Text className='mb-1 block text-xs font-medium text-text-muted'>
+                {t('profile.attendance.endDate')}
+              </Text>
               <Picker
                 mode='date'
                 value={endDate}
                 onChange={(e) => handleEndChange(String(e.detail.value))}
               >
                 <View className='flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
-                  <Text className='text-sm text-text'>{endDate || t('profile.attendance.unlimited')}</Text>
+                  <Text className='text-sm text-text'>
+                    {endDate || t('profile.attendance.unlimited')}
+                  </Text>
                 </View>
               </Picker>
             </View>
           </View>
           {startDate && endDate && startDate > endDate && (
-            <Text className='block text-xs text-danger'>{t('profile.attendance.startAfterEnd')}</Text>
+            <Text className='block text-xs text-danger'>
+              {t('profile.attendance.startAfterEnd')}
+            </Text>
           )}
 
           <ScrollView scrollY className='mt-3' style={{ maxHeight: '60vh' }}>
             {loading ? (
-              <Text className='block py-6 text-center text-xs text-text-muted'>{t('common.actions.loading')}</Text>
+              <Text className='block py-6 text-center text-xs text-text-muted'>
+                {t('common.actions.loading')}
+              </Text>
             ) : queryFailed ? (
               <Text className='block py-6 text-center text-sm text-text-muted'>
                 {t('profile.attendance.loadFailed')}
@@ -167,10 +179,14 @@ export default function AttendancePage() {
                       </Text>
                     </View>
                     <Text className='mt-1 block text-xs text-text-muted'>
-                      {t('profile.attendance.location', { location: row.rehearsals?.location ?? '—' })}
+                      {t('profile.attendance.location', {
+                        location: row.rehearsals?.location ?? '—',
+                      })}
                     </Text>
                     <Text className='mt-1 block text-xs text-text-muted'>
-                      {t('profile.attendance.repertoire', { repertoire: row.rehearsals?.repertoire ?? '—' })}
+                      {t('profile.attendance.repertoire', {
+                        repertoire: row.rehearsals?.repertoire ?? '—',
+                      })}
                     </Text>
                   </View>
                 )
@@ -181,7 +197,10 @@ export default function AttendancePage() {
       </ScrollView>
 
       {!loading && !queryFailed && (
-        <View className='border-t border-border px-4 pt-2' style={{ paddingBottom: 'calc(8px + env(safe-area-inset-bottom))' }}>
+        <View
+          className='border-t border-border px-4 pt-2'
+          style={{ paddingBottom: 'calc(8px + env(safe-area-inset-bottom))' }}
+        >
           <Text className='text-xs text-text-muted'>
             {t('profile.attendance.totalRehearsals', { count: attendanceSummary.total })}
             {ATTENDANCE_SUMMARY_ITEMS.map((key) => (

@@ -120,12 +120,10 @@ export default function Schedule() {
         <Text className='text-base font-medium text-text'>{formatDisplayDate(selectedDate)}</Text>
       </View>
 
-       {/* 甘特图：外层 View 用 flex-1 占满页面剩余空间（含 tabBar 预留），min-h-0 允许矮屏内部滚动；
+      {/* 甘特图：外层 View 用 flex-1 占满页面剩余空间（含 tabBar 预留），min-h-0 允许矮屏内部滚动；
             其实际高度由 createSelectorQuery 测量后取 max(480, 实测) 赋给甘特图，使长屏撑满、矮屏保底
             480px 不挤字。页面根已预留 tabBar 50px+安全区，故可滚到底不遮挡 */}
-      <View
-        className='relative mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'
-      >
+      <View className='relative mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'>
         <ScrollView scrollY id='schedule-gantt-scroll' className='h-full'>
           {/* 无独立空态分支：空日期由甘特图自身渲染；isEmpty 恒 false 仅复用 loading/error 门控 */}
           <ListState loading={loading} isEmpty={false} error={tAppError(t, error)}>

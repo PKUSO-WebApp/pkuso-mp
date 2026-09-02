@@ -45,24 +45,19 @@ function App({ children }: PropsWithChildren<any>) {
     createElement(
       UserProvider,
       null,
+      createElement(
+        ThemeProvider,
+        null,
+        createElement(
+          LanguageProvider,
+          null,
           createElement(
-            ThemeProvider,
+            DataSyncProvider,
             null,
-            createElement(
-              LanguageProvider,
-              null,
-              createElement(
-                DataSyncProvider,
-                null,
             createElement(
               NotificationBadgeSync,
               null,
-              createElement(
-                Fragment,
-                null,
-                createElement(PostUnviewedSync, null),
-                children
-              )
+              createElement(Fragment, null, createElement(PostUnviewedSync, null), children)
             )
           )
         )

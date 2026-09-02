@@ -54,11 +54,7 @@ function ensureDir(fs: FsLike, dir: string): void {
   }
 }
 
-function writeChunk(
-  fs: FsLike,
-  target: { path: string; dir: string },
-  chunk: string
-): void {
+function writeChunk(fs: FsLike, target: { path: string; dir: string }, chunk: string): void {
   try {
     // 模拟器的 appendFileSync 不自动创建缺失文件：先探测，缺档则用 writeFileSync 建档
     let exists = true

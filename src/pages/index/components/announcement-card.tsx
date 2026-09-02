@@ -27,9 +27,7 @@ export function AnnouncementCard({ item, isExpired = false }: Props) {
         <Text className={`block text-base font-normal ${titleClass}`}>
           {item.title || t('home.announcementDefaultTitle')}
         </Text>
-        <Text className={`mt-1 block text-sm leading-relaxed ${contentClass}`}>
-          {item.content}
-        </Text>
+        <Text className={`mt-1 block text-sm leading-relaxed ${contentClass}`}>{item.content}</Text>
         <Text className={`mt-1 block text-sm ${timeClass}`}>
           {t('home.publishTime', { time: formatDateTimeInChina(item.created_at ?? null) })}
         </Text>

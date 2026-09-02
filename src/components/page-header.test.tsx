@@ -23,7 +23,6 @@ describe('PageHeader', () => {
     expect(screen.getByText('公告板')).toBeTruthy()
   })
 
-
   it('rightButton 渲染在标题行右侧', () => {
     render(<PageHeader title='日程预约' rightButton={<button>添加预约</button>} />)
     expect(screen.getByText('日程预约')).toBeTruthy()

@@ -39,12 +39,16 @@ export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetai
           </View>
           <View className='flex flex-wrap items-center gap-2'>
             <Text className='text-base font-semibold text-text'>{user.full_name ?? '—'}</Text>
-              {user.is_section_leader && (
-                <StatusChip tone='warning'>{t('members.sectionLeader')}</StatusChip>
-              )}
+            {user.is_section_leader && (
+              <StatusChip tone='warning'>{t('members.sectionLeader')}</StatusChip>
+            )}
           </View>
           {user.instrument?.trim() && (
-            <FieldRow className='mt-3' label={t('members.fieldInstrument')} value={translateInstrument(user.instrument, t)} />
+            <FieldRow
+              className='mt-3'
+              label={t('members.fieldInstrument')}
+              value={translateInstrument(user.instrument, t)}
+            />
           )}
           {user.college?.trim() && !(user.hide_college && user.id !== viewerId) && (
             <FieldRow className='mt-3' label={t('members.fieldCollege')} value={user.college} />
@@ -54,16 +58,28 @@ export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetai
             <FieldRow className='mt-3' label={t('members.fieldEmail')} value={user.email} />
           )}
           {user.phone_number && !(user.hide_phone && user.id !== viewerId) && (
-            <FieldRow className='mt-3' label={t('members.fieldContact')} value={user.phone_number} />
+            <FieldRow
+              className='mt-3'
+              label={t('members.fieldContact')}
+              value={user.phone_number}
+            />
           )}
           {user.join_date && !(user.hide_join_date && user.id !== viewerId) && (
-            <FieldRow className='mt-3' label={t('members.fieldJoinDate')} value={translateJoinDate(user.join_date, t)} />
+            <FieldRow
+              className='mt-3'
+              label={t('members.fieldJoinDate')}
+              value={translateJoinDate(user.join_date, t)}
+            />
           )}
           {/* 在团情况：不涉隐私开关，直接展示 */}
           <FieldRow
             className='mt-3'
             label={t('members.statusLabel')}
-            value={user.is_in_orchestra === true ? t('members.statusActive') : t('members.statusInactive')}
+            value={
+              user.is_in_orchestra === true
+                ? t('members.statusActive')
+                : t('members.statusInactive')
+            }
           />
         </View>
       )}

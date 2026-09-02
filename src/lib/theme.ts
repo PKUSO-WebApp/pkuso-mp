@@ -20,8 +20,7 @@ export const THEME_OPTIONS: readonly ThemePreference[] = ['light', 'dark']
 export const themeLabel = (v: ThemePreference): string =>
   translateCurrent(v === 'dark' ? 'profile.appearance.dark' : 'profile.appearance.light')
 
-export const isThemePreference = (v: unknown): v is ThemePreference =>
-  v === 'light' || v === 'dark'
+export const isThemePreference = (v: unknown): v is ThemePreference => v === 'light' || v === 'dark'
 
 /** 导航栏 / 窗口 / tabBar 配色单一真相源（theme-context 与 CustomTabBar 共用，P2-8）。
  *  取值与 app.css 语义 token 的亮/暗值一一对应，消除多处手写色板漂移 */
@@ -67,9 +66,7 @@ export const THEME_PALETTE: Record<ThemeMode, ThemePalette> = {
  * 核心解析规则：给定存储偏好 → 最终亮/暗。
  * 无存储（null，即默认）按亮色处理。
  */
-export function resolveTheme(
-  preference: ThemePreference | null | undefined
-): ThemeMode {
+export function resolveTheme(preference: ThemePreference | null | undefined): ThemeMode {
   if (preference === 'dark') return 'dark'
   return 'light'
 }

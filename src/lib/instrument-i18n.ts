@@ -2,39 +2,39 @@ import { getLocale, type TFn } from '@/i18n/core'
 
 // 规范中文名 → i18n code（与 messages/*/instruments.ts 的 key 对应）
 const INSTRUMENT_CODE: Record<string, InstrumentCode> = {
-  '第一小提琴': 'firstViolin',
-  '第二小提琴': 'secondViolin',
-  '中提琴': 'viola',
-  '大提琴': 'cello',
-  '低音提琴': 'doubleBass',
-  '长笛': 'flute',
-  '双簧管': 'oboe',
-  '单簧管': 'clarinet',
-  '大管': 'bassoon',
-  '圆号': 'horn',
-  '小号': 'trumpet',
-  '长号': 'trombone',
-  '大号': 'tuba',
-  '打击乐': 'percussion',
-  '键盘': 'keyboard',
-  '竖琴': 'harp',
-  '其他': 'other',
+  第一小提琴: 'firstViolin',
+  第二小提琴: 'secondViolin',
+  中提琴: 'viola',
+  大提琴: 'cello',
+  低音提琴: 'doubleBass',
+  长笛: 'flute',
+  双簧管: 'oboe',
+  单簧管: 'clarinet',
+  大管: 'bassoon',
+  圆号: 'horn',
+  小号: 'trumpet',
+  长号: 'trombone',
+  大号: 'tuba',
+  打击乐: 'percussion',
+  键盘: 'keyboard',
+  竖琴: 'harp',
+  其他: 'other',
 }
 
 // 常见缩写 / 别名 → code。中文模式下保留原串（如「小提琴」保持「小提琴」），
 // 仅英文模式映射到规范译名（如「小提琴」→ "2nd Violin"）。
 const INSTRUMENT_ALIAS: Record<string, InstrumentCode> = {
-  '小提琴': 'secondViolin',
-  '中提': 'viola',
-  '大提': 'cello',
-  '低音提': 'doubleBass',
-  '黑管': 'clarinet',
-  '钢片琴': 'keyboard',
-  '钢琴': 'keyboard',
-  '一提': 'firstViolin',
-  '二提': 'secondViolin',
-  '贝斯': 'doubleBass',
-  '欧宝': 'oboe',
+  小提琴: 'secondViolin',
+  中提: 'viola',
+  大提: 'cello',
+  低音提: 'doubleBass',
+  黑管: 'clarinet',
+  钢片琴: 'keyboard',
+  钢琴: 'keyboard',
+  一提: 'firstViolin',
+  二提: 'secondViolin',
+  贝斯: 'doubleBass',
+  欧宝: 'oboe',
 }
 
 // 英文名/缩略名 → code（支持在任意语言模式下用英文搜索声部）
@@ -43,23 +43,23 @@ const EN_INSTRUMENT_ALIAS: Record<string, InstrumentCode> = {
   'first violin': 'firstViolin',
   '2nd violin': 'secondViolin',
   'second violin': 'secondViolin',
-  'violin': 'firstViolin',
-  'viola': 'viola',
-  'cello': 'cello',
+  violin: 'firstViolin',
+  viola: 'viola',
+  cello: 'cello',
   'double bass': 'doubleBass',
-  'bass': 'doubleBass',
-  'flute': 'flute',
-  'oboe': 'oboe',
-  'clarinet': 'clarinet',
-  'bassoon': 'bassoon',
-  'horn': 'horn',
-  'trumpet': 'trumpet',
-  'trombone': 'trombone',
-  'tuba': 'tuba',
-  'percussion': 'percussion',
-  'keyboard': 'keyboard',
-  'keys': 'keyboard',
-  'harp': 'harp',
+  bass: 'doubleBass',
+  flute: 'flute',
+  oboe: 'oboe',
+  clarinet: 'clarinet',
+  bassoon: 'bassoon',
+  horn: 'horn',
+  trumpet: 'trumpet',
+  trombone: 'trombone',
+  tuba: 'tuba',
+  percussion: 'percussion',
+  keyboard: 'keyboard',
+  keys: 'keyboard',
+  harp: 'harp',
 }
 
 // 「小提琴」类搜索需同时匹配一提+二提的 code
@@ -124,9 +124,11 @@ export function matchInstrumentSection(query: string): string[] | null {
   for (const [alias, code] of Object.entries(INSTRUMENT_ALIAS)) {
     if (q === alias.toLowerCase()) {
       // 「小提琴」别名同时匹配一提+二提
-      if (code === 'secondViolin' && (alias === '小提琴')) {
+      if (code === 'secondViolin' && alias === '小提琴') {
         return VIOLIN_CODES.map((c) => {
-          for (const [name, v] of Object.entries(INSTRUMENT_CODE)) { if (v === c) return name }
+          for (const [name, v] of Object.entries(INSTRUMENT_CODE)) {
+            if (v === c) return name
+          }
           return ''
         }).filter(Boolean)
       }
@@ -141,7 +143,9 @@ export function matchInstrumentSection(query: string): string[] | null {
     // 「violin」同时匹配一提+二提
     if (enCode === 'firstViolin' && q === 'violin') {
       return VIOLIN_CODES.map((c) => {
-        for (const [name, v] of Object.entries(INSTRUMENT_CODE)) { if (v === c) return name }
+        for (const [name, v] of Object.entries(INSTRUMENT_CODE)) {
+          if (v === c) return name
+        }
         return ''
       }).filter(Boolean)
     }

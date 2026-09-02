@@ -17,32 +17,44 @@ const fakeFetch = (input: any, init?: any): Promise<Response> => {
     msgCallCount++
     // 第一次返回凭证失效，验证「清缓存重试一次」
     if (msgCallCount === 1) {
-      return Promise.resolve(new Response(JSON.stringify({ errcode: 40001, errmsg: 'invalid credential' })))
+      return Promise.resolve(
+        new Response(JSON.stringify({ errcode: 40001, errmsg: 'invalid credential' }))
+      )
     }
     const b = JSON.parse(init.body as string)
     if (b.content.includes('违规')) {
       return Promise.resolve(new Response(JSON.stringify({ errcode: 87014, errmsg: 'risky' })))
     }
     if (b.content.includes('待审')) {
-      return Promise.resolve(new Response(JSON.stringify({ errcode: 0, errmsg: 'ok', suggest: 'review', label: 20001 })))
+      return Promise.resolve(
+        new Response(JSON.stringify({ errcode: 0, errmsg: 'ok', suggest: 'review', label: 20001 }))
+      )
     }
-    return Promise.resolve(new Response(JSON.stringify({ errcode: 0, errmsg: 'ok', suggest: 'pass' })))
+    return Promise.resolve(
+      new Response(JSON.stringify({ errcode: 0, errmsg: 'ok', suggest: 'pass' }))
+    )
   }
   if (url.includes('/wxa/img_sec_check')) {
     imgCallCount++
     if (imgCallCount === 1) {
-      return Promise.resolve(new Response(JSON.stringify({ errcode: 42001, errmsg: 'token expired' })))
+      return Promise.resolve(
+        new Response(JSON.stringify({ errcode: 42001, errmsg: 'token expired' }))
+      )
     }
-    return Promise.resolve(new Response(JSON.stringify({ errcode: 0, errmsg: 'ok', suggest: 'pass' })))
+    return Promise.resolve(
+      new Response(JSON.stringify({ errcode: 0, errmsg: 'ok', suggest: 'pass' }))
+    )
   }
   if (url === 'https://x.test/pic.jpg') {
-    return Promise.resolve(new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/jpeg' } }))
+    return Promise.resolve(
+      new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/jpeg' } })
+    )
   }
   if (url === 'https://x.test/big.jpg') {
     return Promise.resolve(
       new Response(new Uint8Array([1, 2, 3]), {
         headers: { 'content-type': 'image/jpeg', 'content-length': '2097152' },
-      }),
+      })
     )
   }
   return Promise.resolve(new Response('{}'))
@@ -78,14 +90,16 @@ Deno.test('text: block on errcode 87014', async () => {
   msgCallCount = 0
   const res = await post({ kind: 'text', content: '这是违规内容' })
   const j = await res.json()
-  if (j.result !== 'block' || j.errcode !== 87014) throw new Error('expected block/87014, got ' + JSON.stringify(j))
+  if (j.result !== 'block' || j.errcode !== 87014)
+    throw new Error('expected block/87014, got ' + JSON.stringify(j))
 })
 
 Deno.test('text: review on suggest=review', async () => {
   msgCallCount = 0
   const res = await post({ kind: 'text', content: '这条待审一下' })
   const j = await res.json()
-  if (j.result !== 'review' || j.label !== 20001) throw new Error('expected review, got ' + JSON.stringify(j))
+  if (j.result !== 'review' || j.label !== 20001)
+    throw new Error('expected review, got ' + JSON.stringify(j))
 })
 
 Deno.test('image: fetches url then posts multipart (media only)', async () => {
