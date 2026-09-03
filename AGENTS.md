@@ -127,7 +127,7 @@
 install → lint → typecheck → test → version:dev → build → upload
 ```
 
-- 环境：pnpm 11, Node 20
+- 环境：pnpm 11, Node 22
 - 版本号：自动添加 `-dev.N` 后缀（如 `0.2.0` → `0.2.0-dev.1`）
 - 上传到微信小程序**开发版**
 
@@ -140,7 +140,7 @@ verify job: install → lint → typecheck → test → build
 release job: install → version:release → build → upload → commit version back
 ```
 
-- 环境：pnpm 11, Node 20
+- 环境：pnpm 11, Node 22
 - 版本号：自动去除预发布后缀（如 `0.2.0-dev.1` → `0.2.0`）
 - 上传到微信小程序**正式版**
 - 自动提交 `package.json` 版本号变更回 main（带 `[skip ci]` 避免循环触发）
