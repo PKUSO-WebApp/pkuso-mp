@@ -3,6 +3,16 @@ name: Deploy to WeChat Dev
 on:
   push:
     branches: [dev]
+    paths:
+      - 'src/**'
+      - 'config/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.npmrc'
+      - 'tsconfig.json'
+      - 'app.css'
+      - 'app.scss'
 
 jobs:
   build-and-upload:
