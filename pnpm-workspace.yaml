@@ -1,15 +1,6 @@
 packages:
   - 'dist'
 
-hoistPattern:
-  - miniprogram-ci
-  - picocolors
-  - nanoid
-  - postcss
-  - cssnano
-  - '@babel/helper-compilation-targets'
-  - lru-cache
-
 allowBuilds:
   '@parcel/watcher': true
   '@swc/core': true

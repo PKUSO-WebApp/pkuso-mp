@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
@@ -26,6 +26,8 @@ export default function LoginPage() {
   const { t } = useT()
   useNavTitle('login.navTitle')
 
+  const [redirecting, setRedirecting] = useState(false)
+
   // 已登录用户（含冷启动会话恢复后）按 profile 状态路由，避免看到登录页。
   // 先经 getUser 校验会话真实性：storage 有 stale session 但服务端已吊销时
   // （如账号被禁用），静默清除本地会话留在登录页，避免无守卫地跳进首页
@@ -34,6 +36,7 @@ export default function LoginPage() {
     if (!ready || !user) return
     const returnTo = Taro.getCurrentInstance().router?.params?.returnTo
     let cancelled = false
+    setRedirecting(true)
     const verifyAndEnter = async () => {
       try {
         await supabase.auth.getUser()
@@ -45,7 +48,10 @@ export default function LoginPage() {
         }
       } catch {
         // 会话无效：静默登出清理本地残留，停留登录页
-        if (!cancelled) void supabase.auth.signOut()
+        if (!cancelled) {
+          setRedirecting(false)
+          void supabase.auth.signOut()
+        }
       }
     }
     void verifyAndEnter()
@@ -54,8 +60,8 @@ export default function LoginPage() {
     }
   }, [ready, user])
 
-  // 会话恢复完成前渲染占位，防止登录页闪烁
-  const content = !ready ? (
+  // 会话恢复或重定向完成前渲染占位，防止登录页闪烁
+  const content = !ready || redirecting ? (
     <View className={`${darkClass} flex min-h-full items-center justify-center bg-page-bg`}>
       <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
     </View>

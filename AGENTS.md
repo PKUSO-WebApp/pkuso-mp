@@ -117,7 +117,35 @@
 - **`dev` 分支**：开发测试分支，CI 自动上传到微信开发版供测试
 - **功能分支**：从 `dev` 创建，开发完成后 squash merge 回 `dev`
 
-### 工作流
+### CI 工作流
+
+#### dev 分支（开发版）
+
+推送 `dev` 分支后，`Deploy to WeChat Dev` workflow 自动执行：
+
+```
+install → lint → typecheck → test → version:dev → build → upload
+```
+
+- 环境：pnpm 11, Node 20
+- 版本号：自动添加 `-dev.N` 后缀（如 `0.2.0` → `0.2.0-dev.1`）
+- 上传到微信小程序**开发版**
+
+#### main 分支（正式版）
+
+推送 `main` 分支后（通常从 dev 合并），`CI` workflow 自动执行：
+
+```
+verify job: install → lint → typecheck → test → build
+release job: install → version:release → build → upload → commit version back
+```
+
+- 环境：pnpm 11, Node 20
+- 版本号：自动去除预发布后缀（如 `0.2.0-dev.1` → `0.2.0`）
+- 上传到微信小程序**正式版**
+- 自动提交 `package.json` 版本号变更回 main（带 `[skip ci]` 避免循环触发）
+
+### 开发流程
 
 1. **创建功能分支**：`pnpm branch:create <patch|minor|major> <描述>`
    - 自动更新 `package.json` 版本号
@@ -132,10 +160,7 @@
    git push origin dev
    ```
 
-3. **自动部署**：推送 `dev` 分支后，GitHub Actions 自动：
-   - 运行 `pnpm lint` + `pnpm test`
-   - 构建 `pnpm build:weapp`
-   - 上传到微信小程序开发版
+3. **自动部署到开发版**：推送 `dev` 后 CI 自动上传到微信开发版
 
 4. **正式发布**：测试通过后，将 `dev` 合并到 `main`
    ```bash
@@ -143,6 +168,7 @@
    git merge dev
    git push origin main
    ```
+   CI 自动执行 `version:release` → build → upload → 提交版本号回 main
 
 ### 配置 GitHub Secrets
 

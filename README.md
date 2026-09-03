@@ -26,22 +26,22 @@ cp .env.example .env.production    # 生产构建（上传前填写）
 
 `.env.*` 中以 `TARO_APP_` 前缀的变量会被 Taro 注入到 `process.env`，供小程序运行时读取：
 
-| 变量 | 说明 | 来源 |
-| --- | --- | --- |
-| `TARO_APP_SUPABASE_URL` | Supabase 项目地址 | 同 `pkuso-web-v2` 的 `NEXT_PUBLIC_SUPABASE_URL` |
-| `TARO_APP_SUPABASE_ANON_KEY` | Supabase publishable key（公开设计，不入库） | 同 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
-| `TARO_APP_SESSION_DIAG` | 会话诊断日志开关：`1` 开 / `0` 关 | 本地排障用 |
+| 变量                         | 说明                                         | 来源                                            |
+| ---------------------------- | -------------------------------------------- | ----------------------------------------------- |
+| `TARO_APP_SUPABASE_URL`      | Supabase 项目地址                            | 同 `pkuso-web-v2` 的 `NEXT_PUBLIC_SUPABASE_URL` |
+| `TARO_APP_SUPABASE_ANON_KEY` | Supabase publishable key（公开设计，不入库） | 同 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`       |
+| `TARO_APP_SESSION_DIAG`      | 会话诊断日志开关：`1` 开 / `0` 关            | 本地排障用                                      |
 
 ## 常用脚本
 
-| 命令 | 作用 |
-| --- | --- |
-| `pnpm dev:weapp` | 监听模式构建到 `dist/`（配合开发者工具热重载） |
-| `pnpm build:weapp` | 生产构建到 `dist/` |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm lint` | ESLint（`--max-warnings 0`） |
-| `pnpm test` | Vitest 单测 |
-| `pnpm verify` | `format && lint && typecheck && test`（仓库级一致性检查） |
+| 命令               | 作用                                                      |
+| ------------------ | --------------------------------------------------------- |
+| `pnpm dev:weapp`   | 监听模式构建到 `dist/`（配合开发者工具热重载）            |
+| `pnpm build:weapp` | 生产构建到 `dist/`                                        |
+| `pnpm typecheck`   | `tsc --noEmit`                                            |
+| `pnpm lint`        | ESLint（`--max-warnings 0`）                              |
+| `pnpm test`        | Vitest 单测                                               |
+| `pnpm verify`      | `format && lint && typecheck && test`（仓库级一致性检查） |
 
 ## 交付闸门（Delivery Gate）
 
