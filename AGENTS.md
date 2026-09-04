@@ -7,6 +7,34 @@
 - 本小程序的 **Web 端** 位于 `../../pkuso-web-v2`（即 `C:\Users\dddam\Desktop\pkusoweb\pkuso-web-v2`）。
 - Web 端的指导文件是其根目录的 `CLAUDE.md`，需要了解 Web 端约定时请阅读该文件。
 
+## Supabase 双环境（Prod / Dev）
+
+项目使用两个独立 Supabase 项目作为前后端分离的测试/生产环境：
+
+| 环境 | 项目 ref | MCP 名称 | 用途 |
+|------|----------|----------|------|
+| Prod | `xkrszbmmdaorivkatvwh` | `supabase-prod` | 生产环境 |
+| Dev | `qibssimzuhusvutubbey` | `supabase-dev` | 开发/测试环境 |
+
+MCP 配置位于 `~/.config/opencode/opencode.jsonc`。
+
+### ⚠️ 强制同步规则
+
+**对 prod 数据库的任何修改（DDL / RLS / 函数 / 触发器 / Edge Functions），必须同步到 dev。** 包括但不限于：
+
+- 新建/修改/删除表、列、约束、索引
+- 新建/修改/删除 RLS 策略
+- 新建/修改/删除 PL/pgSQL 函数、触发器
+- 新建/修改/删除 Storage buckets、policies
+- 部署/更新 Edge Functions
+
+同步方式：在 dev 上执行等价操作（`apply_migration` / `deploy_edge_function`）。注意 dev 的 `function_delete_storage_on_row_delete` 中 Edge Function URL 指向 dev 项目（`qibssimzuhusvutubbey`），不要覆盖为 prod URL。
+
+### 不同步的数据
+
+- `profiles` 和 `auth.users` 数据不同步（dev 有独立测试账号）
+- `member_info` 可按需从 prod 复制到 dev
+
 ## 交付闸门（Delivery Gate）
 
 每次声明「完成 / 交付」前，必须依次执行且**全部通过（全绿）**才允许交付；任一环节失败不得宣告完成：
