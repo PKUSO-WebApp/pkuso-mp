@@ -152,23 +152,27 @@ MCP 配置位于 `~/.config/opencode/opencode.jsonc`。
 推送 `dev` 分支后，`Deploy to WeChat Dev` workflow 自动执行：
 
 ```
-install → lint → typecheck → test → version:dev → build → upload
+install → lint → typecheck → test → write .env.development → version:dev → build → upload
 ```
 
 - 环境：pnpm 11, Node 22
+- `.env`：自动写入 `DEV_SUPABASE_URL` / `DEV_SUPABASE_ANON_KEY` secrets → `.env.development`
+- 构建：`NODE_ENV=development pnpm build:weapp`（加载 `.env.development`）
 - 版本号：自动添加 `-dev.N` 后缀（如 `0.2.0` → `0.2.0-dev.1`）
 - 上传到微信小程序**开发版**
 
 #### main 分支（正式版）
 
-推送 `main` 分支后（通常从 dev 合并），`CI` workflow 自动执行：
+推送 `main` 分支后，`Deploy to WeChat Prod` workflow 自动执行：
 
 ```
 verify job: install → lint → typecheck → test → build
-release job: install → version:release → build → upload → commit version back
+release job: write .env.production → version:release → build → upload → commit version back
 ```
 
 - 环境：pnpm 11, Node 22
+- `.env`：自动写入 `PROD_SUPABASE_URL` / `PROD_SUPABASE_ANON_KEY` secrets → `.env.production`
+- 构建：`pnpm build:weapp`（加载 `.env.production`，`NODE_ENV=production`）
 - 版本号：自动去除预发布后缀（如 `0.2.0-dev.1` → `0.2.0`）
 - 上传到微信小程序**正式版**
 - 自动提交 `package.json` 版本号变更回 main（带 `[skip ci]` 避免循环触发）

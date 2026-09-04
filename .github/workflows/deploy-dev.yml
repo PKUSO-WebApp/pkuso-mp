@@ -17,7 +17,7 @@ on:
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,16 +45,16 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Write .env.production
+      - name: Write .env.development
         run: |
-          echo "TARO_APP_SUPABASE_URL=${{ secrets.TARO_APP_SUPABASE_URL }}" > .env.production
-          echo "TARO_APP_SUPABASE_ANON_KEY=${{ secrets.TARO_APP_SUPABASE_ANON_KEY }}" >> .env.production
+          echo "TARO_APP_SUPABASE_URL=${{ secrets.DEV_SUPABASE_URL }}" > .env.development
+          echo "TARO_APP_SUPABASE_ANON_KEY=${{ secrets.DEV_SUPABASE_ANON_KEY }}" >> .env.development
 
       - name: Set dev version
         run: DEV_VERSION_NUM=${{ github.run_number }} pnpm version:dev
 
       - name: Build for WeChat
-        run: pnpm build:weapp
+        run: NODE_ENV=development pnpm build:weapp
 
       - name: Upload to WeChat Dev
         env:
