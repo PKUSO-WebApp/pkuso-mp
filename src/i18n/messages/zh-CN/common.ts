@@ -1,6 +1,6 @@
 // 公共文案（跨页面复用：按钮、加载态等）
 export const common = {
-  appName: '北大交响乐团',
+  appName: '北京大学学生交响乐团',
   actions: {
     save: '保存',
     cancel: '取消',

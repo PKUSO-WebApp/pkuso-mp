@@ -3,6 +3,16 @@ name: Deploy to WeChat Prod
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'config/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.npmrc'
+      - 'tsconfig.json'
+      - 'app.css'
+      - 'app.scss'
 
 jobs:
   verify:
