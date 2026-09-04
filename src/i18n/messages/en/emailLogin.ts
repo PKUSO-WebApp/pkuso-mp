@@ -1,6 +1,6 @@
 // 邮箱登录页文案（按页分：emailLogin）
 export const emailLogin = {
-  navTitle: 'Email Log In',
+  navTitle: 'Email Sign In',
   title: 'Email Sign In',
   subtitle: 'Sign in with email and password',
   passwordPlaceholder: 'Enter password',

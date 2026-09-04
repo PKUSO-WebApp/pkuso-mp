@@ -11,7 +11,7 @@ export const postCreate = {
   contentPlaceholder: 'Enter content',
   currentSectionsLabel: 'Current Sections',
   currentSectionsPlaceholder: 'e.g. Violin',
-  missingSectionsLabel: 'Missing Sections',
+  missingSectionsLabel: 'Missing sections:',
   missingSectionsPlaceholder: 'e.g. Viola',
   contactLabel: 'Contact',
   contactPlaceholder: 'Optional, for interested classmates to reach you',

@@ -1,5 +1,5 @@
 export const activityDetail = {
-  navTitle: 'Rehearsal Detail',
+  navTitle: 'Rehearsal Details',
   signIn: {
     locating: 'Locating…',
     authRequired: 'Please sign in first',
@@ -17,7 +17,7 @@ export const activityDetail = {
   toastCancelLeaveFailed: 'Signed in, but failed to cancel leave request. Please contact admin.',
   notFound: 'Rehearsal not found',
   timeUnset: 'Time not set',
-  type: { section: 'Section', full: 'Ensemble' },
+  type: { section: 'Sectional', full: 'Full Ensemble' },
   status: {
     late: 'Late',
     present: 'Present',
