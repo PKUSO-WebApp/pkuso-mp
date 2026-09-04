@@ -39,22 +39,15 @@ export function Modal({
   const align = position === 'center' ? 'items-center' : 'items-end'
   const radius = position === 'center' ? 'rounded-2xl' : 'rounded-t-3xl'
 
-  // custom tabBar 是普通 View（见 CustomTabBar.tsx），由 overlayStore 在打开弹窗时将其
-  // display:none 隐藏；上述 useLayoutEffect 保证隐藏与弹窗出现发生在同一帧，避免闪烁。
-  // 弹窗遮罩自然铺满到设备屏幕底边（同时解决原 hideTabBar 闪白条问题）。
-
-  if (!open) return null
-
+  // 始终渲染，用 display 控制显隐，避免条件渲染导致组件卸载/挂载触发页面重绘
   return (
-    // 遮罩层：fixed 全屏 + 点击关闭（Taro 无 React portal，用条件渲染挂载）。
-    // 旧 iOS 不支持 inset 简写，显式四边；catchMove 阻断滚动穿透；
-    // z-[60] 高于 Toast 的 z-50，与 Web 版「弹窗盖在 toast 上」一致
     <View
       role='dialog'
       ariaRole='dialog'
       aria-modal='true'
       catchMove
-      className={`fixed left-0 right-0 top-0 bottom-0 z-[60] flex ${align} justify-center bg-overlay px-4 pb-[env(safe-area-inset-bottom)]`}
+      style={{ display: open ? 'flex' : 'none' }}
+      className={`fixed left-0 right-0 top-0 bottom-0 z-[60] ${align} justify-center bg-overlay px-4 pb-[env(safe-area-inset-bottom)]`}
       onClick={closeOnOverlay ? onClose : undefined}
     >
       <View

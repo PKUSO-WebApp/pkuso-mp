@@ -54,13 +54,16 @@ vi.mock('@/i18n', async () => {
 describe('Modal', () => {
   afterEach(cleanup)
 
-  it('open=false 不渲染', () => {
-    render(
+  it('open=false 隐藏内容', () => {
+    const { container } = render(
       <Modal open={false} onClose={vi.fn()}>
         <span>内容</span>
       </Modal>
     )
-    expect(screen.queryByText('内容')).toBeNull()
+    expect(screen.getByText('内容')).toBeTruthy()
+    const dialog = container.querySelector('[role="dialog"]')
+    expect(dialog).toBeTruthy()
+    expect(dialog?.getAttribute('style')).toContain('display: none')
   })
 
   it('open=true 渲染内容', () => {
