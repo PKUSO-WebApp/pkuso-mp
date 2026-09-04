@@ -2,7 +2,7 @@ export const postDetail = {
   navTitle: 'Announcement',
   type: {
     ensemble: 'Ensemble',
-    gathering: 'Social',
+    gathering: 'Activity',
   },
   notFound: 'Announcement not found or deleted',
   back: 'Back',

@@ -2,7 +2,7 @@
 export const postEdit = {
   title: 'Edit Activity',
   subtitle: 'Bulletin Board · {type}',
-  type: { ensemble: 'Ensemble', gathering: 'Gathering' },
+  type: { ensemble: 'Ensemble', gathering: 'Activity' },
   titleLabel: 'Title',
   titlePlaceholder: 'Enter a title',
   contentLabel: 'Content',

@@ -2,7 +2,7 @@
 export const postCreate = {
   title: 'Create Post',
   subtitle: 'Bulletin Board · content will be reviewed by WeChat security',
-  type: { ensemble: 'Ensemble', gathering: 'Gathering' },
+  type: { ensemble: 'Ensemble', gathering: 'Activity' },
   fieldType: 'Type',
   imageTooLarge: 'Image too large, please compress to under 1MB',
   titleLabel: 'Title',
