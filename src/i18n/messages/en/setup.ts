@@ -1,8 +1,8 @@
 export const setup = {
-  navTitle: 'Complete Profile',
+  navTitle: 'Complete Your Profile',
   title: 'Complete Your Profile',
   subtitle: 'Both name and email are required. You will wait for admin review after submission.',
-  nameLabel: 'Name',
+  nameLabel: 'Full Name',
   namePlaceholder: 'Enter your real name',
   emailLabel: 'Email',
   emailPlaceholder: 'name@example.com',

@@ -9,8 +9,8 @@ export const home = {
     historySubtitle: 'View ended rehearsals',
   },
   tabs: {
-    full: 'Ensemble',
-    section: 'Section',
+    full: 'Full Ensemble',
+    section: 'Sectional',
     history: 'History',
   },
   loadFailed: 'Failed to load: {error}',

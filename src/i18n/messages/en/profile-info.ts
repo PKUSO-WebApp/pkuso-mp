@@ -1,7 +1,7 @@
 // 个人信息页文案（按页分：profile-info；对应「设置」入口）
 export const profileInfo = {
   title: 'Profile Info',
-  nameLabel: 'Name',
+  nameLabel: 'Full Name',
   none: 'None',
   instrumentLabel: 'Instrument',
   selectInstrument: 'Select Instrument',
@@ -21,7 +21,7 @@ export const profileInfo = {
   confirmJoinContent: 'Saving will change the join date from "{source}" to "{new}". Confirm?',
   emptyJoinDate: 'currently empty',
   saved: 'Profile updated',
-  saveFailed: 'Save failed, please retry',
+  saveFailed: 'Failed to save, please retry',
   collegeModerationFailed: 'College name contains inappropriate content',
   saving: 'Saving…',
 }

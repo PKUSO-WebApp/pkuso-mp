@@ -29,7 +29,7 @@ export const profile = {
     email: 'Email {email}',
   },
   common: {
-    notFilled: 'Not filled in',
+    notFilled: 'Not filled',
   },
   account: {
     tabPassword: 'Change Password',

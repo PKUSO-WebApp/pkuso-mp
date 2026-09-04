@@ -1,7 +1,7 @@
 export const notification = {
   activityTitle: 'Activity Notifications',
   activityNavTitle: 'Activity Notifications',
-  activityTabs: { all: 'All', ensemble: 'Ensemble', gathering: 'Social' },
+  activityTabs: { all: 'All', ensemble: 'Ensemble', gathering: 'Activity' },
   systemTitle: 'System Notifications',
   systemNavTitle: 'System Notifications',
   systemTabs: { unread: 'Unread', read: 'Read', unreadCount: 'Unread ({n})' },

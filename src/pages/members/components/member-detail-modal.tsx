@@ -31,7 +31,12 @@ export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetai
               ) : (
                 <View className='flex h-full w-full items-center justify-center'>
                   <Text className='text-xl font-medium text-primary-foreground'>
-                    {(user.full_name ?? '—').slice(0, 1)}
+                    {(() => {
+                      const name = user.full_name ?? '—'
+                      if (name === '—') return '--'
+                      const isCN = /[\u4e00-\u9fff]/.test(name)
+                      return isCN ? name.slice(0, 1) : name.slice(0, 2) || name.slice(0, 1) || '--'
+                    })()}
                   </Text>
                 </View>
               )}

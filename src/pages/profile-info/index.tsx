@@ -71,8 +71,13 @@ export default function ProfileInfoPage() {
 
   const fullName = myProfile?.full_name ?? notFilled
   const email = myProfile?.email ?? notFilled
+  const isChineseName = fullName !== notFilled && /[\u4e00-\u9fff]/.test(fullName)
   const initials =
-    fullName !== notFilled ? fullName.slice(0, 2) || fullName.slice(0, 1) || '--' : '--'
+    fullName !== notFilled
+      ? isChineseName
+        ? fullName.slice(0, 1)
+        : fullName.slice(0, 2) || fullName.slice(0, 1) || '--'
+      : '--'
   // 视图态用资料实际隐藏状态；编辑态用本地草稿
   const hideEmail = isEditing ? editHideEmail : (myProfile?.hide_email ?? false)
   const hidePhone = isEditing ? editHidePhone : (myProfile?.hide_phone ?? false)

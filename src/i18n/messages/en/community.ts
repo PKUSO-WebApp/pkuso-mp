@@ -2,9 +2,9 @@
 export const community = {
   navTitle: 'Community',
   title: 'Bulletin Board',
-  subtitle: 'Ensemble & Gathering Info',
+  subtitle: 'Ensemble & Activity Info',
   publish: 'Post',
-  type: { ensemble: 'Ensemble', gathering: 'Gathering' },
+  type: { ensemble: 'Ensemble', gathering: 'Activity' },
   empty: 'No "{type}" posts yet.',
   haveSections: 'Have: {sections}',
   missing: 'Missing: {sections}',

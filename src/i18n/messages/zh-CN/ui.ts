@@ -21,7 +21,7 @@ export const ui = {
   tabBar: {
     home: '首页',
     community: '社区',
-    schedule: 'b108',
+    schedule: 'B108',
     members: '成员',
     profile: '我的',
   },
