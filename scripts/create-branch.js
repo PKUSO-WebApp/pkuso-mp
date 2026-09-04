@@ -44,13 +44,14 @@ switch (VERSION_TYPE) {
 }
 
 // 更新 package.json
+const oldVersion = packageJson.version
 packageJson.version = newVersion
 fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + '\n')
 
-console.log(`✓ 版本号已更新: ${packageJson.version.split('.').slice(0, 3).join('.')} → ${newVersion}`)
+console.log(`✓ 版本号已更新: ${oldVersion} → ${newVersion}`)
 
-// 创建分支名
-const branchName = `${VERSION_TYPE}: ${DESCRIPTION}`
+// 创建分支名（冒号在 git 分支名中无效，改用斜杠）
+const branchName = `${VERSION_TYPE}/${DESCRIPTION}`
 
 // 创建并切换分支
 try {
