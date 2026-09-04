@@ -45,8 +45,13 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Write .env.production
+        run: |
+          echo "TARO_APP_SUPABASE_URL=${{ secrets.TARO_APP_SUPABASE_URL }}" > .env.production
+          echo "TARO_APP_SUPABASE_ANON_KEY=${{ secrets.TARO_APP_SUPABASE_ANON_KEY }}" >> .env.production
+
       - name: Set dev version
-        run: pnpm version:dev
+        run: DEV_VERSION_NUM=${{ github.run_number }} pnpm version:dev
 
       - name: Build for WeChat
         run: pnpm build:weapp

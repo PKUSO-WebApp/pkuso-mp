@@ -48,7 +48,10 @@ let newVersion = current
 
 switch (action) {
   case 'dev': {
-    if (parsed.prerelease === 'dev') {
+    const overrideNum = process.env.DEV_VERSION_NUM
+    if (overrideNum) {
+      newVersion = formatVersion(parsed.major, parsed.minor, parsed.patch, 'dev', Number(overrideNum))
+    } else if (parsed.prerelease === 'dev') {
       newVersion = formatVersion(parsed.major, parsed.minor, parsed.patch, 'dev', parsed.prereleaseNum + 1)
     } else {
       newVersion = formatVersion(parsed.major, parsed.minor, parsed.patch, 'dev', 1)
