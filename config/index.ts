@@ -2,6 +2,7 @@ import { defineConfig, type UserConfigExport } from '@tarojs/cli'
 import TsconfigPathsPlugin from 'tsconfig-paths-webpack-plugin'
 import fs from 'node:fs'
 import path from 'node:path'
+import webpack from 'webpack'
 import { WeappTailwindcss } from 'weapp-tailwindcss/webpack'
 import devConfig from './dev'
 import prodConfig from './prod'
@@ -81,6 +82,11 @@ export default defineConfig<'webpack5'>(async (merge) => {
           .include.add((filename: string) =>
             /node_modules[\\/](@supabase|iceberg-js)/.test(filename)
           )
+        // 小程序环境无 Node.js process 全局变量，@supabase 等依赖运行时引用 process 导致崩溃。
+        // 通过 ProvidePlugin 注入 process/browser polyfill。
+        chain.plugin('process-polyfill').use(webpack.ProvidePlugin, [{
+          process: 'process/browser',
+        }])
         chain.merge({
           plugin: {
             install: {
