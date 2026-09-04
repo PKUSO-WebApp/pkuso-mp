@@ -152,7 +152,8 @@ MCP 配置位于 `~/.config/opencode/opencode.jsonc`。
 推送 `dev` 分支后，`Deploy to WeChat Dev` workflow 自动执行：
 
 ```
-install → lint → typecheck → test → write .env.development → version:dev → build → upload
+verify job: install → lint → typecheck → test → build
+dev-release job: write .env.development → version:dev → build → upload
 ```
 
 - 环境：pnpm 11, Node 22
