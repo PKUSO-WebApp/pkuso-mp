@@ -40,7 +40,7 @@ export default defineAppConfig({
   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#ffffff',
-    navigationBarTitleText: 'PKU Symphony',
+    navigationBarTitleText: 'PKUSO',
     navigationBarTextStyle: 'black',
     backgroundColor: '#f4f4f5',
   },

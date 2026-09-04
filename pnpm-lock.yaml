@@ -156,6 +156,9 @@ importers:
       prettier:
         specifier: ^3.9.6
         version: 3.9.6
+      process:
+        specifier: ^0.11.10
+        version: 0.11.10
       react-refresh:
         specifier: ^0.14.0
         version: 0.14.0

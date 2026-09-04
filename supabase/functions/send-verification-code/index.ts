@@ -7,6 +7,7 @@
 // - verify_jwt=true：仅登录用户可调用
 // - 同 purpose 同用户仅保留最新码，旧码自动标记 used
 // - 60 秒冷却：前端控制倒计时，服务端不额外限制（依赖 DB 中旧码被杀死）
+// - JWT 验证由 Supabase 网关完成（verify_jwt=true），function 内直接解析 payload
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -16,7 +17,7 @@ const SMTP_HOST = Deno.env.get('SMTP_HOST') ?? ''
 const SMTP_PORT = Number(Deno.env.get('SMTP_PORT') ?? '465')
 const SMTP_USER = Deno.env.get('SMTP_USER') ?? ''
 const SMTP_PASS = Deno.env.get('SMTP_PASS') ?? ''
-const SMTP_FROM_NAME = Deno.env.get('SMTP_FROM_NAME') ?? 'PKU Symphony'
+const SMTP_FROM_NAME = Deno.env.get('SMTP_FROM_NAME') ?? 'PKUSO'
 
 const CODE_LENGTH = 6
 const CODE_EXPIRY_MINUTES = 5
@@ -32,6 +33,24 @@ function generateCode(): string {
   const arr = new Uint8Array(CODE_LENGTH)
   crypto.getRandomValues(arr)
   return Array.from(arr, (b) => b % 10).join('')
+}
+
+/** RFC 2047 编码（用于 Subject / From 等含非 ASCII 的 header） */
+function encodeRfc2047(value: string): string {
+  return `=?UTF-8?B?${btoa(unescape(encodeURIComponent(value)))}?=`
+}
+
+/** 从 JWT payload 解析 user_id + email（verify_jwt=true 时网关已验证签名） */
+function parseJwtPayload(token: string): { sub: string; email?: string } | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (!payload.sub) return null
+    return { sub: payload.sub as string, email: payload.email as string | undefined }
+  } catch {
+    return null
+  }
 }
 
 /** 简易 SMTP 发送（TCP over TLS） */
@@ -60,9 +79,9 @@ async function sendEmail(to: string, subject: string, htmlBody: string): Promise
   await send('DATA')
 
   const rawEmail = [
-    `From: ${SMTP_FROM_NAME} <${SMTP_USER}>`,
+    `From: ${encodeRfc2047(SMTP_FROM_NAME)} <${SMTP_USER}>`,
     `To: ${to}`,
-    `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
+    `Subject: ${encodeRfc2047(subject)}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=UTF-8',
     'Content-Transfer-Encoding: base64',
@@ -131,10 +150,10 @@ function buildEmailHtml(code: string, purpose: 'password_change' | 'email_change
   <hr style="border: none; border-top: 1px solid #eeeeee; margin: 20px 0;">
 
   <p lang="zh" style="font-size: 12px; line-height: 1.7; color: #999999; margin: 0 0 4px;">
-    本邮件由 PKUSO 管理系统自动发送，请勿直接回复。如有疑问，请联系 PKUSO-Web 团队。
+    本邮件由 PKUSO 管理系统自动发送，请勿直接回复。
   </p>
   <p lang="en" style="font-size: 12px; line-height: 1.7; color: #999999; margin: 0;">
-    This is an automated message from PKUSO Management System. Please do not reply. If you have any questions, contact the PKUSO-Web Team.
+    This is an automated message from PKUSO Management System. Please do not reply.
   </p>
 </div>`
 }
@@ -154,21 +173,21 @@ Deno.serve(async (req) => {
     return ok({ error: 'server misconfigured' })
   }
 
-  // JWT 认证
   const authHeader = req.headers.get('Authorization')
   if (!authHeader) return ok({ error: 'missing authorization header' })
 
+  const token = authHeader.replace('Bearer ', '')
+
+  // verify_jwt=true 时网关已验证签名，直接从 payload 解析 user_id + email
+  const claims = parseJwtPayload(token)
+  if (!claims?.sub) return ok({ error: 'invalid token' })
+
+  const userId = claims.sub
+  const userEmail = claims.email ?? ''
+
+  // 用 service_role 读写 DB（不经过 getUser 再验证一次 session）
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
-  // 从 JWT 获取 user_id
-  const token = authHeader.replace('Bearer ', '')
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser(token)
-  if (authError || !user) return ok({ error: 'invalid token' })
-
-  const userId = user.id
   const body = (await req.json().catch(() => null)) as {
     purpose?: string
     new_email?: string
@@ -183,7 +202,7 @@ Deno.serve(async (req) => {
   // 确定收件人
   let targetEmail: string
   if (purpose === 'password_change') {
-    targetEmail = user.email ?? ''
+    targetEmail = userEmail
     if (!targetEmail) return ok({ error: 'no bound email' })
   } else {
     // email_change: 需要 new_email 参数
@@ -192,7 +211,7 @@ Deno.serve(async (req) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
       return ok({ error: 'invalid email format' })
     }
-    if (newEmail.toLowerCase() === (user.email ?? '').toLowerCase()) {
+    if (newEmail.toLowerCase() === userEmail.toLowerCase()) {
       return ok({ error: 'new email same as current' })
     }
     // 检查新邮箱是否已被其他用户占用

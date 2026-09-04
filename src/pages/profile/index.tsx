@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { isSyntheticEmail } from '@/lib/profile-gate'
 import { useNotifications } from '@/hooks/useNotifications'
 import { supabase } from '@/lib/supabase'
+import { logDiag } from '@/lib/session-diag'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
@@ -35,6 +36,10 @@ type AccountTab = (typeof ACCOUNT_TAB_OPTIONS)[number]
  * - 已发布的活动暂缓（后续任务补）
  * - 管理端登录显示阻断页（规划 §1：admin 留在 Web）
  */
+
+// 验证码冷却：模块级时间戳，跨 modal 关闭/打开持久化
+let codeSentAt = 0
+
 export default function Profile() {
   const { user } = useUser()
   const { signOut } = useAuth()
@@ -187,8 +192,15 @@ export default function Profile() {
       if (purpose === 'email_change') {
         payload.new_email = newEmail.trim()
       }
+      logDiag('send_code_invoke', { purpose, hasNewEmail: purpose === 'email_change' })
       const { data, error } = await supabase.functions.invoke('send-verification-code', {
         body: payload,
+      })
+      logDiag('send_code_result', {
+        hasData: !!data,
+        dataError: data?.error ?? null,
+        sdkError: error?.message ?? null,
+        status: data?.success ? 'ok' : 'fail',
       })
       const errMsg = (data?.error as string) ?? error?.message ?? ''
       if (data?.error || error) {
@@ -205,6 +217,7 @@ export default function Profile() {
       }
       setCodeSent(true)
       setCodeTarget(accountTab === 'password' ? 'bound' : 'new')
+      codeSentAt = Date.now()
       setCodeCountdown(60)
       // 启动倒计时
       if (countdownRef.current) clearInterval(countdownRef.current)
@@ -217,7 +230,8 @@ export default function Profile() {
           return prev - 1
         })
       }, 1000)
-    } catch {
+    } catch (e) {
+      logDiag('send_code_catch', { err: e instanceof Error ? e.message : String(e) })
       void Taro.showToast({ title: t('profile.account.sendFailed'), icon: 'none' })
     } finally {
       codeSendingRef.current = false
@@ -348,15 +362,30 @@ export default function Profile() {
     }
   }
 
-  // 弹窗打开时重置 tab 到「换绑邮箱」
+  // 弹窗打开时重置 tab 到「换绑邮箱」；若冷却未过期则恢复倒计时
   useEffect(() => {
     if (isPwdModalOpen) {
       setAccountTab('email')
       setVerifyCode('')
       setCodeSent(false)
       setCodeTarget(null)
-      setCodeCountdown(0)
       if (countdownRef.current) clearInterval(countdownRef.current)
+      const remaining = Math.max(0, 60 - Math.floor((Date.now() - codeSentAt) / 1000))
+      if (remaining > 0) {
+        setCodeSent(true)
+        setCodeCountdown(remaining)
+        countdownRef.current = setInterval(() => {
+          setCodeCountdown((prev) => {
+            if (prev <= 1) {
+              if (countdownRef.current) clearInterval(countdownRef.current)
+              return 0
+            }
+            return prev - 1
+          })
+        }, 1000)
+      } else {
+        setCodeCountdown(0)
+      }
     }
   }, [isPwdModalOpen])
 
@@ -458,8 +487,23 @@ export default function Profile() {
                   setVerifyCode('')
                   setCodeSent(false)
                   setCodeTarget(null)
-                  setCodeCountdown(0)
                   if (countdownRef.current) clearInterval(countdownRef.current)
+                  const remaining = Math.max(0, 60 - Math.floor((Date.now() - codeSentAt) / 1000))
+                  if (remaining > 0) {
+                    setCodeSent(true)
+                    setCodeCountdown(remaining)
+                    countdownRef.current = setInterval(() => {
+                      setCodeCountdown((prev) => {
+                        if (prev <= 1) {
+                          if (countdownRef.current) clearInterval(countdownRef.current)
+                          return 0
+                        }
+                        return prev - 1
+                      })
+                    }, 1000)
+                  } else {
+                    setCodeCountdown(0)
+                  }
                   setPwdError(null)
                   setIsPwdModalOpen(true)
                 }}

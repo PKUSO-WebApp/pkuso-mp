@@ -1,6 +1,6 @@
 // 公共文案（跨页面复用：按钮、加载态等）
 export const common = {
-  appName: 'PKU Symphony Orchestra',
+  appName: 'PKUSO',
   actions: {
     save: 'Save',
     cancel: 'Cancel',

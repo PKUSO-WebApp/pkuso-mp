@@ -42,6 +42,7 @@ export default function Community() {
   const [view, setView] = useState<'ensemble' | 'gathering'>('ensemble')
   const viewRef = useRef<'ensemble' | 'gathering'>('ensemble')
   viewRef.current = view
+  const firstShowRef = useRef(true)
 
   const communityTabs: { key: 'ensemble' | 'gathering'; label: string }[] = [
     { key: 'ensemble', label: t('community.type.ensemble') },
@@ -52,6 +53,12 @@ export default function Community() {
   // 静默重取：已有数据时不翻 loading，避免切 tab 整页闪烁）；
   // 点击社区即消除底边栏红点，同时消除当前所在分类的红点（点击某处即消除那一处）
   useDidShow(() => {
+    if (firstShowRef.current) {
+      firstShowRef.current = false
+      dismissCommunityDot('bar')
+      dismissCommunityDot(viewRef.current)
+      return
+    }
     void fetch({ silent: true })
     dismissCommunityDot('bar')
     dismissCommunityDot(viewRef.current)
