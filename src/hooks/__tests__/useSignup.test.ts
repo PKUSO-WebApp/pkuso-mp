@@ -15,6 +15,13 @@ vi.mock('@/lib/supabase', () => ({ supabase: { auth: authMock } }))
 const { routeAfterLoginMock } = vi.hoisted(() => ({ routeAfterLoginMock: vi.fn() }))
 vi.mock('@/lib/post-auth-route', () => ({ routeAfterLogin: routeAfterLoginMock }))
 
+vi.mock('@tarojs/taro', () => ({
+  default: {
+    showToast: vi.fn(),
+    navigateBack: vi.fn(),
+  },
+}))
+
 describe('useSignup', () => {
   beforeEach(() => {
     authMock.signUp.mockReset()
@@ -26,11 +33,9 @@ describe('useSignup', () => {
 
   it('信息不完整时不调用接口并给出提示', async () => {
     const { result } = renderHook(() => useSignup())
-    let res!: { needsEmailConfirmation: boolean }
     await act(async () => {
-      res = await result.current.handleSubmit()
+      await result.current.handleSubmit()
     })
-    expect(res.needsEmailConfirmation).toBe(false)
     expect(result.current.errorMsg).toBe('请填写完整信息后再提交。')
     expect(authMock.signUp).not.toHaveBeenCalled()
   })
@@ -79,7 +84,7 @@ describe('useSignup', () => {
     })
     let res!: { needsEmailConfirmation: boolean }
     await act(async () => {
-      res = await result.current.handleSubmit()
+      res = await result.current.signup()
     })
     expect(authMock.signUp).toHaveBeenCalledWith({
       email: 'a@b.com',
@@ -104,7 +109,7 @@ describe('useSignup', () => {
     })
     let res!: { needsEmailConfirmation: boolean }
     await act(async () => {
-      res = await result.current.handleSubmit()
+      res = await result.current.signup()
     })
     expect(res.needsEmailConfirmation).toBe(true)
     expect(routeAfterLoginMock).not.toHaveBeenCalled()
@@ -122,11 +127,9 @@ describe('useSignup', () => {
       result.current.setConfirmPassword('password123')
       result.current.setFullName('张三')
     })
-    let res!: { needsEmailConfirmation: boolean }
     await act(async () => {
-      res = await result.current.handleSubmit()
+      await result.current.signup()
     })
     expect(result.current.errorMsg).toBe('该邮箱已被注册，请直接登录')
-    expect(res.needsEmailConfirmation).toBe(false)
   })
 })

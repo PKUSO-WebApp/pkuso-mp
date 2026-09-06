@@ -1,6 +1,6 @@
 {
   "name": "pkuso-miniprogram",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "PKUSO wechat miniprogram (member end)",
   "templateInfo": {
@@ -21,7 +21,7 @@
     "build:qq": "taro build --type qq",
     "build:jd": "taro build --type jd",
     "build:harmony-hybrid": "taro build --type harmony-hybrid",
-    "dev:weapp": "npm run build:weapp -- --watch",
+    "dev:weapp": "cross-env NODE_ENV=development taro build --type weapp",
     "dev:swan": "npm run build:swan -- --watch",
     "dev:alipay": "npm run build:alipay -- --watch",
     "dev:tt": "npm run build:tt -- --watch",
@@ -89,6 +89,7 @@
     "@types/react": "^18.0.0",
     "@types/webpack-env": "^1.13.6",
     "babel-preset-taro": "4.2.1",
+    "cross-env": "^10.1.0",
     "eslint": "^8.57.0",
     "eslint-config-taro": "4.2.1",
     "eslint-plugin-react": "^7.34.1",

@@ -6,6 +6,6 @@ export const emailLogin = {
   passwordPlaceholder: '请输入密码',
   submitting: '登录中…',
   submit: '登录',
-  backToWechat: '返回微信登录 <',
+  backToWechat: '返回微信登录',
   goSignup: '使用邮箱注册',
 }

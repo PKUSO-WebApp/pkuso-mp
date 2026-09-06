@@ -19,7 +19,7 @@ vi.mock('@tarojs/components', () => {
       onInput: (e: any) => onInput?.({ detail: { value: e.target.value } }),
     })
   }
-  return { View: create('div'), Text: create('span'), Button: create('button'), Input }
+  return { View: create('div'), Text: create('span'), Button: create('button'), Input, ScrollView: create('div') }
 })
 
 const { taroMock } = vi.hoisted(() => {
@@ -88,6 +88,11 @@ const fillForm = (name: string, email: string) => {
   fireEvent.input(screen.getByPlaceholderText('name@example.com'), { target: { value: email } })
 }
 
+/** 勾选用户协议 */
+const checkAgreement = () => {
+  fireEvent.click(screen.getByText('我已阅读并同意'))
+}
+
 vi.mock('@/i18n', async () => {
   const mod = await import('@/i18n/messages/zh-CN')
   const dict = mod.zhCN as Record<string, unknown>
@@ -138,6 +143,7 @@ describe('SetupPage', () => {
   it('姓名与邮箱均必填：缺姓名提示且不提交', async () => {
     render(<SetupPage />)
     fillForm('', 'zhangsan@example.com')
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('请输入姓名')).toBeTruthy()
     expect(supabaseFromMock).not.toHaveBeenCalled()
@@ -147,6 +153,7 @@ describe('SetupPage', () => {
   it('邮箱格式非法：提示且不提交', async () => {
     render(<SetupPage />)
     fillForm('张三', 'not-an-email')
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('请输入有效的邮箱地址')).toBeTruthy()
     expect(supabaseFromMock).not.toHaveBeenCalled()
@@ -155,6 +162,7 @@ describe('SetupPage', () => {
   it('姓名超长：提示且不提交', async () => {
     render(<SetupPage />)
     fillForm('张'.repeat(31), 'zhangsan@example.com')
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('姓名过长（最多 30 字）')).toBeTruthy()
     expect(supabaseFromMock).not.toHaveBeenCalled()
@@ -163,6 +171,7 @@ describe('SetupPage', () => {
   it('提交成功：trim 后更新 profiles + 同步 auth 邮箱 + toast + 重新走入口路由', async () => {
     render(<SetupPage />)
     fillForm(' 张三 ', 'zhangsan@example.com')
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     await waitFor(() =>
       expect(updateMock).toHaveBeenCalledWith({ full_name: '张三', email: 'zhangsan@example.com' })
@@ -181,6 +190,7 @@ describe('SetupPage', () => {
     userCtx.user = { id: 'u1', email: 'zhangsan@example.com' }
     render(<SetupPage />)
     fillForm('张三', 'zhangsan@example.com')
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalled())
     expect(authUpdateUserMock).not.toHaveBeenCalled()
@@ -196,6 +206,7 @@ describe('SetupPage', () => {
     })
     render(<SetupPage />)
     fillForm('张三', 'zhangsan@example.com')
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('该邮箱已被注册，请更换邮箱')).toBeTruthy()
     expect(taroMock.showToast).not.toHaveBeenCalled()
@@ -206,6 +217,7 @@ describe('SetupPage', () => {
     authUpdateUserMock.mockResolvedValue({ data: { user: null }, error: { message: 'boom' } })
     render(<SetupPage />)
     fillForm('张三', 'zhangsan@example.com')
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('保存失败，请重试')).toBeTruthy()
     expect(routeAfterLoginMock).not.toHaveBeenCalled()
@@ -215,6 +227,7 @@ describe('SetupPage', () => {
     updateSelectMock.mockResolvedValue({ data: [], error: null })
     render(<SetupPage />)
     fillForm('张三', 'zhangsan@example.com')
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('保存失败，请重试')).toBeTruthy()
     expect(routeAfterLoginMock).not.toHaveBeenCalled()
@@ -224,8 +237,23 @@ describe('SetupPage', () => {
     updateSelectMock.mockResolvedValue({ data: null, error: { message: 'boom' } })
     render(<SetupPage />)
     fillForm('张三', 'zhangsan@example.com')
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
     expect(await screen.findByText('保存失败，请重试')).toBeTruthy()
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
+  })
+
+  it('未勾选协议：提示请先同意用户协议且不提交', async () => {
+    render(<SetupPage />)
+    fillForm('张三', 'zhangsan@example.com')
+    fireEvent.click(screen.getByRole('button', { name: '提交' }))
+    await waitFor(() =>
+      expect(taroMock.showToast).toHaveBeenCalledWith({
+        title: '请先同意用户协议',
+        icon: 'none',
+      })
+    )
+    expect(supabaseFromMock).not.toHaveBeenCalled()
     expect(routeAfterLoginMock).not.toHaveBeenCalled()
   })
 

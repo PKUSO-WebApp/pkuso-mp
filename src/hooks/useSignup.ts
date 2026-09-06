@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import Taro from '@tarojs/taro'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 
@@ -13,9 +14,10 @@ export type UseSignupResult = {
   setFullName: (value: string) => void
   submitting: boolean
   errorMsg: string
-  // 注册结果：needsEmailConfirmation=true 表示服务端未自动建立会话
-  // （邮箱验证开启），用户需先去邮箱确认后才能登录
-  handleSubmit: () => Promise<{ needsEmailConfirmation: boolean }>
+  handleSubmit: () => Promise<void>
+  // 底层注册函数：仅执行 signUp + routeAfterLogin，不管理 submitting
+  // 供弹窗等需要独立提交状态的场景使用
+  signup: (finalEmail?: string) => Promise<{ needsEmailConfirmation: boolean }>
 }
 
 /** 密码最小长度（与 Web 端注册一致） */
@@ -60,14 +62,13 @@ export function useSignup(client: typeof defaultClient = defaultClient): UseSign
   // ref 兜底：同一 render 内连续两次点击（state 闭包尚未更新）也只触发一次提交
   const submittingRef = useRef(false)
 
-  const handleSubmit = useCallback(async (): Promise<{ needsEmailConfirmation: boolean }> => {
-    if (submittingRef.current || submitting) return { needsEmailConfirmation: false }
+  /** 底层注册函数：仅执行 signUp + routeAfterLogin，不管理 submitting */
+  const signup = useCallback(async (finalEmail?: string): Promise<{ needsEmailConfirmation: boolean }> => {
     setErrorMsg('')
 
-    const trimmedEmail = email.trim()
+    const trimmedEmail = (finalEmail ?? email).trim()
     const trimmedName = fullName.trim()
 
-    // 本地表单校验：邮箱/密码/确认密码/姓名均必填
     if (!trimmedEmail || !password || !confirmPassword || !trimmedName) {
       setErrorMsg('请填写完整信息后再提交。')
       return { needsEmailConfirmation: false }
@@ -81,37 +82,37 @@ export function useSignup(client: typeof defaultClient = defaultClient): UseSign
       return { needsEmailConfirmation: false }
     }
 
+    const { data, error } = await client.auth.signUp({
+      email: trimmedEmail,
+      password,
+      options: { data: { full_name: trimmedName } },
+    })
+    if (error) {
+      setErrorMsg(mapSignupErrorToMessage(error))
+      return { needsEmailConfirmation: false }
+    }
+    if (data.session) {
+      await routeAfterLogin(client)
+      return { needsEmailConfirmation: false }
+    }
+    return { needsEmailConfirmation: true }
+  }, [email, password, confirmPassword, fullName, client])
+
+  const handleSubmit = useCallback(async () => {
+    if (submittingRef.current || submitting) return
     submittingRef.current = true
     setSubmitting(true)
     try {
-      // options.data.full_name 写入 raw_user_meta_data，handle_new_user 触发器据此
-      // 写入 profiles.full_name 并将 status 置为 pending（等待管理员审核）
-      const { data, error } = await client.auth.signUp({
-        email: trimmedEmail,
-        password,
-        options: { data: { full_name: trimmedName } },
-      })
-      if (error) {
-        setErrorMsg(mapSignupErrorToMessage(error))
-        return { needsEmailConfirmation: false }
+      const { needsEmailConfirmation } = await signup()
+      if (needsEmailConfirmation) {
+        Taro.showToast({ title: '注册成功，请前往邮箱验证', icon: 'none' })
+        setTimeout(() => void Taro.navigateBack(), 1200)
       }
-      // 注册成功：服务端自动建立会话 → 直接按 profile 状态路由（→ 等待审核页）
-      if (data.session) {
-        await routeAfterLogin(client)
-        return { needsEmailConfirmation: false }
-      }
-      // 否则（邮箱验证开启）未建立会话，交由页面提示去邮箱确认
-      return { needsEmailConfirmation: true }
-    } catch (err) {
-      // 兜底：signUp reject（SDK 网络/超时异常）归一化为中文文案
-      setErrorMsg(mapSignupErrorToMessage(err))
-      return { needsEmailConfirmation: false }
     } finally {
-      // 无论成败都复位，避免 reject 路径按钮永久「注册中」
       submittingRef.current = false
       setSubmitting(false)
     }
-  }, [email, password, confirmPassword, fullName, submitting, client])
+  }, [signup, submitting])
 
   return {
     email,
@@ -125,5 +126,6 @@ export function useSignup(client: typeof defaultClient = defaultClient): UseSign
     submitting,
     errorMsg,
     handleSubmit,
+    signup,
   }
 }
