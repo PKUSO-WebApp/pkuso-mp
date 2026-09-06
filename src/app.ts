@@ -20,14 +20,42 @@ function App({ children }: PropsWithChildren<any>) {
     installSessionDiagFileSink()
     startSessionDiag()
     logDiag('app_launch', { env: process.env.TARO_ENV })
+    const extractError = (err: unknown): { message: string; stack: string } => {
+      if (typeof err === 'string') {
+        return { message: err, stack: '' }
+      }
+      if (err instanceof Error) {
+        return { message: err.message || String(err), stack: err.stack || '' }
+      }
+      if (err && typeof err === 'object') {
+        const obj = err as Record<string, unknown>
+        const message = obj.errMsg ?? obj.message ?? obj.error ?? obj.reason ?? obj.msg
+        const stack = obj.stack ?? obj.trace
+        if (typeof message === 'string' && message) {
+          return {
+            message,
+            stack: typeof stack === 'string' ? stack : stack ? String(stack) : '',
+          }
+        }
+        try {
+          const json = JSON.stringify(err)
+          if (json && json !== '{}') {
+            return { message: json, stack: '' }
+          }
+        } catch {
+          // JSON.stringify failed
+        }
+        return { message: String(err), stack: '' }
+      }
+      return { message: String(err ?? '未知错误'), stack: '' }
+    }
+
     const report = (err: unknown) => {
-      const e = err as { message?: string; stack?: string }
-      const message = typeof err === 'string' ? err : (e?.message ?? '未知错误')
+      const { message, stack } = extractError(err)
       if (IGNORE_ERRORS.some((re) => re.test(message))) return
       const pages = Taro.getCurrentPages?.() ?? []
       const cur = pages[pages.length - 1]?.route ?? ''
       if (cur.endsWith('/error/index')) return
-      const stack = typeof err === 'string' ? '' : (e?.stack ?? '')
       const url = `/pages/error/index?msg=${encodeURIComponent(message)}&stack=${encodeURIComponent(stack)}`
       Taro.redirectTo({ url }).catch(() => {})
     }
