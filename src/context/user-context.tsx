@@ -19,6 +19,7 @@ import {
 } from '@/lib/single-session'
 import { logDiag, setSessionStatusProvider, startSessionDiag } from '@/lib/session-diag'
 import { __resetRehearsalsCache } from '@/hooks/useRehearsals'
+import { setLoggedIn } from '@/lib/authStore'
 
 // 会话恢复超时阈值：弱网/挂起时不再无限等待（SDK 默认等待较长），超时降级为「未登录 + 恢复失败」
 const RESTORE_TIMEOUT_MS = 10000
@@ -88,6 +89,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       // 同一会话只 establish 一次（见 establishedTokenRef 注释），防止并发自踢
       if (next.access_token && next.access_token === establishedTokenRef.current) {
         setSession(next)
+        setLoggedIn(true)
         return
       }
       establishedTokenRef.current = next.access_token ?? null
@@ -96,6 +98,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       __resetRehearsalsCache()
     }
     setSession(next)
+    setLoggedIn(!!next)
     if (next) {
       establishingRef.current = true
       void establishSession(supabase).finally(() => {

@@ -397,6 +397,7 @@ export default function Profile() {
   }, [])
 
   // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
+  // 注意：游客模式下 CustomTabBar 会直接跳转到 login 页，不会到达此处
   if (myProfile?.role === 'admin') {
     return <AdminBlockedPage />
   }

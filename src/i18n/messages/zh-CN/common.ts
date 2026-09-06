@@ -46,6 +46,7 @@ export const common = {
     loadFailed: '数据加载失败，请重试',
     saveFailed: '操作失败，请重试',
   },
+  guestHint: '请在「我的」页面登录以查看',
   hidden: '（被隐藏）',
   notFilled: '未填写',
   joinDate: {

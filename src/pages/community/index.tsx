@@ -3,6 +3,7 @@ import { View, Text } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
+import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { tAppError } from '@/lib/appError'
 import { useT, useNavTitle } from '@/i18n'
@@ -36,6 +37,7 @@ function hasSectionText(value: string | null | undefined): boolean {
 export default function Community() {
   const { data: posts, loading, error, fetch } = usePosts()
   const { profile: myProfile } = useMyProfile()
+  const { user } = useUser()
   const darkClass = useThemeClass()
   const { t } = useT()
   useNavTitle('community.navTitle')
@@ -48,6 +50,9 @@ export default function Community() {
     { key: 'ensemble', label: t('community.type.ensemble') },
     { key: 'gathering', label: t('community.type.gathering') },
   ]
+
+  // 游客模式：未登录时显示空态提示
+  const isGuest = !user
 
   // 切回社区 tab 时立即刷新公告（镜像 rehearsal 的 useDidShow 刷新；
   // 静默重取：已有数据时不翻 loading，避免切 tab 整页闪烁）；
@@ -74,6 +79,23 @@ export default function Community() {
     setView(next)
     // 进入对应分类 tab 即消除该处右上角红点
     dismissCommunityDot(next)
+  }
+
+  // 游客模式：未登录时显示空态提示（必须在 admin 检查之前）
+  if (isGuest) {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      >
+        <View className='mb-3'>
+          <SegmentTabs tabs={communityTabs} value={view} onChange={handleSwitchType} />
+        </View>
+        <View className='flex flex-1 items-center justify-center px-4'>
+          <Text className='text-center text-sm text-text-muted'>{t('common.guestHint')}</Text>
+        </View>
+      </View>
+    )
   }
 
   // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）

@@ -46,6 +46,7 @@ export const common = {
     loadFailed: 'Failed to load data, please retry',
     saveFailed: 'Operation failed, please retry',
   },
+  guestHint: 'Please log in at "Me" to view',
   hidden: '（Hidden）',
   notFilled: 'Not filled',
   joinDate: {
