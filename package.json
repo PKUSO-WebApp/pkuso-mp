@@ -43,7 +43,8 @@
     "version:minor": "node scripts/version.js minor",
     "version:major": "node scripts/version.js major",
     "branch:create": "node scripts/create-branch.js",
-    "upload": "node scripts/upload.js"
+    "upload": "node scripts/upload.js",
+    "pull-types": "bash scripts/pull-types.sh"
   },
   "browserslist": [
     "defaults and fully supports es6-module",
