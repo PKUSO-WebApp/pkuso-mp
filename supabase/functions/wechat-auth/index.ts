@@ -98,18 +98,40 @@ Deno.serve(async (req) => {
   } else {
     isNew = true
     email = `wechat_${openid}@placeholder.local`
-    const { data: created, error: createError } = await admin.auth.admin.createUser({
-      email,
-      email_confirm: true,
-      password: crypto.randomUUID().replace(/-/g, ''),
-      user_metadata: { wechat_openid: openid },
-    })
-    if (createError || !created.user) {
-      return json(500, { error: 'create user failed', detail: createError?.message ?? '' })
+
+    // createUser 可能因 email_exists 而 throw（SDK 对 422 直接抛异常），
+    // 需要 try-catch 包裹：捕获后按 email 查找已有 auth user 并补写 openid 映射。
+    let createdUserId: string | null = null
+    try {
+      const { data: created, error: createError } = await admin.auth.admin.createUser({
+        email,
+        email_confirm: true,
+        password: crypto.randomUUID().replace(/-/g, ''),
+        user_metadata: { wechat_openid: openid },
+      })
+      if (createError || !created.user) {
+        return json(500, { error: 'create user failed', detail: createError?.message ?? '' })
+      }
+      createdUserId = created.user.id
+      // profile 由 handle_new_user 触发器自动创建，此处补写 openid 映射
+      await admin.from('profiles').update({ wechat_openid: openid }).eq('id', createdUserId)
+    } catch (createErr) {
+      const msg = createErr instanceof Error ? createErr.message : String(createErr)
+      if (!msg.includes('email_exists')) {
+        return json(500, { error: 'create user failed', detail: msg })
+      }
+      // email 已存在：按合成邮箱查找已有 auth user
+      const { data: existingUsers } = await admin.auth.admin.listUsers({ filter: `email eq ${email}` })
+      const existingUser = existingUsers?.users?.[0]
+      if (!existingUser) {
+        return json(500, { error: 'email_exists but user not found', detail: msg })
+      }
+      createdUserId = existingUser.id
+      // 补写 openid 映射（profile 可能已存在但缺 wechat_openid）
+      await admin.from('profiles').update({ wechat_openid: openid }).eq('id', createdUserId)
     }
-    userId = created.user.id
-    // profile 由 handle_new_user 触发器自动创建，此处补写 openid 映射
-    await admin.from('profiles').update({ wechat_openid: openid }).eq('id', userId)
+
+    userId = createdUserId
   }
 
   // 3. 轮换随机密码（仅本次登录使用，用户永远不知）
