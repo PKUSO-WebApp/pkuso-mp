@@ -20,7 +20,7 @@ vi.mock('@tarojs/components', () => {
       onInput: (e: any) => onInput?.({ detail: { value: e.target.value } }),
     })
   }
-  return { View: create('div'), Text: create('span'), Button: create('button'), Input }
+  return { View: create('div'), Text: create('span'), Button: create('button'), Input, ScrollView: create('div') }
 })
 
 const { taroMock } = vi.hoisted(() => {
@@ -87,6 +87,10 @@ const fillForm = (overrides: Partial<Record<string, string>> = {}) => {
   })
 }
 
+const checkAgreement = () => {
+  fireEvent.click(screen.getByText('我已阅读并同意'))
+}
+
 const renderPage = () =>
   render(
     <ThemeProvider>
@@ -149,17 +153,11 @@ describe('EmailSignupPage', () => {
     expect(screen.getByPlaceholderText('再次输入密码')).toBeTruthy()
     expect(screen.getByPlaceholderText('请输入真实姓名')).toBeTruthy()
     expect(screen.getByRole('button', { name: '注册' })).toBeTruthy()
-    expect(screen.getByText('返回')).toBeTruthy()
-  })
-
-  it('点击「返回」调用 navigateBack', () => {
-    renderPage()
-    fireEvent.click(screen.getByText('返回'))
-    expect(taroMock.navigateBack).toHaveBeenCalled()
   })
 
   it('空输入校验：点击注册显示提示且不调用接口', async () => {
     renderPage()
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '注册' }))
     await waitFor(() => expect(screen.getByText('请填写完整信息后再提交。')).toBeTruthy())
     expect(authMock.signUp).not.toHaveBeenCalled()
@@ -168,6 +166,7 @@ describe('EmailSignupPage', () => {
   it('密码长度不足校验', async () => {
     renderPage()
     fillForm({ password: '123', confirm: '123' })
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '注册' }))
     await waitFor(() => expect(screen.getByText('密码长度至少为 6 位，请重新设置。')).toBeTruthy())
     expect(authMock.signUp).not.toHaveBeenCalled()
@@ -176,8 +175,22 @@ describe('EmailSignupPage', () => {
   it('两次密码不一致校验', async () => {
     renderPage()
     fillForm({ password: 'password123', confirm: 'different123' })
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '注册' }))
     await waitFor(() => expect(screen.getByText('两次输入的密码不一致，请重新输入。')).toBeTruthy())
+    expect(authMock.signUp).not.toHaveBeenCalled()
+  })
+
+  it('未勾选协议：提示请先同意用户协议且不调用接口', async () => {
+    renderPage()
+    fillForm()
+    fireEvent.click(screen.getByRole('button', { name: '注册' }))
+    await waitFor(() =>
+      expect(taroMock.showToast).toHaveBeenCalledWith({
+        title: '请先同意用户协议',
+        icon: 'none',
+      })
+    )
     expect(authMock.signUp).not.toHaveBeenCalled()
   })
 
@@ -188,6 +201,7 @@ describe('EmailSignupPage', () => {
     })
     renderPage()
     fillForm()
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '注册' }))
     await waitFor(() =>
       expect(authMock.signUp).toHaveBeenCalledWith({
@@ -208,6 +222,7 @@ describe('EmailSignupPage', () => {
     })
     renderPage()
     fillForm()
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '注册' }))
     await waitFor(() =>
       expect(taroMock.showToast).toHaveBeenCalledWith({
@@ -227,6 +242,7 @@ describe('EmailSignupPage', () => {
     })
     renderPage()
     fillForm()
+    checkAgreement()
     fireEvent.click(screen.getByRole('button', { name: '注册' }))
     await waitFor(() => expect(screen.getByText('该邮箱已被注册，请直接登录')).toBeTruthy())
     expect(routeAfterLoginMock).not.toHaveBeenCalled()

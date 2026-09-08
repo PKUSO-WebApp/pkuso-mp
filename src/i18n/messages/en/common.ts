@@ -46,6 +46,13 @@ export const common = {
     loadFailed: 'Failed to load data, please retry',
     saveFailed: 'Operation failed, please retry',
   },
+  agreement: {
+    checkbox: 'I have read and agree to the',
+    linkText: 'User Agreement',
+    requiredToast: 'Please agree to the User Agreement first',
+    navTitle: 'User Agreement',
+  },
+  guestHint: 'Please log in at "Me" to view',
   hidden: '（Hidden）',
   notFilled: 'Not filled',
   joinDate: {

@@ -31,6 +31,13 @@ export function mapAuthErrorToMessage(error: unknown): string {
   ) {
     return '邮箱或密码错误'
   }
+  // 邮箱未确认
+  if (
+    code === 'email_not_confirmed' ||
+    message.includes('email not confirmed')
+  ) {
+    return '邮箱未确认，请先前往邮箱完成确认后再登录'
+  }
   // 网络类：无 message 或含 fetch/timeout/network/fail（SDK 弱网/超时常产生这类异常）
   if (!message || /fetch|timeout|network|fail/i.test(message)) {
     return '网络异常，请重试'

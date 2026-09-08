@@ -8,6 +8,7 @@ import { getThemeMode, subscribeThemeMode } from '@/lib/themeStore'
 import { THEME_PALETTE } from '@/lib/theme'
 import { getOverlayOpen, subscribeOverlayOpen } from '@/lib/overlayStore'
 import { getTabBarSelected, setTabBarSelected, subscribeTabBarSelected } from '@/lib/tabBarSelected'
+import { getLoggedIn, subscribeLoggedIn } from '@/lib/authStore'
 import house from '@/assets/icons/house.png'
 import houseActive from '@/assets/icons/house-active.png'
 import houseActiveDark from '@/assets/icons/house-active-dark.png'
@@ -89,6 +90,7 @@ export default class CustomTabBar extends Component {
     postUnviewed: getPostUnviewedFlag(),
     dark: getThemeMode() === 'dark',
     overlay: getOverlayOpen(),
+    loggedIn: getLoggedIn(),
   }
 
   componentDidMount() {
@@ -105,6 +107,7 @@ export default class CustomTabBar extends Component {
     )
     this.unsubTheme = subscribeThemeMode(() => this.setState({ dark: getThemeMode() === 'dark' }))
     this.unsubOverlay = subscribeOverlayOpen(() => this.setState({ overlay: getOverlayOpen() }))
+    this.unsubAuth = subscribeLoggedIn(() => this.setState({ loggedIn: getLoggedIn() }))
     // 语言切换时重渲染 tab 文字（底边栏由框架独立槽位渲染，不在 React Provider 树内）
     this.unsubLocale = subscribeLocale(() => this.forceUpdate())
   }
@@ -116,6 +119,7 @@ export default class CustomTabBar extends Component {
     this.unsubPost?.()
     this.unsubTheme?.()
     this.unsubOverlay?.()
+    this.unsubAuth?.()
     this.unsubLocale?.()
   }
 
@@ -125,9 +129,15 @@ export default class CustomTabBar extends Component {
   unsubPost?: () => void
   unsubTheme?: () => void
   unsubOverlay?: () => void
+  unsubAuth?: () => void
   unsubLocale?: () => void
 
   switchTab = (idx: number) => {
+    // 未登录时点击"我的" tab，跳转到登录页
+    if (idx === 4 && !this.state.loggedIn) {
+      Taro.navigateTo({ url: '/pages/login/index' })
+      return
+    }
     setTabBarSelected(idx)
     Taro.switchTab({ url: LIST[idx].pagePath })
   }

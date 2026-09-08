@@ -101,7 +101,8 @@ export default function Schedule() {
   )
 
   // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
-  if (myProfile?.role === 'admin') {
+  // 游客模式下跳过此检查（useMyProfile 在无 user 时会误查全表）
+  if (user && myProfile?.role === 'admin') {
     return <AdminBlockedPage />
   }
 
@@ -138,8 +139,9 @@ export default function Schedule() {
         </ScrollView>
 
         {/* 添加预约按钮：钉在甘特图容器右下角，不随内部滚动移动；
-            任意 Modal 打开时隐藏，避免部分 iOS 上按钮盖在底部弹窗之上 */}
-        {!overlayOpen && (
+            任意 Modal 打开时隐藏，避免部分 iOS 上按钮盖在底部弹窗之上；
+            游客模式下隐藏（未登录无法创建预约） */}
+        {!overlayOpen && user && (
           <View
             className='absolute flex items-center justify-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground shadow-lg'
             style={{ right: '8px', bottom: '8px' }}

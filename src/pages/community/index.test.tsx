@@ -57,6 +57,10 @@ vi.mock('@/hooks/useMyProfile', () => ({
   useMyProfile: () => ({ profile: { role: 'member' } }),
 }))
 
+vi.mock('@/context/user-context', () => ({
+  useUser: () => ({ user: { id: 'test-user-id' } }),
+}))
+
 vi.mock('@/context/theme-context', () => ({
   useThemeClass: () => '',
 }))

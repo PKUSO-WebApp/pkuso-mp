@@ -34,6 +34,9 @@ export default function Members() {
 
   const darkClass = useThemeClass()
 
+  // 游客模式：未登录时显示空态提示
+  const isGuest = !currentUser
+
   // 切回本 tab 时重新拉取花名册（Taro tab 页常驻内存不卸载，仅靠挂载时一次
   // 拉取会导致「改完资料回来仍是旧数据」；回到本页静默刷新，旧数据仍展示不闪加载）
   useDidShow(() => {
@@ -68,6 +71,20 @@ export default function Members() {
   )
 
   const grouped = useMemo(() => groupProfilesByInstrument(filteredRows), [filteredRows])
+
+  // 游客模式：未登录时显示空态提示（必须在 admin 检查之前）
+  if (isGuest) {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      >
+        <View className='flex flex-1 items-center justify-center px-4'>
+          <Text className='text-center text-sm text-text-muted'>{t('common.guestHint')}</Text>
+        </View>
+      </View>
+    )
+  }
 
   // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
   if (myProfile?.role === 'admin') {

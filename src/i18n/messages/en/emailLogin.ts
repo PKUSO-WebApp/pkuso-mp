@@ -6,6 +6,6 @@ export const emailLogin = {
   passwordPlaceholder: 'Enter password',
   submitting: 'Signing in…',
   submit: 'Sign In',
-  backToWechat: 'Back to WeChat <',
+  backToWechat: 'Back to WeChat',
   goSignup: 'Sign up with Email',
 }

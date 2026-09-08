@@ -1,14 +1,14 @@
 export default defineAppConfig({
   pages: [
-    // 首位为启动页：登录页作为入口，已登录用户启动时按 profile 状态路由
-    // （资料补全 → 等待审核 → 审核未通过 → 首页 tab）
+    // 首位为启动页：游客模式下直接进入首页，未登录用户可体验基本功能
+    // 已登录用户启动时按 profile 状态路由（资料补全 → 等待审核 → 审核未通过 → 首页 tab）
+    'pages/index/index',
     'pages/login/index',
     'pages/email-login/index',
     'pages/email-signup/index',
     'pages/setup/index',
     'pages/pending/index',
     'pages/rejected/index',
-    'pages/index/index',
     'pages/community/index',
     'pages/schedule/index',
     'pages/members/index',
@@ -25,6 +25,7 @@ export default defineAppConfig({
     'pages/post-edit/index',
     'pages/feedback/index',
     'pages/attendance/index',
+    'pages/agreement/index',
   ],
   // 原生 darkmode：系统暗色时原生顶栏/窗口按 theme.json 零延迟上色，消除冷启动白闪；
   // 手动覆盖仍由 setNavigationBarColor（useNavTitle / ThemeProvider）接管

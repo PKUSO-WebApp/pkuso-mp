@@ -97,6 +97,13 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
   // 点击预约块：查询预约人姓名并打开弹窗
   const handleScheduleClick = async (schedule: ScheduleRow) => {
     setSelectedSchedule(schedule)
+    // 游客模式下不查询预约人信息
+    if (!user) {
+      setLoadingAuthor(false)
+      setAuthorName(null)
+      queryingScheduleId.current = schedule.id
+      return
+    }
     setLoadingAuthor(true)
     setAuthorName(null)
     // 记录当前查询的 schedule id，防止竞态条件
@@ -233,14 +240,17 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
               </Text>
               <Text className='block text-sm text-text'>{selectedDate}</Text>
             </View>
-            <View className='mt-3'>
-              <Text className='mb-1 block text-xs text-text-muted'>
-                {t('schedule.detail.author')}
-              </Text>
-              <Text className='block text-sm text-text'>
-                {loadingAuthor ? t('common.actions.loading') : authorName || t('schedule.unknown')}
-              </Text>
-            </View>
+            {/* 预约人信息：仅登录用户可见 */}
+            {user && (
+              <View className='mt-3'>
+                <Text className='mb-1 block text-xs text-text-muted'>
+                  {t('schedule.detail.author')}
+                </Text>
+                <Text className='block text-sm text-text'>
+                  {loadingAuthor ? t('common.actions.loading') : authorName || t('schedule.unknown')}
+                </Text>
+              </View>
+            )}
             {/* 仅创建者可删除自己添加的预约（Issue #142 移植） */}
             {isAuthor && (
               <View className='mt-3 border-t border-border pt-2'>

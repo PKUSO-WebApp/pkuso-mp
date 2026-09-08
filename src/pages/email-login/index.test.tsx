@@ -133,13 +133,13 @@ describe('EmailLoginPage', () => {
     expect(screen.getByPlaceholderText('请输入密码')).toBeTruthy()
     expect(screen.getByRole('button', { name: '登录' })).toBeTruthy()
     // 顶部返回与底部注册入口
-    expect(screen.getByText('返回微信登录 <')).toBeTruthy()
+    expect(screen.getByText('返回微信登录')).toBeTruthy()
     expect(screen.getByText('使用邮箱注册')).toBeTruthy()
   })
 
-  it('点击「返回微信登录 <」调用 navigateBack', () => {
+  it('点击「返回微信登录」调用 navigateBack', () => {
     renderPage()
-    fireEvent.click(screen.getByText('返回微信登录 <'))
+    fireEvent.click(screen.getByText('返回微信登录'))
     expect(taroMock.navigateBack).toHaveBeenCalled()
   })
 

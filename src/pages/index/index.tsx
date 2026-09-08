@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { View, ScrollView } from '@tarojs/components'
+import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useRehearsals } from '@/hooks/useRehearsals'
 import { useAnnouncements } from '@/hooks/useAnnouncements'
 import { useMyProfile } from '@/hooks/useMyProfile'
+import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { dataSyncBump } from '@/lib/dataSync'
 import { tAppError } from '@/lib/appError'
@@ -42,9 +43,13 @@ export default function Index() {
     fetch: fetchAnnouncement,
   } = useAnnouncements()
   const { profile: myProfile } = useMyProfile()
+  const { user } = useUser()
   const darkClass = useThemeClass()
   const { t } = useT()
   useNavTitle('home.navTitle')
+
+  // 游客模式：未登录时显示空态提示
+  const isGuest = !user
 
   // 每次切回首页重新拉取排练与公告，并重置全局轮询计时器。
   // 静默重取：已有数据时不翻 loading，避免切 tab 整页闪烁
@@ -131,6 +136,23 @@ export default function Index() {
   useEffect(() => {
     setRehearsalUnviewedFlag(hasUnviewed)
   }, [hasUnviewed])
+
+  // 游客模式：未登录时显示空态提示（必须在 admin 检查之前，避免 useMyProfile 在无 user 时误查全表）
+  if (isGuest) {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      >
+        <View className='mb-3'>
+          <SegmentTabs tabs={scheduleTabs} value={scheduleTab} onChange={(k) => setScheduleTab(k)} />
+        </View>
+        <View className='flex flex-1 items-center justify-center px-4'>
+          <Text className='text-center text-sm text-text-muted'>{t('common.guestHint')}</Text>
+        </View>
+      </View>
+    )
+  }
 
   // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
   if (myProfile?.role === 'admin') {

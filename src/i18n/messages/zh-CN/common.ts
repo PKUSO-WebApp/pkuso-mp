@@ -46,6 +46,13 @@ export const common = {
     loadFailed: '数据加载失败，请重试',
     saveFailed: '操作失败，请重试',
   },
+  agreement: {
+    checkbox: '我已阅读并同意',
+    linkText: '用户协议',
+    requiredToast: '请先同意用户协议',
+    navTitle: '用户协议',
+  },
+  guestHint: '请在「我的」页面登录以查看',
   hidden: '（被隐藏）',
   notFilled: '未填写',
   joinDate: {
