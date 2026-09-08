@@ -10,23 +10,16 @@
 
 ## ⚠️ 后端修改流程
 
-**禁止在小程序仓库中直接修改数据库或 Edge Functions。**
-
 所有后端变更（DDL / RLS / 函数 / 触发器 / Edge Functions）必须提交到 `pkuso-backend` 仓库（`https://github.com/PKUSO-WebApp/pkuso-backend`）。
 
 - 发现后端问题 → 在 `pkuso-backend` 仓库创建 Issue
 - 需要新表/列/函数 → 在 `pkuso-backend` 创建 PR
-- 紧急修复 → 参考 `pkuso-backend/CLAUDE.md` 的 MCP 审计流程
 
 ### 类型同步
 
 - `src/types/database.types.ts` 由 `pkuso-backend` 仓库 CI 自动生成
 - 运行 `pnpm pull-types` 从 `pkuso-backend` 获取最新类型
 - 或等待 CI 自动创建 PR 同步类型
-
-### MCP 操作审计
-
-MCP 配置位于 `~/.config/opencode/opencode.jsonc`。通过 MCP 执行的任何数据库操作必须遵守 `pkuso-backend/CLAUDE.md` 的审计规则。
 
 ## 交付闸门（Delivery Gate）
 
