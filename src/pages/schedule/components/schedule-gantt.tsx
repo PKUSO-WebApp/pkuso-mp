@@ -247,7 +247,9 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
                   {t('schedule.detail.author')}
                 </Text>
                 <Text className='block text-sm text-text'>
-                  {loadingAuthor ? t('common.actions.loading') : authorName || t('schedule.unknown')}
+                  {loadingAuthor
+                    ? t('common.actions.loading')
+                    : authorName || t('schedule.unknown')}
                 </Text>
               </View>
             )}

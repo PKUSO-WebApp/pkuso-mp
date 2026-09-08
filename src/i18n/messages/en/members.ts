@@ -5,7 +5,7 @@ export const members = {
   searchPlaceholder: 'Search name, section',
   emptyApproved: 'No approved members yet',
   emptyMatch: 'No matching members found',
-  sectionLeader: '🏅 Section Leader',
+  sectionLeader: 'Section Leader',
   collegeLabel: 'College: ',
   emailLabel: 'Email: ',
   joinDateLabel: 'Joined on: ',

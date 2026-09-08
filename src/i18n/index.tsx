@@ -89,10 +89,11 @@ export function useLanguage(): LangCtx {
 export function useNavTitle(key: Path<ZHCNMessages>, params?: Record<string, string | number>) {
   const { t, locale } = useT()
   const mode = useThemeMode()
+  const title = t(key, params)
+
   useDidShow(() => {
     try {
-      Taro.setNavigationBarTitle({ title: t(key, params) })
-      // 切回 tab 时微信会回退到 app.json 默认（白底），按当前主题重设顶栏配色
+      Taro.setNavigationBarTitle({ title })
       const p = THEME_PALETTE[getThemeMode()]
       void Taro.setNavigationBarColor({ frontColor: p.navFront, backgroundColor: p.navBg }).catch(
         () => {}
@@ -103,12 +104,11 @@ export function useNavTitle(key: Path<ZHCNMessages>, params?: Record<string, str
   })
   useEffect(() => {
     try {
-      Taro.setNavigationBarTitle({ title: t(key, params) })
+      Taro.setNavigationBarTitle({ title })
     } catch {
       /* ignore */
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale])
+  }, [title, locale])
   // 主题切换时即时同步当前页顶栏配色（切 tab 由 useDidShow 负责重设）
   useEffect(() => {
     const p = THEME_PALETTE[mode]

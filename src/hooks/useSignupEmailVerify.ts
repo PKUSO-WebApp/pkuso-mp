@@ -44,43 +44,40 @@ export function useSignupEmailVerify(): UseSignupEmailVerifyReturn {
 
   const currentEmailRef = useRef('')
 
-  const checkMemberInfo = useCallback(
-    async (fullName: string, email: string): Promise<boolean> => {
-      if (!fullName.trim() || !email.trim()) return true
+  const checkMemberInfo = useCallback(async (fullName: string, email: string): Promise<boolean> => {
+    if (!fullName.trim() || !email.trim()) return true
 
-      setVerifying(true)
-      setErrorMsg(null)
-      try {
-        const { data, error } = await supabase.functions.invoke('check-member-info', {
-          body: { full_name: fullName.trim() },
-        })
+    setVerifying(true)
+    setErrorMsg(null)
+    try {
+      const { data, error } = await supabase.functions.invoke('check-member-info', {
+        body: { full_name: fullName.trim() },
+      })
 
-        if (error || data?.error) {
-          console.error('[useSignupEmailVerify] check error', error ?? data?.error)
-          return true
-        }
-
-        const result = data as MemberInfoCheckResult
-        if (!result.found || !result.email) return true
-
-        const recordEmail = result.email.trim().toLowerCase()
-        const inputEmail = email.trim().toLowerCase()
-
-        if (recordEmail === inputEmail) return true
-
-        currentEmailRef.current = email.trim()
-        setMemberInfoEmail(result.email.trim())
-        setShowConfirmDialog(true)
-        return false
-      } catch (err) {
-        console.error('[useSignupEmailVerify] check exception', err)
+      if (error || data?.error) {
+        console.error('[useSignupEmailVerify] check error', error ?? data?.error)
         return true
-      } finally {
-        setVerifying(false)
       }
-    },
-    []
-  )
+
+      const result = data as MemberInfoCheckResult
+      if (!result.found || !result.email) return true
+
+      const recordEmail = result.email.trim().toLowerCase()
+      const inputEmail = email.trim().toLowerCase()
+
+      if (recordEmail === inputEmail) return true
+
+      currentEmailRef.current = email.trim()
+      setMemberInfoEmail(result.email.trim())
+      setShowConfirmDialog(true)
+      return false
+    } catch (err) {
+      console.error('[useSignupEmailVerify] check exception', err)
+      return true
+    } finally {
+      setVerifying(false)
+    }
+  }, [])
 
   const handleUseRecordedEmail = useCallback((): string => {
     setShowConfirmDialog(false)

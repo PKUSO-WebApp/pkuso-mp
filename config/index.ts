@@ -84,9 +84,11 @@ export default defineConfig<'webpack5'>(async (merge) => {
           )
         // 小程序环境无 Node.js process 全局变量，@supabase 等依赖运行时引用 process 导致崩溃。
         // 通过 ProvidePlugin 注入 process/browser polyfill。
-        chain.plugin('process-polyfill').use(webpack.ProvidePlugin, [{
-          process: 'process/browser',
-        }])
+        chain.plugin('process-polyfill').use(webpack.ProvidePlugin, [
+          {
+            process: 'process/browser',
+          },
+        ])
         chain.merge({
           plugin: {
             install: {

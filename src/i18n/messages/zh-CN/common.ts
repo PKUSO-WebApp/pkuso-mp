@@ -62,4 +62,8 @@ export const common = {
       fall: '秋',
     },
   },
+  languageToggle: {
+    zh: '中',
+    en: 'En',
+  },
 }

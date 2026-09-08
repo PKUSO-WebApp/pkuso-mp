@@ -4,6 +4,7 @@ export default defineAppConfig({
     // 已登录用户启动时按 profile 状态路由（资料补全 → 等待审核 → 审核未通过 → 首页 tab）
     'pages/index/index',
     'pages/login/index',
+    'pages/register/index',
     'pages/email-login/index',
     'pages/email-signup/index',
     'pages/setup/index',

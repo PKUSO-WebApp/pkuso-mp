@@ -145,7 +145,11 @@ export default function Index() {
         style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
       >
         <View className='mb-3'>
-          <SegmentTabs tabs={scheduleTabs} value={scheduleTab} onChange={(k) => setScheduleTab(k)} />
+          <SegmentTabs
+            tabs={scheduleTabs}
+            value={scheduleTab}
+            onChange={(k) => setScheduleTab(k)}
+          />
         </View>
         <View className='flex flex-1 items-center justify-center px-4'>
           <Text className='text-center text-sm text-text-muted'>{t('common.guestHint')}</Text>

@@ -4,6 +4,7 @@ import { community } from './community'
 import { login } from './login'
 import { emailLogin } from './emailLogin'
 import { emailSignup } from './emailSignup'
+import { register } from './register'
 import { setup } from './setup'
 import { pending } from './pending'
 import { rejected } from './rejected'
@@ -31,6 +32,7 @@ export const zhCN = {
   login,
   emailLogin,
   emailSignup,
+  register,
   setup,
   pending,
   rejected,

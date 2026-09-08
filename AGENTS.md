@@ -5,28 +5,21 @@
 ## 关联项目
 
 - **后端仓库**：`../pkuso-backend`（即 `C:\Users\dddam\Desktop\pkusoweb\pkuso-backend`）— 数据库 schema、Edge Functions、类型定义的唯一事实来源。
-- **Web 端**：`../pkuso-web-v2`（即 `C:\Users\dddam\Desktop\pkusoweb\pkuso-web-v2`）— 管理端。
+- **Web 端**：`../pkuso-web`（即 `C:\Users\dddam\Desktop\pkusoweb\pkuso-web`）— 管理端。
 - 后端仓库的指导文件是其根目录的 `CLAUDE.md`，需要了解后端约定时请阅读该文件。
 
 ## ⚠️ 后端修改流程
-
-**禁止在小程序仓库中直接修改数据库或 Edge Functions。**
 
 所有后端变更（DDL / RLS / 函数 / 触发器 / Edge Functions）必须提交到 `pkuso-backend` 仓库（`https://github.com/PKUSO-WebApp/pkuso-backend`）。
 
 - 发现后端问题 → 在 `pkuso-backend` 仓库创建 Issue
 - 需要新表/列/函数 → 在 `pkuso-backend` 创建 PR
-- 紧急修复 → 参考 `pkuso-backend/CLAUDE.md` 的 MCP 审计流程
 
 ### 类型同步
 
 - `src/types/database.types.ts` 由 `pkuso-backend` 仓库 CI 自动生成
 - 运行 `pnpm pull-types` 从 `pkuso-backend` 获取最新类型
 - 或等待 CI 自动创建 PR 同步类型
-
-### MCP 操作审计
-
-MCP 配置位于 `~/.config/opencode/opencode.jsonc`。通过 MCP 执行的任何数据库操作必须遵守 `pkuso-backend/CLAUDE.md` 的审计规则。
 
 ## 交付闸门（Delivery Gate）
 
@@ -37,6 +30,10 @@ MCP 配置位于 `~/.config/opencode/opencode.jsonc`。通过 MCP 执行的任�
 3. 代码规范：`pnpm lint`
 4. 单元测试：`pnpm test`
    交付时请提醒用户在开发者工具中点一次「设置 → 通用 → 清空缓存 / 重开项目」。
+
+### ⚠️ 源码修改后必须运行构建命令
+
+**每次修改源码文件（.tsx/.ts/.scss）后，必须运行 `pnpm dev:weapp` 构建并在微信开发者工具中验收。**
 
 ## 技术栈
 
@@ -101,14 +98,14 @@ MCP 配置位于 `~/.config/opencode/opencode.jsonc`。通过 MCP 执行的任�
 
 ### 使用场景
 
-| 场景 | 命令 | 效果 |
-|------|------|------|
-| 日常开发 | `pnpm version:dev` | `0.1.5` → `0.1.5-dev.1`（递增 dev 序号） |
-| 提交审核 | `pnpm version:rc` | `0.1.5-dev.1` → `0.1.5-rc.1` |
-| 审核通过发布 | `pnpm version:release` | `0.1.5-rc.1` → `0.1.5` |
-| 补丁升级 | `pnpm version:bump` | `0.1.5` → `0.1.6` |
-| 次版本升级 | `pnpm version:minor` | `0.1.5` → `0.2.0` |
-| 主版本升级 | `pnpm version:major` | `0.1.5` → `1.0.0` |
+| 场景         | 命令                   | 效果                                     |
+| ------------ | ---------------------- | ---------------------------------------- |
+| 日常开发     | `pnpm version:dev`     | `0.1.5` → `0.1.5-dev.1`（递增 dev 序号） |
+| 提交审核     | `pnpm version:rc`      | `0.1.5-dev.1` → `0.1.5-rc.1`             |
+| 审核通过发布 | `pnpm version:release` | `0.1.5-rc.1` → `0.1.5`                   |
+| 补丁升级     | `pnpm version:bump`    | `0.1.5` → `0.1.6`                        |
+| 次版本升级   | `pnpm version:minor`   | `0.1.5` → `0.2.0`                        |
+| 主版本升级   | `pnpm version:major`   | `0.1.5` → `1.0.0`                        |
 
 ### 发布流程
 
@@ -179,6 +176,7 @@ release job: write .env.production → version:release → build → upload → 
    - 示例：`pnpm branch:create patch 修复登录bug`
 
 2. **开发完成后**：squash merge 到 `dev` 分支
+
    ```bash
    git checkout dev
    git merge --squash <branch-name>
@@ -200,9 +198,9 @@ release job: write .env.production → version:release → build → upload → 
 
 在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加：
 
-| Secret 名称 | 说明 |
-|------------|------|
-| `WX_APPID` | 小程序 AppID（`wx4813b0549427f8c3`） |
+| Secret 名称      | 说明                                   |
+| ---------------- | -------------------------------------- |
+| `WX_APPID`       | 小程序 AppID（`wx4813b0549427f8c3`）   |
 | `WX_PRIVATE_KEY` | 上传密钥文件内容（从微信公众平台下载） |
 
 ### 手动上传
@@ -214,3 +212,7 @@ pnpm upload
 # 指定版本号和描述
 pnpm upload 0.2.1 "测试上传"
 ```
+
+## ⚠️ CI 部署监控
+
+**所有触发 CI 的操作（push/merge/workflow_dispatch），必须使用 `gh run watch <run-id> --exit-status` 监控直到 CI 完成，不得提前返回。**

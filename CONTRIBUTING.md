@@ -41,16 +41,16 @@ src/
 
 ## 常用命令
 
-| 命令 | 说明 |
-|------|------|
-| `pnpm dev:weapp` | 监听构建（配合开发者工具热重载） |
-| `pnpm build:weapp` | 生产构建 |
-| `pnpm typecheck` | TypeScript 类型检查 |
-| `pnpm lint` | ESLint（零警告） |
-| `pnpm test` | Vitest 单测 |
-| `pnpm format:fix` | Prettier 格式化 |
-| `pnpm verify` | 完整校验：format + lint + typecheck + test |
-| `pnpm new` | 创建新页面/组件 |
+| 命令               | 说明                                       |
+| ------------------ | ------------------------------------------ |
+| `pnpm dev:weapp`   | 监听构建（配合开发者工具热重载）           |
+| `pnpm build:weapp` | 生产构建                                   |
+| `pnpm typecheck`   | TypeScript 类型检查                        |
+| `pnpm lint`        | ESLint（零警告）                           |
+| `pnpm test`        | Vitest 单测                                |
+| `pnpm format:fix`  | Prettier 格式化                            |
+| `pnpm verify`      | 完整校验：format + lint + typecheck + test |
+| `pnpm new`         | 创建新页面/组件                            |
 
 ## 交付闸门
 
@@ -98,6 +98,7 @@ pnpm test
 常用类型：`feat`、`fix`、`docs`、`style`、`refactor`、`test`、`chore`、`ci`
 
 示例：
+
 ```
 feat: 添加消息通知功能
 fix: 修复登录页冷启动闪烁
@@ -165,11 +166,11 @@ pnpm test
 
 ### 分支策略
 
-| 分支 | 用途 |
-|------|------|
-| `main` | 稳定发布，CI 自动 version:release → build → upload |
-| `dev` | 开发测试，CI 自动 version:dev → build → upload |
-| 功能分支 | 从 `dev` 创建，squash merge 回 `dev` |
+| 分支     | 用途                                               |
+| -------- | -------------------------------------------------- |
+| `main`   | 稳定发布，CI 自动 version:release → build → upload |
+| `dev`    | 开发测试，CI 自动 version:dev → build → upload     |
+| 功能分支 | 从 `dev` 创建，squash merge 回 `dev`               |
 
 ### 创建功能分支
 
@@ -193,4 +194,4 @@ pnpm branch:create <patch|minor|major> "描述"
 
 ## 相关仓库
 
-- `pkuso-web-v2`：Web 管理端（Next.js），Supabase 配置同源
+- `pkuso-web`：Web 管理端（Next.js），Supabase 配置同源
