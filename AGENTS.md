@@ -5,7 +5,7 @@
 ## 关联项目
 
 - **后端仓库**：`../pkuso-backend`（即 `C:\Users\dddam\Desktop\pkusoweb\pkuso-backend`）— 数据库 schema、Edge Functions、类型定义的唯一事实来源。
-- **Web 端**：`../pkuso-web-v2`（即 `C:\Users\dddam\Desktop\pkusoweb\pkuso-web-v2`）— 管理端。
+- **Web 端**：`../pkuso-web`（即 `C:\Users\dddam\Desktop\pkusoweb\pkuso-web`）— 管理端。
 - 后端仓库的指导文件是其根目录的 `CLAUDE.md`，需要了解后端约定时请阅读该文件。
 
 ## ⚠️ 后端修改流程

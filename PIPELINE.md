@@ -1,6 +1,6 @@
 # PKUSO 小程序流水线（Agent Pipeline）
 
-> 本文件是 pkuso-web-v2/.claude/agents/* 在 Taro 小程序项目上的适配版。
+> 本文件是 pkuso-web/.claude/agents/* 在 Taro 小程序项目上的适配版。
 > 主智能体（opencode）负责编排，子智能体用 Task 工具实例化，上下文互相隔离。
 > 流程：DBA(按需) → implementer → reviewer → adversary → tester → 主智能体验证+提交。
 

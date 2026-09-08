@@ -193,4 +193,4 @@ pnpm branch:create <patch|minor|major> "描述"
 
 ## 相关仓库
 
-- `pkuso-web-v2`：Web 管理端（Next.js），Supabase 配置同源
+- `pkuso-web`：Web 管理端（Next.js），Supabase 配置同源
