@@ -67,7 +67,13 @@ export default function LoginPage() {
     if (result.success) {
       Taro.showToast({ title: t('login.codeSendSuccess'), icon: 'none' })
     } else if (result.notRegistered) {
-      setErrorMsg(t('login.userNotRegistered'))
+      await Taro.showModal({
+        title: t('login.notRegisteredTitle'),
+        content: t('login.notRegisteredContent'),
+        showCancel: false,
+        confirmText: t('login.goRegister'),
+      })
+      void Taro.reLaunch({ url: '/pages/register/index' })
     } else {
       setErrorMsg(t('login.codeSendFailed'))
     }
