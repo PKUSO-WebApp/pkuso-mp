@@ -36,6 +36,7 @@ const { taroMock } = vi.hoisted(() => {
     offThemeChange: vi.fn(),
     getStorage: vi.fn(() => Promise.resolve({ data: null })),
     setStorage: vi.fn(() => Promise.resolve()),
+    showToast: vi.fn(),
   }
   // 默认导入（theme-context 的 import Taro from '@tarojs/taro'）与命名导入同源
   ;(mock as unknown as Record<string, unknown>).default = mock
@@ -51,6 +52,19 @@ vi.mock('@/lib/post-auth-route', () => ({ routeAfterLogin: routeAfterLoginMock }
 const { loginWithWechatMock } = vi.hoisted(() => ({ loginWithWechatMock: vi.fn() }))
 vi.mock('@/hooks/useWechatLogin', () => ({
   useWechatLogin: () => ({ submitting: false, loginWithWechat: loginWithWechatMock }),
+}))
+
+// useSendLoginCode mock
+const { sendCodeMock } = vi.hoisted(() => ({
+  sendCodeMock: vi.fn().mockResolvedValue({ success: true }),
+}))
+vi.mock('@/hooks/useSendLoginCode', () => ({
+  useSendLoginCode: () => ({
+    sending: false,
+    countdown: 60,
+    isCountingDown: false,
+    sendCode: sendCodeMock,
+  }),
 }))
 
 // 可变的 useUser mock
@@ -74,8 +88,26 @@ const { authMock, supabaseMock } = vi.hoisted(() => {
     onAuthStateChange: vi.fn(),
     getUser: vi.fn(),
     signOut: vi.fn(),
+    signInWithPassword: vi.fn(),
+    setSession: vi.fn(),
   }
-  return { authMock: auth, supabaseMock: { auth } }
+  const fromMock = vi.fn(() => ({
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'u1' } }),
+  }))
+  const functionsInvokeMock = vi.fn().mockResolvedValue({
+    data: { access_token: 'at', refresh_token: 'rt' },
+    error: null,
+  })
+  return {
+    authMock: auth,
+    supabaseMock: {
+      auth,
+      from: fromMock,
+      functions: { invoke: functionsInvokeMock },
+    },
+  }
 })
 vi.mock('@/lib/supabase', () => ({ supabase: supabaseMock }))
 
@@ -117,12 +149,14 @@ vi.mock('@/i18n', async () => {
     useNavTitle: vi.fn(),
   }
 })
-describe('LoginPage（入口）', () => {
+
+describe('LoginPage', () => {
   beforeEach(() => {
     ctx.ready = true
     ctx.user = null
     ctx.session = null
     ctx.restoreFailed = false
+    ctx.forcedOffline = false
     authMock.getUser.mockReset()
     authMock.getUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
     authMock.signOut.mockReset()
@@ -134,42 +168,64 @@ describe('LoginPage（入口）', () => {
     })
     taroMock.reLaunch.mockClear()
     taroMock.navigateTo.mockClear()
+    taroMock.showToast.mockClear()
     routeAfterLoginMock.mockReset()
     routeAfterLoginMock.mockResolvedValue(undefined)
     loginWithWechatMock.mockReset()
     loginWithWechatMock.mockResolvedValue({ error: null })
+    sendCodeMock.mockReset()
+    sendCodeMock.mockResolvedValue({ success: true })
+    supabaseMock.auth.signInWithPassword.mockReset()
+    supabaseMock.auth.setSession.mockReset()
+    supabaseMock.auth.setSession.mockResolvedValue({ error: null })
+    supabaseMock.from.mockReset()
+    supabaseMock.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'u1' } }),
+    })
+    supabaseMock.functions.invoke.mockReset()
+    supabaseMock.functions.invoke.mockResolvedValue({
+      data: { access_token: 'at', refresh_token: 'rt' },
+      error: null,
+    })
   })
 
   afterEach(() => {
     cleanup()
   })
 
-  it('渲染两个入口按钮：微信授权登录/注册 与 使用邮箱登录/注册', () => {
+  it('渲染微信登录按钮和邮箱表单', () => {
     renderPage()
-    expect(screen.getByRole('button', { name: '微信授权登录/注册' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '使用邮箱登录/注册' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '微信授权登录' })).toBeTruthy()
+    expect(screen.getByPlaceholderText('name@example.com')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '登录' })).toBeTruthy()
   })
 
-  it('点击「使用邮箱登录/注册」路由到邮箱登录页', () => {
+  it('点击微信登录按钮委托微信登录逻辑', () => {
     renderPage()
-    fireEvent.click(screen.getByRole('button', { name: '使用邮箱登录/注册' }))
-    expect(taroMock.navigateTo).toHaveBeenCalledWith({ url: '/pages/email-login/index' })
-  })
-
-  it('点击「微信授权登录/注册」委托微信登录逻辑', () => {
-    renderPage()
-    fireEvent.click(screen.getByRole('button', { name: '微信授权登录/注册' }))
+    fireEvent.click(screen.getByRole('button', { name: '微信授权登录' }))
     expect(loginWithWechatMock).toHaveBeenCalled()
+  })
+
+  it('切换到密码登录模式', () => {
+    renderPage()
+    // 初始为验证码模式，显示获取验证码按钮
+    expect(screen.getByText('获取验证码')).toBeTruthy()
+    // 点击切换
+    fireEvent.click(screen.getByText('用密码登录'))
+    // 密码模式下不应显示验证码按钮
+    expect(screen.queryByText('获取验证码')).toBeNull()
   })
 
   it('会话恢复完成前显示加载占位', () => {
     ctx.ready = false
     renderPage()
-    expect(screen.getByText('加载中…')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '微信授权登录/注册' })).toBeNull()
+    expect(screen.getByText(/加载中/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '微信授权登录' })).toBeNull()
   })
 
-  it('已登录用户访问登录页：校验会话后按 profile 状态路由入口', async () => {
+  it('已登录用户访问登录页：校验会话后按 profile 状态路由', async () => {
     ctx.user = makeUser('u1')
     ctx.session = {} as UserContextValue['session']
     renderPage()
@@ -190,5 +246,11 @@ describe('LoginPage（入口）', () => {
     ctx.restoreFailed = true
     renderPage()
     expect(screen.getByText('网络异常，请重试')).toBeTruthy()
+  })
+
+  it('强制离线时显示 ForceOfflineModal', () => {
+    ctx.forcedOffline = true
+    renderPage()
+    expect(screen.getByText('账号已在其他设备登录')).toBeTruthy()
   })
 })
