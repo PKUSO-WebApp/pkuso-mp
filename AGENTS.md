@@ -38,6 +38,10 @@ MCP 配置位于 `~/.config/opencode/opencode.jsonc`。通过 MCP 执行的任�
 4. 单元测试：`pnpm test`
    交付时请提醒用户在开发者工具中点一次「设置 → 通用 → 清空缓存 / 重开项目」。
 
+### ⚠️ 源码修改后必须运行开发服务器
+
+**每次修改源码文件（.tsx/.ts/.scss）后，必须运行 `pnpm dev:weapp` 启动开发服务器，以便用户在微信开发者工具中验收。**
+
 ## 技术栈
 
 - Taro + React 小程序（目标平台：微信 `dist/` 经开发者工具编译）。
@@ -214,3 +218,7 @@ pnpm upload
 # 指定版本号和描述
 pnpm upload 0.2.1 "测试上传"
 ```
+
+## ⚠️ CI 部署监控
+
+**所有触发 CI 的操作（push/merge/workflow_dispatch），必须使用 `gh run watch <run-id> --exit-status` 监控直到 CI 完成，不得提前返回。**
