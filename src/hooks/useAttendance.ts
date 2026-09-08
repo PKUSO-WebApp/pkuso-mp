@@ -141,7 +141,7 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
           p_rehearsal_id: input.rehearsal_id,
           p_lat: input.latitude,
           p_lng: input.longitude,
-          p_accuracy: input.accuracy ?? null,
+          p_accuracy: input.accuracy ?? undefined,
         })
         if (dbError) {
           // 状态面只记稳定码；签到被拒的具体原因（如地理围栏外）经返回值透传给页面 toast
