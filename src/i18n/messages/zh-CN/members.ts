@@ -5,7 +5,7 @@ export const members = {
   searchPlaceholder: '搜索姓名，声部',
   emptyApproved: '暂无已通过成员',
   emptyMatch: '未找到匹配的成员',
-  sectionLeader: '🏅 声部长',
+  sectionLeader: '声部长',
   collegeLabel: '学院：',
   emailLabel: '邮箱：',
   joinDateLabel: '入团时间：',

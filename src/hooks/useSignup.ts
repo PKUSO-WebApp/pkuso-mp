@@ -63,40 +63,43 @@ export function useSignup(client: typeof defaultClient = defaultClient): UseSign
   const submittingRef = useRef(false)
 
   /** 底层注册函数：仅执行 signUp + routeAfterLogin，不管理 submitting */
-  const signup = useCallback(async (finalEmail?: string): Promise<{ needsEmailConfirmation: boolean }> => {
-    setErrorMsg('')
+  const signup = useCallback(
+    async (finalEmail?: string): Promise<{ needsEmailConfirmation: boolean }> => {
+      setErrorMsg('')
 
-    const trimmedEmail = (finalEmail ?? email).trim()
-    const trimmedName = fullName.trim()
+      const trimmedEmail = (finalEmail ?? email).trim()
+      const trimmedName = fullName.trim()
 
-    if (!trimmedEmail || !password || !confirmPassword || !trimmedName) {
-      setErrorMsg('请填写完整信息后再提交。')
-      return { needsEmailConfirmation: false }
-    }
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setErrorMsg(`密码长度至少为 ${MIN_PASSWORD_LENGTH} 位，请重新设置。`)
-      return { needsEmailConfirmation: false }
-    }
-    if (password !== confirmPassword) {
-      setErrorMsg('两次输入的密码不一致，请重新输入。')
-      return { needsEmailConfirmation: false }
-    }
+      if (!trimmedEmail || !password || !confirmPassword || !trimmedName) {
+        setErrorMsg('请填写完整信息后再提交。')
+        return { needsEmailConfirmation: false }
+      }
+      if (password.length < MIN_PASSWORD_LENGTH) {
+        setErrorMsg(`密码长度至少为 ${MIN_PASSWORD_LENGTH} 位，请重新设置。`)
+        return { needsEmailConfirmation: false }
+      }
+      if (password !== confirmPassword) {
+        setErrorMsg('两次输入的密码不一致，请重新输入。')
+        return { needsEmailConfirmation: false }
+      }
 
-    const { data, error } = await client.auth.signUp({
-      email: trimmedEmail,
-      password,
-      options: { data: { full_name: trimmedName } },
-    })
-    if (error) {
-      setErrorMsg(mapSignupErrorToMessage(error))
-      return { needsEmailConfirmation: false }
-    }
-    if (data.session) {
-      await routeAfterLogin(client)
-      return { needsEmailConfirmation: false }
-    }
-    return { needsEmailConfirmation: true }
-  }, [email, password, confirmPassword, fullName, client])
+      const { data, error } = await client.auth.signUp({
+        email: trimmedEmail,
+        password,
+        options: { data: { full_name: trimmedName } },
+      })
+      if (error) {
+        setErrorMsg(mapSignupErrorToMessage(error))
+        return { needsEmailConfirmation: false }
+      }
+      if (data.session) {
+        await routeAfterLogin(client)
+        return { needsEmailConfirmation: false }
+      }
+      return { needsEmailConfirmation: true }
+    },
+    [email, password, confirmPassword, fullName, client]
+  )
 
   const handleSubmit = useCallback(async () => {
     if (submittingRef.current || submitting) return

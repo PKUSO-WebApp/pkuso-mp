@@ -57,7 +57,7 @@ const branchName = `${VERSION_TYPE}/${DESCRIPTION}`
 try {
   execSync(`git checkout -b "${branchName}"`, { stdio: 'inherit' })
   console.log(`✓ 已创建并切换到分支: ${branchName}`)
-  
+
   // 提交版本号变更
   execSync('git add package.json', { stdio: 'inherit' })
   execSync(`git commit -m "chore: bump version to ${newVersion}"`, { stdio: 'inherit' })

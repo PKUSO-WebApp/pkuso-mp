@@ -3,12 +3,14 @@ import { Button, Picker, Text, View } from '@tarojs/components'
 import Taro, { useShareAppMessage } from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
 import { TextField } from '@/components/ui/FormFields'
+import { LanguageToggle } from '@/components/ui/LanguageToggle'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { INSTRUMENT_ORDER } from '@/constants/instruments'
 import { supabase } from '@/lib/supabase'
 import { routeAfterLogin } from '@/lib/post-auth-route'
+import { getAcademicYearLabel } from '@/lib/academic-year'
 import './index.scss'
 
 const INSTRUMENT_OPTIONS = [...INSTRUMENT_ORDER, '其他'] as const
@@ -23,12 +25,12 @@ const SEASON_OPTIONS = ['春', '秋'] as const
 export default function RegisterPage() {
   const { ready, user } = useUser()
   const darkClass = useThemeClass()
-  const { t } = useT()
+  const { t, locale, setLocale } = useT()
   useNavTitle('register.navTitle')
 
   useShareAppMessage(() => {
     return {
-      title: t('register.shareTitle'),
+      title: `${getAcademicYearLabel()} ${t('register.shareTitle')}`,
     }
   })
 
@@ -42,12 +44,11 @@ export default function RegisterPage() {
   const [college, setCollege] = useState('')
   const [yearIndex, setYearIndex] = useState<number | null>(null)
   const [seasonIndex, setSeasonIndex] = useState<number | null>(null)
+  const [inOrchestra, setInOrchestra] = useState<boolean | null>(null)
   const [agreed, setAgreed] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const submittingRef = useRef(false)
-
-
 
   useEffect(() => {
     if (!ready || !user) return
@@ -62,7 +63,9 @@ export default function RegisterPage() {
       }
     }
     void verifyAndEnter()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [ready, user])
 
   // 静默获取微信 code（wx.login 不需要用户授权）
@@ -77,7 +80,9 @@ export default function RegisterPage() {
       }
     }
     void fetchCode()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const handleSubmit = async () => {
@@ -108,6 +113,10 @@ export default function RegisterPage() {
       setErrorMsg(t('register.requiredToast'))
       return
     }
+    if (inOrchestra === null) {
+      setErrorMsg(t('register.requiredToast'))
+      return
+    }
 
     if (!wechatCode) {
       setErrorMsg(t('register.wechatBindFailed'))
@@ -128,6 +137,7 @@ export default function RegisterPage() {
           instrument,
           college: college.trim(),
           join_date: joinDate,
+          is_in_orchestra: inOrchestra,
         },
       })
 
@@ -135,6 +145,8 @@ export default function RegisterPage() {
         const errCode = data?.error
         if (errCode === 'wechat_already_bound') {
           setErrorMsg(t('register.alreadyRegistered'))
+        } else if (errCode === 'email_already_registered') {
+          setErrorMsg(t('register.emailAlreadyRegistered'))
         } else {
           setErrorMsg(t('register.registerFailed'))
         }
@@ -170,11 +182,13 @@ export default function RegisterPage() {
   }
 
   return (
-    <View className={`${darkClass} pk-register flex flex-col items-center bg-page-bg px-5 pt-8 pb-safe`}>
+    <View
+      className={`${darkClass} pk-register flex flex-col items-center bg-page-bg px-5 pt-8 pb-safe`}
+    >
       <Card className='w-full px-5 py-6'>
-        <View className='mb-4 text-center'>
+        <View className='mb-4 flex items-center justify-between'>
           <Text className='text-xl font-semibold text-text'>{t('register.title')}</Text>
-          <Text className='mt-1 block text-sm text-text-muted'>{t('register.subtitle')}</Text>
+          <LanguageToggle locale={locale} onChange={setLocale} />
         </View>
 
         <TextField
@@ -183,7 +197,10 @@ export default function RegisterPage() {
           label={t('register.nameLabel')}
           placeholder={t('register.namePlaceholder')}
           value={fullName}
-          onInput={(e) => { setErrorMsg(null); setFullName(e.detail.value) }}
+          onInput={(e) => {
+            setErrorMsg(null)
+            setFullName(e.detail.value)
+          }}
         />
 
         <TextField
@@ -192,21 +209,33 @@ export default function RegisterPage() {
           label={t('register.emailLabel')}
           placeholder={t('register.emailPlaceholder')}
           value={email}
-          onInput={(e) => { setErrorMsg(null); setEmail(e.detail.value) }}
+          onInput={(e) => {
+            setErrorMsg(null)
+            setEmail(e.detail.value)
+          }}
         />
 
         {/* 声部选择 */}
         <View className='mb-3'>
-          <Text className='mb-1 block text-sm font-medium text-text-muted'>{t('register.instrumentLabel')}</Text>
+          <Text className='mb-1 block text-sm font-medium text-text-muted'>
+            {t('register.instrumentLabel')}
+          </Text>
           <Picker
             mode='selector'
             range={INSTRUMENT_OPTIONS as unknown as string[]}
             value={instrumentIndex ?? 0}
-            onChange={(e) => { setErrorMsg(null); setInstrumentIndex(Number(e.detail.value)) }}
+            onChange={(e) => {
+              setErrorMsg(null)
+              setInstrumentIndex(Number(e.detail.value))
+            }}
           >
             <View className='flex h-10 w-full items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
-              <Text className={`text-sm ${instrumentIndex !== null ? 'text-text' : 'text-text-muted'}`}>
-                {instrumentIndex !== null ? INSTRUMENT_OPTIONS[instrumentIndex] : t('register.instrumentPlaceholder')}
+              <Text
+                className={`text-sm ${instrumentIndex !== null ? 'text-text' : 'text-text-muted'}`}
+              >
+                {instrumentIndex !== null
+                  ? INSTRUMENT_OPTIONS[instrumentIndex]
+                  : t('register.instrumentPlaceholder')}
               </Text>
               <Text className='text-xs text-text-muted'>▼</Text>
             </View>
@@ -219,20 +248,29 @@ export default function RegisterPage() {
           label={t('register.collegeLabel')}
           placeholder={t('register.collegePlaceholder')}
           value={college}
-          onInput={(e) => { setErrorMsg(null); setCollege(e.detail.value) }}
+          onInput={(e) => {
+            setErrorMsg(null)
+            setCollege(e.detail.value)
+          }}
         />
 
         {/* 入团时间 */}
         <View className='mb-3'>
-          <Text className='mb-1 block text-sm font-medium text-text-muted'>{t('register.joinDateLabel')}</Text>
-          <View className='flex gap-2'>
+          <Text className='mb-1 block text-sm font-medium text-text-muted'>
+            {t('register.joinDateLabel')}
+          </Text>
+          <View className='flex w-full gap-2'>
             <Picker
               mode='selector'
               range={YEAR_OPTIONS}
               value={yearIndex ?? 0}
-              onChange={(e) => { setErrorMsg(null); setYearIndex(Number(e.detail.value)) }}
+              onChange={(e) => {
+                setErrorMsg(null)
+                setYearIndex(Number(e.detail.value))
+              }}
+              className='flex-1'
             >
-              <View className='flex h-10 flex-1 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
+              <View className='flex h-10 w-full min-w-0 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
                 <Text className={`text-sm ${yearIndex !== null ? 'text-text' : 'text-text-muted'}`}>
                   {yearIndex !== null ? YEAR_OPTIONS[yearIndex] : t('register.yearPlaceholder')}
                 </Text>
@@ -243,11 +281,19 @@ export default function RegisterPage() {
               mode='selector'
               range={SEASON_OPTIONS as unknown as string[]}
               value={seasonIndex ?? 0}
-              onChange={(e) => { setErrorMsg(null); setSeasonIndex(Number(e.detail.value)) }}
+              onChange={(e) => {
+                setErrorMsg(null)
+                setSeasonIndex(Number(e.detail.value))
+              }}
+              className='flex-1'
             >
-              <View className='flex h-10 flex-1 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
-                <Text className={`text-sm ${seasonIndex !== null ? 'text-text' : 'text-text-muted'}`}>
-                  {seasonIndex !== null ? SEASON_OPTIONS[seasonIndex] : t('register.seasonPlaceholder')}
+              <View className='flex h-10 w-full min-w-0 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
+                <Text
+                  className={`text-sm ${seasonIndex !== null ? 'text-text' : 'text-text-muted'}`}
+                >
+                  {seasonIndex !== null
+                    ? SEASON_OPTIONS[seasonIndex]
+                    : t('register.seasonPlaceholder')}
                 </Text>
                 <Text className='text-xs text-text-muted'>▼</Text>
               </View>
@@ -255,11 +301,53 @@ export default function RegisterPage() {
           </View>
         </View>
 
+        {/* 在团情况 */}
+        <View className='mb-3 flex items-center justify-between'>
+          <Text className='text-sm font-medium text-text-muted'>
+            {t('register.enrollmentStatusLabel')}
+          </Text>
+          <View className='flex gap-4'>
+            <View
+              className='flex-1 flex items-center gap-2'
+              onClick={() => {
+                setErrorMsg(null)
+                setInOrchestra(true)
+              }}
+            >
+              <View
+                className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                  inOrchestra === true ? 'border-primary bg-primary' : 'border-border bg-page-bg'
+                }`}
+              >
+                {inOrchestra === true && (
+                  <View className='h-2.5 w-2.5 rounded-full bg-primary-foreground' />
+                )}
+              </View>
+              <Text className='text-sm text-text'>{t('register.enrollmentStatusEnrolled')}</Text>
+            </View>
+            <View
+              className='flex-1 flex items-center gap-2'
+              onClick={() => {
+                setErrorMsg(null)
+                setInOrchestra(false)
+              }}
+            >
+              <View
+                className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                  inOrchestra === false ? 'border-primary bg-primary' : 'border-border bg-page-bg'
+                }`}
+              >
+                {inOrchestra === false && (
+                  <View className='h-2.5 w-2.5 rounded-full bg-primary-foreground' />
+                )}
+              </View>
+              <Text className='text-sm text-text'>{t('register.enrollmentStatusNotEnrolled')}</Text>
+            </View>
+          </View>
+        </View>
+
         {/* 协议 */}
-        <View
-          className='mb-3 flex items-center'
-          onClick={() => setAgreed((v) => !v)}
-        >
+        <View className='mb-3 flex items-center' onClick={() => setAgreed((v) => !v)}>
           <View
             className={`mr-2 flex h-5 w-5 items-center justify-center rounded border ${
               agreed ? 'border-primary bg-primary' : 'border-border bg-page-bg'

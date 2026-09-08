@@ -156,22 +156,15 @@ export default function EmailSignupPage() {
           onInput={(e) => setConfirmPassword(e.detail.value)}
         />
 
-        <View
-          className='mb-3 flex items-center'
-          onClick={() => setAgreed((v) => !v)}
-        >
+        <View className='mb-3 flex items-center' onClick={() => setAgreed((v) => !v)}>
           <View
             className={`mr-2 flex h-5 w-5 items-center justify-center rounded border ${
               agreed ? 'border-primary bg-primary' : 'border-border bg-page-bg'
             }`}
           >
-            {agreed ? (
-              <Text className='text-xs text-primary-foreground'>✓</Text>
-            ) : null}
+            {agreed ? <Text className='text-xs text-primary-foreground'>✓</Text> : null}
           </View>
-          <Text className='text-sm text-text-muted'>
-            {t('common.agreement.checkbox')}
-          </Text>
+          <Text className='text-sm text-text-muted'>{t('common.agreement.checkbox')}</Text>
           <Text
             className='text-sm text-primary'
             onClick={(e) => {
@@ -207,9 +200,7 @@ export default function EmailSignupPage() {
         position='center'
       >
         <View className='px-1 py-2'>
-          <Text className='text-sm text-text-muted'>
-            {t('emailSignup.emailVerify.desc')}
-          </Text>
+          <Text className='text-sm text-text-muted'>{t('emailSignup.emailVerify.desc')}</Text>
           <Text className='mt-2 block text-sm font-medium text-text'>
             {emailVerify.memberInfoEmail}
           </Text>
@@ -234,9 +225,7 @@ export default function EmailSignupPage() {
               disabled={modalSubmitting}
               onClick={() => void handleUseOwn()}
             >
-              {modalSubmitting
-                ? t('emailSignup.submitting')
-                : t('emailSignup.emailVerify.useOwn')}
+              {modalSubmitting ? t('emailSignup.submitting') : t('emailSignup.emailVerify.useOwn')}
             </Button>
           </View>
         </View>

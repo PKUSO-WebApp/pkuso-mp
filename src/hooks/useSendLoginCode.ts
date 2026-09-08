@@ -14,7 +14,9 @@ export type UseSendLoginCodeResult = {
  * 调用 send-login-code Edge Function（无 JWT），内置 60s 倒计时。
  * 返回 notRegistered=true 表示邮箱未注册，前端应引导注册。
  */
-export function useSendLoginCode(client: typeof defaultClient = defaultClient): UseSendLoginCodeResult {
+export function useSendLoginCode(
+  client: typeof defaultClient = defaultClient
+): UseSendLoginCodeResult {
   const [sending, setSending] = useState(false)
   const { countdown, start, isActive } = useCountdown(60)
   const sendingRef = useRef(false)

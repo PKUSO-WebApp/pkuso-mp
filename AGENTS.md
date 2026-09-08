@@ -98,14 +98,14 @@
 
 ### 使用场景
 
-| 场景 | 命令 | 效果 |
-|------|------|------|
-| 日常开发 | `pnpm version:dev` | `0.1.5` → `0.1.5-dev.1`（递增 dev 序号） |
-| 提交审核 | `pnpm version:rc` | `0.1.5-dev.1` → `0.1.5-rc.1` |
-| 审核通过发布 | `pnpm version:release` | `0.1.5-rc.1` → `0.1.5` |
-| 补丁升级 | `pnpm version:bump` | `0.1.5` → `0.1.6` |
-| 次版本升级 | `pnpm version:minor` | `0.1.5` → `0.2.0` |
-| 主版本升级 | `pnpm version:major` | `0.1.5` → `1.0.0` |
+| 场景         | 命令                   | 效果                                     |
+| ------------ | ---------------------- | ---------------------------------------- |
+| 日常开发     | `pnpm version:dev`     | `0.1.5` → `0.1.5-dev.1`（递增 dev 序号） |
+| 提交审核     | `pnpm version:rc`      | `0.1.5-dev.1` → `0.1.5-rc.1`             |
+| 审核通过发布 | `pnpm version:release` | `0.1.5-rc.1` → `0.1.5`                   |
+| 补丁升级     | `pnpm version:bump`    | `0.1.5` → `0.1.6`                        |
+| 次版本升级   | `pnpm version:minor`   | `0.1.5` → `0.2.0`                        |
+| 主版本升级   | `pnpm version:major`   | `0.1.5` → `1.0.0`                        |
 
 ### 发布流程
 
@@ -176,6 +176,7 @@ release job: write .env.production → version:release → build → upload → 
    - 示例：`pnpm branch:create patch 修复登录bug`
 
 2. **开发完成后**：squash merge 到 `dev` 分支
+
    ```bash
    git checkout dev
    git merge --squash <branch-name>
@@ -197,9 +198,9 @@ release job: write .env.production → version:release → build → upload → 
 
 在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加：
 
-| Secret 名称 | 说明 |
-|------------|------|
-| `WX_APPID` | 小程序 AppID（`wx4813b0549427f8c3`） |
+| Secret 名称      | 说明                                   |
+| ---------------- | -------------------------------------- |
+| `WX_APPID`       | 小程序 AppID（`wx4813b0549427f8c3`）   |
 | `WX_PRIVATE_KEY` | 上传密钥文件内容（从微信公众平台下载） |
 
 ### 手动上传

@@ -19,7 +19,13 @@ vi.mock('@tarojs/components', () => {
       onInput: (e: any) => onInput?.({ detail: { value: e.target.value } }),
     })
   }
-  return { View: create('div'), Text: create('span'), Button: create('button'), Input, ScrollView: create('div') }
+  return {
+    View: create('div'),
+    Text: create('span'),
+    Button: create('button'),
+    Input,
+    ScrollView: create('div'),
+  }
 })
 
 const { taroMock } = vi.hoisted(() => {

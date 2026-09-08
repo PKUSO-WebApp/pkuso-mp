@@ -50,9 +50,21 @@ switch (action) {
   case 'dev': {
     const overrideNum = process.env.DEV_VERSION_NUM
     if (overrideNum) {
-      newVersion = formatVersion(parsed.major, parsed.minor, parsed.patch, 'dev', Number(overrideNum))
+      newVersion = formatVersion(
+        parsed.major,
+        parsed.minor,
+        parsed.patch,
+        'dev',
+        Number(overrideNum)
+      )
     } else if (parsed.prerelease === 'dev') {
-      newVersion = formatVersion(parsed.major, parsed.minor, parsed.patch, 'dev', parsed.prereleaseNum + 1)
+      newVersion = formatVersion(
+        parsed.major,
+        parsed.minor,
+        parsed.patch,
+        'dev',
+        parsed.prereleaseNum + 1
+      )
     } else {
       newVersion = formatVersion(parsed.major, parsed.minor, parsed.patch, 'dev', 1)
     }
@@ -60,7 +72,13 @@ switch (action) {
   }
   case 'rc': {
     if (parsed.prerelease === 'rc') {
-      newVersion = formatVersion(parsed.major, parsed.minor, parsed.patch, 'rc', parsed.prereleaseNum + 1)
+      newVersion = formatVersion(
+        parsed.major,
+        parsed.minor,
+        parsed.patch,
+        'rc',
+        parsed.prereleaseNum + 1
+      )
     } else {
       newVersion = formatVersion(parsed.major, parsed.minor, parsed.patch, 'rc', 1)
     }

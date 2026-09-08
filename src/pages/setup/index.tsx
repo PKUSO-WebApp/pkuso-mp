@@ -312,13 +312,9 @@ export default function SetupPage() {
               agreed ? 'border-primary bg-primary' : 'border-border bg-page-bg'
             }`}
           >
-            {agreed ? (
-              <Text className='text-xs text-primary-foreground'>✓</Text>
-            ) : null}
+            {agreed ? <Text className='text-xs text-primary-foreground'>✓</Text> : null}
           </View>
-          <Text className='text-sm text-text-muted'>
-            {t('common.agreement.checkbox')}
-          </Text>
+          <Text className='text-sm text-text-muted'>{t('common.agreement.checkbox')}</Text>
           <Text
             className='text-sm text-primary'
             onClick={(e) => {
@@ -364,9 +360,7 @@ export default function SetupPage() {
         position='center'
       >
         <View className='px-1 py-2'>
-          <Text className='text-sm text-text-muted'>
-            {t('setup.emailVerify.desc')}
-          </Text>
+          <Text className='text-sm text-text-muted'>{t('setup.emailVerify.desc')}</Text>
           <Text className='mt-2 block text-sm font-medium text-text'>
             {emailVerify.memberInfoEmail}
           </Text>
@@ -428,9 +422,7 @@ export default function SetupPage() {
                 disabled={codeSending}
                 onClick={handleUseOwn}
               >
-                {codeSending
-                  ? t('setup.emailVerify.verifying')
-                  : t('setup.emailVerify.useOwn')}
+                {codeSending ? t('setup.emailVerify.verifying') : t('setup.emailVerify.useOwn')}
               </Button>
             </View>
           ) : (
@@ -445,9 +437,7 @@ export default function SetupPage() {
                     : () => void handleVerifyConfirm()
                 }
               >
-                {codeVerifying
-                  ? t('setup.emailVerify.verifying')
-                  : t('common.actions.confirm')}
+                {codeVerifying ? t('setup.emailVerify.verifying') : t('common.actions.confirm')}
               </View>
             </View>
           )}

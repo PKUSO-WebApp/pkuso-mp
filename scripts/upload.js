@@ -13,7 +13,8 @@ const fs = require('fs')
 const path = require('path')
 
 const APPID = process.env.WX_APPID || 'wx4813b0549427f8c3'
-const PRIVATE_KEY_PATH = process.env.WX_PRIVATE_KEY_PATH || path.join(__dirname, '..', 'key', 'private.key')
+const PRIVATE_KEY_PATH =
+  process.env.WX_PRIVATE_KEY_PATH || path.join(__dirname, '..', 'key', 'private.key')
 
 // 检查密钥文件
 if (!fs.existsSync(PRIVATE_KEY_PATH)) {

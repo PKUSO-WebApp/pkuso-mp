@@ -62,7 +62,10 @@ describe('useAttendance', () => {
       status: 'present',
       sign_in_time: '2026-01-01T10:00:00',
     })
-    expect(result.current.map[2]).toEqual({ status: 'present', sign_in_time: '2026-01-02T10:20:00' })
+    expect(result.current.map[2]).toEqual({
+      status: 'present',
+      sign_in_time: '2026-01-02T10:20:00',
+    })
   })
 
   it('fetchMyAttendances 空 rehearsalIds 直接清空 map 并结束 loading', async () => {
