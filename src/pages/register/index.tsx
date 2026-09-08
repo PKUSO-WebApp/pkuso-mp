@@ -34,7 +34,10 @@ export default function RegisterPage() {
 
   const [wechatCode, setWechatCode] = useState('')
   const [fullName, setFullName] = useState('')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(() => {
+    const routerEmail = Taro.getCurrentInstance().router?.params?.email
+    return routerEmail ? decodeURIComponent(routerEmail) : ''
+  })
   const [instrumentIndex, setInstrumentIndex] = useState<number | null>(null)
   const [college, setCollege] = useState('')
   const [yearIndex, setYearIndex] = useState<number | null>(null)

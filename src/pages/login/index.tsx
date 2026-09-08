@@ -73,7 +73,8 @@ export default function LoginPage() {
         showCancel: false,
         confirmText: t('login.goRegister'),
       })
-      void Taro.reLaunch({ url: '/pages/register/index' })
+      const encodedEmail = encodeURIComponent(email.trim().toLowerCase())
+      void Taro.reLaunch({ url: `/pages/register/index?email=${encodedEmail}` })
     } else {
       setErrorMsg(t('login.codeSendFailed'))
     }
