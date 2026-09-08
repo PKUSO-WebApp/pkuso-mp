@@ -39,11 +39,7 @@ export default function RegisterPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const submittingRef = useRef(false)
 
-  useEffect(() => {
-    if (ready && !user) {
-      void Taro.reLaunch({ url: '/pages/login/index' })
-    }
-  }, [ready, user])
+
 
   useEffect(() => {
     if (!ready || !user) return
