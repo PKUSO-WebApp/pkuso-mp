@@ -11,6 +11,7 @@ export const login = {
   codeLabel: 'Verification Code',
   codePlaceholder: 'Enter code',
   getCode: 'Get Code',
+  sending: 'Sending…',
   resendCode: 'Resend ({seconds}s)',
   login: 'Sign In',
   loggingIn: 'Signing in…',

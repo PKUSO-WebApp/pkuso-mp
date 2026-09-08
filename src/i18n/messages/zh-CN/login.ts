@@ -11,6 +11,7 @@ export const login = {
   codeLabel: '验证码',
   codePlaceholder: '请输入验证码',
   getCode: '获取验证码',
+  sending: '发送中…',
   resendCode: '重新发送 ({seconds}s)',
   login: '登录',
   loggingIn: '登录中…',

@@ -66,6 +66,8 @@ export default function LoginPage() {
     const result = await sendCode(email)
     if (result.success) {
       Taro.showToast({ title: t('login.codeSendSuccess'), icon: 'none' })
+    } else if (result.notRegistered) {
+      setErrorMsg(t('login.userNotRegistered'))
     } else {
       setErrorMsg(t('login.codeSendFailed'))
     }
@@ -241,7 +243,7 @@ export default function LoginPage() {
                   onClick={isCountingDown || codeSending ? undefined : () => void handleSendCode()}
                 >
                   {codeSending
-                    ? '...'
+                    ? t('login.sending')
                     : isCountingDown
                       ? t('login.resendCode', { seconds: countdown })
                       : t('login.getCode')}

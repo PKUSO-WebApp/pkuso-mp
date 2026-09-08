@@ -154,7 +154,7 @@ export default function RegisterPage() {
     }
   }
 
-  if (!ready || !user) {
+  if (!ready) {
     return (
       <View className={`${darkClass} flex min-h-full items-center justify-center bg-page-bg`}>
         <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>

@@ -25,15 +25,16 @@ export function useSendLoginCode(client: typeof defaultClient = defaultClient): 
       sendingRef.current = true
       setSending(true)
       try {
-        const { error } = await client.functions.invoke('send-login-code', {
+        const { data, error } = await client.functions.invoke('send-login-code', {
           body: { email: email.trim().toLowerCase() },
         })
         if (error) {
           return { success: false }
         }
-        // send-login-code 对未注册用户也返回 success（防枚举）
-        // 但前端可以通过调用 check-member-info 或直接提示未注册
-        // 为简化，我们始终返回 success 并启动倒计时
+        // 检查用户是否存在
+        if (data?.error === 'user_not_found') {
+          return { success: false, notRegistered: true }
+        }
         start()
         return { success: true }
       } catch {
