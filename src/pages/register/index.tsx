@@ -27,7 +27,6 @@ export default function RegisterPage() {
   useNavTitle('register.navTitle')
 
   const [wechatCode, setWechatCode] = useState('')
-  const [wechatBound, setWechatBound] = useState(false)
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [instrumentIndex, setInstrumentIndex] = useState<number | null>(null)
@@ -57,21 +56,20 @@ export default function RegisterPage() {
     return () => { cancelled = true }
   }, [ready, user])
 
-  const handleWechatBind = async () => {
-    try {
-      const loginRes = await Taro.login()
-      const code = loginRes.code ?? ''
-      if (!code) {
-        setErrorMsg(t('register.wechatBindFailed'))
-        return
+  // 静默获取微信 code（wx.login 不需要用户授权）
+  useEffect(() => {
+    let cancelled = false
+    const fetchCode = async () => {
+      try {
+        const loginRes = await Taro.login()
+        if (!cancelled) setWechatCode(loginRes.code ?? '')
+      } catch {
+        // 静默失败，提交时会提示
       }
-      setWechatCode(code)
-      setWechatBound(true)
-      setErrorMsg(null)
-    } catch {
-      setErrorMsg(t('register.wechatBindFailed'))
     }
-  }
+    void fetchCode()
+    return () => { cancelled = true }
+  }, [])
 
   const handleSubmit = async () => {
     if (submittingRef.current || submitting) return
@@ -169,22 +167,6 @@ export default function RegisterPage() {
           <Text className='text-xl font-semibold text-text'>{t('register.title')}</Text>
           <Text className='mt-1 block text-sm text-text-muted'>{t('register.subtitle')}</Text>
         </View>
-
-        {/* 微信授权绑定 */}
-        <Button
-          hoverClass='none'
-          className={`mb-3 flex h-11 w-full items-center justify-center rounded-2xl text-sm font-medium disabled:opacity-60 ${
-            wechatBound
-              ? 'bg-success-bg text-success'
-              : 'bg-[#03DB6C] text-white'
-          }`}
-          disabled={wechatBound || submitting}
-          onClick={() => void handleWechatBind()}
-        >
-          {wechatBound ? t('register.wechatBound') : t('register.wechatBind')}
-        </Button>
-
-        <View className='my-6 border-t border-border' />
 
         <TextField
           className='mb-3'
