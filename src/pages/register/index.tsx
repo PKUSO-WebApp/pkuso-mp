@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, Picker, Text, View } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useShareAppMessage } from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
 import { TextField } from '@/components/ui/FormFields'
 import { useUser } from '@/context/user-context'
@@ -25,6 +25,12 @@ export default function RegisterPage() {
   const darkClass = useThemeClass()
   const { t } = useT()
   useNavTitle('register.navTitle')
+
+  useShareAppMessage(() => {
+    return {
+      title: t('register.shareTitle'),
+    }
+  })
 
   const [wechatCode, setWechatCode] = useState('')
   const [fullName, setFullName] = useState('')

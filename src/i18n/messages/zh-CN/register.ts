@@ -27,4 +27,5 @@ export const register = {
   registerFailed: '注册失败，请稍后重试',
   wechatCodeFailed: '微信授权失败，请重试',
   alreadyRegistered: '该微信已绑定其他账号',
+  shareTitle: 'PKUSO 助手注册',
 }

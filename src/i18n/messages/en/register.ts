@@ -27,4 +27,5 @@ export const register = {
   registerFailed: 'Registration failed, please retry',
   wechatCodeFailed: 'WeChat authorization failed, please retry',
   alreadyRegistered: 'This WeChat account is already bound',
+  shareTitle: 'PKUSO Assistant Registration',
 }
