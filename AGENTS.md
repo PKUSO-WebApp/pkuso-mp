@@ -35,6 +35,12 @@
 
 **每次修改源码文件（.tsx/.ts/.scss）后，必须运行 `pnpm dev:weapp` 构建并在微信开发者工具中验收。**
 
+`pnpm dev:weapp`（`cross-env NODE_ENV=development taro build --type weapp`）是 **watch 模式构建进程**，不是一次性命令。**不可用 timeout 运行**，应以后台进程方式启动，等待其保持运行（持续监听文件变更并增量编译）。用户验收完毕后需手动终止。
+
+### ⚠️ 用户说「验收」前必须先启动 dev
+
+**当用户说「验收」「看看效果」「预览」等意图查看运行结果时，必须先运行 `pnpm dev:weapp`（后台持续运行，不可 timeout）启动 watch 构建，再提示用户在微信开发者工具中查看。不得跳过此步骤。**
+
 ## 技术栈
 
 - Taro + React 小程序（目标平台：微信 `dist/` 经开发者工具编译）。
