@@ -3,7 +3,8 @@ import Taro from '@tarojs/taro'
 import { View, Image } from '@tarojs/components'
 import { getTabBarUnread, subscribeTabBarUnread } from '@/lib/tabBarBadge'
 import { getRehearsalUnviewedFlag, subscribeRehearsalUnviewed } from '@/lib/rehearsalSeen'
-import { getPostUnviewedFlag, subscribePostUnviewed } from '@/lib/postSeen'
+// [FALLBACK] 社区隐藏，post 未读 import 暂时注释。恢复时取消注释。
+// import { getPostUnviewedFlag, subscribePostUnviewed } from '@/lib/postSeen'
 import { getThemeMode, subscribeThemeMode } from '@/lib/themeStore'
 import { THEME_PALETTE } from '@/lib/theme'
 import { getOverlayOpen, subscribeOverlayOpen } from '@/lib/overlayStore'
@@ -12,9 +13,10 @@ import { getLoggedIn, subscribeLoggedIn } from '@/lib/authStore'
 import house from '@/assets/icons/house.png'
 import houseActive from '@/assets/icons/house-active.png'
 import houseActiveDark from '@/assets/icons/house-active-dark.png'
-import messageSquare from '@/assets/icons/message-square.png'
-import messageSquareActive from '@/assets/icons/message-square-active.png'
-import messageSquareActiveDark from '@/assets/icons/message-square-active-dark.png'
+// [FALLBACK] 社区 tab 恢复时需补回以下 import：
+// import messageSquare from '@/assets/icons/message-square.png'
+// import messageSquareActive from '@/assets/icons/message-square-active.png'
+// import messageSquareActiveDark from '@/assets/icons/message-square-active-dark.png'
 import calendar from '@/assets/icons/calendar.png'
 import calendarActive from '@/assets/icons/calendar-active.png'
 import calendarActiveDark from '@/assets/icons/calendar-active-dark.png'
@@ -39,13 +41,15 @@ const LIST = [
     selectedIcon: houseActive,
     selectedIconDark: houseActiveDark,
   },
-  {
-    pagePath: '/pages/community/index',
-    key: 'ui.tabBar.community',
-    icon: messageSquare,
-    selectedIcon: messageSquareActive,
-    selectedIconDark: messageSquareActiveDark,
-  },
+  // [FALLBACK] 社区页面因无法通过微信服务类目审核，暂时隐藏入口。
+  // 恢复时取消下方注释，并同步恢复 dataSync.ts 中 post 轮询逻辑。
+  // {
+  //   pagePath: '/pages/community/index',
+  //   key: 'ui.tabBar.community',
+  //   icon: messageSquare,
+  //   selectedIcon: messageSquareActive,
+  //   selectedIconDark: messageSquareActiveDark,
+  // },
   {
     pagePath: '/pages/schedule/index',
     key: 'ui.tabBar.schedule',
@@ -87,7 +91,6 @@ export default class CustomTabBar extends Component {
     selected: getTabBarSelected(),
     unread: getTabBarUnread(),
     rehearsalUnviewed: getRehearsalUnviewedFlag(),
-    postUnviewed: getPostUnviewedFlag(),
     dark: getThemeMode() === 'dark',
     overlay: getOverlayOpen(),
     loggedIn: getLoggedIn(),
@@ -102,9 +105,10 @@ export default class CustomTabBar extends Component {
     this.unsubRehearsal = subscribeRehearsalUnviewed(() =>
       this.setState({ rehearsalUnviewed: getRehearsalUnviewedFlag() })
     )
-    this.unsubPost = subscribePostUnviewed(() =>
-      this.setState({ postUnviewed: getPostUnviewedFlag() })
-    )
+    // [FALLBACK] 社区隐藏，post 未读订阅暂停。恢复时取消注释。
+    // this.unsubPost = subscribePostUnviewed(() =>
+    //   this.setState({ postUnviewed: getPostUnviewedFlag() })
+    // )
     this.unsubTheme = subscribeThemeMode(() => this.setState({ dark: getThemeMode() === 'dark' }))
     this.unsubOverlay = subscribeOverlayOpen(() => this.setState({ overlay: getOverlayOpen() }))
     this.unsubAuth = subscribeLoggedIn(() => this.setState({ loggedIn: getLoggedIn() }))
@@ -134,7 +138,7 @@ export default class CustomTabBar extends Component {
 
   switchTab = (idx: number) => {
     // 未登录时点击"我的" tab，跳转到登录页
-    if (idx === 4 && !this.state.loggedIn) {
+    if (idx === 3 && !this.state.loggedIn) {
       Taro.navigateTo({ url: '/pages/login/index' })
       return
     }
@@ -143,7 +147,7 @@ export default class CustomTabBar extends Component {
   }
 
   render() {
-    const { selected, unread, rehearsalUnviewed, postUnviewed, dark, overlay } = this.state
+    const { selected, unread, rehearsalUnviewed, dark, overlay } = this.state
     const c = paletteFor(dark)
     return (
       <View
@@ -184,7 +188,7 @@ export default class CustomTabBar extends Component {
                   src={isSelected ? (dark ? tab.selectedIconDark : tab.selectedIcon) : tab.icon}
                   style={{ width: '24px', height: '24px' }}
                 />
-                {idx === 4 && unread > 0 && (
+                {idx === 3 && unread > 0 && (
                   <View
                     style={{
                       position: 'absolute',
@@ -214,7 +218,8 @@ export default class CustomTabBar extends Component {
                     }}
                   />
                 )}
-                {idx === 1 && postUnviewed && (
+                {/* [FALLBACK] 社区 tab 隐藏，红点逻辑同步注释。恢复时取消注释。 */}
+                {/* {idx === 1 && postUnviewed && (
                   <View
                     style={{
                       position: 'absolute',
@@ -228,7 +233,7 @@ export default class CustomTabBar extends Component {
                       borderColor: c.bg,
                     }}
                   />
-                )}
+                )} */}
               </View>
               <View
                 style={{

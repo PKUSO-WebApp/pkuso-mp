@@ -59,12 +59,13 @@ export default defineAppConfig({
         iconPath: 'assets/icons/house.png',
         selectedIconPath: 'assets/icons/house-active.png',
       },
-      {
-        pagePath: 'pages/community/index',
-        text: '社区',
-        iconPath: 'assets/icons/message-square.png',
-        selectedIconPath: 'assets/icons/message-square-active.png',
-      },
+      // [FALLBACK] 社区页面因无法通过微信服务类目审核，暂时隐藏。恢复时取消注释。
+      // {
+      //   pagePath: 'pages/community/index',
+      //   text: '社区',
+      //   iconPath: 'assets/icons/message-square.png',
+      //   selectedIconPath: 'assets/icons/message-square-active.png',
+      // },
       {
         pagePath: 'pages/schedule/index',
         text: '日程',

@@ -76,7 +76,9 @@ async function tick() {
       if (next.rehearsals !== versions.rehearsals) emitSync('rehearsals')
       if (next.announcements !== versions.announcements) emitSync('announcements')
       if (next.leave !== versions.leave) emitSync('leave')
-      if (next.post !== versions.post) emitSync('post')
+      // [FALLBACK] 社区页面因无法通过微信服务类目审核，暂时关闭帖子轮询。
+      // 恢复时取消下方注释，并同步恢复 CustomTabBar.tsx 中社区 tab 入口。
+      // if (next.post !== versions.post) emitSync('post')
     }
     if (
       lastKnownUnread !== null &&
