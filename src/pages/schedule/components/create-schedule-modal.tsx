@@ -6,20 +6,27 @@ import { Modal } from '@/components/ui/Modal'
 import { useT } from '@/i18n'
 import { ActionBar } from '@/components/ui/ActionBar'
 
-// 时间选择最小单位 15 分钟：分钟列仅提供 00/15/30/45 四档。
-const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+// 时间选择最小单位 15 分钟：分钟列仅提供 00/15/30/45 四档；末尾追加 '24' 以支持 24:00 结束时间。
+const HOURS = [
+  ...Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')),
+  '24',
+]
 const MINUTES = ['00', '15', '30', '45']
 
 function timeToIndices(time: string): [number, number] {
-  if (!time || !/^\d{1,2}:\d{2}$/.test(time)) return [9, 0]
+  if (!time) return [9, 0]
   const [h, m] = time.split(':')
+  if (h === '24') return [HOURS.length - 1, 0]
+  if (!/^\d{1,2}:\d{2}$/.test(time)) return [9, 0]
   const hi = HOURS.indexOf(h.padStart(2, '0'))
   const mi = Math.min(MINUTES.length - 1, Math.max(0, Math.round(Number(m) / 15)))
   return [hi < 0 ? 9 : hi, mi]
 }
 
 function indicesToTime(indices: number[]): string {
-  const h = HOURS[indices?.[0] ?? 9] ?? '09'
+  const hi = indices?.[0] ?? 9
+  if (hi === HOURS.length - 1) return '24:00'
+  const h = HOURS[hi] ?? '09'
   const m = MINUTES[indices?.[1] ?? 0] ?? '00'
   return `${h}:${m}`
 }

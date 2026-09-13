@@ -123,6 +123,7 @@ export function parseLocalISO(dateStr: string): Date {
  */
 export function formatTime(timeStr: string | null): string {
   if (!timeStr) return '--:--'
+  if (/T24:00(:00)?$/.test(timeStr)) return '23:59'
   const date = parseLocalISO(timeStr)
   if (Number.isNaN(date.getTime())) return '--:--'
   return date.toTimeString().slice(0, 5)

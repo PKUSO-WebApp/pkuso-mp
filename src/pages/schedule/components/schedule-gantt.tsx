@@ -35,9 +35,11 @@ export function getScheduleColorClass(id: number): string {
   return SCHEDULE_COLORS[Math.abs(id) % SCHEDULE_COLORS.length]
 }
 
-/** 解析时间字符串为小时数（0-24，含分钟小数）；无效时间返回 0 */
+/** 解析时间字符串为小时数（0-24，含分钟小数）；无效时间返回 0。
+ *  24:00 特殊处理：直接返回 24（JS Date 会将 hour=24 回绕到次日 0:00，需提前拦截）。 */
 export function parseTimeToHours(timeStr: string | null): number {
   if (!timeStr) return 0
+  if (/T24:00(:00)?$/.test(timeStr)) return 24
   const date = parseLocalISO(timeStr)
   if (Number.isNaN(date.getTime())) return 0
   return date.getHours() + date.getMinutes() / 60
