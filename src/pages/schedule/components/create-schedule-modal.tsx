@@ -15,9 +15,10 @@ const MINUTES = ['00', '15', '30', '45']
 
 function timeToIndices(time: string): [number, number] {
   if (!time) return [9, 0]
-  const [h, m] = time.split(':')
-  if (h === '24') return [HOURS.length - 1, 0]
+  // 23:59 是 24:00 的内部表示，映射回 picker 的 24 列
+  if (time === '23:59') return [HOURS.length - 1, 0]
   if (!/^\d{1,2}:\d{2}$/.test(time)) return [9, 0]
+  const [h, m] = time.split(':')
   const hi = HOURS.indexOf(h.padStart(2, '0'))
   const mi = Math.min(MINUTES.length - 1, Math.max(0, Math.round(Number(m) / 15)))
   return [hi < 0 ? 9 : hi, mi]
@@ -25,7 +26,8 @@ function timeToIndices(time: string): [number, number] {
 
 function indicesToTime(indices: number[]): string {
   const hi = indices?.[0] ?? 9
-  if (hi === HOURS.length - 1) return '24:00'
+  // 选中 '24' 列时，以 23:59 存储（避免 JS Date 将 hour=24 回绕到 0:00）
+  if (hi === HOURS.length - 1) return '23:59'
   const h = HOURS[hi] ?? '09'
   const m = MINUTES[indices?.[1] ?? 0] ?? '00'
   return `${h}:${m}`
