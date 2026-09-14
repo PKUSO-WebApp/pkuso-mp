@@ -14,6 +14,7 @@ on:
       - 'vitest.config.ts'
       - 'app.css'
       - 'app.scss'
+      - '.github/**'
 
 jobs:
   verify:
