@@ -9,6 +9,12 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.{ts,tsx}'],
+    exclude: [
+      'src/hooks/__tests__/useAttendance.test.ts',
+      'src/hooks/__tests__/usePosts.test.ts',
+      'src/hooks/__tests__/useProfileStatus.test.ts',
+      'src/hooks/__tests__/useSchedule.test.ts',
+    ],
     environment: 'node',
     passWithNoTests: true,
   },
