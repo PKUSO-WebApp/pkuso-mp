@@ -4,7 +4,7 @@ import { useAttendance, type AttendanceHistoryRow } from '@/hooks/useAttendance'
 import { useT, useNavTitle } from '@/i18n'
 import type { TFn } from '@/i18n/core'
 import { formatRehearsalRange } from '@/lib/date-utils'
-import { isAbsentPlaceholder, UNSIGNED_LABEL } from '@/lib/attendance-utils'
+import { isAbsentPlaceholder, getUnsignedLabel } from '@/lib/attendance-utils'
 import { STATUS_TEXT_COLOR } from '@/lib/attendance-status'
 import { summarizeAttendance, type AttendanceSummaryKey } from '@/lib/attendance-summary'
 import type { AttendanceRow } from '@/types/database'
@@ -24,7 +24,7 @@ const getAttendanceDisplay = (
 ): { label: string; className: string } => {
   if (!status) return { label: '—', className: 'text-text-muted' }
   if (status === 'absent' && isAbsentPlaceholder(signInTime, startTime, endTime)) {
-    return { label: UNSIGNED_LABEL, className: 'text-text' }
+    return { label: getUnsignedLabel(t), className: 'text-text' }
   }
   return {
     label: t(`profile.attendance.status.${status}` as Parameters<typeof t>[0]) ?? status,

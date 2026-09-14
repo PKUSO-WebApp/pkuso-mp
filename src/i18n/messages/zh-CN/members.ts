@@ -16,7 +16,7 @@ export const members = {
   fieldContact: '联系方式',
   fieldJoinDate: '入团时间',
   tagMember: '团员',
-  tagFriend: '团友',
+  tagAlumni: '团友',
   statusLabel: '在团情况',
   statusActive: '在团',
   statusInactive: '不在团',

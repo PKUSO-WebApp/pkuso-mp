@@ -31,4 +31,7 @@ export const register = {
   alreadyRegistered: '该微信已绑定其他账号',
   emailAlreadyRegistered: '该邮箱已被注册',
   shareTitle: '学年团员信息收集',
+  otherInstrument: '其他',
+  seasonSpring: '春',
+  seasonFall: '秋',
 }

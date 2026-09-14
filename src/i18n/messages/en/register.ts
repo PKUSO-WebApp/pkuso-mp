@@ -31,4 +31,7 @@ export const register = {
   alreadyRegistered: 'This WeChat account is already bound',
   emailAlreadyRegistered: 'This email is already registered',
   shareTitle: 'Academic Year Member Info Collection',
+  otherInstrument: 'Other',
+  seasonSpring: 'Spring',
+  seasonFall: 'Fall',
 }

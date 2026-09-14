@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
 import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
+import { useT } from '@/i18n'
 import type { AttendanceRow, AttendanceRowWithUser, AttendanceStatus } from '@/types/database'
 
 export type AttendanceSignInInput = {
@@ -55,6 +56,7 @@ const nextDayString = (dateStr: string): string => {
 export type MyAttendanceMap = Record<number, { status: string; sign_in_time: string | null }>
 
 export function useAttendance(client: typeof defaultClient = defaultClient) {
+  const { t } = useT()
   const [map, setMap] = useState<MyAttendanceMap>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<AppErrorCode | null>(null)
@@ -132,7 +134,7 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
    *  客户端直写考勤被 RLS/RPC 架构禁止，保留只会误导调用方，P2-5） */
   const signIn = useCallback(
     async (input: AttendanceSignInInput): Promise<SignInResult> => {
-      if (savingRef.current) return { error: '请勿重复提交', row: null }
+      if (savingRef.current) return { error: t('login.duplicateSubmit'), row: null }
       savingRef.current = true
       setSaving(true)
       setError(null)
@@ -155,7 +157,7 @@ export function useAttendance(client: typeof defaultClient = defaultClient) {
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client]
+    [client, t]
   )
 
   /**

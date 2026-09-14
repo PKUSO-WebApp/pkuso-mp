@@ -56,7 +56,7 @@ export const common = {
   hidden: '(Hidden)',
   notFilled: 'Not filled',
   joinDate: {
-    tpl: '{year}{season}',
+    tpl: '{year} {season}',
     season: {
       spring: 'Spring',
       fall: 'Fall',
@@ -65,5 +65,19 @@ export const common = {
   languageToggle: {
     zh: '中',
     en: 'En',
+  },
+  attendance: {
+    notSignedIn: 'Not signed in',
+  },
+  version: {
+    release: 'Release',
+    trial: 'Trial',
+    develop: 'Dev',
+  },
+  upload: {
+    unknownFormat: 'Unknown data format',
+    readFailed: 'Failed to read local attachment',
+    readFailedUnknown: 'Failed to read local attachment: unknown data format',
+    attachmentReadFailed: 'Failed to read attachment',
   },
 }

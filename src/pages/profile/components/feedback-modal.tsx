@@ -74,7 +74,7 @@ export function FeedbackModal({ open, onClose }: Props) {
           {t('profile.feedback.anonymousHint')}
         </Text>
         <Text className='mt-1 block text-xs text-text-subtle'>
-          {t('profile.feedback.version', { version: getAppVersionLabel() })}
+          {t('profile.feedback.version', { version: getAppVersionLabel(t) })}
         </Text>
         <FormField boxClass='mt-1 w-full overflow-hidden rounded-xl border border-border bg-muted'>
           <Textarea

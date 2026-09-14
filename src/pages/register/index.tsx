@@ -11,16 +11,22 @@ import { INSTRUMENT_ORDER } from '@/constants/instruments'
 import { supabase } from '@/lib/supabase'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { getAcademicYearLabel } from '@/lib/academic-year'
+import type { TFn } from '@/i18n/core'
 import './index.scss'
 
-const INSTRUMENT_OPTIONS = [...INSTRUMENT_ORDER, '其他'] as const
+function getInstrumentOptions(t: TFn) {
+  return [...INSTRUMENT_ORDER, t('register.otherInstrument')] as const
+}
 
 function getCurrentYear(): number {
   return new Date().getFullYear()
 }
 
 const YEAR_OPTIONS = Array.from({ length: 8 }, (_, i) => String(getCurrentYear() - i))
-const SEASON_OPTIONS = ['春', '秋'] as const
+
+function getSeasonOptions(t: TFn) {
+  return [t('register.seasonSpring'), t('register.seasonFall')] as const
+}
 
 export default function RegisterPage() {
   const { ready, user } = useUser()
@@ -126,8 +132,8 @@ export default function RegisterPage() {
     submittingRef.current = true
     setSubmitting(true)
     try {
-      const joinDate = `${YEAR_OPTIONS[yearIndex]}${SEASON_OPTIONS[seasonIndex]}`
-      const instrument = INSTRUMENT_OPTIONS[instrumentIndex]
+      const joinDate = `${YEAR_OPTIONS[yearIndex]}${getSeasonOptions(t)[seasonIndex]}`
+      const instrument = getInstrumentOptions(t)[instrumentIndex]
 
       const { data, error } = await supabase.functions.invoke('register-with-wechat', {
         body: {
@@ -222,7 +228,7 @@ export default function RegisterPage() {
           </Text>
           <Picker
             mode='selector'
-            range={INSTRUMENT_OPTIONS as unknown as string[]}
+            range={getInstrumentOptions(t) as unknown as string[]}
             value={instrumentIndex ?? 0}
             onChange={(e) => {
               setErrorMsg(null)
@@ -234,7 +240,7 @@ export default function RegisterPage() {
                 className={`text-sm ${instrumentIndex !== null ? 'text-text' : 'text-text-muted'}`}
               >
                 {instrumentIndex !== null
-                  ? INSTRUMENT_OPTIONS[instrumentIndex]
+                  ? getInstrumentOptions(t)[instrumentIndex]
                   : t('register.instrumentPlaceholder')}
               </Text>
               <Text className='text-xs text-text-muted'>▼</Text>
@@ -279,7 +285,7 @@ export default function RegisterPage() {
             </Picker>
             <Picker
               mode='selector'
-              range={SEASON_OPTIONS as unknown as string[]}
+              range={getSeasonOptions(t) as unknown as string[]}
               value={seasonIndex ?? 0}
               onChange={(e) => {
                 setErrorMsg(null)
@@ -292,7 +298,7 @@ export default function RegisterPage() {
                   className={`text-sm ${seasonIndex !== null ? 'text-text' : 'text-text-muted'}`}
                 >
                   {seasonIndex !== null
-                    ? SEASON_OPTIONS[seasonIndex]
+                    ? getSeasonOptions(t)[seasonIndex]
                     : t('register.seasonPlaceholder')}
                 </Text>
                 <Text className='text-xs text-text-muted'>▼</Text>

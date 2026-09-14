@@ -66,4 +66,18 @@ export const common = {
     zh: '中',
     en: 'En',
   },
+  attendance: {
+    notSignedIn: '未签到',
+  },
+  version: {
+    release: '正式版',
+    trial: '体验版',
+    develop: '开发版',
+  },
+  upload: {
+    unknownFormat: '未知数据格式',
+    readFailed: '读取本地附件失败',
+    readFailedUnknown: '读取本地附件失败：未知数据格式',
+    attachmentReadFailed: '附件读取失败',
+  },
 }

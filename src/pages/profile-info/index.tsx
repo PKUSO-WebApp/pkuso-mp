@@ -202,7 +202,8 @@ export default function ProfileInfoPage() {
           fileName,
           tempFilePath,
           'image/jpeg',
-          true
+          true,
+          t
         )
         if (uploadError) throw uploadError
 

@@ -30,4 +30,13 @@ export const login = {
   codeSendSuccess: '验证码已发送',
   codeSendFailed: '验证码发送失败，请重试',
   loginFailed: '登录失败，请稍后重试',
+  invalidCredentials: '邮箱或密码错误',
+  emailNotConfirmed: '邮箱未确认，请先前往邮箱完成确认后再登录',
+  emailAndPasswordRequired: '请输入邮箱和密码。',
+  emailRequired: '请输入邮箱',
+  emailAndCodeRequired: '请输入邮箱和验证码',
+  codeInvalidOrExpired: '验证码错误或已过期',
+  duplicateSubmit: '请勿重复提交',
+  wechatLoginFailed: '微信登录失败，请重试',
+  wechatCodeExpired: '微信登录失败，code 已过期，请重试',
 }

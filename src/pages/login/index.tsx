@@ -61,7 +61,7 @@ export default function LoginPage() {
 
   const handleSendCode = async () => {
     if (!email.trim()) {
-      setErrorMsg('请输入邮箱')
+      setErrorMsg(t('login.emailRequired'))
       return
     }
     setErrorMsg('')
@@ -85,7 +85,7 @@ export default function LoginPage() {
   const handleCodeLogin = async () => {
     if (submitting) return
     if (!email.trim() || !code.trim()) {
-      setErrorMsg('请输入邮箱和验证码')
+      setErrorMsg(t('login.emailAndCodeRequired'))
       return
     }
     setSubmitting(true)
@@ -112,7 +112,7 @@ export default function LoginPage() {
       })
 
       if (error || data?.error) {
-        setErrorMsg('验证码错误或已过期')
+        setErrorMsg(t('login.codeInvalidOrExpired'))
         return
       }
 
@@ -139,7 +139,7 @@ export default function LoginPage() {
   const handlePasswordLogin = async () => {
     if (submitting) return
     if (!email.trim() || !password) {
-      setErrorMsg('请输入邮箱和密码')
+      setErrorMsg(t('login.emailAndPasswordRequired'))
       return
     }
     setSubmitting(true)
@@ -152,17 +152,17 @@ export default function LoginPage() {
       if (error) {
         const errCode = error.code?.toLowerCase()
         if (errCode === 'invalid_credentials' || error.status === 401) {
-          setErrorMsg('邮箱或密码错误')
+          setErrorMsg(t('login.invalidCredentials'))
         } else if (errCode === 'email_not_confirmed') {
-          setErrorMsg('邮箱未确认')
+          setErrorMsg(t('login.emailNotConfirmed'))
         } else {
-          setErrorMsg('登录失败，请稍后重试')
+          setErrorMsg(t('login.loginFailed'))
         }
         return
       }
       await routeAfterLogin(supabase)
     } catch {
-      setErrorMsg('网络异常，请重试')
+      setErrorMsg(t('login.networkError'))
     } finally {
       setSubmitting(false)
     }

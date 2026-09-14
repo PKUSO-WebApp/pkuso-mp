@@ -9,4 +9,12 @@ export const community = {
   haveSections: '已有：{sections}',
   missing: '缺：{sections}',
   creator: '发起人：{name}',
+  postErrors: {
+    fillTitleAndContent: '请填写标题与内容',
+    loginExpired: '登录状态失效，请重新登录',
+    contentBlocked: '内容包含违规信息，发布失败',
+    imageUploadFailed: '图片上传失败：{error}',
+    imageBlocked: '图片包含违规内容，发布失败',
+    imageRejected: '图片审核未通过',
+  },
 }

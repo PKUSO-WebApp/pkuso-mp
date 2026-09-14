@@ -19,4 +19,11 @@ export const leaveRequests = {
     withdrawn: 'Withdrawn',
     canceled: 'Canceled',
   },
+  errors: {
+    alreadySignedIn: 'Already checked in, cannot submit leave request',
+    alreadyProcessed: 'Request already processed, please refresh and try again',
+    withdrawFailed: 'Failed to withdraw leave request, please retry',
+    duplicateSubmit: 'Please do not submit repeatedly',
+    invalidAttachment: 'Invalid attachment path',
+  },
 }

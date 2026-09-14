@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import Taro from '@tarojs/taro'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { routeAfterLogin } from '@/lib/post-auth-route'
+import { useT } from '@/i18n'
 
 export type WechatLoginResult = { error: string | null }
 
@@ -15,11 +16,12 @@ export type WechatLoginResult = { error: string | null }
  * 4. 按 profile 状态路由入口。
  */
 export function useWechatLogin(client: typeof defaultClient = defaultClient) {
+  const { t } = useT()
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
 
   const loginWithWechat = useCallback(async (): Promise<WechatLoginResult> => {
-    if (submittingRef.current) return { error: '请勿重复提交' }
+    if (submittingRef.current) return { error: t('login.duplicateSubmit') }
     submittingRef.current = true
     setSubmitting(true)
     try {
@@ -29,22 +31,22 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         const loginRes = await Taro.login()
         code = loginRes.code ?? ''
       } catch {
-        return { error: '微信登录失败，请重试' }
+        return { error: t('login.wechatLoginFailed') }
       }
-      if (!code) return { error: '微信登录失败，请重试' }
+      if (!code) return { error: t('login.wechatLoginFailed') }
 
       // 2. Edge Function 桥接：mode=login → 仅查找已有账号，不自动创建
       const { data, error: invokeError } = await client.functions.invoke('wechat-auth', {
         body: { code, mode: 'login' },
       })
       if (invokeError) {
-        let message = '微信登录失败，请重试'
+        let message = t('login.wechatLoginFailed')
         try {
           const ctx = await (
             invokeError as { context?: { json?: () => Promise<{ error?: string }> } }
           ).context?.json?.()
           if (ctx?.error === 'wechat code2session failed') {
-            message = '微信登录失败，code 已过期，请重试'
+            message = t('login.wechatCodeExpired')
           }
         } catch {
           // 保留默认文案
@@ -62,17 +64,17 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
       // user_not_found → 弹窗提示并跳转注册页
       if (payload?.error === 'user_not_found') {
         await Taro.showModal({
-          title: '未注册',
-          content: '您尚未注册，请先注册账号',
+          title: t('login.notRegisteredTitle'),
+          content: t('login.notRegisteredContent'),
           showCancel: false,
-          confirmText: '去注册',
+          confirmText: t('login.goRegister'),
         })
         void Taro.reLaunch({ url: '/pages/register/index' })
         return { error: null }
       }
 
       if (!payload?.access_token || !payload?.refresh_token) {
-        return { error: '微信登录失败，请重试' }
+        return { error: t('login.wechatLoginFailed') }
       }
 
       // 3. 建立本地会话
@@ -81,7 +83,7 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         refresh_token: payload.refresh_token,
       })
       if (sessionError || !sessionData?.session?.user?.id) {
-        return { error: '微信登录失败，请重试' }
+        return { error: t('login.wechatLoginFailed') }
       }
 
       // 4. 按 profile 状态路由入口
@@ -91,7 +93,7 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
       submittingRef.current = false
       setSubmitting(false)
     }
-  }, [client])
+  }, [client, t])
 
   return { submitting, loginWithWechat }
 }

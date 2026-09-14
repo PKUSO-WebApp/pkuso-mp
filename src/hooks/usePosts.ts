@@ -3,6 +3,7 @@ import { supabase as defaultClient } from '@/lib/supabase'
 import { emitSync, subscribeSync } from '@/lib/dataSync'
 import { moderateAndUploadPostImage } from '@/lib/contentModeration'
 import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
+import { useT } from '@/i18n'
 import type { PostRow, PostRowWithAuthor, PostType } from '@/types/database'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 
@@ -40,6 +41,7 @@ export type EditPostInput = {
  * 这里统一归一化为 { full_name, instrument } | null，下游渲染无需关心形态。
  */
 export function usePosts(client: typeof defaultClient = defaultClient) {
+  const { t } = useT()
   const [data, setData] = useState<PostRowWithAuthor[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<AppErrorCode | null>(null)
@@ -127,17 +129,17 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
   /** 发布帖子：内容安全（文本+图片）→ 图片上传 → 写库 → 刷新。 */
   const create = useCallback(
     async (input: CreatePostInput): Promise<CreatePostResult> => {
-      if (savingRef.current) return { ok: false, error: '请勿重复提交' }
+      if (savingRef.current) return { ok: false, error: t('login.duplicateSubmit') }
       savingRef.current = true
       setSaving(true)
       setError(null)
       try {
         const uid = (await client.auth.getUser()).data.user?.id
-        if (!uid) return { ok: false, error: '登录状态失效，请重新登录' }
+        if (!uid) return { ok: false, error: t('community.postErrors.loginExpired') }
 
         const title = input.title.trim()
         const content = input.content.trim()
-        if (!title || !content) return { ok: false, error: '请填写标题与内容' }
+        if (!title || !content) return { ok: false, error: t('community.postErrors.fillTitleAndContent') }
 
         // 1) 内容安全（文本+图片审核/上传）——共用流程见 lib/contentModeration
         const currentSections =
@@ -153,7 +155,7 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
           currentSections,
           missingSections,
           contactInfo,
-        })
+        }, t)
         if (!mod.ok) return { ok: false, error: mod.error }
         const imageUrl = mod.imageUrl
 
@@ -181,7 +183,7 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, fetch]
+    [client, fetch, t]
   )
 
   /** 拉取「我发布的活动」（作者=当前用户，含已锁定，便于解锁），归一化 author join。 */
@@ -259,21 +261,21 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
   /** 编辑帖子：内容安全（文本+可选新图）→ 写库（imageFile: undefined 保留 / null 删除 / file 替换）。 */
   const updatePost = useCallback(
     async (id: string, input: EditPostInput): Promise<CreatePostResult> => {
-      if (savingRef.current) return { ok: false, error: '请勿重复提交' }
+      if (savingRef.current) return { ok: false, error: t('login.duplicateSubmit') }
       savingRef.current = true
       setSaving(true)
       setError(null)
       try {
         const title = input.title.trim()
         const content = input.content.trim()
-        if (!title || !content) return { ok: false, error: '请填写标题与内容' }
+        if (!title || !content) return { ok: false, error: t('community.postErrors.fillTitleAndContent') }
 
         // 1) 内容安全（文本+图片审核/上传）——共用流程见 lib/contentModeration。
         //    图片三态：undefined=保留原图（不上传，patch 不带 image_url）；null=删除；file=上传替换
         let uid: string | null = null
         if (input.imageFile) {
           uid = (await client.auth.getUser()).data.user?.id ?? null
-          if (!uid) return { ok: false, error: '登录状态失效，请重新登录' }
+          if (!uid) return { ok: false, error: t('community.postErrors.loginExpired') }
         }
         const currentSections =
           input.type === 'ensemble' ? input.current_sections?.trim() || null : null
@@ -288,7 +290,7 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
           currentSections,
           missingSections,
           contactInfo,
-        })
+        }, t)
         if (!mod.ok) return { ok: false, error: mod.error }
         let imageUrl: string | null | undefined
         if (input.imageFile === null) imageUrl = null
@@ -323,7 +325,7 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, fetchMine]
+    [client, fetchMine, t]
   )
 
   useEffect(() => {

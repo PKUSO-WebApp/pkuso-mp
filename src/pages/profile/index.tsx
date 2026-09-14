@@ -568,7 +568,7 @@ export default function Profile() {
           {/* 版本号：随时可查，报障时便于核对 */}
           <View className='mt-8 text-center'>
             <Text className='text-xs text-text-subtle'>
-              {t('common.appName')} · {getAppVersionLabel()}
+              {t('common.appName')} · {getAppVersionLabel(t)}
             </Text>
           </View>
         </View>

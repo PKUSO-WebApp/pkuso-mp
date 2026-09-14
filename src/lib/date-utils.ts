@@ -230,8 +230,9 @@ export function formatRehearsalCardParts(
 
   const month = translateCurrent(`schedule.monthAbbr.${MONTH_CODES[start.getMonth()]}`)
   const day = String(start.getDate())
-  const dateLabel = `${month}${day}日`
   const weekdayLabel = translateCurrent(`schedule.weekdayShort.${DOW_CODES[start.getDay()]}`)
+  const tpl = translateCurrent('schedule.dateFormat')
+  const dateLabel = tpl.replace('{month}', month).replace('{day}', day).replace('{weekday}', weekdayLabel)
 
   const hasIntlSupport = hasIntl()
   const timeFormatter = hasIntlSupport

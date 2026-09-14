@@ -170,7 +170,7 @@ export default function Members() {
                               {/* 在团标记（"-" 连接）：true=团员，false=团友；null 未填写则不追加 */}
                               {u.is_in_orchestra == null
                                 ? ''
-                                : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagFriend')}`}
+                                : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagAlumni')}`}
                             </Text>
                           )}
                         </View>

@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
+import { useT } from '@/i18n'
 import type { RehearsalRow, ScheduleRow } from '@/types/database'
 
 // 排练房预约 hook。
@@ -24,6 +25,7 @@ function normalizeScheduleTime(value: string | null): string | null {
 }
 
 export function useSchedule(client: typeof defaultClient = defaultClient) {
+  const { t } = useT()
   const [data, setData] = useState<ScheduleRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<AppErrorCode | null>(null)
@@ -205,7 +207,7 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
         .is('rehearsal_id', null)
 
       if (scheduleError) {
-        return '查询预约失败'
+        return t('schedule.errors.queryScheduleFailed')
       }
 
       // 查询当天的排练（排除正在编辑的排练）
@@ -217,7 +219,7 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
         .neq('id', excludeRehearsalId ?? -1)
 
       if (rehearsalError) {
-        return '查询排练安排失败'
+        return t('schedule.errors.queryRehearsalFailed')
       }
 
       // 检查与已有预约的冲突（库中空格分隔，先归一化再与 T 分隔的新预约比较）
@@ -230,7 +232,7 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       })
 
       if (scheduleConflict) {
-        return '该时间段已有其他预约'
+        return t('schedule.errors.scheduleConflict')
       }
 
       // 检查与排练的冲突
@@ -242,12 +244,12 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       })
 
       if (rehearsalConflict) {
-        return '该时间段已有排练安排'
+        return t('schedule.errors.rehearsalConflict')
       }
 
       return null
     },
-    [client]
+    [client, t]
   )
 
   return { data, loading, error, saving, fetch, create, update, remove, checkConflict }
