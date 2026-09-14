@@ -11,6 +11,7 @@ on:
       - 'pnpm-lock.yaml'
       - '.npmrc'
       - 'tsconfig.json'
+      - 'vitest.config.ts'
       - 'app.css'
       - 'app.scss'
 
