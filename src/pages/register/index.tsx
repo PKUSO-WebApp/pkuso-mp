@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { getAcademicYearLabel } from '@/lib/academic-year'
 import type { TFn } from '@/i18n/core'
+import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
 
 function getInstrumentOptions(t: TFn) {
@@ -32,6 +33,7 @@ export default function RegisterPage() {
   const { ready, user } = useUser()
   const darkClass = useThemeClass()
   const { t, locale, setLocale } = useT()
+  const placeholderStyle = usePlaceholderStyle()
   useNavTitle('register.navTitle')
 
   useShareAppMessage(() => {
@@ -207,6 +209,7 @@ export default function RegisterPage() {
             setErrorMsg(null)
             setFullName(e.detail.value)
           }}
+          placeholderStyle={placeholderStyle}
         />
 
         <TextField
@@ -219,6 +222,7 @@ export default function RegisterPage() {
             setErrorMsg(null)
             setEmail(e.detail.value)
           }}
+          placeholderStyle={placeholderStyle}
         />
 
         {/* 声部选择 */}
@@ -258,6 +262,7 @@ export default function RegisterPage() {
             setErrorMsg(null)
             setCollege(e.detail.value)
           }}
+          placeholderStyle={placeholderStyle}
         />
 
         {/* 入团时间 */}

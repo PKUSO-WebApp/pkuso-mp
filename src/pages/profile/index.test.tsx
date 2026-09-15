@@ -47,7 +47,10 @@ vi.mock('@tarojs/components', () => {
 })
 
 vi.mock('@tarojs/taro', () => ({ default: taroMock, useDidShow: taroMock.useDidShow }))
-vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
+vi.mock('@/context/theme-context', () => ({
+  useThemeClass: () => '',
+  useThemeContext: () => ({ mode: 'light', preference: 'light', setPreference: vi.fn() }),
+}))
 vi.mock('@/context/user-context', () => ({
   useUser: () => ({ user: { id: 'u1', email: 'a@b.com' } }),
 }))

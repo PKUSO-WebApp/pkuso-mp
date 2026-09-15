@@ -6,12 +6,14 @@ import { supabase } from '@/lib/supabase'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { useUser } from '@/context/user-context'
+import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
 
 export default function FeedbackPage() {
   const { t } = useT()
   useNavTitle('profile.settings.feedback')
   const darkClass = useThemeClass()
+  const placeholderStyle = usePlaceholderStyle()
   const { user } = useUser()
   const [content, setContent] = useState('')
   const [isAnonymous, setIsAnonymous] = useState(true)
@@ -79,6 +81,7 @@ export default function FeedbackPage() {
               disabled={submitting}
               className='h-32 bg-transparent px-3 py-3 text-xs leading-relaxed text-text'
               placeholder={t('profile.feedback.placeholder')}
+              placeholderStyle={placeholderStyle}
             />
           </FormField>
           <View

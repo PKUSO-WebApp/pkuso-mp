@@ -8,6 +8,7 @@ import { useThemeClass } from '@/context/theme-context'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
+import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 
 import { Card } from '@/components/ui/Card'
 import { StatusChip } from '@/components/ui/StatusChip'
@@ -23,6 +24,7 @@ import './index.scss'
 export default function Members() {
   const { t } = useT()
   useNavTitle('members.navTitle')
+  const placeholderStyle = usePlaceholderStyle()
   const { user: currentUser } = useUser()
   const { profile: myProfile } = useMyProfile()
   const {
@@ -106,6 +108,7 @@ export default function Members() {
             placeholder={t('members.searchPlaceholder')}
             value={searchQuery}
             onInput={(e) => setSearchQuery(e.detail.value)}
+            placeholderStyle={placeholderStyle}
           />
 
           {rosterLoading && (allProfiles ?? []).length === 0 ? (

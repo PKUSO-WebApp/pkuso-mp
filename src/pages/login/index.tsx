@@ -11,6 +11,7 @@ import { useSendLoginCode } from '@/hooks/useSendLoginCode'
 import { useT, useNavTitle } from '@/i18n'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { supabase } from '@/lib/supabase'
+import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
 
 type LoginMode = 'code' | 'password'
@@ -22,6 +23,7 @@ export default function LoginPage() {
   const { sending: codeSending, countdown, isCountingDown, sendCode } = useSendLoginCode()
   const darkClass = useThemeClass()
   const { t } = useT()
+  const placeholderStyle = usePlaceholderStyle()
   useNavTitle('login.navTitle')
 
   const [redirecting, setRedirecting] = useState(false)
@@ -231,6 +233,7 @@ export default function LoginPage() {
               setErrorMsg('')
               setEmail(e.detail.value)
             }}
+            placeholderStyle={placeholderStyle}
           />
 
           {/* 验证码模式 */}
@@ -252,6 +255,7 @@ export default function LoginPage() {
                         setErrorMsg('')
                         setCode(e.detail.value)
                       }}
+                      placeholderStyle={placeholderStyle}
                     />
                   </View>
                   <View
@@ -285,6 +289,7 @@ export default function LoginPage() {
                 setErrorMsg('')
                 setPassword(e.detail.value)
               }}
+              placeholderStyle={placeholderStyle}
             />
           )}
 

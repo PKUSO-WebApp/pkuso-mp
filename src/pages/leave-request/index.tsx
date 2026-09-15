@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { View, Text, Textarea, Image, ScrollView } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { useLeaveRequests, type UploadFileLike } from '@/hooks/useLeaveRequests'
 import { useUser } from '@/context/user-context'
 import { supabase } from '@/lib/supabase'
@@ -14,13 +14,15 @@ const isActive = (r: LeaveRequestRow) => r.status !== 'withdrawn' && r.status !=
 
 export default function LeaveRequestPage() {
   const router = Taro.getCurrentInstance().router
-  const rehearsalId = Number(router?.params?.rehearsalId)
-  // 详情页已把时间区间随路由传入，副标题可瞬时正确显示，避免依赖排练列表/缓存
-  // （小程序各页面分包独立编译，模块级缓存不跨页共享，列表需异步重取，首帧会误显「排练不存在」）。
-  const paramStart = router?.params?.start
-  const paramEnd = router?.params?.end
-  const decodedStart = paramStart ? decodeURIComponent(paramStart) : null
-  const decodedEnd = paramEnd ? decodeURIComponent(paramEnd) : null
+  // 首次渲染时缓存导航参数，防止 chooseMedia 后页面被微信销毁重建导致 router.params 丢失
+  const initialParamsRef = useRef({
+    rehearsalId: Number(router?.params?.rehearsalId),
+    start: router?.params?.start,
+    end: router?.params?.end,
+  })
+  const rehearsalId = initialParamsRef.current.rehearsalId
+  const decodedStart = initialParamsRef.current.start ? decodeURIComponent(initialParamsRef.current.start) : null
+  const decodedEnd = initialParamsRef.current.end ? decodeURIComponent(initialParamsRef.current.end) : null
   const darkClass = useThemeClass()
   useNavTitle('leaveRequest.navTitle')
   const { user } = useUser()
@@ -138,6 +140,14 @@ export default function LeaveRequestPage() {
     getSignedUrl,
     viewAttachmentUrl,
   ])
+
+  // 页面从后台回前台（如 chooseMedia 返回）时，若 rehearsal 数据丢失则重取
+  useDidShow(() => {
+    if (rehearsalId && !rehearsal && !rehearsalLoading) {
+      setRehearsalLoading(true)
+      // 触发现有 useEffect 重跑（依赖 rehearsalId 已稳定），这里仅作保险
+    }
+  })
 
   const handleChooseImage = () => {
     Taro.chooseMedia({
