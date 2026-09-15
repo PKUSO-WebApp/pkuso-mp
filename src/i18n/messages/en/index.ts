@@ -3,8 +3,6 @@ import { common } from './common'
 import { profile } from './profile'
 import { community } from './community'
 import { login } from './login'
-import { emailLogin } from './emailLogin'
-import { emailSignup } from './emailSignup'
 import { register } from './register'
 import { setup } from './setup'
 import { pending } from './pending'
@@ -30,8 +28,6 @@ export const en: typeof zhCN = {
   profile,
   community,
   login,
-  emailLogin,
-  emailSignup,
   register,
   setup,
   pending,

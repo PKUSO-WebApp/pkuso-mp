@@ -30,4 +30,13 @@ export const login = {
   codeSendSuccess: 'Code sent',
   codeSendFailed: 'Failed to send code, please retry',
   loginFailed: 'Login failed, please retry',
+  invalidCredentials: 'Invalid email or password',
+  emailNotConfirmed: 'Email not confirmed. Please confirm via email before signing in.',
+  emailAndPasswordRequired: 'Please enter your email and password',
+  emailRequired: 'Please enter your email',
+  emailAndCodeRequired: 'Please enter your email and verification code',
+  codeInvalidOrExpired: 'Invalid or expired verification code',
+  duplicateSubmit: 'Please do not submit repeatedly',
+  wechatLoginFailed: 'WeChat login failed, please retry',
+  wechatCodeExpired: 'WeChat login failed, code expired, please retry',
 }

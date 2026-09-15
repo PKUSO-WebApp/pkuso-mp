@@ -16,7 +16,7 @@ export const members = {
   fieldContact: 'Contact',
   fieldJoinDate: 'Joined on.',
   tagMember: 'Member',
-  tagFriend: 'Friend',
+  tagAlumni: 'Alumni',
   statusLabel: 'Membership',
   statusActive: 'Active',
   statusInactive: 'Inactive',

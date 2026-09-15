@@ -1,6 +1,7 @@
 import Taro from '@tarojs/taro'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
+import type { TFn } from '@/i18n'
 
 /** 标准 base64 → ArrayBuffer（不依赖 atob/wx.base64ToArrayBuffer，跨环境可用）。 */
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
@@ -91,7 +92,7 @@ function normalizeToArrayBuffer(data: unknown): ArrayBuffer {
  * Buffer、或 base64 字符串），这里统一归一化为真正的 ArrayBuffer，否则 storage-js 发出的请求体是
  * typed array，会被 Taro fetch 适配层（toTaroBody）判为「不支持该请求体类型」而抛错。
  * 若仍无法识别，会 console.warn 打印 res.data 的类型信息，便于在开发者工具里定位。 */
-export function readTempFileBytes(tempFilePath: string): Promise<ArrayBuffer> {
+export function readTempFileBytes(tempFilePath: string, t?: TFn): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     Taro.getFileSystemManager().readFile({
       filePath: tempFilePath,
@@ -110,10 +111,10 @@ export function readTempFileBytes(tempFilePath: string): Promise<ArrayBuffer> {
               sample: safeSample(res.data),
             }
           )
-          reject(new Error('读取本地附件失败：未知数据格式'))
+          reject(new Error(t?.('common.upload.readFailedUnknown') ?? '读取本地附件失败：未知数据格式'))
         }
       },
-      fail: (err) => reject(new Error(err?.errMsg || '读取本地附件失败')),
+      fail: (err) => reject(new Error(err?.errMsg || (t?.('common.upload.readFailed') ?? '读取本地附件失败'))),
     })
   })
 }
@@ -151,16 +152,17 @@ export async function uploadLocalFile(
   path: string,
   tempFilePath: string,
   contentType?: string,
-  upsert = false
+  upsert = false,
+  t?: TFn
 ): Promise<{ data: { path: string } | null; error: { message: string } | null }> {
   try {
-    const body = await readTempFileBytes(tempFilePath)
+    const body = await readTempFileBytes(tempFilePath, t)
     const { error } = await client.storage
       .from(bucket)
       .upload(path, body, { upsert, ...(contentType ? { contentType } : {}) })
     if (error) return { data: null, error }
     return { data: { path }, error: null }
   } catch (e) {
-    return { data: null, error: { message: e instanceof Error ? e.message : '附件读取失败' } }
+    return { data: null, error: { message: e instanceof Error ? e.message : t?.('common.upload.attachmentReadFailed') ?? '附件读取失败' } }
   }
 }

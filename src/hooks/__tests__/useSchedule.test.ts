@@ -4,6 +4,18 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useSchedule } from '../useSchedule'
 
+// 固定测试用的"今天"日期
+const TEST_TODAY = '2024-01-15'
+
+// Mock getLocalDateString to return fixed test date
+vi.mock('@/lib/date-utils', async () => {
+  const actual = await vi.importActual('@/lib/date-utils')
+  return {
+    ...actual,
+    getLocalDateString: vi.fn(() => TEST_TODAY),
+  }
+})
+
 // 模块加载即校验环境变量，直接 mock 掉 supabase 模块（测试显式传 client，默认值不被使用）
 vi.mock('@/lib/supabase', () => ({
   supabase: {},
@@ -11,32 +23,34 @@ vi.mock('@/lib/supabase', () => ({
 
 function mockClient<T>(responses: T[]) {
   let i = 0
-  // 记录所有链式查询调用（含参数），供断言查询条件使用
   const calls: string[] = []
   const chain = (res: T) => {
     const record = (name: string, ...args: unknown[]) => {
       calls.push(`${name}(${args.map((a) => JSON.stringify(a)).join(', ')})`)
-      return chain(res)
+      return chainObj
     }
-    return {
-      eq: (...args: unknown[]) => record('eq', ...args),
-      in: (...args: unknown[]) => record('in', ...args),
-      order: (...args: unknown[]) => record('order', ...args),
-      limit: (...args: unknown[]) => record('limit', ...args),
-      delete: (...args: unknown[]) => record('delete', ...args),
-      gte: (...args: unknown[]) => record('gte', ...args),
-      lte: (...args: unknown[]) => record('lte', ...args),
-      neq: (...args: unknown[]) => record('neq', ...args),
-      is: (...args: unknown[]) => record('is', ...args),
-      // 返回真正的 Promise
-      then: (resolve: (v: T) => void, reject?: (e: Error) => void) =>
-        Promise.resolve(res).then(resolve, reject),
-    }
+    const chainObj: Record<string, unknown> = {}
+    chainObj.eq = (...args: unknown[]) => record('eq', ...args)
+    chainObj.in = (...args: unknown[]) => record('in', ...args)
+    chainObj.gte = (...args: unknown[]) => record('gte', ...args)
+    chainObj.lte = (...args: unknown[]) => record('lte', ...args)
+    chainObj.gt = (...args: unknown[]) => record('gt', ...args)
+    chainObj.lt = (...args: unknown[]) => record('lt', ...args)
+    chainObj.neq = (...args: unknown[]) => record('neq', ...args)
+    chainObj.is = (...args: unknown[]) => record('is', ...args)
+    chainObj.select = () => chainObj
+    chainObj.delete = (...args: unknown[]) => record('delete', ...args)
+    // order/limit 返回自身以支持链式调用，then 用于 await
+    chainObj.order = (...args: unknown[]) => record('order', ...args)
+    chainObj.limit = (...args: unknown[]) => record('limit', ...args)
+    chainObj.then = (resolve: (v: T) => void, reject?: (e: Error) => void) =>
+      Promise.resolve(res).then(resolve, reject)
+    return chainObj
   }
   return {
     from: () => ({
       select: () => chain(responses[i++]),
-      insert: () => chain(responses[i++]),
+      insert: () => Promise.resolve(responses[i++]),
       update: () => ({
         eq: (...args: unknown[]) => {
           calls.push(`eq(${args.map((a) => JSON.stringify(a)).join(', ')})`)
@@ -60,8 +74,8 @@ describe('useSchedule', () => {
     cleanup()
   })
 
-  it('fetch 预约列表', async () => {
-    const c = mockClient([{ data: [{ id: 1, title: '排练房预约' }], error: null }])
+  it('fetch 预约列表（全量周查询）', async () => {
+    const c = mockClient([{ data: [{ id: 1, title: '排练房预约', rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null }])
     const { result } = renderHook(() => useSchedule(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.data).toHaveLength(1)
@@ -86,9 +100,9 @@ describe('useSchedule', () => {
 
   it('create + 手动重取（refresh 语义）', async () => {
     const c = mockClient([
-      { data: [], error: null }, // initial fetch
+      { data: [], error: null }, // initial fetchAll
       { data: null, error: null }, // insert
-      { data: [{ id: 1, title: '新预约' }], error: null }, // re-fetch
+      { data: [{ id: 1, title: '新预约', rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null }, // re-fetchAll
     ])
     const { result } = renderHook(() => useSchedule(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -102,9 +116,9 @@ describe('useSchedule', () => {
 
   it('remove 删除并重取', async () => {
     const c = mockClient([
-      { data: [{ id: 1 }], error: null }, // fetch
+      { data: [{ id: 1, rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null }, // fetchAll
       { data: null, error: null }, // schedules.delete
-      { data: [], error: null }, // re-fetch
+      { data: [], error: null }, // re-fetchAll
     ])
     const { result } = renderHook(() => useSchedule(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -116,42 +130,40 @@ describe('useSchedule', () => {
     await waitFor(() => expect(result.current.data).toEqual([]))
   })
 
-  it('按日期筛选 fetch', async () => {
+  it('fetch(date) 走缓存同步返回当天切片', async () => {
     const c = mockClient([
-      { data: [{ id: 1, title: '今日预约' }], error: null }, // initial fetch
-      { data: [{ id: 2, title: '明日预约' }], error: null }, // fetch with date filter
+      { data: [{ id: 1, title: '今日预约', rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null }, // 初始 fetchAll
+      { data: [], error: null }, // 显式 fetch 不发请求，但为了保险预留
     ])
     const { result } = renderHook(() => useSchedule(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.data[0].title).toBe('今日预约')
 
+    // 直接调用 fetch(date) - 应该同步返回缓存切片
     await act(async () => {
-      await result.current.fetch('2024-01-02')
+      await result.current.fetch(TEST_TODAY)
     })
-    await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.data[0].title).toBe('明日预约')
+    // 无网络请求，data 不变
+    expect(result.current.data[0].title).toBe('今日预约')
   })
 
-  it('fetch 日期过滤用空格分隔区间（与库中存储格式一致）', async () => {
+  it('fetchAll 周区间查询：weekStart ~ weekEnd+1', async () => {
     const c = mockClient([
-      { data: [], error: null }, // initial fetch
-      { data: [], error: null }, // fetch with date filter
+      { data: [], error: null }, // 初始 fetchAll (useEffect)
+      { data: [], error: null }, // 手动 fetchAll
     ])
     const { result } = renderHook(() => useSchedule(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     await act(async () => {
-      await result.current.fetch('2024-01-02')
+      await result.current.fetchAll()
     })
 
     const calls = (c as unknown as { __calls: string[] }).__calls
-    // 空格(0x20) < T(0x54)：用 T 格式过滤会把库中空格分隔行全部排在区间外（查询恒空）
-    expect(calls.filter((call) => call.startsWith('gte('))).toEqual([
-      'gte("start_time", "2024-01-02 00:00:00")',
-    ])
-    expect(calls.filter((call) => call.startsWith('lte('))).toEqual([
-      'lte("start_time", "2024-01-02 23:59:59")',
-    ])
+    // 应该有 lt(start_time, weekEnd 23:59:59) 和 gt(end_time, weekStart 00:00:00)
+    const ltCalls = calls.filter((call) => call.startsWith('lt('))
+    const gtCalls = calls.filter((call) => call.startsWith('gt('))
+    expect(ltCalls.length).toBeGreaterThan(0)
+    expect(gtCalls.length).toBeGreaterThan(0)
   })
 
   it('fetch 归一化空格分隔时间为 T 分隔（下游 parseLocalISO/formatTime 依赖）', async () => {
@@ -161,8 +173,10 @@ describe('useSchedule', () => {
           {
             id: 1,
             title: '排练',
-            start_time: '2024-01-02 14:30:00',
-            end_time: '2024-01-02 15:30:00',
+            start_time: `${TEST_TODAY} 14:30:00`,
+            end_time: `${TEST_TODAY} 15:30:00`,
+            rehearsal_id: null,
+            author_id: 'user-1',
           },
         ],
         error: null,
@@ -170,31 +184,29 @@ describe('useSchedule', () => {
     ])
     const { result } = renderHook(() => useSchedule(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.data[0].start_time).toBe('2024-01-02T14:30:00')
-    expect(result.current.data[0].end_time).toBe('2024-01-02T15:30:00')
+    expect(result.current.data[0].start_time).toBe(`${TEST_TODAY}T14:30:00`)
+    expect(result.current.data[0].end_time).toBe(`${TEST_TODAY}T15:30:00`)
   })
 
-  // 冲突检测测试
+  // 冲突检测测试：新逻辑 - fetchAll 后本地内存跑 schedules 冲突，RPC 只查 rehearsals
   describe('checkConflict', () => {
     it('无冲突 - 正常路径', async () => {
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
-        { data: [], error: null }, // schedules query
+        { data: [], error: null }, // fetchAll
         { data: [], error: null }, // rehearsals query
       ])
       const { result } = renderHook(() => useSchedule(c as never))
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBeNull()
     })
 
-    it('与已有预约时间冲突', async () => {
+    it('与已有预约时间冲突（本地内存检测）', async () => {
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
         {
           data: [
             {
@@ -205,23 +217,22 @@ describe('useSchedule', () => {
             },
           ],
           error: null,
-        }, // schedules query - overlapping
+        }, // fetchAll - returns overlapping schedule
         { data: [], error: null }, // rehearsals query
       ])
       const { result } = renderHook(() => useSchedule(c as never))
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('该时间段已有其他预约')
     })
 
-    it('与已有排练时间冲突', async () => {
+    it('与已有排练时间冲突（RPC 检测）', async () => {
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
-        { data: [], error: null }, // schedules query
+        { data: [], error: null }, // fetchAll
         {
           data: [
             {
@@ -237,7 +248,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('该时间段已有排练安排')
@@ -247,15 +258,14 @@ describe('useSchedule', () => {
       // 当编辑排练 id=5 时，数据库查询会通过 .neq("id", 5) 过滤掉该排练
       // 所以 mock 返回空数据，表示已正确过滤
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
-        { data: [], error: null }, // schedules query
+        { data: [], error: null }, // fetchAll
         { data: [], error: null }, // rehearsals query - filtered by neq(id, 5), so empty
       ])
       const { result } = renderHook(() => useSchedule(c as never))
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00', 5)
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00', 5)
       })
 
       expect(conflictResult).toBeNull()
@@ -266,15 +276,14 @@ describe('useSchedule', () => {
       // 数据库层被 .is("rehearsal_id", null) 过滤，所以 mock 的 schedules 查询返回空
       // （模拟过滤后的结果）；rehearsals 查询通过 .neq("id", 5) 排除自身，同样为空
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
-        { data: [], error: null }, // schedules query - 影子预约已被 is 过滤
+        { data: [], error: null }, // fetchAll
         { data: [], error: null }, // rehearsals query - 编辑中的排练已被 neq 过滤
       ])
       const { result } = renderHook(() => useSchedule(c as never))
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00', 5)
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00', 5)
       })
 
       expect(conflictResult).toBeNull()
@@ -285,8 +294,7 @@ describe('useSchedule', () => {
       // 不会先命中 schedules 分支的「该时间段已有其他预约」；rehearsals 分支命中排练，
       // 文案准确为「该时间段已有排练安排」
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
-        { data: [], error: null }, // schedules query - 影子预约已被 is 过滤
+        { data: [], error: null }, // fetchAll
         {
           data: [
             {
@@ -302,56 +310,57 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('该时间段已有排练安排')
     })
 
-    it('schedules 查询带 is("rehearsal_id", null) 过滤影子预约', async () => {
+    it('schedules 冲突走本地内存，不发 RPC（无 is 查询）', async () => {
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
-        { data: [], error: null }, // schedules query
+        { data: [], error: null }, // fetchAll
         { data: [], error: null }, // rehearsals query
       ])
       const { result } = renderHook(() => useSchedule(c as never))
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       await act(async () => {
-        await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
-      // 只有 schedules 查询带 is 过滤；rehearsals 查询只有 gte/lte/neq
       const calls = (c as unknown as { __calls: string[] }).__calls
-      expect(calls.filter((call) => call.startsWith('is('))).toEqual(['is("rehearsal_id", null)'])
+      // 新逻辑：schedules 冲突本地跑，不再查数据库，所以没有 is("rehearsal_id", null)
+      const isCalls = calls.filter((call) => call.startsWith('is('))
+      expect(isCalls).toEqual([])
     })
 
-    it('预约查询失败返回错误', async () => {
+    it('预约查询失败返回错误（本地内存不报错，只检测 rehearsals RPC）', async () => {
+      // 新逻辑：schedules 冲突本地跑，无 RPC 失败可能
+      // 只有 rehearsals RPC 失败会返回错误
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
-        { data: null, error: { message: 'schedule error' } }, // schedules query error
-      ])
-      const { result } = renderHook(() => useSchedule(c as never))
-      await waitFor(() => expect(result.current.loading).toBe(false))
-
-      const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
-      })
-
-      expect(conflictResult).toBe('查询预约失败')
-    })
-
-    it('排练查询失败返回错误', async () => {
-      const c = mockClient([
-        { data: [], error: null }, // initial fetch
-        { data: [], error: null }, // schedules query
+        { data: [], error: null }, // fetchAll
         { data: null, error: { message: 'rehearsal error' } }, // rehearsals query error
       ])
       const { result } = renderHook(() => useSchedule(c as never))
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
+      })
+
+      expect(conflictResult).toBe('查询排练安排失败')
+    })
+
+    it('排练查询失败返回错误', async () => {
+      const c = mockClient([
+        { data: [], error: null }, // fetchAll
+        { data: null, error: { message: 'rehearsal error' } }, // rehearsals query error
+      ])
+      const { result } = renderHook(() => useSchedule(c as never))
+      await waitFor(() => expect(result.current.loading).toBe(false))
+
+      const conflictResult = await act(async () => {
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('查询排练安排失败')
@@ -359,7 +368,6 @@ describe('useSchedule', () => {
 
     it('空格分隔的已有预约也能检出冲突（归一化后再比较）', async () => {
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
         {
           data: [
             {
@@ -370,14 +378,14 @@ describe('useSchedule', () => {
             },
           ],
           error: null,
-        }, // schedules query - 空格分隔，overlapping
+        }, // fetchAll
         { data: [], error: null }, // rehearsals query
       ])
       const { result } = renderHook(() => useSchedule(c as never))
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('该时间段已有其他预约')
@@ -385,25 +393,24 @@ describe('useSchedule', () => {
 
     it('时间边界不重叠 - 新预约开始等于已有结束', async () => {
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
         {
           data: [
             {
               id: 1,
               rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
-              start_time: '2024-01-01T13:00:00',
-              end_time: '2024-01-01T14:00:00',
+              start_time: '${TEST_TODAY}T13:00:00',
+              end_time: '${TEST_TODAY}T14:00:00',
             },
           ],
           error: null,
-        }, // schedules query
+        }, // fetchAll
         { data: [], error: null }, // rehearsals query
       ])
       const { result } = renderHook(() => useSchedule(c as never))
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBeNull()
@@ -411,25 +418,24 @@ describe('useSchedule', () => {
 
     it('时间边界不重叠 - 新预约结束等于已有开始', async () => {
       const c = mockClient([
-        { data: [], error: null }, // initial fetch
         {
           data: [
             {
               id: 1,
               rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
-              start_time: '2024-01-01T15:00:00',
-              end_time: '2024-01-01T16:00:00',
+              start_time: '${TEST_TODAY}T15:00:00',
+              end_time: '${TEST_TODAY}T16:00:00',
             },
           ],
           error: null,
-        }, // schedules query
+        }, // fetchAll
         { data: [], error: null }, // rehearsals query
       ])
       const { result } = renderHook(() => useSchedule(c as never))
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBeNull()
@@ -445,6 +451,8 @@ describe('useSchedule', () => {
       limit: () => chain(res),
       gte: () => chain(res),
       lte: () => chain(res),
+      gt: () => chain(res),
+      lt: () => chain(res),
       neq: () => chain(res),
       is: () => chain(res),
       then: (resolve: (v: unknown) => void) => resolve(res),
@@ -479,6 +487,8 @@ describe('useSchedule', () => {
       limit: () => chain(),
       gte: () => chain(),
       lte: () => chain(),
+      gt: () => chain(),
+      lt: () => chain(),
       neq: () => chain(),
       is: () => chain(),
       then: (resolve: (v: unknown) => void) => {

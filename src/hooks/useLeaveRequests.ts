@@ -2,6 +2,7 @@
 import { supabase as defaultClient } from '@/lib/supabase'
 import { dataSyncBump, subscribeSync } from '@/lib/dataSync'
 import { APP_ERROR } from '@/lib/appError'
+import { useT } from '@/i18n'
 import type { LeaveRequestRow, LeaveRequestWithDetails } from '@/types/database'
 import { guessContentType, uploadLocalFile } from '@/lib/uploadLocalFile'
 
@@ -63,6 +64,7 @@ export type CancelOnSignInResult =
  * 卸载后不再 setState（mountedRef 标志位）；user_id 由调用方从 useUser() 获取后传入。
  */
 export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
+  const { t } = useT()
   const [data, setData] = useState<LeaveRequestWithDetails[]>([])
   const [loading, setLoading] = useState(true)
   // 写路径业务提示与读路径错误共用一个 state：保持 string，load 失败写入 APP_ERROR.loadFailed 常量
@@ -133,7 +135,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
           if (mountedRef.current) {
             setError(
               dbError.message.includes('cannot request leave after signing in')
-                ? '已签到，无法再提交请假申请'
+                ? t('leaveRequests.errors.alreadySignedIn')
                 : dbError.message
             )
           }
@@ -147,7 +149,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, fetchMine]
+    [client, fetchMine, t]
   )
 
   const cleanupOldAttachment = useCallback(
@@ -188,7 +190,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
           return false
         }
         if (!updated || updated.length === 0) {
-          if (mountedRef.current) setError('申请已被处理，请刷新后重试')
+          if (mountedRef.current) setError(t('leaveRequests.errors.alreadyProcessed'))
           return false
         }
         await cleanupOldAttachment(payload.old_attachment_url, payload.attachment_url)
@@ -200,7 +202,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, cleanupOldAttachment, fetchMine]
+    [client, cleanupOldAttachment, fetchMine, t]
   )
 
   /** 被驳回后重新申请：更新内容，状态打回 pending、清空驳回原因（仅限 rejected 行）；
@@ -230,7 +232,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
           return false
         }
         if (!updated || updated.length === 0) {
-          if (mountedRef.current) setError('申请已被处理，请刷新后重试')
+          if (mountedRef.current) setError(t('leaveRequests.errors.alreadyProcessed'))
           return false
         }
         await cleanupOldAttachment(payload.old_attachment_url, payload.attachment_url)
@@ -242,7 +244,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, cleanupOldAttachment, fetchMine]
+    [client, cleanupOldAttachment, fetchMine, t]
   )
 
   /**
@@ -273,7 +275,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
           return false
         }
         if (!updated || updated.length === 0) {
-          if (mountedRef.current) setError('申请已被处理，请刷新后重试')
+          if (mountedRef.current) setError(t('leaveRequests.errors.alreadyProcessed'))
           return false
         }
         const attachmentPath = request?.attachment_url
@@ -289,7 +291,7 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, fetchMine]
+    [client, fetchMine, t]
   )
 
   /**
@@ -325,11 +327,11 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
           status: string
         }[]
         if (updatedRows.length === 0) {
-          if (mountedRef.current) setError('申请已被处理，请刷新后重试')
+          if (mountedRef.current) setError(t('leaveRequests.errors.alreadyProcessed'))
           return { ok: false, reason: 'already-processed' }
         }
         if (updatedRows.some((row) => row.status !== 'canceled')) {
-          if (mountedRef.current) setError('请假撤销未生效，请重试')
+          if (mountedRef.current) setError(t('leaveRequests.errors.withdrawFailed'))
           return { ok: false, reason: 'network' }
         }
         for (const row of updatedRows) {
@@ -346,14 +348,14 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, fetchMine]
+    [client, fetchMine, t]
   )
 
   /** 上传附件到私有桶（路径沿用 <user_id>/<时间戳>-<文件名> 模式），返回 storage 路径。
    * 入参为小程序文件（Taro.chooseMedia 返回的 { tempFilePath, size } 或其子集）。 */
   const uploadAttachment = useCallback(
     async (file: UploadFileLike, userId: string) => {
-      if (savingRef.current) return { error: '请勿重复提交' }
+      if (savingRef.current) return { error: t('leaveRequests.errors.duplicateSubmit') }
       savingRef.current = true
       // 文件名消毒：含中文/空格的文件名作 storage key 会被 Supabase Storage 拒绝
       // （400 InvalidKey）；保留 [A-Za-z0-9._-]，其余替换为 "-"。
@@ -367,7 +369,9 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
           'leave-attachments',
           path,
           file.tempFilePath,
-          guessContentType(safeName)
+          guessContentType(safeName),
+          false,
+          t
         )
         if (up.error) return { error: up.error.message }
         return { url: (up.data as { path: string }).path }
@@ -375,21 +379,21 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
         savingRef.current = false
       }
     },
-    [client]
+    [client, t]
   )
 
   /** 客户端为私有桶附件生成 60s 签名 URL（本人可读自己的附件，RLS 放行） */
   const getSignedUrl = useCallback(
     async (path: string) => {
       const safePath = extractAttachmentPath(path)
-      if (!safePath) return { error: '附件路径无效' }
+      if (!safePath) return { error: t('leaveRequests.errors.invalidAttachment') }
       const { data: signed, error: urlError } = await client.storage
         .from('leave-attachments')
         .createSignedUrl(safePath, 60)
       if (urlError) return { error: urlError.message }
       return { url: signed.signedUrl }
     },
-    [client]
+    [client, t]
   )
 
   return {

@@ -35,9 +35,11 @@ export function getScheduleColorClass(id: number): string {
   return SCHEDULE_COLORS[Math.abs(id) % SCHEDULE_COLORS.length]
 }
 
-/** 解析时间字符串为小时数（0-24，含分钟小数）；无效时间返回 0 */
+/** 解析时间字符串为小时数（0-24，含分钟小数）；无效时间返回 0。
+ *  24:00 特殊处理：直接返回 24（JS Date 会将 hour=24 回绕到次日 0:00，需提前拦截）。 */
 export function parseTimeToHours(timeStr: string | null): number {
   if (!timeStr) return 0
+  if (/T24:00(:00)?$/.test(timeStr)) return 24
   const date = parseLocalISO(timeStr)
   if (Number.isNaN(date.getTime())) return 0
   return date.getHours() + date.getMinutes() / 60
@@ -81,16 +83,50 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
   }
 
   // 计算每个预约的位置和高度（百分比定位，容器高度 480px 对应 24 小时）
+  // 支持跨天预约：预约块在参与的每一天都显示
   const scheduleItems = schedules.map((schedule) => {
     const startHour = parseTimeToHours(schedule.start_time)
     const endHour = parseTimeToHours(schedule.end_time)
-    const duration = endHour - startHour || 1 // 默认 1 小时
+    
+    const scheduleStartDate = schedule.start_time?.split('T')[0] || ''
+    const scheduleEndDate = schedule.end_time?.split('T')[0] || ''
+
+    let displayStartHour: number
+    let displayEndHour: number
+
+    if (scheduleStartDate === scheduleEndDate) {
+      // 同天预约
+      displayStartHour = startHour
+      displayEndHour = endHour
+    } else if (selectedDate === scheduleStartDate) {
+      // 预约的开始天：显示从开始时间到23:59
+      displayStartHour = startHour
+      displayEndHour = 23.98
+    } else if (selectedDate === scheduleEndDate) {
+      // 预约的结束天：显示从00:00到结束时间
+      displayStartHour = 0
+      displayEndHour = endHour
+    } else {
+      // 中间天：不显示（理论上不会出现，因为查询已过滤）
+      displayStartHour = 0
+      displayEndHour = 0
+    }
+    
+    const duration = displayEndHour - displayStartHour || 1
+    const displayTimeRange =
+      scheduleStartDate === scheduleEndDate
+        ? undefined // 同天预约，用原始时间
+        : selectedDate === scheduleStartDate
+          ? `${formatTime(schedule.start_time)} – 23:59`
+          : `00:00 – ${formatTime(schedule.end_time)}`
+
     return {
       ...schedule,
-      startHour,
+      startHour: displayStartHour,
       duration,
-      top: startHour * (100 / 24),
-      height: Math.max(duration * (100 / 24), 2), // 最小高度 2%
+      top: displayStartHour * (100 / 24),
+      height: Math.max(duration * (100 / 24), 2),
+      displayTimeRange,
     }
   })
 
@@ -200,7 +236,8 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
                     {schedule.title || t('schedule.unnamed')}
                   </Text>
                   <Text className={`block text-xs ${subCls}`}>
-                    {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
+                    {schedule.displayTimeRange ??
+                      `${formatTime(schedule.start_time)} – ${formatTime(schedule.end_time)}`}
                   </Text>
                 </View>
               </View>
@@ -231,14 +268,17 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
                 {t('schedule.detail.time')}
               </Text>
               <Text className='block text-sm text-text'>
-                {formatTime(selectedSchedule.start_time)} - {formatTime(selectedSchedule.end_time)}
+                {(() => {
+                  const startDate = selectedSchedule.start_time?.split('T')[0] || ''
+                  const endDate = selectedSchedule.end_time?.split('T')[0] || ''
+                  const startTime = formatTime(selectedSchedule.start_time)
+                  const endTime = formatTime(selectedSchedule.end_time)
+                  if (startDate === endDate) {
+                    return `${startDate} ${startTime} – ${endTime}`
+                  }
+                  return `${startDate} ${startTime} – ${endDate} ${endTime}`
+                })()}
               </Text>
-            </View>
-            <View className='mt-3'>
-              <Text className='mb-1 block text-xs text-text-muted'>
-                {t('schedule.detail.date')}
-              </Text>
-              <Text className='block text-sm text-text'>{selectedDate}</Text>
             </View>
             {/* 预约人信息：仅登录用户可见 */}
             {user && (

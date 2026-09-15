@@ -1,4 +1,5 @@
 import Taro from '@tarojs/taro'
+import type { TFn } from '@/i18n'
 
 export type AppEnv = 'develop' | 'trial' | 'release' | 'unknown'
 
@@ -25,13 +26,16 @@ export function getAppEnv(): AppEnv {
  * 设为 'false'（在 config/index.ts 或 .env 中配置）可隐藏环境标签，
  * 仅显示版本号如 "v0.1.0"。
  */
-export function getAppVersionLabel(): string {
+export function getAppVersionLabel(t?: TFn): string {
   const appVersion = typeof APP_VERSION !== 'undefined' ? APP_VERSION : '0.0.0'
   const showEnv = typeof SHOW_ENV_LABEL !== 'undefined' ? SHOW_ENV_LABEL !== 'false' : true
   if (!showEnv) return `v${appVersion}`
 
   const env = getAppEnv()
   const envLabel =
-    env === 'release' ? '正式版' : env === 'trial' ? '体验版' : env === 'develop' ? '开发版' : ''
+    env === 'release' ? t?.('common.version.release') ?? 'Release'
+    : env === 'trial' ? t?.('common.version.trial') ?? 'Trial'
+    : env === 'develop' ? t?.('common.version.develop') ?? 'Dev'
+    : ''
   return envLabel ? `${envLabel} v${appVersion}` : `v${appVersion}`
 }

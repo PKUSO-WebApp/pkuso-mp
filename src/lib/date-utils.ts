@@ -36,6 +36,15 @@ export function getLocalDateString(date: Date = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
+/** 空格分隔转 T 分隔（库存空格格式 -> 代码统一 T 格式） */
+export function normalizeScheduleTime(value: string): string
+export function normalizeScheduleTime(value: string | null): string | null
+export function normalizeScheduleTime(value: string | null): string | null {
+  if (!value) return value
+  if (value.includes('T')) return value
+  return value.replace(' ', 'T')
+}
+
 /** Intl 是否可用（微信旧版 JSCore / 低端安卓可能缺失，需要手写降级格式化） */
 function hasIntl(): boolean {
   return typeof Intl !== 'undefined' && typeof Intl.DateTimeFormat === 'function'
@@ -123,6 +132,7 @@ export function parseLocalISO(dateStr: string): Date {
  */
 export function formatTime(timeStr: string | null): string {
   if (!timeStr) return '--:--'
+  if (/T24:00(:00)?$/.test(timeStr)) return '23:59'
   const date = parseLocalISO(timeStr)
   if (Number.isNaN(date.getTime())) return '--:--'
   return date.toTimeString().slice(0, 5)
@@ -229,8 +239,9 @@ export function formatRehearsalCardParts(
 
   const month = translateCurrent(`schedule.monthAbbr.${MONTH_CODES[start.getMonth()]}`)
   const day = String(start.getDate())
-  const dateLabel = `${month}${day}日`
   const weekdayLabel = translateCurrent(`schedule.weekdayShort.${DOW_CODES[start.getDay()]}`)
+  const tpl = translateCurrent('schedule.dateFormat')
+  const dateLabel = tpl.replace('{month}', month).replace('{day}', day).replace('{weekday}', weekdayLabel)
 
   const hasIntlSupport = hasIntl()
   const timeFormatter = hasIntlSupport
@@ -340,4 +351,22 @@ function buildEnDatePart(monthCode: string, day: string, weekdayCode: string): s
   const weekday = translateCurrent(`schedule.weekdayShort.${weekdayCode}`)
   const tpl = translateCurrent('schedule.dateFormat')
   return tpl.replace('{month}', month).replace('{day}', day).replace('{weekday}', weekday)
+}
+
+/** 给日期加减天数，返回 YYYY-MM-DD */
+export function shiftDays(base: string, delta: number): string {
+  const [y, m, d] = base.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setDate(dt.getDate() + delta)
+  return getLocalDateString(dt)
+}
+
+/** 获取本周周一日期（YYYY-MM-DD） */
+export function getWeekStart(base: string = getLocalDateString()): string {
+  const [y, m, d] = base.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  const day = dt.getDay() // 0=周日
+  const diff = day === 0 ? -6 : 1 - day // 周一为起点
+  dt.setDate(dt.getDate() + diff)
+  return getLocalDateString(dt)
 }

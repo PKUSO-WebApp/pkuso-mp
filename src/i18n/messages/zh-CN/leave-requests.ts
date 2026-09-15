@@ -19,4 +19,11 @@ export const leaveRequests = {
     withdrawn: '已撤回',
     canceled: '已取消',
   },
+  errors: {
+    alreadySignedIn: '已签到，无法再提交请假申请',
+    alreadyProcessed: '申请已被处理，请刷新后重试',
+    withdrawFailed: '请假撤销未生效，请重试',
+    duplicateSubmit: '请勿重复提交',
+    invalidAttachment: '附件路径无效',
+  },
 }

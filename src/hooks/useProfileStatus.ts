@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { useUser } from '@/context/user-context'
+import { useT } from '@/i18n'
 import type { EntryProfile } from '@/lib/profile-gate'
 
 // ============================================================
@@ -14,6 +15,7 @@ import type { EntryProfile } from '@/lib/profile-gate'
 
 export function useProfileStatus(client: typeof defaultClient = defaultClient) {
   const { user } = useUser()
+  const { t } = useT()
   const [profile, setProfile] = useState<EntryProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -31,11 +33,11 @@ export function useProfileStatus(client: typeof defaultClient = defaultClient) {
       setError(queryError?.message ?? null)
     } catch {
       if (current !== seq.current) return
-      setError('网络异常，请重试')
+      setError(t('common.errors.loadFailed'))
     } finally {
       if (current === seq.current) setLoading(false)
     }
-  }, [client, user])
+  }, [client, user, t])
 
   useEffect(() => {
     void refresh()

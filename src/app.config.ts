@@ -5,8 +5,6 @@ export default defineAppConfig({
     'pages/index/index',
     'pages/login/index',
     'pages/register/index',
-    'pages/email-login/index',
-    'pages/email-signup/index',
     'pages/setup/index',
     'pages/pending/index',
     'pages/rejected/index',

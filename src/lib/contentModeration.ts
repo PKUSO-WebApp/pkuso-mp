@@ -1,5 +1,6 @@
 import type { supabase as defaultClient } from '@/lib/supabase'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
+import type { TFn } from '@/i18n'
 
 export type ModerationResult = { ok: true; imageUrl: string | null } | { ok: false; error: string }
 
@@ -19,7 +20,8 @@ export async function moderateAndUploadPostImage(
     currentSections?: string | null
     missingSections?: string | null
     contactInfo?: string | null
-  }
+  },
+  t: TFn
 ): Promise<ModerationResult> {
   // 1) 文本审核（标题 + 内容 + 声部 + 联系方式）
   const textParts = [
@@ -38,7 +40,7 @@ export async function moderateAndUploadPostImage(
     // 审核基础设施故障：放行发布，仅记录
     console.warn('[contentModeration] 文本审核调用失败，放行：', textRes.error)
   } else if ((textRes.data as { result?: string })?.result === 'block') {
-    return { ok: false, error: '内容包含违规信息，发布失败' }
+    return { ok: false, error: t('community.postErrors.contentBlocked') }
   }
 
   // 2) 图片上传（公开桶）+ 图片审核
@@ -54,9 +56,11 @@ export async function moderateAndUploadPostImage(
     'community-images',
     path,
     input.imageFile.tempFilePath,
-    guessContentType(safeName)
+    guessContentType(safeName),
+    false,
+    t
   )
-  if (up.error) return { ok: false, error: `图片上传失败：${up.error.message}` }
+  if (up.error) return { ok: false, error: t('community.postErrors.imageUploadFailed', { error: up.error.message }) }
   const imageUrl = client.storage.from('community-images').getPublicUrl(path).data.publicUrl
 
   const imgRes = await client.functions.invoke('wechat-content-check', {
@@ -66,10 +70,10 @@ export async function moderateAndUploadPostImage(
   if (imgRes.error) {
     console.warn('[contentModeration] 图片审核调用失败，放行：', imgRes.error)
   } else if (imgData?.result === 'block') {
-    return { ok: false, error: '图片包含违规内容，发布失败' }
+    return { ok: false, error: t('community.postErrors.imageBlocked') }
   } else if (imgData?.ok === false) {
     // 微信拒收或函数侧主动拦截（如图片过大）：不放行
-    return { ok: false, error: imgData.error || '图片审核未通过' }
+    return { ok: false, error: imgData.error || t('community.postErrors.imageRejected') }
   }
   return { ok: true, imageUrl }
 }

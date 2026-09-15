@@ -4,10 +4,15 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useProfileStatus } from '../useProfileStatus'
 
-const { userCtx } = vi.hoisted(() => ({
+const { userCtx, mockT } = vi.hoisted(() => ({
   userCtx: { user: null as { id: string } | null },
+  mockT: (k: string) => k,
 }))
 vi.mock('@/context/user-context', () => ({ useUser: () => userCtx }))
+
+vi.mock('@/i18n', () => ({
+  useT: () => ({ t: mockT, locale: 'zh-CN', setLocale: vi.fn() }),
+}))
 
 // 模块加载即校验环境变量，mock 掉 supabase 模块（测试显式传 client）
 vi.mock('@/lib/supabase', () => ({ supabase: {} }))
@@ -47,7 +52,7 @@ describe('useProfileStatus', () => {
     client.rpc.mockRejectedValue(new Error('fetch failed'))
     const { result } = renderHook(() => useProfileStatus(client as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.error).toBe('网络异常，请重试')
+    expect(result.current.error).toBe('common.errors.loadFailed')
     expect(result.current.profile).toBeNull()
   })
 

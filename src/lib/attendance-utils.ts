@@ -1,5 +1,6 @@
 import type { AttendanceStatus } from '@/types/database'
 import { parseLocalISO } from '@/lib/date-utils'
+import type { TFn } from '@/i18n'
 
 /** 签到宽限期：开始时间后多少分钟内签到记为出席 */
 export const SIGN_IN_GRACE_MINUTES = 15
@@ -71,7 +72,9 @@ export function hasSignedIn(signInTime: string | null | undefined): boolean {
 
 /** 「未签到」展示文案（Issue #213 对抗返工）：absent 占位行的列表标签文案。
  *  统计口径中占位行仅计入 total、不参与分类、无栏目呈现（口径见 attendance-summary.ts） */
-export const UNSIGNED_LABEL = '未签到'
+export function getUnsignedLabel(t: TFn): string {
+  return t('common.attendance.notSignedIn')
+}
 
 /**
  * 是否为 absent 占位行（Issue #213 对抗返工）：absent + 未签到 + 排练未结束。

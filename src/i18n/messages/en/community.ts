@@ -9,4 +9,12 @@ export const community = {
   haveSections: 'Have: {sections}',
   missing: 'Missing: {sections}',
   creator: 'Posted by: {name}',
+  postErrors: {
+    fillTitleAndContent: 'Please fill in the title and content',
+    loginExpired: 'Session expired, please sign in again',
+    contentBlocked: 'Content contains prohibited information, posting failed',
+    imageUploadFailed: 'Image upload failed: {error}',
+    imageBlocked: 'Image contains prohibited content, posting failed',
+    imageRejected: 'Image moderation failed',
+  },
 }
