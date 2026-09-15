@@ -1,4 +1,4 @@
-import { useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useEffect, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { dataSyncBump } from '@/lib/dataSync'
@@ -12,7 +12,7 @@ import { useOverlayOpen } from '@/lib/overlayStore'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 
 import { ListState } from '@/components/ui/ListState'
-import { getLocalDateString, parseLocalISO, formatDisplayDate } from '@/lib/date-utils'
+import { getLocalDateString, formatDisplayDate } from '@/lib/date-utils'
 import { DateSelector } from './components/date-selector'
 import { ScheduleGantt } from './components/schedule-gantt'
 import { CreateScheduleModal } from './components/create-schedule-modal'
@@ -26,10 +26,10 @@ import './index.scss'
  */
 export default function Schedule() {
   const {
-    data: schedules,
     loading,
     error,
     fetch,
+    getByDate,
     saving,
     create,
     checkConflict,
@@ -71,9 +71,9 @@ export default function Schedule() {
   const selectedDateRef = useRef(selectedDate)
   selectedDateRef.current = selectedDate
 
-  // 日期变化时重新获取数据
+  // 日期切换：同步取内存切片，零网络
   useEffect(() => {
-    void fetch(selectedDate)
+    void fetch(selectedDate) // 兼容层：缓存命中则同步 setData
   }, [selectedDate, fetch])
 
   // A：每次切回本 tab 重新拉取当前日期预约，并重置全局轮询计时器。
@@ -88,19 +88,8 @@ export default function Schedule() {
     dataSyncBump()
   })
 
-  // 过滤当前日期的预约（后端已按日期筛选，这里做二次过滤确保准确）
-  // 跨天预约：start_time 在当天 OR end_time 在当天 都算当天
-  const filteredSchedules = useMemo(
-    () =>
-      schedules.filter((schedule) => {
-        const start = parseLocalISO(schedule.start_time)
-        const end = parseLocalISO(schedule.end_time)
-        const startDate = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`
-        const endDate = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`
-        return startDate === selectedDate || endDate === selectedDate
-      }),
-    [schedules, selectedDate]
-  )
+  // 当前日期的预约：走 hook 内存切片（含跨天）
+  const filteredSchedules = getByDate(selectedDate)
 
   // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
   // 游客模式下跳过此检查（useMyProfile 在无 user 时会误查全表）

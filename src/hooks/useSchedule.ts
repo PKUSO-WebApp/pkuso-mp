@@ -2,77 +2,121 @@
 import { supabase as defaultClient } from '@/lib/supabase'
 import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import { useT } from '@/i18n'
+import { dataSyncBump } from '@/lib/dataSync'
+import { getLocalDateString, shiftDays, getWeekStart, normalizeScheduleTime } from '@/lib/date-utils'
 import type { RehearsalRow, ScheduleRow } from '@/types/database'
 
-// 排练房预约 hook。
-// 与 Web 版差异：无 realtime（本就是挂载查询 + 手动重取）；
-// 加载失败错误归一化为中文文案；卸载后不再 setState（mountedRef 标志位）。
+type Listener = () => void
 
-/**
- * schedules.start_time 在库中为「YYYY-MM-DD HH:mm:ss」（空格分隔，触发器与
- * 预约表单写入均为此格式），而日期工具链（parseLocalISO/formatTime）按
- * 「YYYY-MM-DDTHH:mm:ss」解析。统一在 hook 边界归一化为 T 分隔：
- * - 日期区间过滤用空格格式（与库中值一致，lexicographic 比较才正确——
- *   空格(0x20) < T(0x54)，用 T 格式过滤会把所有空格行排在区间外，查询恒空）；
- * - 查询结果归一化为 T 分隔后返回，下游时间解析/展示直接可用。
- */
-function normalizeScheduleTime(value: string): string
-function normalizeScheduleTime(value: string | null): string | null
-function normalizeScheduleTime(value: string | null): string | null {
-  if (!value) return value
-  if (value.includes('T')) return value
-  return value.replace(' ', 'T')
-}
-
-export function useSchedule(client: typeof defaultClient = defaultClient) {
+function useSchedule(client: typeof defaultClient = defaultClient) {
   const { t } = useT()
   const [data, setData] = useState<ScheduleRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<AppErrorCode | null>(null)
   const [saving, setSaving] = useState(false)
+
   const mountedRef = useRef(true)
   const savingRef = useRef(false)
   const fetchSeqRef = useRef(0)
 
-  const fetch = useCallback(
-    async (date?: string, opts?: { silent?: boolean }) => {
+  // 全量缓存：按周缓存所有排期
+  const allSchedulesRef = useRef<ScheduleRow[]>([])
+  const cacheVersionRef = useRef<number>(0)
+  const listenersRef = useRef<Set<Listener>>(new Set())
+
+  const notifyListeners = useCallback(() => {
+    listenersRef.current.forEach((h) => h())
+  }, [])
+
+  const subscribe = useCallback((handler: Listener) => {
+    listenersRef.current.add(handler)
+    return () => {
+      listenersRef.current.delete(handler)
+    }
+  }, [])
+
+  // 核心：全量拉取一周数据（today-1 ~ today+7，覆盖 8 天日期条）
+  const fetchAll = useCallback(
+    async (opts?: { silent?: boolean }) => {
       if (!mountedRef.current) return
       const seq = ++fetchSeqRef.current
       if (!opts?.silent) setLoading(true)
-      let query = client.from('schedules').select('*').order('start_time', { ascending: true })
 
-      if (date) {
-        // 按本地日期筛选，避免时区问题；空格分隔与库中存储格式一致
-        // 查询条件：start_time < 当天结束 AND end_time > 当天开始
-        // 获取与当天有交集的所有预约（含跨天：前一天开始今天结束、今天开始明天结束）
-        const [year, month, day] = date.split('-').map(Number)
-        const startOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} 00:00:00`
-        const endOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} 23:59:59`
+      const today = getLocalDateString()
+      const weekStart = getWeekStart(today)
+      const weekEnd = shiftDays(weekStart, 8) // 覆盖周一到下周一
 
-        query = query.lt('start_time', endOfDay).gt('end_time', startOfDay)
-      }
+      let query = client
+        .from('schedules')
+        .select('*')
+        .lt('start_time', weekEnd + ' 23:59:59')
+        .gt('end_time', weekStart + ' 00:00:00')
+        .order('start_time', { ascending: true })
 
       const { data: rows, error: dbError } = await query
       if (!mountedRef.current || seq !== fetchSeqRef.current) return
       setLoading(false)
+
       if (dbError) {
-        // 错误码化（P2-7）：原始错误仅记录
         console.error('[useSchedule] 预约加载失败', dbError)
         setError(APP_ERROR.loadFailed)
         setData([])
         return
       }
       setError(null)
-      // 归一化时间格式（空格 → T 分隔）后再交给页面解析
-      setData(
-        ((rows as ScheduleRow[]) ?? []).map((row) => ({
-          ...row,
-          start_time: normalizeScheduleTime(row.start_time),
-          end_time: normalizeScheduleTime(row.end_time),
-        }))
-      )
+
+      const normalized = ((rows as ScheduleRow[]) ?? []).map((row) => ({
+        ...row,
+        start_time: normalizeScheduleTime(row.start_time),
+        end_time: normalizeScheduleTime(row.end_time),
+      }))
+
+      allSchedulesRef.current = normalized
+      cacheVersionRef.current += 1
+      notifyListeners()
+
+      // 同时更新当天视图
+      const todayData = normalized.filter((s) => {
+        const sd = s.start_time.split('T')[0]
+        const ed = s.end_time?.split('T')[0] ?? sd
+        return sd === today || ed === today
+      })
+      setData(todayData)
     },
-    [client]
+    [client, notifyListeners]
+  )
+
+  // 兼容旧接口：单日 fetch（走缓存，命中则同步返回）
+  const fetch = useCallback(
+    async (date?: string, opts?: { silent?: boolean }) => {
+      const targetDate = date ?? getLocalDateString()
+
+      // 缓存命中：同步返回当天切片
+      if (allSchedulesRef.current.length > 0) {
+        const dayData = allSchedulesRef.current.filter((s) => {
+          const sd = s.start_time.split('T')[0]
+          const ed = s.end_time?.split('T')[0] ?? sd
+          return sd === targetDate || ed === targetDate
+        })
+        setData(dayData)
+        return
+      }
+      // 缓存未命中：全量拉取
+      await fetchAll(opts)
+    },
+    [fetchAll]
+  )
+
+  // 纯内存切片：按日期取当天预约（含跨天）
+  const getByDate = useCallback(
+    (date: string): ScheduleRow[] => {
+      return allSchedulesRef.current.filter((s) => {
+        const sd = s.start_time.split('T')[0]
+        const ed = s.end_time?.split('T')[0] ?? sd
+        return sd === date || ed === date
+      })
+    },
+    []
   )
 
   useEffect(() => {
@@ -84,12 +128,11 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
   }, [fetch])
 
   const create = useCallback(
-    async (payload: Record<string, unknown>, date?: string) => {
+    async (payload: Record<string, unknown>, _date?: string) => {
       if (savingRef.current) return false
       savingRef.current = true
       setSaving(true)
       try {
-        // 文本审核：日程标题
         const title = typeof payload.title === 'string' ? payload.title.trim() : ''
         if (title) {
           const textRes = await client.functions.invoke('wechat-content-check', {
@@ -112,18 +155,20 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
           return false
         }
         if (mountedRef.current) setError(null)
-        await fetch(date)
+        // 写入成功 -> bump 同步版本 -> 后台全量刷新
+        dataSyncBump()
+        await fetchAll({ silent: true })
         return true
       } finally {
         savingRef.current = false
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, fetch]
+    [client, fetchAll]
   )
 
   const update = useCallback(
-    async (id: number, payload: Record<string, unknown>, date?: string) => {
+    async (id: number, payload: Record<string, unknown>, _date?: string) => {
       if (savingRef.current) return false
       savingRef.current = true
       setSaving(true)
@@ -145,18 +190,19 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
           return false
         }
         if (mountedRef.current) setError(null)
-        await fetch(date)
+        dataSyncBump()
+        await fetchAll({ silent: true })
         return true
       } finally {
         savingRef.current = false
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, fetch]
+    [client, fetchAll]
   )
 
   const remove = useCallback(
-    async (id: number, date?: string) => {
+    async (id: number, _date?: string) => {
       if (savingRef.current) return false
       savingRef.current = true
       setSaving(true)
@@ -170,17 +216,18 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
           return false
         }
         if (mountedRef.current) setError(null)
-        await fetch(date)
+        dataSyncBump()
+        await fetchAll({ silent: true })
         return true
       } finally {
         savingRef.current = false
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, fetch]
+    [client, fetchAll]
   )
 
-  // 检查时间冲突（支持跨天预约）
+  // 检查时间冲突：本地内存跑，省 RPC
   const checkConflict = useCallback(
     async (
       startDate: string,
@@ -189,33 +236,30 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
       endTime: string,
       excludeRehearsalId?: number
     ): Promise<string | null> => {
-      const [startYear, startMonth, startDay] = startDate.split('-').map(Number)
-      const [endYear, endMonth, endDay] = endDate.split('-').map(Number)
-
-      // 预约表空格分隔、排练表 T 分隔
-      const scheduleStartOfDay = `${startYear}-${String(startMonth).padStart(2, '0')}-${String(startDay).padStart(2, '0')} 00:00:00`
-      const scheduleEndOfDay = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')} 23:59:59`
-      const rehearsalStartOfDay = `${startYear}-${String(startMonth).padStart(2, '0')}-${String(startDay).padStart(2, '0')}T00:00:00`
-      const rehearsalEndOfDay = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}T23:59:59`
-
       const startDateTime = `${startDate}T${startTime}:00`
       const endDateTime = `${endDate}T${endTime}:00`
 
-      // 只查人工预约：rehearsal_id 非空的行是排练触发器生成的影子行，
-      // 由下方排练分支统一检查（编辑排练时 neq 排除自身，避免自己和自己冲突；
-      // 若此处混入影子行，编辑排练会误报「该时间段已有其他预约」，且文案不准确）
-      const { data: existingSchedules, error: scheduleError } = await client
-        .from('schedules')
-        .select('*')
-        .gte('start_time', scheduleStartOfDay)
-        .lte('start_time', scheduleEndOfDay)
-        .is('rehearsal_id', null)
+      // 仅需检查开始/结束两天的数据
+      const relevant = getByDate(startDate).concat(getByDate(endDate))
 
-      if (scheduleError) {
-        return t('schedule.errors.queryScheduleFailed')
+      // 人工预约冲突（rehearsal_id 为 null）
+      const scheduleConflict = relevant.find((s) => {
+        if (s.rehearsal_id) return false // 跳过排练影子行
+        const sStart = s.start_time
+        const sEnd = s.end_time || sStart
+        return startDateTime < sEnd && endDateTime > sStart
+      })
+
+      if (scheduleConflict) {
+        return t('schedule.errors.scheduleConflict')
       }
 
-      // 查询当天的排练（排除正在编辑的排练）
+      // 排练冲突：需 RPC 查询（排练表不在全量缓存里）
+      const [startYear, startMonth, startDay] = startDate.split('-').map(Number)
+      const [endYear, endMonth, endDay] = endDate.split('-').map(Number)
+      const rehearsalStartOfDay = `${startYear}-${String(startMonth).padStart(2, '0')}-${String(startDay).padStart(2, '0')}T00:00:00`
+      const rehearsalEndOfDay = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}T23:59:59`
+
       const { data: rehearsals, error: rehearsalError } = await client
         .from('rehearsals')
         .select('*')
@@ -227,20 +271,6 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
         return t('schedule.errors.queryRehearsalFailed')
       }
 
-      // 检查与已有预约的冲突（库中空格分隔，先归一化再与 T 分隔的新预约比较）
-      const scheduleConflict = (existingSchedules as ScheduleRow[])?.find((s) => {
-        const sStart = normalizeScheduleTime(s.start_time)
-        if (!sStart) return false
-        const sEnd = normalizeScheduleTime(s.end_time) || sStart
-        // 时间重叠条件：新预约开始 < 已有结束，且新预约结束 > 已有开始
-        return startDateTime < sEnd && endDateTime > sStart
-      })
-
-      if (scheduleConflict) {
-        return t('schedule.errors.scheduleConflict')
-      }
-
-      // 检查与排练的冲突
       const rehearsalConflict = (rehearsals as RehearsalRow[])?.find((r) => {
         const rehearsalStart = r.start_time
         const rehearsalEnd = r.end_time || r.start_time
@@ -254,8 +284,23 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
 
       return null
     },
-    [client, t]
+    [client, t, getByDate]
   )
 
-  return { data, loading, error, saving, fetch, create, update, remove, checkConflict }
+  return {
+    data,
+    loading,
+    error,
+    saving,
+    fetch,
+    fetchAll,
+    getByDate,
+    subscribe,
+    create,
+    update,
+    remove,
+    checkConflict,
+  }
 }
+
+export { useSchedule }
