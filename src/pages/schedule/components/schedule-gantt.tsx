@@ -268,14 +268,17 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
                 {t('schedule.detail.time')}
               </Text>
               <Text className='block text-sm text-text'>
-                {formatTime(selectedSchedule.start_time)} - {formatTime(selectedSchedule.end_time)}
+                {(() => {
+                  const startDate = selectedSchedule.start_time?.split('T')[0] || ''
+                  const endDate = selectedSchedule.end_time?.split('T')[0] || ''
+                  const startTime = formatTime(selectedSchedule.start_time)
+                  const endTime = formatTime(selectedSchedule.end_time)
+                  if (startDate === endDate) {
+                    return `${startDate} ${startTime} – ${endTime}`
+                  }
+                  return `${startDate} ${startTime} – ${endDate} ${endTime}`
+                })()}
               </Text>
-            </View>
-            <View className='mt-3'>
-              <Text className='mb-1 block text-xs text-text-muted'>
-                {t('schedule.detail.date')}
-              </Text>
-              <Text className='block text-sm text-text'>{selectedDate}</Text>
             </View>
             {/* 预约人信息：仅登录用户可见 */}
             {user && (
