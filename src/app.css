@@ -116,3 +116,12 @@ button {
 button::after {
   border: none;
 }
+
+/* 修复 WeChat 原生 picker multiSelector 列项字体垂直居中 */
+.weui-picker-column__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: normal;
+  min-height: 44px;
+}

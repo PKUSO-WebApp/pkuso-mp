@@ -38,17 +38,12 @@ type Props = {
   onTimeMultiChange?: (value: number[]) => void
 }
 
-// 时间选择最小单位 15 分钟：分钟列仅提供 00/15/30/45 四档；末尾追加 '24' 以支持 24:00 结束时间。
-const HOURS = [
-  ...Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')),
-  '24',
-]
+// 时间选择最小单位 15 分钟：分钟列仅提供 00/15/30/45 四档
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const MINUTES = ['00', '15', '30', '45']
 
 export function timeToIndices(time: string): [number, number] {
   if (!time) return [9, 0]
-  // 23:59 是 24:00 的内部表示，映射回 picker 的 24 列
-  if (time === '23:59') return [HOURS.length - 1, 0]
   if (!/^\d{1,2}:\d{2}$/.test(time)) return [9, 0]
   const [h, m] = time.split(':')
   const hi = HOURS.indexOf(h.padStart(2, '0'))
@@ -58,8 +53,6 @@ export function timeToIndices(time: string): [number, number] {
 
 export function indicesToTime(indices: number[]): string {
   const hi = indices?.[0] ?? 9
-  // 选中 '24' 列时，以 23:59 存储（避免 JS Date 将 hour=24 回绕到 0:00）
-  if (hi === HOURS.length - 1) return '23:59'
   const h = HOURS[hi] ?? '09'
   const m = MINUTES[indices?.[1] ?? 0] ?? '00'
   return `${h}:${m}`
