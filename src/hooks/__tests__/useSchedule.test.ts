@@ -26,6 +26,8 @@ function mockClient<T>(responses: T[]) {
       delete: (...args: unknown[]) => record('delete', ...args),
       gte: (...args: unknown[]) => record('gte', ...args),
       lte: (...args: unknown[]) => record('lte', ...args),
+      gt: (...args: unknown[]) => record('gt', ...args),
+      lt: (...args: unknown[]) => record('lt', ...args),
       neq: (...args: unknown[]) => record('neq', ...args),
       is: (...args: unknown[]) => record('is', ...args),
       // 返回真正的 Promise
@@ -145,12 +147,12 @@ describe('useSchedule', () => {
     })
 
     const calls = (c as unknown as { __calls: string[] }).__calls
-    // 空格(0x20) < T(0x54)：用 T 格式过滤会把库中空格分隔行全部排在区间外（查询恒空）
-    expect(calls.filter((call) => call.startsWith('gte('))).toEqual([
-      'gte("start_time", "2024-01-02 00:00:00")',
+    // 跨天支持：lt('start_time', endOfDay) + gt('end_time', startOfDay)
+    expect(calls.filter((call) => call.startsWith('lt('))).toEqual([
+      'lt("start_time", "2024-01-02 23:59:59")',
     ])
-    expect(calls.filter((call) => call.startsWith('lte('))).toEqual([
-      'lte("start_time", "2024-01-02 23:59:59")',
+    expect(calls.filter((call) => call.startsWith('gt('))).toEqual([
+      'gt("end_time", "2024-01-02 00:00:00")',
     ])
   })
 
@@ -186,7 +188,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBeNull()
@@ -212,7 +214,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('该时间段已有其他预约')
@@ -237,7 +239,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('该时间段已有排练安排')
@@ -255,7 +257,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00', 5)
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00', 5)
       })
 
       expect(conflictResult).toBeNull()
@@ -274,7 +276,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00', 5)
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00', 5)
       })
 
       expect(conflictResult).toBeNull()
@@ -302,7 +304,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('该时间段已有排练安排')
@@ -318,7 +320,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       await act(async () => {
-        await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       // 只有 schedules 查询带 is 过滤；rehearsals 查询只有 gte/lte/neq
@@ -335,7 +337,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('查询预约失败')
@@ -351,7 +353,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('查询排练安排失败')
@@ -377,7 +379,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBe('该时间段已有其他预约')
@@ -403,7 +405,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBeNull()
@@ -429,7 +431,7 @@ describe('useSchedule', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       const conflictResult = await act(async () => {
-        return await result.current.checkConflict('2024-01-01', '14:00', '15:00')
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
       })
 
       expect(conflictResult).toBeNull()
@@ -445,6 +447,8 @@ describe('useSchedule', () => {
       limit: () => chain(res),
       gte: () => chain(res),
       lte: () => chain(res),
+      gt: () => chain(res),
+      lt: () => chain(res),
       neq: () => chain(res),
       is: () => chain(res),
       then: (resolve: (v: unknown) => void) => resolve(res),
@@ -479,6 +483,8 @@ describe('useSchedule', () => {
       limit: () => chain(),
       gte: () => chain(),
       lte: () => chain(),
+      gt: () => chain(),
+      lt: () => chain(),
       neq: () => chain(),
       is: () => chain(),
       then: (resolve: (v: unknown) => void) => {

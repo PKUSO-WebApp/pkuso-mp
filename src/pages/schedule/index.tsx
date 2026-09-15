@@ -89,13 +89,15 @@ export default function Schedule() {
   })
 
   // 过滤当前日期的预约（后端已按日期筛选，这里做二次过滤确保准确）
+  // 跨天预约：start_time 在当天 OR end_time 在当天 都算当天
   const filteredSchedules = useMemo(
     () =>
       schedules.filter((schedule) => {
-        const date = parseLocalISO(schedule.start_time)
-        // 本地日期比较，避免时区问题
-        const scheduleDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-        return scheduleDate === selectedDate
+        const start = parseLocalISO(schedule.start_time)
+        const end = parseLocalISO(schedule.end_time)
+        const startDate = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`
+        const endDate = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`
+        return startDate === selectedDate || endDate === selectedDate
       }),
     [schedules, selectedDate]
   )
@@ -158,7 +160,7 @@ export default function Schedule() {
         defaultDate={selectedDate}
         saving={saving}
         onCreate={async (p) => create({ ...p, author_id: user?.id ?? null }, selectedDate)}
-        onCheckConflict={(d, s, e) => checkConflict(d, s, e)}
+        onCheckConflict={(sd, st, ed, et) => checkConflict(sd, st, ed, et)}
         onClose={() => setCreateOpen(false)}
       />
     </View>

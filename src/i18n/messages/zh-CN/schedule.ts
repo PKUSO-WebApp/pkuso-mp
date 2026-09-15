@@ -49,20 +49,20 @@ export const schedule = {
   timeRangeSep: ' - ',
   labels: {
     title: '预约标题',
-    date: '预约日期',
     startTime: '开始时间',
     endTime: '结束时间',
   },
   placeholders: {
     title: '如：练习',
-    startTime: '请选择开始时间',
-    endTime: '请选择结束时间',
+    startTime: '开始时间',
+    endTime: '结束时间',
   },
   errors: {
     titleRequired: '请填写预约标题',
     startTimeRequired: '请选择开始时间',
     endTimeRequired: '请选择结束时间',
     endAfterStart: '结束时间必须晚于开始时间',
+    timeSame: '开始时间和结束时间不能相同',
     addFailed: '添加失败，请重试',
     deleteFailed: '删除失败，请稍后重试',
     queryScheduleFailed: '查询预约失败',

@@ -25,7 +25,7 @@
 
 每次声明「完成 / 交付」前，必须依次执行且**全部通过（全绿）**才允许交付；任一环节失败不得宣告完成：
 
-1. 重新构建：`pnpm build:weapp`
+1. 重新构建：`pnpm dev:weapp`
 2. 类型检查：`pnpm typecheck`
 3. 代码规范：`pnpm lint`
 4. 单元测试：`pnpm test`
@@ -33,13 +33,9 @@
 
 ### ⚠️ 源码修改后必须运行构建命令
 
-**每次修改源码文件（.tsx/.ts/.scss）后，必须运行 `pnpm dev:weapp` 构建并在微信开发者工具中验收。**
+**每次修改源码文件（.tsx/.ts/.scss）后，必须运行 `pnpm build:weapp` 构建并在微信开发者工具中验收。**
 
-`pnpm dev:weapp`（`cross-env NODE_ENV=development taro build --type weapp`）是 **watch 模式构建进程**，不是一次性命令。**不可用 timeout 运行**，应以后台进程方式启动，等待其保持运行（持续监听文件变更并增量编译）。用户验收完毕后需手动终止。
-
-### ⚠️ 用户说「验收」前必须先启动 dev
-
-**当用户说「验收」「看看效果」「预览」等意图查看运行结果时，必须先运行 `pnpm dev:weapp`（后台持续运行，不可 timeout）启动 watch 构建，再提示用户在微信开发者工具中查看。不得跳过此步骤。**
+`pnpm dev:weapp`（`cross-env NODE_ENV=development taro build --type weapp`）是**一次性构建命令**，与 `pnpm build:weapp` 功能相同但注入开发环境变量。构建完成后在微信开发者工具中打开 `dist` 目录查看效果。
 
 ## 技术栈
 

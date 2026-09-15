@@ -43,11 +43,13 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
 
       if (date) {
         // 按本地日期筛选，避免时区问题；空格分隔与库中存储格式一致
+        // 查询条件：start_time < 当天结束 AND end_time > 当天开始
+        // 获取与当天有交集的所有预约（含跨天：前一天开始今天结束、今天开始明天结束）
         const [year, month, day] = date.split('-').map(Number)
         const startOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} 00:00:00`
         const endOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} 23:59:59`
 
-        query = query.gte('start_time', startOfDay).lte('start_time', endOfDay)
+        query = query.lt('start_time', endOfDay).gt('end_time', startOfDay)
       }
 
       const { data: rows, error: dbError } = await query
@@ -178,23 +180,26 @@ export function useSchedule(client: typeof defaultClient = defaultClient) {
     [client, fetch]
   )
 
-  // 检查时间冲突（不支持跨天预约）
+  // 检查时间冲突（支持跨天预约）
   const checkConflict = useCallback(
     async (
-      date: string,
+      startDate: string,
       startTime: string,
+      endDate: string,
       endTime: string,
       excludeRehearsalId?: number
     ): Promise<string | null> => {
-      const [year, month, day] = date.split('-').map(Number)
-      // 预约表空格分隔、排练表 T 分隔，区间上下界分别按各自存储格式构造
-      const scheduleStartOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} 00:00:00`
-      const scheduleEndOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} 23:59:59`
-      const rehearsalStartOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T00:00:00`
-      const rehearsalEndOfDay = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T23:59:59`
+      const [startYear, startMonth, startDay] = startDate.split('-').map(Number)
+      const [endYear, endMonth, endDay] = endDate.split('-').map(Number)
 
-      const startDateTime = `${date}T${startTime}:00`
-      const endDateTime = `${date}T${endTime}:00`
+      // 预约表空格分隔、排练表 T 分隔
+      const scheduleStartOfDay = `${startYear}-${String(startMonth).padStart(2, '0')}-${String(startDay).padStart(2, '0')} 00:00:00`
+      const scheduleEndOfDay = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')} 23:59:59`
+      const rehearsalStartOfDay = `${startYear}-${String(startMonth).padStart(2, '0')}-${String(startDay).padStart(2, '0')}T00:00:00`
+      const rehearsalEndOfDay = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}T23:59:59`
+
+      const startDateTime = `${startDate}T${startTime}:00`
+      const endDateTime = `${endDate}T${endTime}:00`
 
       // 只查人工预约：rehearsal_id 非空的行是排练触发器生成的影子行，
       // 由下方排练分支统一检查（编辑排练时 neq 排除自身，避免自己和自己冲突；
