@@ -40,7 +40,8 @@ type TextFieldProps = {
   className?: string
   boxClass?: string
   inputClass?: string
-} & Omit<InputProps, 'className' | 'style'>
+  placeholderStyle?: string
+} & Omit<InputProps, 'className' | 'style' | 'placeholderStyle'>
 
 /** 文本输入字段：FormField + 标准样式 Input，其余 Input props 全量透传 */
 export function TextField({
@@ -49,11 +50,12 @@ export function TextField({
   className,
   boxClass,
   inputClass = 'h-10 w-full bg-transparent text-sm text-text',
+  placeholderStyle,
   ...inputProps
 }: TextFieldProps) {
   return (
     <FormField label={label} labelClass={labelClass} className={className} boxClass={boxClass}>
-      <Input className={inputClass} {...(inputProps as object)} />
+      <Input className={inputClass} placeholderStyle={placeholderStyle} {...(inputProps as object)} />
     </FormField>
   )
 }

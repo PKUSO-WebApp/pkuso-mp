@@ -19,6 +19,7 @@ import { isValidEmail } from '@/lib/validation'
 import { getAppVersionLabel } from '@/lib/version'
 import type { NotificationCategory } from '@/types/database'
 import { dataSyncBump } from '@/lib/dataSync'
+import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 
 import { ThemeModal } from './components/theme-modal'
 import './index.scss'
@@ -45,6 +46,7 @@ export default function Profile() {
   const { signOut } = useAuth()
   const darkClass = useThemeClass()
   const { t, locale, setLocale } = useT()
+  const placeholderStyle = usePlaceholderStyle()
   useNavTitle('profile.title')
 
   // 通知栏目：信箱按钮 → 通知分类映射（Issue #188 语义）
@@ -608,6 +610,7 @@ export default function Profile() {
                   setNewPwd(e.detail.value)
                   setPwdError(null)
                 }}
+                placeholderStyle={placeholderStyle}
               />
               {/* 验证码行：输入框 + 发送按钮 */}
               <View className='mt-3'>
@@ -622,6 +625,7 @@ export default function Profile() {
                       placeholder={t('profile.account.verificationCodePlaceholder')}
                       value={verifyCode}
                       onInput={(e) => setVerifyCode(e.detail.value)}
+                      placeholderStyle={placeholderStyle}
                     />
                   </View>
                   <View
@@ -676,6 +680,7 @@ export default function Profile() {
                   setNewEmail(e.detail.value)
                   newEmailRef.current = e.detail.value
                 }}
+                placeholderStyle={placeholderStyle}
               />
               {/* 验证码行：输入框 + 发送按钮 */}
               <View className='mt-3'>
@@ -690,6 +695,7 @@ export default function Profile() {
                       placeholder={t('profile.account.verificationCodePlaceholder')}
                       value={verifyCode}
                       onInput={(e) => setVerifyCode(e.detail.value)}
+                      placeholderStyle={placeholderStyle}
                     />
                   </View>
                   <View

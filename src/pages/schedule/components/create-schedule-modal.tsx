@@ -6,6 +6,7 @@ import Taro from '@tarojs/taro'
 import { Modal } from '@/components/ui/Modal'
 import { useT } from '@/i18n'
 import { ActionBar } from '@/components/ui/ActionBar'
+import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 
 // 预约日期限制：今天起 7 天（与日程页浏览条一致）
 function shiftDays(n: number): string {
@@ -109,6 +110,7 @@ export function CreateScheduleModal({
   onClose,
 }: Props) {
   const { t } = useT()
+  const placeholderStyle = usePlaceholderStyle()
   const [title, setTitle] = useState('')
   const [startDate, setStartDate] = useState(defaultDate)
   const [startTime, setStartTime] = useState('')
@@ -259,6 +261,7 @@ export function CreateScheduleModal({
           }}
           disabled={busy}
           placeholder={t('schedule.placeholders.title')}
+          placeholderStyle={placeholderStyle}
         />
 
         <DateTimePicker
