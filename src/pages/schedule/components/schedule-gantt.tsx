@@ -35,11 +35,9 @@ export function getScheduleColorClass(id: number): string {
   return SCHEDULE_COLORS[Math.abs(id) % SCHEDULE_COLORS.length]
 }
 
-/** 解析时间字符串为小时数（0-24，含分钟小数）；无效时间返回 0。
- *  24:00 特殊处理：直接返回 24（JS Date 会将 hour=24 回绕到次日 0:00，需提前拦截）。 */
+/** 解析时间字符串为小时数（0-24，含分钟小数）；无效时间返回 0。 */
 export function parseTimeToHours(timeStr: string | null): number {
   if (!timeStr) return 0
-  if (/T24:00(:00)?$/.test(timeStr)) return 24
   const date = parseLocalISO(timeStr)
   if (Number.isNaN(date.getTime())) return 0
   return date.getHours() + date.getMinutes() / 60
@@ -91,33 +89,53 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
     const scheduleStartDate = schedule.start_time?.split('T')[0] || ''
     const scheduleEndDate = schedule.end_time?.split('T')[0] || ''
 
-    let displayStartHour: number
-    let displayEndHour: number
+    // 跨天且结束时间为 00:00：仅在开始天显示，结束天不显示（00:00 即前一天 24:00）
+    const isCrossDayMidnightEnd = scheduleStartDate !== scheduleEndDate && endHour === 0
+
+    let displayStartHour = 0
+    let displayEndHour = 0
+    let shouldRender = true
 
     if (scheduleStartDate === scheduleEndDate) {
       // 同天预约
       displayStartHour = startHour
       displayEndHour = endHour
     } else if (selectedDate === scheduleStartDate) {
-      // 预约的开始天：显示从开始时间到23:59
+      // 预约的开始天：显示从开始时间到24:00
       displayStartHour = startHour
-      displayEndHour = 23.98
+      displayEndHour = 24
     } else if (selectedDate === scheduleEndDate) {
-      // 预约的结束天：显示从00:00到结束时间
-      displayStartHour = 0
-      displayEndHour = endHour
+      if (isCrossDayMidnightEnd) {
+        // 结束天是 00:00，不渲染（已在开始天闭合为 24:00）
+        shouldRender = false
+      } else {
+        // 预约的结束天：显示从00:00到结束时间
+        displayStartHour = 0
+        displayEndHour = endHour
+      }
     } else {
       // 中间天：不显示（理论上不会出现，因为查询已过滤）
-      displayStartHour = 0
-      displayEndHour = 0
+      shouldRender = false
     }
     
+    if (!shouldRender) {
+      return {
+        ...schedule,
+        startHour: 0,
+        duration: 0,
+        top: 0,
+        height: 0,
+        displayTimeRange: undefined,
+        hidden: true,
+      } as const
+    }
+
     const duration = displayEndHour - displayStartHour || 1
     const displayTimeRange =
       scheduleStartDate === scheduleEndDate
         ? undefined // 同天预约，用原始时间
         : selectedDate === scheduleStartDate
-          ? `${formatTime(schedule.start_time)} – 23:59`
+          ? `${formatTime(schedule.start_time)} – 24:00`
           : `00:00 – ${formatTime(schedule.end_time)}`
 
     return {
@@ -127,7 +145,8 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
       top: displayStartHour * (100 / 24),
       height: Math.max(duration * (100 / 24), 2),
       displayTimeRange,
-    }
+      hidden: false,
+    } as const
   })
 
   // 点击预约块：查询预约人姓名并打开弹窗
@@ -214,7 +233,9 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
           ))}
 
           {/* 预约块 */}
-          {scheduleItems.map((schedule) => {
+          {scheduleItems
+            .filter((s) => !s.hidden)
+            .map((schedule) => {
             const isSelfBlock = schedule.author_id === user?.id
             const colorClass = isSelfBlock
               ? getScheduleColorClass(schedule.id)
@@ -273,10 +294,11 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
                   const endDate = selectedSchedule.end_time?.split('T')[0] || ''
                   const startTime = formatTime(selectedSchedule.start_time)
                   const endTime = formatTime(selectedSchedule.end_time)
+                  const endHour = parseTimeToHours(selectedSchedule.end_time)
                   if (startDate === endDate) {
                     return `${startDate} ${startTime} – ${endTime}`
                   }
-                  return `${startDate} ${startTime} – ${endDate} ${endTime}`
+                  return `${startDate} ${startTime} – ${endDate} ${endHour === 0 ? '24:00' : endTime}`
                 })()}
               </Text>
             </View>

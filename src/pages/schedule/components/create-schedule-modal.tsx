@@ -64,11 +64,11 @@ function getEndTimeRange(
   }
   // 8h 窗口跨午夜
   if (dayDiff === 0) {
-    // 同天：允许到24点
-    return { range: [HOURS.slice(startH, 24), MINUTES], startIdx: startH }
+    // 同天：允许到23点
+    return { range: [HOURS.slice(startH, HOURS.length), MINUTES], startIdx: startH }
   }
   if (dayDiff === 1) {
-    // 次日：限制在0..maxEndH
+    // 次日：限制在0..maxEndH（含00:00）
     return { range: [HOURS.slice(0, maxEndH + 1), MINUTES], startIdx: 0 }
   }
   // 超出8h窗口：全量
