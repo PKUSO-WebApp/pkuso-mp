@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { View, Text } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { supabase } from '@/lib/supabase'
 import { Modal } from '@/components/ui/Modal'
 import { parseLocalISO, formatTime } from '@/lib/date-utils'
 import { useT } from '@/i18n'
@@ -16,6 +15,10 @@ type Props = {
   remove: (id: number, date?: string) => Promise<boolean>
   /** 甘特图高度（px）：短屏保底 480，长屏按可用空间撑满；默认 480 */
   height?: number
+  /** 同步读取作者名缓存（命中即时返回，未命中返回 null） */
+  getAuthorName: (authorId: string | null) => string | null
+  /** 异步获取作者名（缓存未命中时发网络请求并填充缓存） */
+  ensureAuthorName: (authorId: string | null) => Promise<string | null>
 }
 
 // 7 个预约色 token（按 id 哈希分配）。
@@ -43,18 +46,16 @@ export function parseTimeToHours(timeStr: string | null): number {
   return date.getHours() + date.getMinutes() / 60
 }
 
-/** 只读甘特图：24 小时时间轴 + 预约块（demo 阶段只读，无添加/删除）。
- *  点击预约块打开详情弹窗；预约人姓名经 profiles_roster 查询，
- *  竞态守卫用 ref 记录当前选中 id（快速连点时丢弃过期响应）。 */
-export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 480 }: Props) {
+/** 只读甘特图：24 小时时间轴 + 预约块。
+ *  点击预约块打开详情弹窗；预约人姓名从 useSchedule 缓存同步读取，
+ *  缓存未命中时异步获取并填充。 */
+export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 480, getAuthorName, ensureAuthorName }: Props) {
   const { t } = useT()
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleRow | null>(null)
-  const [authorName, setAuthorName] = useState<string | null>(null)
+  const [displayAuthorName, setDisplayAuthorName] = useState<string | null>(null)
   const [loadingAuthor, setLoadingAuthor] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
-  // 追踪当前查询的 schedule id，用于竞态条件判断
-  const queryingScheduleId = useRef<number | null>(null)
 
   // 当前用户是否为该预约的创建者（仅创建者可删除，Issue #142 移植）
   const isAuthor = selectedSchedule?.author_id === user?.id
@@ -149,56 +150,44 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
     } as const
   })
 
-  // 点击预约块：查询预约人姓名并打开弹窗
-  const handleScheduleClick = async (schedule: ScheduleRow) => {
+  // 点击预约块：从缓存同步读取作者名，未命中时异步获取
+  const handleScheduleClick = (schedule: ScheduleRow) => {
     setSelectedSchedule(schedule)
     // 游客模式下不查询预约人信息
     if (!user) {
+      setDisplayAuthorName(null)
       setLoadingAuthor(false)
-      setAuthorName(null)
-      queryingScheduleId.current = schedule.id
       return
     }
-    setLoadingAuthor(true)
-    setAuthorName(null)
-    // 记录当前查询的 schedule id，防止竞态条件
-    queryingScheduleId.current = schedule.id
 
-    if (schedule.author_id) {
-      const { data, error } = await supabase
-        .from('profiles_roster')
-        .select('full_name')
-        .eq('id', schedule.author_id)
-        .maybeSingle()
-      // 仅当前选中预约的响应生效（用户可能已快速点击另一块）
-      if (queryingScheduleId.current !== schedule.id) return
-      if (!error && data) {
-        setAuthorName((data as { full_name: string | null }).full_name || null)
-        setLoadingAuthor(false)
-      } else {
-        setAuthorName(null)
-        setLoadingAuthor(false)
-      }
-    } else {
+    if (!schedule.author_id) {
       // 无 author_id：排练触发器生成的影子预约，显示 admin
-      if (queryingScheduleId.current === schedule.id) {
-        setAuthorName('admin')
-        setLoadingAuthor(false)
-      }
+      setDisplayAuthorName('admin')
+      setLoadingAuthor(false)
+      return
     }
+
+    // 同步读取缓存
+    const cached = getAuthorName(schedule.author_id)
+    if (cached) {
+      setDisplayAuthorName(cached)
+      setLoadingAuthor(false)
+      return
+    }
+
+    // 缓存未命中：异步获取
+    setLoadingAuthor(true)
+    setDisplayAuthorName(null)
+    void ensureAuthorName(schedule.author_id).then((name) => {
+      setDisplayAuthorName(name)
+      setLoadingAuthor(false)
+    })
   }
 
   const handleCloseModal = () => {
     setSelectedSchedule(null)
-    setAuthorName(null)
+    setDisplayAuthorName(null)
   }
-
-  // 卸载时清空查询标记（组件卸载后异步响应不应再 setState）
-  useEffect(() => {
-    return () => {
-      queryingScheduleId.current = null
-    }
-  }, [])
 
   return (
     <>
@@ -311,7 +300,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
                 <Text className='block text-sm text-text'>
                   {loadingAuthor
                     ? t('common.actions.loading')
-                    : authorName || t('schedule.unknown')}
+                    : displayAuthorName || t('schedule.unknown')}
                 </Text>
               </View>
             )}

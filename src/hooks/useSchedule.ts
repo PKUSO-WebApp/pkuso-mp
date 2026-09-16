@@ -23,6 +23,8 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
   const allSchedulesRef = useRef<ScheduleRow[]>([])
   const cacheVersionRef = useRef<number>(0)
   const listenersRef = useRef<Set<Listener>>(new Set())
+  // 作者名缓存：author_id → full_name（跟随排期刷新，避免每次点击 block 都发网络请求）
+  const authorNamesRef = useRef<Map<string, string>>(new Map())
 
   const notifyListeners = useCallback(() => {
     listenersRef.current.forEach((h) => h())
@@ -75,6 +77,25 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
       cacheVersionRef.current += 1
       notifyListeners()
 
+      // 批量获取作者名并缓存
+      const authorIds = [...new Set(normalized.map((s) => s.author_id).filter((id): id is string => !!id))]
+      if (authorIds.length > 0) {
+        // 先清除旧缓存（避免已删除/改名的用户残留旧数据）
+        authorNamesRef.current = new Map()
+        const { data: authorRows } = await client
+          .from('profiles_roster')
+          .select('id, full_name')
+          .in('id', authorIds)
+        if (authorRows) {
+          for (const row of authorRows as { id: string; full_name: string | null }[]) {
+            if (row.full_name) authorNamesRef.current.set(row.id, row.full_name)
+          }
+        }
+        // 未查到的 author_id 保留空缺（getAuthorName 返回 null，组件兜底处理）
+      } else {
+        authorNamesRef.current = new Map()
+      }
+
       // 同时更新当天视图
       const todayData = normalized.filter((s) => {
         const sd = s.start_time.split('T')[0]
@@ -117,6 +138,35 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
       })
     },
     []
+  )
+
+  // 同步读取作者名缓存；null authorId 或缓存未命中返回 null（组件可显示兜底文案）
+  const getAuthorName = useCallback(
+    (authorId: string | null): string | null => {
+      if (!authorId) return null
+      return authorNamesRef.current.get(authorId) ?? null
+    },
+    []
+  )
+
+  // 异步获取作者名：缓存命中同步返回，未命中发起单条查询并填充缓存
+  const ensureAuthorName = useCallback(
+    async (authorId: string | null): Promise<string | null> => {
+      if (!authorId) return null
+      const cached = authorNamesRef.current.get(authorId)
+      if (cached) return cached
+      const { data: row } = await client
+        .from('profiles_roster')
+        .select('full_name')
+        .eq('id', authorId)
+        .maybeSingle()
+      if (row?.full_name) {
+        authorNamesRef.current.set(authorId, row.full_name)
+        return row.full_name
+      }
+      return null
+    },
+    [client]
   )
 
   useEffect(() => {
@@ -295,6 +345,8 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
     fetch,
     fetchAll,
     getByDate,
+    getAuthorName,
+    ensureAuthorName,
     subscribe,
     create,
     update,
