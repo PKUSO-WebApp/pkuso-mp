@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
 import { View, Text, Input, Textarea, Image, ScrollView } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts, type CreatePostInput } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
+import { useEditDraft } from '@/hooks/useEditDraft'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { Toggle } from '@/components/ui/Toggle'
 import type { PostType } from '@/types/database'
@@ -35,12 +36,61 @@ export default function PostCreatePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submittingRef = useRef(false)
 
+  // 创建帖草稿缓存：防止 chooseMedia 销毁页面后丢失
+  type DraftData = {
+    type: PostType
+    title: string
+    content: string
+    currentSections: string
+    missingSections: string
+    contactInfo: string
+    imageFile: UploadFileLike | null
+    imagePreview: string | null
+  }
+  const editDraft = useEditDraft<DraftData>({
+    type: initialType,
+    title: '',
+    content: '',
+    currentSections: '',
+    missingSections: '',
+    contactInfo: '',
+    imageFile: null,
+    imagePreview: null,
+  })
+
+  // 页面从后台回前台时，若存在草稿则恢复
+  useDidShow(() => {
+    if (editDraft.hasDraft()) {
+      const draft = editDraft.get()
+      setType(draft.type)
+      setTitle(draft.title)
+      setContent(draft.content)
+      setCurrentSections(draft.currentSections)
+      setMissingSections(draft.missingSections)
+      setContactInfo(draft.contactInfo)
+      setImageFile(draft.imageFile)
+      setImagePreview(draft.imagePreview)
+      editDraft.clear()
+    }
+  })
+
   // 管理端登录：小程序不提供管理端，阻断（规划 §1：admin 留在 Web）
   if (myProfile?.role === 'admin') {
     return <AdminBlockedPage />
   }
 
   const handleChooseImage = () => {
+    // 选择图片前保存草稿（防止 chooseMedia 销毁页面）
+    editDraft.save({
+      type,
+      title,
+      content,
+      currentSections,
+      missingSections,
+      contactInfo,
+      imageFile,
+      imagePreview,
+    })
     Taro.chooseMedia({
       count: 1,
       mediaType: ['image'],
@@ -54,6 +104,7 @@ export default function PostCreatePage() {
         }
         setImageFile(f)
         setImagePreview(f.tempFilePath)
+        editDraft.update({ imageFile: f, imagePreview: f.tempFilePath })
       },
     })
   }
@@ -92,6 +143,7 @@ export default function PostCreatePage() {
         setError(res.error)
         return
       }
+      editDraft.clear()
       Taro.showToast({ title: t('postCreate.publishSuccess'), icon: 'success' })
       setTimeout(() => Taro.navigateBack(), 300)
     } finally {
@@ -115,7 +167,11 @@ export default function PostCreatePage() {
               <Toggle
                 options={['ensemble', 'gathering']}
                 value={type}
-                onChange={(v) => setType(v as PostType)}
+                onChange={(v) => {
+                  const value = v as PostType
+                  setType(value)
+                  editDraft.update({ type: value })
+                }}
                 getLabel={(k) =>
                   k === 'ensemble' ? t('postCreate.type.ensemble') : t('postCreate.type.gathering')
                 }
@@ -130,7 +186,11 @@ export default function PostCreatePage() {
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Input
               value={title}
-              onInput={(e) => setTitle(String(e.detail.value ?? ''))}
+              onInput={(e) => {
+                const value = String(e.detail.value ?? '')
+                setTitle(value)
+                editDraft.update({ title: value })
+              }}
               placeholder={t('postCreate.titlePlaceholder')}
               maxlength={50}
               className='h-10 w-full bg-transparent text-sm text-text'
@@ -144,7 +204,11 @@ export default function PostCreatePage() {
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Textarea
               value={content}
-              onInput={(e) => setContent(String((e.detail as { value?: string })?.value ?? ''))}
+              onInput={(e) => {
+                const value = String((e.detail as { value?: string })?.value ?? '')
+                setContent(value)
+                editDraft.update({ content: value })
+              }}
               placeholder={t('postCreate.contentPlaceholder')}
               className='w-full bg-transparent py-2 text-sm text-text'
               style={{ minHeight: '120px' }}
@@ -160,7 +224,11 @@ export default function PostCreatePage() {
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={currentSections}
-                  onInput={(e) => setCurrentSections(String(e.detail.value ?? ''))}
+                  onInput={(e) => {
+                    const value = String(e.detail.value ?? '')
+                    setCurrentSections(value)
+                    editDraft.update({ currentSections: value })
+                  }}
                   placeholder={t('postCreate.currentSectionsPlaceholder')}
                   className='h-10 w-full bg-transparent text-sm text-text'
                 />
@@ -171,7 +239,11 @@ export default function PostCreatePage() {
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={missingSections}
-                  onInput={(e) => setMissingSections(String(e.detail.value ?? ''))}
+                  onInput={(e) => {
+                    const value = String(e.detail.value ?? '')
+                    setMissingSections(value)
+                    editDraft.update({ missingSections: value })
+                  }}
                   placeholder={t('postCreate.missingSectionsPlaceholder')}
                   className='h-10 w-full bg-transparent text-sm text-text'
                 />
@@ -186,7 +258,11 @@ export default function PostCreatePage() {
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Input
               value={contactInfo}
-              onInput={(e) => setContactInfo(String(e.detail.value ?? ''))}
+              onInput={(e) => {
+                const value = String(e.detail.value ?? '')
+                setContactInfo(value)
+                editDraft.update({ contactInfo: value })
+              }}
               placeholder={t('postCreate.contactPlaceholder')}
               className='h-10 w-full bg-transparent text-sm text-text'
             />

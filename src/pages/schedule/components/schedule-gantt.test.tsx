@@ -23,18 +23,6 @@ vi.mock('@/components/ui/Modal', () => ({
   Modal: ({ open, children }: any) => (open ? React.createElement('div', null, children) : null),
 }))
 
-vi.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: () => Promise.resolve({ data: { full_name: '张三' }, error: null }),
-        }),
-      }),
-    }),
-  },
-}))
-
 afterEach(() => {
   cleanup()
 })
@@ -47,6 +35,9 @@ const makeSchedule = (overrides: any = {}) => ({
   author_id: 'u1',
   ...overrides,
 })
+
+const mockGetAuthorName = vi.fn(() => '张三')
+const mockEnsureAuthorName = vi.fn(async () => '张三')
 
 vi.mock('@/i18n', async () => {
   const mod = await import('@/i18n/messages/zh-CN')
@@ -101,6 +92,8 @@ describe('ScheduleGantt 删除预约', () => {
         selectedDate='2026-01-01'
         user={{ id: 'u1' }}
         remove={remove}
+        getAuthorName={mockGetAuthorName}
+        ensureAuthorName={mockEnsureAuthorName}
       />
     )
     fireEvent.click(screen.getByText('我的预约'))
@@ -119,6 +112,8 @@ describe('ScheduleGantt 删除预约', () => {
         selectedDate='2026-01-01'
         user={{ id: 'u1' }}
         remove={remove}
+        getAuthorName={mockGetAuthorName}
+        ensureAuthorName={mockEnsureAuthorName}
       />
     )
     fireEvent.click(screen.getByText('我的预约'))
@@ -134,6 +129,8 @@ describe('ScheduleGantt 删除预约', () => {
         selectedDate='2026-01-01'
         user={{ id: 'u1' }}
         remove={remove}
+        getAuthorName={mockGetAuthorName}
+        ensureAuthorName={mockEnsureAuthorName}
       />
     )
     fireEvent.click(screen.getByText('我的预约'))

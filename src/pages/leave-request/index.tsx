@@ -141,11 +141,10 @@ export default function LeaveRequestPage() {
     viewAttachmentUrl,
   ])
 
-  // 页面从后台回前台（如 chooseMedia 返回）时，若 rehearsal 数据丢失则重取
+  // 页面从后台回前台（如 chooseMedia 返回）时，若数据丢失则重取
   useDidShow(() => {
     if (rehearsalId && !rehearsal && !rehearsalLoading) {
       setRehearsalLoading(true)
-      // 触发现有 useEffect 重跑（依赖 rehearsalId 已稳定），这里仅作保险
     }
   })
 

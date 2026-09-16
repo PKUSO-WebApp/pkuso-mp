@@ -30,6 +30,8 @@ export default function Schedule() {
     error,
     fetch,
     getByDate,
+    getAuthorName,
+    ensureAuthorName,
     saving,
     create,
     checkConflict,
@@ -125,6 +127,8 @@ export default function Schedule() {
               user={user}
               remove={remove}
               height={ganttHeight}
+              getAuthorName={getAuthorName}
+              ensureAuthorName={ensureAuthorName}
             />
           </ListState>
         </ScrollView>

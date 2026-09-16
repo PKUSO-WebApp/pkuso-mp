@@ -44,7 +44,7 @@
 
 ## 多语言 / 国际化设计原则（i18n）
 
-- **文案集中、禁止硬编码**：所有面向用户的可见字符串（标题、按钮、错误提示、空态、占位、tab 文案等）一律经 `t()` 取词；不要在组件/样式里写死中文字面量（否则英文模式会残留中文）。
+- **文案集中、禁止硬编码**：所有面向用户的可见字符串（标题、按钮、错误提示、空态、占位、tab 文案等）一律经 `t()` 取词；不要在组件/样式里写死中文字面量，否则英文模式会残留中文。
 - **按页分文件**：`src/i18n/messages/<locale>/<page>.ts`（如 `common` / `profile` / `community`），由 `<locale>/index.ts` 聚合为 `export const <locale> = { common, profile, community }`。新增页面文案 = 加一个页文件并在聚合处引入。
 - **基准语言 = `zh-CN`**：`en/index.ts` 必须 `export const en: typeof zhCN = {...}`，以 `zhCN` 的类型约束——**缺 key / 多 key 都会编译报错**，这是「漏翻必现」的硬保障。
 - **取词方式**：`const { t } = useT()`；key 为点分路径如 `t('profile.settings.language')`，类型 `Path<ZHCNMessages>` 提供自动补全 + 编译期校验。
@@ -55,17 +55,12 @@
 - **Provider 挂载**：`LanguageProvider` 已在 `src/app.ts` 的 `ThemeProvider` 内层；正常页面已处于其内，直接用 `useT()`，无需额外包裹。
 - **新增语言**：在 `Locale` 联合类型与 `loaders` 各加一项，并新建 `messages/<locale>/*` 按页补齐即可，**不引入新依赖**。
 - **单测**：纯逻辑用已导出的 `translate(dict, key, params)`；组件依赖 `useT` 时 `vi.mock('@/i18n', () => ({ useT: () => ({ t: (k) => k, locale: 'zh-CN', setLocale: vi.fn() }) }))`。
-- **底边栏 tab 文案**：`src/components/CustomTabBar.tsx` 的 `LIST` 文本目前为硬编码中文（class 组件），需翻译时单独处理（可走模块 store 或包装 hook），不属于页面 `t()` 范围。
 
 ## 已知坑（改动相关文件时务必注意）
 
 - **`space-y` / `divide-y` 在微信 WXSS 中无效**：其生成 CSS 使用逻辑属性
   `margin-block-start` / `:not([hidden])` 属性选择器，WXSS 不支持；且选择器要求直接子节点。
   间距请改用显式 `mb-*` / `mt-*` 等物理属性工具类。
-- **自定义 tabBar（底边栏）**：`src/custom-tab-bar` 渲染 `src/components/CustomTabBar`，
-  状态（选中/未读/主题/Modal 覆盖）来自模块级全局 store。
-  tabBar 必须用普通 `View`（非 `CoverView`），隐藏用 `display:none`（而非 `opacity`），
-  否则 `opacity:0` 的 CoverView 仍会拦截底部触摸，导致 Modal 底部按钮点不到。
 - **tabBar 遮挡：所有 tab 页根容器必须「内联」预留真实 50px**：底边栏是
   `position: fixed; bottom: 0; height: calc(50px + env(safe-area-inset-bottom))` 的浮层
   （见 `src/components/CustomTabBar.tsx`）。页面根用
@@ -86,7 +81,118 @@
   直接写 `w-full` 等仍可能撑破父容器、超出画面。统一用「外层 `View`（承载边框/圆角/
   背景，带 `w-full overflow-hidden`）包住内层 `Input`/`Textarea`（内层用
   `w-full bg-transparent`，高度如 `h-10`）」的写法（参考 `src/pages/login/index.tsx`
-  的邮箱/密码框）。改动表单页时务必沿用此模式，避免输入框溢出。
+   的邮箱/密码框）。改动表单页时务必沿用此模式，避免输入框溢出。
+
+## 页面状态恢复设计原则
+
+### 问题背景
+
+微信小程序调用以下 API 时会**销毁当前页面**，待用户操作完成后重建：
+- `chooseMedia`：选择图片/视频
+- `chooseAvatar`：选择微信头像
+- `getLocation`：获取地理位置
+
+重建后：
+- `router.params` 丢失
+- 所有 `useState` 重置
+- `useRef` 状态保留
+
+### 解决方案
+
+使用专用 hooks 缓存关键数据，确保页面恢复后状态正确：
+
+| Hook | 用途 | 文件位置 |
+|------|------|----------|
+| `usePageRestore<T>(paramName)` | 缓存 router.params 中的关键参数 | `src/hooks/usePageRestore.ts` |
+| `useEditDraft<T>(defaultData)` | 缓存编辑态表单数据 | `src/hooks/useEditDraft.ts` |
+
+### 使用指南
+
+#### 场景 1：页面依赖 router.params（如 id）
+
+```tsx
+import { usePageRestore } from '@/hooks/usePageRestore'
+
+// 缓存 router.params.id，防止 chooseMedia/getLocation 销毁页面后丢失
+const cachedId = usePageRestore<string>('id')
+const id = Number(cachedId)
+
+// useEffect 依赖 cachedId，页面恢复时自动重跑
+useEffect(() => {
+  if (!id) return
+  fetchData(id)
+}, [id])
+```
+
+#### 场景 2：编辑态表单数据（如创建/编辑页面）
+
+```tsx
+import { useEditDraft } from '@/hooks/useEditDraft'
+import { useDidShow } from '@tarojs/taro'
+
+type DraftData = {
+  title: string
+  content: string
+  imageFile: UploadFileLike | null
+}
+
+const editDraft = useEditDraft<DraftData>({
+  title: '',
+  content: '',
+  imageFile: null,
+})
+
+// 开始编辑时保存草稿
+const startEdit = () => {
+  editDraft.save({ title, content, imageFile })
+  setIsEditing(true)
+}
+
+// onInput 时同步到 useRef
+const handleInput = (field: string, value: string) => {
+  editDraft.update({ [field]: value })
+  setFormData(prev => ({ ...prev, [field]: value }))
+}
+
+// 页面恢复时从 useRef 恢复
+useDidShow(() => {
+  if (editDraft.hasDraft()) {
+    const draft = editDraft.get()
+    setFormData(draft)
+    setIsEditing(true)
+    editDraft.clear()
+  }
+})
+
+// 保存成功后清除草稿
+const handleSave = async () => {
+  await save()
+  editDraft.clear()
+}
+```
+
+### 测试 Mock
+
+新 hooks 需要在测试文件中 mock：
+
+```tsx
+vi.mock('@tarojs/taro', () => ({
+  default: taroMock,
+  useDidShow: (fn: () => void) => {
+    React.useEffect(() => { fn() }, [])
+  },
+}))
+```
+
+### 已应用页面
+
+| 页面 | API | 缓存方式 |
+|------|-----|----------|
+| `leave-request` | chooseMedia | usePageRestore + useDidShow |
+| `rehearsal-detail` | getLocation | usePageRestore |
+| `post-edit` | chooseMedia | usePageRestore |
+| `post-create` | chooseMedia | useEditDraft + useDidShow |
+| `profile-info` | chooseAvatar | useEditDraft + useDidShow |
 
 ## 版本号管理
 
@@ -122,14 +228,6 @@
 - 微信后台「版本管理」中可查看每个上传版本的版本号
 
 ## CI/CD 自动化
-
-### ⚠️ 重要：推送频率限制
-
-**禁止频繁推送到远端！** 每次推送都会触发 CI，产生大量构建记录，干扰版本管理。
-
-- 调试 CI 时可破例多次推送，但应尽量在本地验证后一次性推送
-- 日常开发：本地验证通过后，仅在合并到 `dev`/`main` 时推送
-- CI 配置调试期间可临时多次推送，调试完成后应立即停止
 
 ### 分支策略
 
@@ -196,15 +294,6 @@ release job: write .env.production → version:release → build → upload → 
    ```
    CI 自动执行 `version:release` → build → upload → 提交版本号回 main
 
-### 配置 GitHub Secrets
-
-在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加：
-
-| Secret 名称      | 说明                                   |
-| ---------------- | -------------------------------------- |
-| `WX_APPID`       | 小程序 AppID（`wx4813b0549427f8c3`）   |
-| `WX_PRIVATE_KEY` | 上传密钥文件内容（从微信公众平台下载） |
-
 ### 手动上传
 
 ```bash
@@ -218,3 +307,6 @@ pnpm upload 0.2.1 "测试上传"
 ## ⚠️ CI 部署监控
 
 **所有触发 CI 的操作（push/merge/workflow_dispatch），必须使用 `gh run watch <run-id> --exit-status` 监控直到 CI 完成，不得提前返回。**
+
+# 用户交互
+与用户的交互全部使用简体中文。

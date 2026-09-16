@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { View, Text, Input, Textarea, Image, ScrollView } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
+import { usePageRestore } from '@/hooks/usePageRestore'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
@@ -16,7 +17,9 @@ const MAX_IMAGE_BYTES = 1024 * 1024
  * 底部大按钮「取消 / 保存」。保存走内容安全审核 + 可选图片上传替换。
  */
 export default function PostEditPage() {
-  const id = Taro.getCurrentInstance().router?.params?.id
+  // usePageRestore 缓存 id，防止 chooseMedia 销毁页面后丢失
+  const cachedId = usePageRestore<string>('id')
+  const id = cachedId
   const { fetchOne, updatePost, saving } = usePosts()
   const darkClass = useThemeClass()
   const { t } = useT()

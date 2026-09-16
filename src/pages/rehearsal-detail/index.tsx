@@ -4,6 +4,7 @@ import Taro, { useDidShow, useShareAppMessage } from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
 import { useLeaveRequests } from '@/hooks/useLeaveRequests'
+import { usePageRestore } from '@/hooks/usePageRestore'
 import { useUser } from '@/context/user-context'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { getSignBlockReason, hasSignedIn } from '@/lib/attendance-utils'
@@ -33,7 +34,9 @@ const mapSignInError = (
 
 export default function RehearsalDetail() {
   const router = Taro.getCurrentInstance().router
-  const id = Number(router?.params?.id)
+  // usePageRestore 缓存 id，防止 getLocation 销毁页面后丢失
+  const cachedId = usePageRestore<string>('id')
+  const id = Number(cachedId)
   const darkClass = useThemeClass()
   const { ready, user } = useUser()
   const {
@@ -44,7 +47,7 @@ export default function RehearsalDetail() {
   } = useAttendance()
   const { data: leaveRequests, cancelOnSignIn, fetchMine } = useLeaveRequests()
   const [nowTick, setNowTick] = useState(() => Date.now())
-  const { t } = useT()
+  const { t, locale } = useT()
   useNavTitle('activityDetail.navTitle')
 
   // 分享链接未登录守卫：跳转登录页并携带 returnTo，登录后直接返回本页
@@ -119,11 +122,17 @@ export default function RehearsalDetail() {
     void fetchMine()
   })
 
-  // 分享：标题 = "排练通知"，路径 = 当前页面
+  // 分享：标题 = "排练通知-{类型/声部}"，路径 = 当前页面
   useShareAppMessage(() => {
+    const shareType = rehearsal?.type === 'section'
+      ? t('activityDetail.shareType.section')
+      : t('activityDetail.shareType.full')
+    const title = rehearsal?.type === 'section' && rehearsal?.target_section
+      ? t('activityDetail.shareTitle', { type: `${rehearsal.target_section}${shareType}` })
+      : t('activityDetail.shareTitle', { type: shareType })
     return {
-      title: t('activityDetail.shareTitle'),
-      path: `/pages/rehearsal-detail/index?id=${id}`,
+      title,
+      path: `/pages/rehearsal-detail/index?id=${id}&locale=${locale}`,
     }
   })
 
