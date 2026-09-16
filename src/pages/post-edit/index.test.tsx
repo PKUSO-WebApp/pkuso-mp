@@ -64,9 +64,10 @@ vi.mock('@tarojs/taro', () => ({
   },
   useDidShow: (fn: () => void) => {
     // 在测试中直接调用 fn 以触发效果
+    const callback = React.useCallback(fn, [fn])
     React.useEffect(() => {
-      fn()
-    }, [])
+      callback()
+    }, [callback])
   },
 }))
 
