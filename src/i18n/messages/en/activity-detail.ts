@@ -34,5 +34,6 @@ export const activityDetail = {
   revokeConfirmTitle: 'Leave request active',
   revokeHint: 'Signing in will revoke your leave request. Continue?',
   shareDefaultTitle: 'Rehearsal Details',
-  shareTitle: 'Rehearsal Notice',
+  shareTitle: 'Rehearsal Notice - {type}',
+  shareType: { section: 'Sectional', full: 'Full Ensemble' },
 }

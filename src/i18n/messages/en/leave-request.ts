@@ -19,8 +19,8 @@ export const leaveRequest = {
   submit: 'Submit Request',
   resubmit: 'Reapply',
   modify: 'Modify Request',
-  withdraw: 'Withdraw Request',
-  withdrawConfirmTitle: 'Withdraw Request',
+  withdraw: 'Withdraw',
+  withdrawConfirmTitle: 'Withdraw',
   withdrawConfirmContent: 'Withdrawing requires resubmitting the request. Are you sure?',
   editLink: 'Edit Request',
 }

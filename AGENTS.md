@@ -44,7 +44,7 @@
 
 ## 多语言 / 国际化设计原则（i18n）
 
-- **文案集中、禁止硬编码**：所有面向用户的可见字符串（标题、按钮、错误提示、空态、占位、tab 文案等）一律经 `t()` 取词；不要在组件/样式里写死中文字面量（否则英文模式会残留中文）。
+- **文案集中、禁止硬编码**：所有面向用户的可见字符串（标题、按钮、错误提示、空态、占位、tab 文案等）一律经 `t()` 取词；不要在组件/样式里写死中文字面量，否则英文模式会残留中文。
 - **按页分文件**：`src/i18n/messages/<locale>/<page>.ts`（如 `common` / `profile` / `community`），由 `<locale>/index.ts` 聚合为 `export const <locale> = { common, profile, community }`。新增页面文案 = 加一个页文件并在聚合处引入。
 - **基准语言 = `zh-CN`**：`en/index.ts` 必须 `export const en: typeof zhCN = {...}`，以 `zhCN` 的类型约束——**缺 key / 多 key 都会编译报错**，这是「漏翻必现」的硬保障。
 - **取词方式**：`const { t } = useT()`；key 为点分路径如 `t('profile.settings.language')`，类型 `Path<ZHCNMessages>` 提供自动补全 + 编译期校验。
@@ -55,17 +55,12 @@
 - **Provider 挂载**：`LanguageProvider` 已在 `src/app.ts` 的 `ThemeProvider` 内层；正常页面已处于其内，直接用 `useT()`，无需额外包裹。
 - **新增语言**：在 `Locale` 联合类型与 `loaders` 各加一项，并新建 `messages/<locale>/*` 按页补齐即可，**不引入新依赖**。
 - **单测**：纯逻辑用已导出的 `translate(dict, key, params)`；组件依赖 `useT` 时 `vi.mock('@/i18n', () => ({ useT: () => ({ t: (k) => k, locale: 'zh-CN', setLocale: vi.fn() }) }))`。
-- **底边栏 tab 文案**：`src/components/CustomTabBar.tsx` 的 `LIST` 文本目前为硬编码中文（class 组件），需翻译时单独处理（可走模块 store 或包装 hook），不属于页面 `t()` 范围。
 
 ## 已知坑（改动相关文件时务必注意）
 
 - **`space-y` / `divide-y` 在微信 WXSS 中无效**：其生成 CSS 使用逻辑属性
   `margin-block-start` / `:not([hidden])` 属性选择器，WXSS 不支持；且选择器要求直接子节点。
   间距请改用显式 `mb-*` / `mt-*` 等物理属性工具类。
-- **自定义 tabBar（底边栏）**：`src/custom-tab-bar` 渲染 `src/components/CustomTabBar`，
-  状态（选中/未读/主题/Modal 覆盖）来自模块级全局 store。
-  tabBar 必须用普通 `View`（非 `CoverView`），隐藏用 `display:none`（而非 `opacity`），
-  否则 `opacity:0` 的 CoverView 仍会拦截底部触摸，导致 Modal 底部按钮点不到。
 - **tabBar 遮挡：所有 tab 页根容器必须「内联」预留真实 50px**：底边栏是
   `position: fixed; bottom: 0; height: calc(50px + env(safe-area-inset-bottom))` 的浮层
   （见 `src/components/CustomTabBar.tsx`）。页面根用
@@ -122,14 +117,6 @@
 - 微信后台「版本管理」中可查看每个上传版本的版本号
 
 ## CI/CD 自动化
-
-### ⚠️ 重要：推送频率限制
-
-**禁止频繁推送到远端！** 每次推送都会触发 CI，产生大量构建记录，干扰版本管理。
-
-- 调试 CI 时可破例多次推送，但应尽量在本地验证后一次性推送
-- 日常开发：本地验证通过后，仅在合并到 `dev`/`main` 时推送
-- CI 配置调试期间可临时多次推送，调试完成后应立即停止
 
 ### 分支策略
 
@@ -196,15 +183,6 @@ release job: write .env.production → version:release → build → upload → 
    ```
    CI 自动执行 `version:release` → build → upload → 提交版本号回 main
 
-### 配置 GitHub Secrets
-
-在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加：
-
-| Secret 名称      | 说明                                   |
-| ---------------- | -------------------------------------- |
-| `WX_APPID`       | 小程序 AppID（`wx4813b0549427f8c3`）   |
-| `WX_PRIVATE_KEY` | 上传密钥文件内容（从微信公众平台下载） |
-
 ### 手动上传
 
 ```bash
@@ -218,3 +196,6 @@ pnpm upload 0.2.1 "测试上传"
 ## ⚠️ CI 部署监控
 
 **所有触发 CI 的操作（push/merge/workflow_dispatch），必须使用 `gh run watch <run-id> --exit-status` 监控直到 CI 完成，不得提前返回。**
+
+# 用户交互
+与用户的交互全部使用简体中文。

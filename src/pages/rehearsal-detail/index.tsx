@@ -119,10 +119,16 @@ export default function RehearsalDetail() {
     void fetchMine()
   })
 
-  // 分享：标题 = "排练通知"，路径 = 当前页面
+  // 分享：标题 = "排练通知-{类型/声部}"，路径 = 当前页面
   useShareAppMessage(() => {
+    const shareType = rehearsal?.type === 'section'
+      ? t('activityDetail.shareType.section')
+      : t('activityDetail.shareType.full')
+    const title = rehearsal?.type === 'section' && rehearsal?.target_section
+      ? t('activityDetail.shareTitle', { type: `${rehearsal.target_section}${shareType}` })
+      : t('activityDetail.shareTitle', { type: shareType })
     return {
-      title: t('activityDetail.shareTitle'),
+      title,
       path: `/pages/rehearsal-detail/index?id=${id}`,
     }
   })
