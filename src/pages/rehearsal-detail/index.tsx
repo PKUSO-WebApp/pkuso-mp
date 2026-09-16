@@ -47,7 +47,7 @@ export default function RehearsalDetail() {
   } = useAttendance()
   const { data: leaveRequests, cancelOnSignIn, fetchMine } = useLeaveRequests()
   const [nowTick, setNowTick] = useState(() => Date.now())
-  const { t } = useT()
+  const { t, locale } = useT()
   useNavTitle('activityDetail.navTitle')
 
   // 分享链接未登录守卫：跳转登录页并携带 returnTo，登录后直接返回本页
@@ -132,7 +132,7 @@ export default function RehearsalDetail() {
       : t('activityDetail.shareTitle', { type: shareType })
     return {
       title,
-      path: `/pages/rehearsal-detail/index?id=${id}`,
+      path: `/pages/rehearsal-detail/index?id=${id}&locale=${locale}`,
     }
   })
 

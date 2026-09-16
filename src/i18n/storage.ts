@@ -36,5 +36,17 @@ export function setStoredLanguage(l: Locale): void {
 
 /** 默认跟随系统：本地无手动覆盖时取系统语言 */
 export function resolveInitialLanguage(): Locale {
+  // 优先从 URL 参数读取 locale（分享链接携带的语言状态）
+  try {
+    const pages = Taro.getCurrentPages?.() ?? []
+    const cur = pages[pages.length - 1]
+    const routeParams = cur?.options ?? Taro.getCurrentInstance().router?.params ?? {}
+    const paramLocale = routeParams.locale
+    if (paramLocale === 'en' || paramLocale === 'zh-CN') {
+      return paramLocale
+    }
+  } catch {
+    /* ignore */
+  }
   return getStoredLanguage() ?? getSystemLanguage()
 }

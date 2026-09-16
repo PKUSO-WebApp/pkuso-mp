@@ -32,7 +32,7 @@ function formatPostDate(createdAt: string | null | undefined): string {
  * 内容、配图（点击放大）、联系方式（一键复制）、发布时间。
  */
 export default function PostDetailPage() {
-  const { t } = useT()
+  const { t, locale } = useT()
   useNavTitle('postDetail.navTitle')
   const darkClass = useThemeClass()
   const id = Taro.getCurrentInstance().router?.params?.id
@@ -73,7 +73,7 @@ export default function PostDetailPage() {
     const title = post?.title || t('postDetail.shareDefaultTitle')
     return {
       title,
-      path: `/pages/post-detail/index?id=${id}`,
+      path: `/pages/post-detail/index?id=${id}&locale=${locale}`,
     }
   })
 
