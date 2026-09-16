@@ -81,7 +81,118 @@
   直接写 `w-full` 等仍可能撑破父容器、超出画面。统一用「外层 `View`（承载边框/圆角/
   背景，带 `w-full overflow-hidden`）包住内层 `Input`/`Textarea`（内层用
   `w-full bg-transparent`，高度如 `h-10`）」的写法（参考 `src/pages/login/index.tsx`
-  的邮箱/密码框）。改动表单页时务必沿用此模式，避免输入框溢出。
+   的邮箱/密码框）。改动表单页时务必沿用此模式，避免输入框溢出。
+
+## 页面状态恢复设计原则
+
+### 问题背景
+
+微信小程序调用以下 API 时会**销毁当前页面**，待用户操作完成后重建：
+- `chooseMedia`：选择图片/视频
+- `chooseAvatar`：选择微信头像
+- `getLocation`：获取地理位置
+
+重建后：
+- `router.params` 丢失
+- 所有 `useState` 重置
+- `useRef` 状态保留
+
+### 解决方案
+
+使用专用 hooks 缓存关键数据，确保页面恢复后状态正确：
+
+| Hook | 用途 | 文件位置 |
+|------|------|----------|
+| `usePageRestore<T>(paramName)` | 缓存 router.params 中的关键参数 | `src/hooks/usePageRestore.ts` |
+| `useEditDraft<T>(defaultData)` | 缓存编辑态表单数据 | `src/hooks/useEditDraft.ts` |
+
+### 使用指南
+
+#### 场景 1：页面依赖 router.params（如 id）
+
+```tsx
+import { usePageRestore } from '@/hooks/usePageRestore'
+
+// 缓存 router.params.id，防止 chooseMedia/getLocation 销毁页面后丢失
+const cachedId = usePageRestore<string>('id')
+const id = Number(cachedId)
+
+// useEffect 依赖 cachedId，页面恢复时自动重跑
+useEffect(() => {
+  if (!id) return
+  fetchData(id)
+}, [id])
+```
+
+#### 场景 2：编辑态表单数据（如创建/编辑页面）
+
+```tsx
+import { useEditDraft } from '@/hooks/useEditDraft'
+import { useDidShow } from '@tarojs/taro'
+
+type DraftData = {
+  title: string
+  content: string
+  imageFile: UploadFileLike | null
+}
+
+const editDraft = useEditDraft<DraftData>({
+  title: '',
+  content: '',
+  imageFile: null,
+})
+
+// 开始编辑时保存草稿
+const startEdit = () => {
+  editDraft.save({ title, content, imageFile })
+  setIsEditing(true)
+}
+
+// onInput 时同步到 useRef
+const handleInput = (field: string, value: string) => {
+  editDraft.update({ [field]: value })
+  setFormData(prev => ({ ...prev, [field]: value }))
+}
+
+// 页面恢复时从 useRef 恢复
+useDidShow(() => {
+  if (editDraft.hasDraft()) {
+    const draft = editDraft.get()
+    setFormData(draft)
+    setIsEditing(true)
+    editDraft.clear()
+  }
+})
+
+// 保存成功后清除草稿
+const handleSave = async () => {
+  await save()
+  editDraft.clear()
+}
+```
+
+### 测试 Mock
+
+新 hooks 需要在测试文件中 mock：
+
+```tsx
+vi.mock('@tarojs/taro', () => ({
+  default: taroMock,
+  useDidShow: (fn: () => void) => {
+    React.useEffect(() => { fn() }, [])
+  },
+}))
+```
+
+### 已应用页面
+
+| 页面 | API | 缓存方式 |
+|------|-----|----------|
+| `leave-request` | chooseMedia | usePageRestore + useDidShow |
+| `rehearsal-detail` | getLocation | usePageRestore |
+| `post-edit` | chooseMedia | usePageRestore |
+| `post-create` | chooseMedia | useEditDraft + useDidShow |
+| `profile-info` | chooseAvatar | useEditDraft + useDidShow |
 
 ## 版本号管理
 

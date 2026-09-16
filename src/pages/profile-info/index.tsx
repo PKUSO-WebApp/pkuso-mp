@@ -1,10 +1,11 @@
 import { useRef, useState, useCallback } from 'react'
 import { View, Text, Input, Picker, Image, Button } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { useProfiles } from '@/hooks/useProfiles'
+import { useEditDraft } from '@/hooks/useEditDraft'
 import { isValidPhoneNumber } from '@/lib/validation'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { translateJoinDate } from '@/lib/join-date-i18n'
@@ -69,6 +70,51 @@ export default function ProfileInfoPage() {
   // 头像上传相关状态
   const [avatarUploading, setAvatarUploading] = useState(false)
 
+  // 编辑态草稿缓存：防止 chooseAvatar 销毁页面后丢失
+  type DraftData = {
+    instrument: string
+    phone: string
+    college: string
+    hideEmail: boolean
+    hidePhone: boolean
+    hideCollege: boolean
+    joinYear: string
+    joinSeason: string
+    isInOrchestra: boolean
+    isJoinTouched: boolean
+  }
+  const editDraft = useEditDraft<DraftData>({
+    instrument: '',
+    phone: '',
+    college: '',
+    hideEmail: false,
+    hidePhone: false,
+    hideCollege: false,
+    joinYear: String(CURRENT_YEAR),
+    joinSeason: '秋',
+    isInOrchestra: false,
+    isJoinTouched: false,
+  })
+
+  // 页面从后台回前台时，若存在草稿则恢复编辑态
+  useDidShow(() => {
+    if (editDraft.hasDraft()) {
+      const draft = editDraft.get()
+      setEditInstrument(draft.instrument)
+      setEditPhone(draft.phone)
+      setEditCollege(draft.college)
+      setEditHideEmail(draft.hideEmail)
+      setEditHidePhone(draft.hidePhone)
+      setEditHideCollege(draft.hideCollege)
+      setEditJoinYear(draft.joinYear)
+      setEditJoinSeason(draft.joinSeason)
+      setEditIsInOrchestra(draft.isInOrchestra)
+      setIsJoinTouched(draft.isJoinTouched)
+      setIsEditing(true)
+      editDraft.clear()
+    }
+  })
+
   const fullName = myProfile?.full_name ?? notFilled
   const email = myProfile?.email ?? notFilled
   const isChineseName = fullName !== notFilled && /[\u4e00-\u9fff]/.test(fullName)
@@ -104,23 +150,37 @@ export default function ProfileInfoPage() {
       void Taro.showToast({ title: t('profileInfo.profileLoading'), icon: 'none' })
       return
     }
-    setEditInstrument(myProfile.instrument ?? '')
-    setEditPhone(myProfile.phone_number ?? '')
-    setEditCollege(myProfile.college ?? '')
-    setEditHideEmail(myProfile.hide_email)
-    setEditHidePhone(myProfile.hide_phone)
-    setEditHideCollege(myProfile.hide_college)
     const parsed = parseJoinDate(myProfile.join_date)
-    setEditJoinYear(parsed.year)
-    setEditJoinSeason(parsed.season)
+    const draftData: DraftData = {
+      instrument: myProfile.instrument ?? '',
+      phone: myProfile.phone_number ?? '',
+      college: myProfile.college ?? '',
+      hideEmail: myProfile.hide_email,
+      hidePhone: myProfile.hide_phone,
+      hideCollege: myProfile.hide_college,
+      joinYear: parsed.year,
+      joinSeason: parsed.season,
+      isInOrchestra: myProfile.is_in_orchestra === true,
+      isJoinTouched: false,
+    }
+    editDraft.save(draftData)
+    setEditInstrument(draftData.instrument)
+    setEditPhone(draftData.phone)
+    setEditCollege(draftData.college)
+    setEditHideEmail(draftData.hideEmail)
+    setEditHidePhone(draftData.hidePhone)
+    setEditHideCollege(draftData.hideCollege)
+    setEditJoinYear(draftData.joinYear)
+    setEditJoinSeason(draftData.joinSeason)
     setIsJoinTouched(false)
-    setEditIsInOrchestra(myProfile.is_in_orchestra === true)
+    setEditIsInOrchestra(draftData.isInOrchestra)
     setError(null)
     setIsEditing(true)
   }
 
   const cancelEdit = () => {
     if (submitting) return
+    editDraft.clear()
     setIsEditing(false)
     setError(null)
   }
@@ -176,6 +236,7 @@ export default function ProfileInfoPage() {
         ...(willWriteJoin ? { join_date: newJoin } : {}),
       })
       if (ok) {
+        editDraft.clear()
         setIsEditing(false)
         void Taro.showToast({ title: t('profileInfo.saved'), icon: 'success' })
       } else {
@@ -338,7 +399,11 @@ export default function ProfileInfoPage() {
               mode='selector'
               range={instrumentLabels}
               value={selectedInstrumentIndex}
-              onChange={(e) => setEditInstrument(instrumentOptions[Number(e.detail.value)] ?? '')}
+              onChange={(e) => {
+                const value = instrumentOptions[Number(e.detail.value)] ?? ''
+                setEditInstrument(value)
+                editDraft.update({ instrument: value })
+              }}
             >
               <View className='rounded-xl border border-border bg-muted px-3 py-2'>
                 <Text className='text-sm text-text'>
@@ -368,9 +433,12 @@ export default function ProfileInfoPage() {
               value={[JOIN_YEARS.indexOf(editJoinYear), editJoinSeason === '春' ? 0 : 1]}
               onChange={(e) => {
                 const [yi, si] = e.detail.value as number[]
-                setEditJoinYear(JOIN_YEARS[yi] ?? String(CURRENT_YEAR))
-                setEditJoinSeason(si === 0 ? '春' : '秋')
+                const year = JOIN_YEARS[yi] ?? String(CURRENT_YEAR)
+                const season = si === 0 ? '春' : '秋'
+                setEditJoinYear(year)
+                setEditJoinSeason(season)
                 setIsJoinTouched(true)
+                editDraft.update({ joinYear: year, joinSeason: season, isJoinTouched: true })
               }}
             >
               <View className='rounded-xl border border-border bg-muted px-3 py-2'>
@@ -397,7 +465,11 @@ export default function ProfileInfoPage() {
               mode='selector'
               range={orchestraStatusLabels}
               value={editIsInOrchestra ? 0 : 1}
-              onChange={(e) => setEditIsInOrchestra(Number(e.detail.value) === 0)}
+              onChange={(e) => {
+                const value = Number(e.detail.value) === 0
+                setEditIsInOrchestra(value)
+                editDraft.update({ isInOrchestra: value })
+              }}
             >
               <View className='rounded-xl border border-border bg-muted px-3 py-2'>
                 <Text className='text-sm text-text'>
@@ -435,7 +507,12 @@ export default function ProfileInfoPage() {
             <Image
               src={hideEmail ? eyeOffImg : eyeImg}
               className='h-5 w-5 shrink-0'
-              onClick={() => setEditHideEmail((v) => !v)}
+              onClick={() => {
+                setEditHideEmail((v) => {
+                  editDraft.update({ hideEmail: !v })
+                  return !v
+                })
+              }}
             />
           )}
         </View>
@@ -452,7 +529,9 @@ export default function ProfileInfoPage() {
                 placeholder={t('profileInfo.phonePlaceholder')}
                 value={editPhone}
                 onInput={(e) => {
-                  setEditPhone(e.detail.value)
+                  const value = e.detail.value
+                  setEditPhone(value)
+                  editDraft.update({ phone: value })
                   setError(null)
                 }}
               />
@@ -466,7 +545,12 @@ export default function ProfileInfoPage() {
             <Image
               src={hidePhone ? eyeOffImg : eyeImg}
               className='h-5 w-5 shrink-0'
-              onClick={() => setEditHidePhone((v) => !v)}
+              onClick={() => {
+                setEditHidePhone((v) => {
+                  editDraft.update({ hidePhone: !v })
+                  return !v
+                })
+              }}
             />
           )}
         </View>
@@ -483,7 +567,9 @@ export default function ProfileInfoPage() {
                 placeholder={t('profileInfo.collegePlaceholder')}
                 value={editCollege}
                 onInput={(e) => {
-                  setEditCollege(e.detail.value)
+                  const value = e.detail.value
+                  setEditCollege(value)
+                  editDraft.update({ college: value })
                   setError(null)
                 }}
               />
@@ -497,7 +583,12 @@ export default function ProfileInfoPage() {
             <Image
               src={hideCollege ? eyeOffImg : eyeImg}
               className='h-5 w-5 shrink-0'
-              onClick={() => setEditHideCollege((v) => !v)}
+              onClick={() => {
+                setEditHideCollege((v) => {
+                  editDraft.update({ hideCollege: !v })
+                  return !v
+                })
+              }}
             />
           )}
         </View>

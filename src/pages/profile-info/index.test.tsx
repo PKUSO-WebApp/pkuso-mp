@@ -33,7 +33,15 @@ vi.mock('@tarojs/components', () => {
   return { View: create('div'), Text: create('span'), Input, Picker, Image, Button }
 })
 
-vi.mock('@tarojs/taro', () => ({ default: taroMock }))
+vi.mock('@tarojs/taro', () => ({
+  default: taroMock,
+  useDidShow: (fn: () => void) => {
+    // 在测试中直接调用 fn 以触发效果
+    React.useEffect(() => {
+      fn()
+    }, [])
+  },
+}))
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 vi.mock('@/context/user-context', () => ({
   useUser: () => ({ user: { id: 'u1', email: 'a@b.com' } }),

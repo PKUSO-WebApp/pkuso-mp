@@ -62,6 +62,12 @@ vi.mock('@tarojs/taro', () => ({
     showToast: mocks.taro.showToast,
     chooseMedia: mocks.taro.chooseMedia,
   },
+  useDidShow: (fn: () => void) => {
+    // 在测试中直接调用 fn 以触发效果
+    React.useEffect(() => {
+      fn()
+    }, [])
+  },
 }))
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))

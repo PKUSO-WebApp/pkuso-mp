@@ -4,6 +4,7 @@ import Taro, { useDidShow, useShareAppMessage } from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
 import { useLeaveRequests } from '@/hooks/useLeaveRequests'
+import { usePageRestore } from '@/hooks/usePageRestore'
 import { useUser } from '@/context/user-context'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { getSignBlockReason, hasSignedIn } from '@/lib/attendance-utils'
@@ -33,7 +34,9 @@ const mapSignInError = (
 
 export default function RehearsalDetail() {
   const router = Taro.getCurrentInstance().router
-  const id = Number(router?.params?.id)
+  // usePageRestore 缓存 id，防止 getLocation 销毁页面后丢失
+  const cachedId = usePageRestore<string>('id')
+  const id = Number(cachedId)
   const darkClass = useThemeClass()
   const { ready, user } = useUser()
   const {
