@@ -227,6 +227,24 @@ vi.mock('@tarojs/taro', () => ({
 - `pnpm build:weapp` 编译时会注入 `APP_VERSION` 常量（显示在「我的」页脚）
 - 微信后台「版本管理」中可查看每个上传版本的版本号
 
+### Git Tag 管理
+
+每个版本对应一个 `v<version>` 格式的 git tag（如 `v0.4.18`），用于在 `git log --oneline --decorate` 中直接查看版本里程碑。
+
+| 时机 | 动作 | Tag 类型 | 推送远程 |
+|------|------|----------|----------|
+| `pnpm branch:create <type> <desc>` | 创建本地 tag `v<version>` | 基线版本 | 否 |
+| CI `deploy-prod.yml` 发布 | 创建并推送 tag `v<version>` | 发布版本 | 是 |
+
+**查看版本历史**：
+```bash
+# 带装饰的单行日志
+git log --oneline --decorate
+
+# 仅看版本里程碑
+git log --tags --oneline
+```
+
 ## CI/CD 自动化
 
 ### 分支策略

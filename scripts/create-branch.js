@@ -62,6 +62,14 @@ try {
   execSync('git add package.json', { stdio: 'inherit' })
   execSync(`git commit -m "chore: bump version to ${newVersion}"`, { stdio: 'inherit' })
   console.log(`✓ 版本号变更已提交`)
+
+  // 创建本地 tag（不推送远程，发布时由 CI 统一推送）
+  try {
+    execSync(`git tag v${newVersion}`, { stdio: 'inherit' })
+    console.log(`✓ 已创建 tag: v${newVersion}`)
+  } catch {
+    console.log(`⚠ tag v${newVersion} 已存在，跳过创建`)
+  }
 } catch (error) {
   console.error('分支操作失败:', error.message)
   process.exit(1)

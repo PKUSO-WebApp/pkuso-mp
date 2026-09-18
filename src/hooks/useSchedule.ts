@@ -3,7 +3,7 @@ import { supabase as defaultClient } from '@/lib/supabase'
 import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import { useT } from '@/i18n'
 import { dataSyncBump } from '@/lib/dataSync'
-import { getLocalDateString, shiftDays, getWeekStart, normalizeScheduleTime } from '@/lib/date-utils'
+import { getLocalDateString, shiftDays, normalizeScheduleTime } from '@/lib/date-utils'
 import type { RehearsalRow, ScheduleRow } from '@/types/database'
 
 type Listener = () => void
@@ -37,7 +37,7 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
     }
   }, [])
 
-  // 核心：全量拉取一周数据（today-1 ~ today+7，覆盖 8 天日期条）
+  // 核心：全量拉取 8 天数据（today-1 ~ today+7，与日期选择器范围对齐）
   const fetchAll = useCallback(
     async (opts?: { silent?: boolean }) => {
       if (!mountedRef.current) return
@@ -45,14 +45,14 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
       if (!opts?.silent) setLoading(true)
 
       const today = getLocalDateString()
-      const weekStart = getWeekStart(today)
-      const weekEnd = shiftDays(weekStart, 8) // 覆盖周一到下周一
+      const rangeStart = shiftDays(today, -1) // 今天-1（含跨天预约缓冲）
+      const rangeEnd = shiftDays(today, 7)    // 今天+7（与日期选择器对齐）
 
       let query = client
         .from('schedules')
         .select('*')
-        .lt('start_time', weekEnd + ' 23:59:59')
-        .gt('end_time', weekStart + ' 00:00:00')
+        .lt('start_time', rangeEnd + ' 23:59:59')
+        .gt('end_time', rangeStart + ' 00:00:00')
         .order('start_time', { ascending: true })
 
       const { data: rows, error: dbError } = await query
