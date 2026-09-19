@@ -1,7 +1,13 @@
 import { useRef, useState, useEffect, useMemo } from 'react'
 import { View, Text } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
-import { DateTimePicker, timeToIndices, indicesToTime, HOURS, MINUTES } from '@/components/ui/DateTimePicker'
+import {
+  DateTimePicker,
+  timeToIndices,
+  indicesToTime,
+  HOURS,
+  MINUTES,
+} from '@/components/ui/DateTimePicker'
 import Taro from '@tarojs/taro'
 import { Modal } from '@/components/ui/Modal'
 import { useT } from '@/i18n'
@@ -135,8 +141,7 @@ export function CreateScheduleModal({
     const [eh, em] = endTime.split(':').map(Number)
     const startMin = sh * 60 + sm
     const endMin = eh * 60 + em
-    const endDayOffset =
-      (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000
+    const endDayOffset = (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000
     const endTotalMin = endDayOffset * 24 * 60 + endMin
 
     const plus1 = startMin + 60
@@ -160,7 +165,7 @@ export function CreateScheduleModal({
       setEndDate(addDays(startDate, plus8Day))
       setEndTime(fmt(plus8T))
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startTime, startDate])
 
   // 仅在打开弹窗时复位表单

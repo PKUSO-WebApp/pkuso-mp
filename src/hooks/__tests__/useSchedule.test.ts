@@ -76,7 +76,19 @@ describe('useSchedule', () => {
 
   it('fetch 预约列表（全量周查询）', async () => {
     const c = mockClient([
-      { data: [{ id: 1, title: '排练房预约', rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null },
+      {
+        data: [
+          {
+            id: 1,
+            title: '排练房预约',
+            rehearsal_id: null,
+            author_id: 'user-1',
+            start_time: `${TEST_TODAY}T14:00:00`,
+            end_time: `${TEST_TODAY}T15:00:00`,
+          },
+        ],
+        error: null,
+      },
       { data: [{ id: 'user-1', full_name: '张三' }], error: null }, // profiles_roster
     ])
     const { result } = renderHook(() => useSchedule(c as never))
@@ -105,7 +117,19 @@ describe('useSchedule', () => {
     const c = mockClient([
       { data: [], error: null }, // initial fetchAll schedules
       { data: null, error: null }, // insert
-      { data: [{ id: 1, title: '新预约', rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null }, // re-fetchAll schedules
+      {
+        data: [
+          {
+            id: 1,
+            title: '新预约',
+            rehearsal_id: null,
+            author_id: 'user-1',
+            start_time: `${TEST_TODAY}T14:00:00`,
+            end_time: `${TEST_TODAY}T15:00:00`,
+          },
+        ],
+        error: null,
+      }, // re-fetchAll schedules
       { data: [{ id: 'user-1', full_name: '张三' }], error: null }, // re-fetchAll profiles_roster
     ])
     const { result } = renderHook(() => useSchedule(c as never))
@@ -120,7 +144,18 @@ describe('useSchedule', () => {
 
   it('remove 删除并重取', async () => {
     const c = mockClient([
-      { data: [{ id: 1, rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null }, // fetchAll schedules
+      {
+        data: [
+          {
+            id: 1,
+            rehearsal_id: null,
+            author_id: 'user-1',
+            start_time: `${TEST_TODAY}T14:00:00`,
+            end_time: `${TEST_TODAY}T15:00:00`,
+          },
+        ],
+        error: null,
+      }, // fetchAll schedules
       { data: [{ id: 'user-1', full_name: '张三' }], error: null }, // fetchAll profiles_roster
       { data: null, error: null }, // schedules.delete
       { data: [], error: null }, // re-fetchAll schedules
@@ -137,7 +172,19 @@ describe('useSchedule', () => {
 
   it('fetch(date) 走缓存同步返回当天切片', async () => {
     const c = mockClient([
-      { data: [{ id: 1, title: '今日预约', rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null }, // 初始 fetchAll schedules
+      {
+        data: [
+          {
+            id: 1,
+            title: '今日预约',
+            rehearsal_id: null,
+            author_id: 'user-1',
+            start_time: `${TEST_TODAY}T14:00:00`,
+            end_time: `${TEST_TODAY}T15:00:00`,
+          },
+        ],
+        error: null,
+      }, // 初始 fetchAll schedules
       { data: [{ id: 'user-1', full_name: '张三' }], error: null }, // 初始 fetchAll profiles_roster
       { data: [], error: null }, // 显式 fetch 不发请求，但为了保险预留
     ])

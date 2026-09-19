@@ -33,9 +33,12 @@ export function getAppVersionLabel(t?: TFn): string {
 
   const env = getAppEnv()
   const envLabel =
-    env === 'release' ? t?.('common.version.release') ?? 'Release'
-    : env === 'trial' ? t?.('common.version.trial') ?? 'Trial'
-    : env === 'develop' ? t?.('common.version.develop') ?? 'Dev'
-    : ''
+    env === 'release'
+      ? (t?.('common.version.release') ?? 'Release')
+      : env === 'trial'
+        ? (t?.('common.version.trial') ?? 'Trial')
+        : env === 'develop'
+          ? (t?.('common.version.develop') ?? 'Dev')
+          : ''
   return envLabel ? `${envLabel} v${appVersion}` : `v${appVersion}`
 }

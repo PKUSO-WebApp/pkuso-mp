@@ -240,7 +240,10 @@ export function formatRehearsalCardParts(
   const day = String(start.getDate())
   const weekdayLabel = translateCurrent(`schedule.weekdayShort.${DOW_CODES[start.getDay()]}`)
   const tpl = translateCurrent('schedule.dateFormat')
-  const dateLabel = tpl.replace('{month}', month).replace('{day}', day).replace('{weekday}', weekdayLabel)
+  const dateLabel = tpl
+    .replace('{month}', month)
+    .replace('{day}', day)
+    .replace('{weekday}', weekdayLabel)
 
   const hasIntlSupport = hasIntl()
   const timeFormatter = hasIntlSupport

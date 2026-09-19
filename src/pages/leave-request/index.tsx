@@ -21,8 +21,12 @@ export default function LeaveRequestPage() {
     end: router?.params?.end,
   })
   const rehearsalId = initialParamsRef.current.rehearsalId
-  const decodedStart = initialParamsRef.current.start ? decodeURIComponent(initialParamsRef.current.start) : null
-  const decodedEnd = initialParamsRef.current.end ? decodeURIComponent(initialParamsRef.current.end) : null
+  const decodedStart = initialParamsRef.current.start
+    ? decodeURIComponent(initialParamsRef.current.start)
+    : null
+  const decodedEnd = initialParamsRef.current.end
+    ? decodeURIComponent(initialParamsRef.current.end)
+    : null
   const darkClass = useThemeClass()
   useNavTitle('leaveRequest.navTitle')
   const { user } = useUser()

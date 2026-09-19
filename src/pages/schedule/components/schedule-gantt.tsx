@@ -49,7 +49,15 @@ export function parseTimeToHours(timeStr: string | null): number {
 /** 只读甘特图：24 小时时间轴 + 预约块。
  *  点击预约块打开详情弹窗；预约人姓名从 useSchedule 缓存同步读取，
  *  缓存未命中时异步获取并填充。 */
-export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 480, getAuthorName, ensureAuthorName }: Props) {
+export function ScheduleGantt({
+  schedules,
+  selectedDate,
+  user,
+  remove,
+  height = 480,
+  getAuthorName,
+  ensureAuthorName,
+}: Props) {
   const { t } = useT()
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleRow | null>(null)
   const [displayAuthorName, setDisplayAuthorName] = useState<string | null>(null)
@@ -86,7 +94,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
   const scheduleItems = schedules.map((schedule) => {
     const startHour = parseTimeToHours(schedule.start_time)
     const endHour = parseTimeToHours(schedule.end_time)
-    
+
     const scheduleStartDate = schedule.start_time?.split('T')[0] || ''
     const scheduleEndDate = schedule.end_time?.split('T')[0] || ''
 
@@ -118,7 +126,7 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
       // 中间天：不显示（理论上不会出现，因为查询已过滤）
       shouldRender = false
     }
-    
+
     if (!shouldRender) {
       return {
         ...schedule,
@@ -225,34 +233,34 @@ export function ScheduleGantt({ schedules, selectedDate, user, remove, height = 
           {scheduleItems
             .filter((s) => !s.hidden)
             .map((schedule) => {
-            const isSelfBlock = schedule.author_id === user?.id
-            const colorClass = isSelfBlock
-              ? getScheduleColorClass(schedule.id)
-              : 'bg-schedule-other'
-            const titleCls = isSelfBlock ? 'text-schedule-text' : 'text-primary'
-            const subCls = isSelfBlock ? 'text-schedule-text-muted' : 'text-primary'
-            return (
-              <View
-                key={schedule.id}
-                className={`absolute left-2 right-2 rounded-lg border border-text ${colorClass}`}
-                style={{
-                  top: `${schedule.top}%`,
-                  height: `${schedule.height}%`,
-                }}
-                onClick={() => void handleScheduleClick(schedule)}
-              >
-                <View className='flex h-full flex-col justify-center px-2 py-1'>
-                  <Text className={`block truncate text-xs font-medium ${titleCls}`}>
-                    {schedule.title || t('schedule.unnamed')}
-                  </Text>
-                  <Text className={`block text-xs ${subCls}`}>
-                    {schedule.displayTimeRange ??
-                      `${formatTime(schedule.start_time)} – ${formatTime(schedule.end_time)}`}
-                  </Text>
+              const isSelfBlock = schedule.author_id === user?.id
+              const colorClass = isSelfBlock
+                ? getScheduleColorClass(schedule.id)
+                : 'bg-schedule-other'
+              const titleCls = isSelfBlock ? 'text-schedule-text' : 'text-primary'
+              const subCls = isSelfBlock ? 'text-schedule-text-muted' : 'text-primary'
+              return (
+                <View
+                  key={schedule.id}
+                  className={`absolute left-2 right-2 rounded-lg border border-text ${colorClass}`}
+                  style={{
+                    top: `${schedule.top}%`,
+                    height: `${schedule.height}%`,
+                  }}
+                  onClick={() => void handleScheduleClick(schedule)}
+                >
+                  <View className='flex h-full flex-col justify-center px-2 py-1'>
+                    <Text className={`block truncate text-xs font-medium ${titleCls}`}>
+                      {schedule.title || t('schedule.unnamed')}
+                    </Text>
+                    <Text className={`block text-xs ${subCls}`}>
+                      {schedule.displayTimeRange ??
+                        `${formatTime(schedule.start_time)} – ${formatTime(schedule.end_time)}`}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            )
-          })}
+              )
+            })}
         </View>
       </View>
 

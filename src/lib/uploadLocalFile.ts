@@ -111,10 +111,13 @@ export function readTempFileBytes(tempFilePath: string, t?: TFn): Promise<ArrayB
               sample: safeSample(res.data),
             }
           )
-          reject(new Error(t?.('common.upload.readFailedUnknown') ?? '读取本地附件失败：未知数据格式'))
+          reject(
+            new Error(t?.('common.upload.readFailedUnknown') ?? '读取本地附件失败：未知数据格式')
+          )
         }
       },
-      fail: (err) => reject(new Error(err?.errMsg || (t?.('common.upload.readFailed') ?? '读取本地附件失败'))),
+      fail: (err) =>
+        reject(new Error(err?.errMsg || (t?.('common.upload.readFailed') ?? '读取本地附件失败'))),
     })
   })
 }
@@ -163,6 +166,14 @@ export async function uploadLocalFile(
     if (error) return { data: null, error }
     return { data: { path }, error: null }
   } catch (e) {
-    return { data: null, error: { message: e instanceof Error ? e.message : t?.('common.upload.attachmentReadFailed') ?? '附件读取失败' } }
+    return {
+      data: null,
+      error: {
+        message:
+          e instanceof Error
+            ? e.message
+            : (t?.('common.upload.attachmentReadFailed') ?? '附件读取失败'),
+      },
+    }
   }
 }

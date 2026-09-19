@@ -46,7 +46,7 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
 
       const today = getLocalDateString()
       const rangeStart = shiftDays(today, -1) // 今天-1（含跨天预约缓冲）
-      const rangeEnd = shiftDays(today, 7)    // 今天+7（与日期选择器对齐）
+      const rangeEnd = shiftDays(today, 7) // 今天+7（与日期选择器对齐）
 
       let query = client
         .from('schedules')
@@ -78,7 +78,9 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
       notifyListeners()
 
       // 批量获取作者名并缓存
-      const authorIds = [...new Set(normalized.map((s) => s.author_id).filter((id): id is string => !!id))]
+      const authorIds = [
+        ...new Set(normalized.map((s) => s.author_id).filter((id): id is string => !!id)),
+      ]
       if (authorIds.length > 0) {
         // 先清除旧缓存（避免已删除/改名的用户残留旧数据）
         authorNamesRef.current = new Map()
@@ -129,25 +131,19 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
   )
 
   // 纯内存切片：按日期取当天预约（含跨天）
-  const getByDate = useCallback(
-    (date: string): ScheduleRow[] => {
-      return allSchedulesRef.current.filter((s) => {
-        const sd = s.start_time.split('T')[0]
-        const ed = s.end_time?.split('T')[0] ?? sd
-        return sd === date || ed === date
-      })
-    },
-    []
-  )
+  const getByDate = useCallback((date: string): ScheduleRow[] => {
+    return allSchedulesRef.current.filter((s) => {
+      const sd = s.start_time.split('T')[0]
+      const ed = s.end_time?.split('T')[0] ?? sd
+      return sd === date || ed === date
+    })
+  }, [])
 
   // 同步读取作者名缓存；null authorId 或缓存未命中返回 null（组件可显示兜底文案）
-  const getAuthorName = useCallback(
-    (authorId: string | null): string | null => {
-      if (!authorId) return null
-      return authorNamesRef.current.get(authorId) ?? null
-    },
-    []
-  )
+  const getAuthorName = useCallback((authorId: string | null): string | null => {
+    if (!authorId) return null
+    return authorNamesRef.current.get(authorId) ?? null
+  }, [])
 
   // 异步获取作者名：缓存命中同步返回，未命中发起单条查询并填充缓存
   const ensureAuthorName = useCallback(

@@ -55,7 +55,11 @@ export function TextField({
 }: TextFieldProps) {
   return (
     <FormField label={label} labelClass={labelClass} className={className} boxClass={boxClass}>
-      <Input className={inputClass} placeholderStyle={placeholderStyle} {...(inputProps as object)} />
+      <Input
+        className={inputClass}
+        placeholderStyle={placeholderStyle}
+        {...(inputProps as object)}
+      />
     </FormField>
   )
 }
