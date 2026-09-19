@@ -419,9 +419,9 @@ export default function Profile() {
             <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
               <SkeletonCircle size={48} />
               <View className='min-w-0 flex-1'>
-                <SkeletonText lines={1} width='100%' lineHeight={22} gap={4} />
-                <SkeletonText lines={1} width='100%' lineHeight={18} gap={4} />
-                <SkeletonText lines={1} width='100%' lineHeight={16} gap={4} />
+                <SkeletonText lines={1} lineHeight={22} gap={4} />
+                <SkeletonText lines={1} lineHeight={18} gap={4} />
+                <SkeletonText lines={1} lineHeight={16} gap={4} />
               </View>
             </View>
           ) : (

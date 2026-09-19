@@ -2,7 +2,7 @@
 import { supabase as defaultClient } from '@/lib/supabase'
 import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import { useT } from '@/i18n'
-import { dataSyncBump } from '@/lib/dataSync'
+import { dataSyncBump, subscribeSync } from '@/lib/dataSync'
 import { getLocalDateString, shiftDays, normalizeScheduleTime } from '@/lib/date-utils'
 import type { RehearsalRow, ScheduleRow } from '@/types/database'
 
@@ -173,6 +173,13 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
     }
   }, [fetch])
 
+  // 订阅 dataSync schedules 变化事件：收到事件后静默刷新缓存
+  useEffect(() => {
+    return subscribeSync('schedules', () => {
+      void fetchAll({ silent: true })
+    })
+  }, [fetchAll])
+
   const create = useCallback(
     async (payload: Record<string, unknown>, _date?: string) => {
       if (savingRef.current) return false
@@ -282,6 +289,9 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
       endTime: string,
       excludeRehearsalId?: number
     ): Promise<string | null> => {
+      // pre-check: 强制刷新缓存，确保冲突检测基于最新数据
+      await fetchAll({ silent: true })
+
       const startDateTime = `${startDate}T${startTime}:00`
       const endDateTime = `${endDate}T${endTime}:00`
 
@@ -330,7 +340,7 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
 
       return null
     },
-    [client, t, getByDate]
+    [client, t, getByDate, fetchAll]
   )
 
   return {

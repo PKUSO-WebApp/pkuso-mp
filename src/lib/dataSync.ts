@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { logDiag } from '@/lib/session-diag'
 
-export type SyncEntity = 'rehearsals' | 'announcements' | 'notifications' | 'leave' | 'post'
+export type SyncEntity = 'rehearsals' | 'announcements' | 'notifications' | 'leave' | 'post' | 'schedules'
 
 type Listener = () => void
 const listeners: Record<SyncEntity, Set<Listener>> = {
@@ -10,6 +10,7 @@ const listeners: Record<SyncEntity, Set<Listener>> = {
   notifications: new Set(),
   leave: new Set(),
   post: new Set(),
+  schedules: new Set(),
 }
 
 export function subscribeSync(entity: SyncEntity, handler: Listener): () => void {
@@ -32,6 +33,7 @@ type Versions = {
   notificationsUnread: number | null
   leave: string | null
   post: string | null
+  schedules: string | null
 }
 
 type DataVersionsRow = {
@@ -40,6 +42,7 @@ type DataVersionsRow = {
   leave: string | null
   post: string | null
   notifications_unread: number | null
+  schedules: string | null
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null
@@ -71,6 +74,7 @@ async function tick() {
       notificationsUnread: row?.notifications_unread ?? null,
       leave: row?.leave ?? null,
       post: row?.post ?? null,
+      schedules: row?.schedules ?? null,
     }
     if (versions) {
       if (next.rehearsals !== versions.rehearsals) emitSync('rehearsals')
@@ -79,6 +83,7 @@ async function tick() {
       // [FALLBACK] 社区页面因无法通过微信服务类目审核，暂时关闭帖子轮询。
       // 恢复时取消下方注释，并同步恢复 CustomTabBar.tsx 中社区 tab 入口。
       // if (next.post !== versions.post) emitSync('post')
+      if (next.schedules !== versions.schedules) emitSync('schedules')
     }
     if (
       lastKnownUnread !== null &&

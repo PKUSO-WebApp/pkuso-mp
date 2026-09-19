@@ -12,12 +12,11 @@ export function SkeletonCircle({ className = '', size = 48 }: { className?: stri
 export function SkeletonText({
   className = '',
   lines = 1,
-  width = '100%',
   lineHeight = 16,
   gap = 4,
-}: { className?: string; lines?: number; width?: string | number; lineHeight?: number; gap?: number }) {
+}: { className?: string; lines?: number; lineHeight?: number; gap?: number }) {
   return (
-    <View className={`skeleton-text ${className}`} style={{ width, gap }}>
+    <View className={`skeleton-text ${className}`} style={{ flex: 1, gap }}>
       {Array.from({ length: lines }).map((_, i) => (
         <View key={i} className='skeleton-line' style={{ height: lineHeight }} />
       ))}
