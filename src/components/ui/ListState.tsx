@@ -6,8 +6,8 @@ type ListStateProps = {
   loading: boolean
   /** 静默刷新语义（P0-2）：true 时仅内容为空才显示 loading；默认 true */
   loadingOnlyWhenEmpty?: boolean
-  /** 内容是否为空（决定 loading 门控与空态分支） */
-  isEmpty: boolean
+  /** 内容是否为空（决定 loading 门控与空态分支）；默认 false */
+  isEmpty?: boolean
   /** 错误文案（已归一化）；非空时渲染错误分支 */
   error?: string | null
   /** 空态文案（isEmpty 恒 false 的门控型用法可省略） */
@@ -25,7 +25,7 @@ type ListStateProps = {
 export function ListState({
   loading,
   loadingOnlyWhenEmpty = true,
-  isEmpty,
+  isEmpty = false,
   error = null,
   emptyText,
   onRetry,

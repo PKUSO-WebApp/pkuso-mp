@@ -21,6 +21,7 @@ import type { NotificationCategory } from '@/types/database'
 import { dataSyncBump } from '@/lib/dataSync'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 
+import { SkeletonCircle, SkeletonText } from '@/components/ui/Skeleton'
 import { ThemeModal } from './components/theme-modal'
 import './index.scss'
 
@@ -63,6 +64,7 @@ export default function Profile() {
   // 资料：头像卡 / 邮箱展示 / 换绑邮箱同步
   const {
     data: profileData,
+    loading: profileLoading,
     update: updateProfile,
     fetch: refetchProfiles,
   } = useProfiles({ userId: user?.id })
@@ -413,24 +415,35 @@ export default function Profile() {
         {/* 底部留白 = 自定义底边栏高(50px)，避免末行被遮挡、滚不到底（横屏同样稳健） */}
         <View className='px-4 pt-4'>
           {/* 头像卡 */}
-          <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
-            <View className='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary'>
-              {avatarUrl ? (
-                <Image src={avatarUrl} className='h-full w-full' mode='aspectFill' />
-              ) : (
-                <Text className='text-base font-medium text-primary-foreground'>{initials}</Text>
-              )}
+          {profileLoading ? (
+            <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
+              <SkeletonCircle size={48} />
+              <View className='min-w-0 flex-1'>
+                <SkeletonText lines={1} width='100%' lineHeight={22} gap={4} />
+                <SkeletonText lines={1} width='100%' lineHeight={18} gap={4} />
+                <SkeletonText lines={1} width='100%' lineHeight={16} gap={4} />
+              </View>
             </View>
-            <View className='min-w-0 flex-1'>
-              <Text className='block text-lg font-semibold text-text'>{fullName}</Text>
-              <Text className='mt-1 block text-sm text-text-muted'>
-                {t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}
-              </Text>
-              <Text className='mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted'>
-                {t('profile.card.email', { email: displayEmail })}
-              </Text>
+          ) : (
+            <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
+              <View className='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary'>
+                {avatarUrl ? (
+                  <Image src={avatarUrl} className='h-full w-full' mode='aspectFill' />
+                ) : (
+                  <Text className='text-base font-medium text-primary-foreground'>{initials}</Text>
+                )}
+              </View>
+              <View className='min-w-0 flex-1'>
+                <Text className='block text-lg font-semibold text-text'>{fullName}</Text>
+                <Text className='mt-1 block text-sm text-text-muted'>
+                  {t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}
+                </Text>
+                <Text className='mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted'>
+                  {t('profile.card.email', { email: displayEmail })}
+                </Text>
+              </View>
             </View>
-          </View>
+          )}
 
           {/* 通知栏目：三个信箱按钮，右侧未读数字徽章（>0 时显示） */}
           <View className='mt-6'>

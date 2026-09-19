@@ -1,0 +1,62 @@
+@use 'sass:color';
+
+$skeleton-bg: #e5e7eb;
+$skeleton-highlight: #f3f4f6;
+$skeleton-dark-bg: #374151;
+$skeleton-dark-highlight: #4b5563;
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    $skeleton-bg 25%,
+    $skeleton-highlight 50%,
+    $skeleton-bg 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+  border-radius: 4px;
+
+  @media (prefers-color-scheme: dark) {
+    background: linear-gradient(
+      90deg,
+      $skeleton-dark-bg 25%,
+      $skeleton-dark-highlight 50%,
+      $skeleton-dark-bg 75%
+    );
+    background-size: 200% 100%;
+  }
+}
+
+.skeleton-circle {
+  border-radius: 9999px;
+}
+
+.skeleton-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 4px;
+}
+
+.skeleton-card {
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--color-card, white);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
+
+  @media (prefers-color-scheme: dark) {
+    background: var(--color-card-dark, #1f2937);
+  }
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
