@@ -139,7 +139,8 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
 
         const title = input.title.trim()
         const content = input.content.trim()
-        if (!title || !content) return { ok: false, error: t('community.postErrors.fillTitleAndContent') }
+        if (!title || !content)
+          return { ok: false, error: t('community.postErrors.fillTitleAndContent') }
 
         // 1) 内容安全（文本+图片审核/上传）——共用流程见 lib/contentModeration
         const currentSections =
@@ -147,15 +148,19 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
         const missingSections =
           input.type === 'ensemble' ? input.missing_sections?.trim() || null : null
         const contactInfo = input.contact_info?.trim() || null
-        const mod = await moderateAndUploadPostImage(client, {
-          uid,
-          title,
-          content,
-          imageFile: input.imageFile,
-          currentSections,
-          missingSections,
-          contactInfo,
-        }, t)
+        const mod = await moderateAndUploadPostImage(
+          client,
+          {
+            uid,
+            title,
+            content,
+            imageFile: input.imageFile,
+            currentSections,
+            missingSections,
+            contactInfo,
+          },
+          t
+        )
         if (!mod.ok) return { ok: false, error: mod.error }
         const imageUrl = mod.imageUrl
 
@@ -268,7 +273,8 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
       try {
         const title = input.title.trim()
         const content = input.content.trim()
-        if (!title || !content) return { ok: false, error: t('community.postErrors.fillTitleAndContent') }
+        if (!title || !content)
+          return { ok: false, error: t('community.postErrors.fillTitleAndContent') }
 
         // 1) 内容安全（文本+图片审核/上传）——共用流程见 lib/contentModeration。
         //    图片三态：undefined=保留原图（不上传，patch 不带 image_url）；null=删除；file=上传替换
@@ -282,15 +288,19 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
         const missingSections =
           input.type === 'ensemble' ? input.missing_sections?.trim() || null : null
         const contactInfo = input.contact_info?.trim() || null
-        const mod = await moderateAndUploadPostImage(client, {
-          uid: uid ?? '',
-          title,
-          content,
-          imageFile: input.imageFile,
-          currentSections,
-          missingSections,
-          contactInfo,
-        }, t)
+        const mod = await moderateAndUploadPostImage(
+          client,
+          {
+            uid: uid ?? '',
+            title,
+            content,
+            imageFile: input.imageFile,
+            currentSections,
+            missingSections,
+            contactInfo,
+          },
+          t
+        )
         if (!mod.ok) return { ok: false, error: mod.error }
         let imageUrl: string | null | undefined
         if (input.imageFile === null) imageUrl = null

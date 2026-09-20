@@ -57,9 +57,7 @@ export default function FeedbackPage() {
       <ScrollView scrollY className='min-h-0 flex-1'>
         <View className='px-4'>
           <View className='mt-3 flex items-center justify-between'>
-            <Text className='text-xs text-text-muted'>
-              {t('profile.feedback.anonymousLabel')}
-            </Text>
+            <Text className='text-xs text-text-muted'>{t('profile.feedback.anonymousLabel')}</Text>
             <Button
               className={`relative h-7 w-12 rounded-full border-0 p-0 ${
                 isAnonymous ? 'bg-primary' : 'bg-muted'

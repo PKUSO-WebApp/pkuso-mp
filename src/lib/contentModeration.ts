@@ -60,7 +60,11 @@ export async function moderateAndUploadPostImage(
     false,
     t
   )
-  if (up.error) return { ok: false, error: t('community.postErrors.imageUploadFailed', { error: up.error.message }) }
+  if (up.error)
+    return {
+      ok: false,
+      error: t('community.postErrors.imageUploadFailed', { error: up.error.message }),
+    }
   const imageUrl = client.storage.from('community-images').getPublicUrl(path).data.publicUrl
 
   const imgRes = await client.functions.invoke('wechat-content-check', {

@@ -76,7 +76,19 @@ describe('useSchedule', () => {
 
   it('fetch 预约列表（全量周查询）', async () => {
     const c = mockClient([
-      { data: [{ id: 1, title: '排练房预约', rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null },
+      {
+        data: [
+          {
+            id: 1,
+            title: '排练房预约',
+            rehearsal_id: null,
+            author_id: 'user-1',
+            start_time: `${TEST_TODAY}T14:00:00`,
+            end_time: `${TEST_TODAY}T15:00:00`,
+          },
+        ],
+        error: null,
+      },
       { data: [{ id: 'user-1', full_name: '张三' }], error: null }, // profiles_roster
     ])
     const { result } = renderHook(() => useSchedule(c as never))
@@ -105,7 +117,19 @@ describe('useSchedule', () => {
     const c = mockClient([
       { data: [], error: null }, // initial fetchAll schedules
       { data: null, error: null }, // insert
-      { data: [{ id: 1, title: '新预约', rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null }, // re-fetchAll schedules
+      {
+        data: [
+          {
+            id: 1,
+            title: '新预约',
+            rehearsal_id: null,
+            author_id: 'user-1',
+            start_time: `${TEST_TODAY}T14:00:00`,
+            end_time: `${TEST_TODAY}T15:00:00`,
+          },
+        ],
+        error: null,
+      }, // re-fetchAll schedules
       { data: [{ id: 'user-1', full_name: '张三' }], error: null }, // re-fetchAll profiles_roster
     ])
     const { result } = renderHook(() => useSchedule(c as never))
@@ -120,7 +144,18 @@ describe('useSchedule', () => {
 
   it('remove 删除并重取', async () => {
     const c = mockClient([
-      { data: [{ id: 1, rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null }, // fetchAll schedules
+      {
+        data: [
+          {
+            id: 1,
+            rehearsal_id: null,
+            author_id: 'user-1',
+            start_time: `${TEST_TODAY}T14:00:00`,
+            end_time: `${TEST_TODAY}T15:00:00`,
+          },
+        ],
+        error: null,
+      }, // fetchAll schedules
       { data: [{ id: 'user-1', full_name: '张三' }], error: null }, // fetchAll profiles_roster
       { data: null, error: null }, // schedules.delete
       { data: [], error: null }, // re-fetchAll schedules
@@ -137,7 +172,19 @@ describe('useSchedule', () => {
 
   it('fetch(date) 走缓存同步返回当天切片', async () => {
     const c = mockClient([
-      { data: [{ id: 1, title: '今日预约', rehearsal_id: null, author_id: 'user-1', start_time: `${TEST_TODAY}T14:00:00`, end_time: `${TEST_TODAY}T15:00:00` }], error: null }, // 初始 fetchAll schedules
+      {
+        data: [
+          {
+            id: 1,
+            title: '今日预约',
+            rehearsal_id: null,
+            author_id: 'user-1',
+            start_time: `${TEST_TODAY}T14:00:00`,
+            end_time: `${TEST_TODAY}T15:00:00`,
+          },
+        ],
+        error: null,
+      }, // 初始 fetchAll schedules
       { data: [{ id: 'user-1', full_name: '张三' }], error: null }, // 初始 fetchAll profiles_roster
       { data: [], error: null }, // 显式 fetch 不发请求，但为了保险预留
     ])
@@ -201,6 +248,7 @@ describe('useSchedule', () => {
   describe('checkConflict', () => {
     it('无冲突 - 正常路径', async () => {
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         { data: [], error: null }, // fetchAll
         { data: [], error: null }, // rehearsals query
       ])
@@ -216,6 +264,7 @@ describe('useSchedule', () => {
 
     it('与已有预约时间冲突（本地内存检测）', async () => {
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         {
           data: [
             {
@@ -241,6 +290,7 @@ describe('useSchedule', () => {
 
     it('与已有排练时间冲突（RPC 检测）', async () => {
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         { data: [], error: null }, // fetchAll
         {
           data: [
@@ -267,6 +317,7 @@ describe('useSchedule', () => {
       // 当编辑排练 id=5 时，数据库查询会通过 .neq("id", 5) 过滤掉该排练
       // 所以 mock 返回空数据，表示已正确过滤
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         { data: [], error: null }, // fetchAll
         { data: [], error: null }, // rehearsals query - filtered by neq(id, 5), so empty
       ])
@@ -285,6 +336,7 @@ describe('useSchedule', () => {
       // 数据库层被 .is("rehearsal_id", null) 过滤，所以 mock 的 schedules 查询返回空
       // （模拟过滤后的结果）；rehearsals 查询通过 .neq("id", 5) 排除自身，同样为空
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         { data: [], error: null }, // fetchAll
         { data: [], error: null }, // rehearsals query - 编辑中的排练已被 neq 过滤
       ])
@@ -303,6 +355,7 @@ describe('useSchedule', () => {
       // 不会先命中 schedules 分支的「该时间段已有其他预约」；rehearsals 分支命中排练，
       // 文案准确为「该时间段已有排练安排」
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         { data: [], error: null }, // fetchAll
         {
           data: [
@@ -327,6 +380,7 @@ describe('useSchedule', () => {
 
     it('schedules 冲突走本地内存，不发 RPC（无 is 查询）', async () => {
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         { data: [], error: null }, // fetchAll
         { data: [], error: null }, // rehearsals query
       ])
@@ -347,6 +401,7 @@ describe('useSchedule', () => {
       // 新逻辑：schedules 冲突本地跑，无 RPC 失败可能
       // 只有 rehearsals RPC 失败会返回错误
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         { data: [], error: null }, // fetchAll
         { data: null, error: { message: 'rehearsal error' } }, // rehearsals query error
       ])
@@ -362,6 +417,7 @@ describe('useSchedule', () => {
 
     it('排练查询失败返回错误', async () => {
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         { data: [], error: null }, // fetchAll
         { data: null, error: { message: 'rehearsal error' } }, // rehearsals query error
       ])
@@ -377,6 +433,7 @@ describe('useSchedule', () => {
 
     it('空格分隔的已有预约也能检出冲突（归一化后再比较）', async () => {
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         {
           data: [
             {
@@ -402,6 +459,7 @@ describe('useSchedule', () => {
 
     it('时间边界不重叠 - 新预约开始等于已有结束', async () => {
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         {
           data: [
             {
@@ -427,6 +485,7 @@ describe('useSchedule', () => {
 
     it('时间边界不重叠 - 新预约结束等于已有开始', async () => {
       const c = mockClient([
+        { data: [], error: null }, // pre-check fetchAll
         {
           data: [
             {

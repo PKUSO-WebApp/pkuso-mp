@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { View, Text, ScrollView, Image, Input } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
@@ -21,6 +21,7 @@ import type { NotificationCategory } from '@/types/database'
 import { dataSyncBump } from '@/lib/dataSync'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 
+import { SkeletonCircle, SkeletonText } from '@/components/ui/Skeleton'
 import { ThemeModal } from './components/theme-modal'
 import './index.scss'
 
@@ -63,6 +64,7 @@ export default function Profile() {
   // 资料：头像卡 / 邮箱展示 / 换绑邮箱同步
   const {
     data: profileData,
+    loading: profileLoading,
     update: updateProfile,
     fetch: refetchProfiles,
   } = useProfiles({ userId: user?.id })
@@ -124,10 +126,18 @@ export default function Profile() {
   }, [refreshNotifications])
 
   // A：每次切回「我的」tab 重新拉未读数，并重置全局轮询计时器
+  // 资料静默刷新：已有数据时不翻 loading，避免卡片闪烁
   useDidShow(() => {
     void refreshNotifications()
     dataSyncBump()
+    void refetchProfiles({ silent: true })
+  })
+
+  // 下拉刷新：重取资料与未读数
+  usePullDownRefresh(() => {
     void refetchProfiles()
+    void refreshNotifications({ silent: true })
+    Taro.stopPullDownRefresh()
   })
 
   // 换绑邮箱后同步 profiles.email（Issue #199 语义）：
@@ -413,24 +423,35 @@ export default function Profile() {
         {/* 底部留白 = 自定义底边栏高(50px)，避免末行被遮挡、滚不到底（横屏同样稳健） */}
         <View className='px-4 pt-4'>
           {/* 头像卡 */}
-          <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
-            <View className='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary'>
-              {avatarUrl ? (
-                <Image src={avatarUrl} className='h-full w-full' mode='aspectFill' />
-              ) : (
-                <Text className='text-base font-medium text-primary-foreground'>{initials}</Text>
-              )}
+          {profileLoading ? (
+            <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
+              <SkeletonCircle size={48} />
+              <View className='min-w-0 flex-1'>
+                <SkeletonText lines={1} lineHeight={22} gap={4} />
+                <SkeletonText lines={1} lineHeight={18} gap={4} />
+                <SkeletonText lines={1} lineHeight={16} gap={4} />
+              </View>
             </View>
-            <View className='min-w-0 flex-1'>
-              <Text className='block text-lg font-semibold text-text'>{fullName}</Text>
-              <Text className='mt-1 block text-sm text-text-muted'>
-                {t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}
-              </Text>
-              <Text className='mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted'>
-                {t('profile.card.email', { email: displayEmail })}
-              </Text>
+          ) : (
+            <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
+              <View className='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary'>
+                {avatarUrl ? (
+                  <Image src={avatarUrl} className='h-full w-full' mode='aspectFill' />
+                ) : (
+                  <Text className='text-base font-medium text-primary-foreground'>{initials}</Text>
+                )}
+              </View>
+              <View className='min-w-0 flex-1'>
+                <Text className='block text-lg font-semibold text-text'>{fullName}</Text>
+                <Text className='mt-1 block text-sm text-text-muted'>
+                  {t('profile.card.instrument', { instrument: translateInstrument(instrument, t) })}
+                </Text>
+                <Text className='mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted'>
+                  {t('profile.card.email', { email: displayEmail })}
+                </Text>
+              </View>
             </View>
-          </View>
+          )}
 
           {/* 通知栏目：三个信箱按钮，右侧未读数字徽章（>0 时显示） */}
           <View className='mt-6'>

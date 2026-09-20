@@ -31,8 +31,10 @@ vi.mock('@tarojs/taro', () => ({
     navigateTo: vi.fn(),
     setTabBarBadge: vi.fn(),
     removeTabBarBadge: vi.fn(),
+    stopPullDownRefresh: vi.fn(),
   },
   useDidShow: vi.fn(),
+  usePullDownRefresh: vi.fn(),
 }))
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useRehearsals } from '@/hooks/useRehearsals'
 import { useAnnouncements } from '@/hooks/useAnnouncements'
 import { useMyProfile } from '@/hooks/useMyProfile'
@@ -57,6 +57,13 @@ export default function Index() {
     void fetchRehearsals({ silent: true })
     void fetchAnnouncement({ silent: true })
     dataSyncBump()
+  })
+
+  // 下拉刷新：静默重取排练与公告
+  usePullDownRefresh(() => {
+    void fetchRehearsals({ silent: true })
+    void fetchAnnouncement({ silent: true })
+    Taro.stopPullDownRefresh()
   })
 
   const [scheduleTab, setScheduleTab] = useState<'full' | 'section' | 'history'>('full')

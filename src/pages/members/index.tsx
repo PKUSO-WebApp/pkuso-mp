@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import { tAppError } from '@/lib/appError'
-import { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useProfiles } from '@/hooks/useProfiles'
@@ -43,6 +43,12 @@ export default function Members() {
   // 拉取会导致「改完资料回来仍是旧数据」；回到本页静默刷新，旧数据仍展示不闪加载）
   useDidShow(() => {
     void fetch()
+  })
+
+  // 下拉刷新：重取花名册
+  usePullDownRefresh(() => {
+    void fetch()
+    Taro.stopPullDownRefresh()
   })
 
   // 拼音/首字母搜索：输入为空时显示全部
