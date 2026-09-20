@@ -79,4 +79,9 @@ export const schedule = {
     date: 'Date',
     author: 'Booked By',
   },
+  share: {
+    fullTitle: '{start} - {end} Ensemble Rehearsals',
+    sectionTitle: '{start} - {end} Sectional Rehearsals',
+    historyTitle: '{start} - {end} Past Ensemble Rehearsals',
+  },
 }
