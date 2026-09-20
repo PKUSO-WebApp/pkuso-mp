@@ -9,6 +9,16 @@ type ProfileFilter = {
   userId?: string
 }
 
+// 单用户查询的模块级缓存：key=userId，确保同一用户的多个 useProfiles 实例共享数据
+const singleUserCache = new Map<string, ProfileRow[]>()
+const singleUserCacheLoading = new Map<string, boolean>()
+const singleUserCacheSubscribers = new Map<string, Set<() => void>>()
+
+function notifySingleUserCacheChange(userId: string) {
+  const subs = singleUserCacheSubscribers.get(userId)
+  if (subs) subs.forEach((cb) => cb())
+}
+
 type ProfileInsert = {
   id: string
   email: string
@@ -44,6 +54,7 @@ export type ProfileUpdatePayload = Partial<
 //   /api/admin/* + window.fetch），已移除；
 // - 加载失败错误归一化为中文文案；卸载后不再 setState（mountedRef 标志位）；
 //   userId 由调用方从 useUser() 获取后传入（不自行调 getSession）。
+// - 单用户查询（userId + 无其他过滤）使用模块级缓存，多实例共享数据，更新即时生效
 export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient = defaultClient) {
   const [data, setData] = useState<ProfileRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -61,6 +72,32 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
   // （如 profile 页 user 未就绪，跳过请求，避免退化为全表 select）
   const hasExplicitUndefinedUserId = filter != null && 'userId' in filter && userId === undefined
 
+  // 判断是否为单用户查询（仅 userId，无其他过滤）
+  const isSingleUserQuery = userId && !status && !ids
+
+  // 初始化 state 从缓存读取（单用户查询）
+  const [, forceUpdate] = useState(0)
+  useEffect(() => {
+    if (!isSingleUserQuery || !userId) return
+    // 订阅缓存变更
+    const callback = () => forceUpdate((n) => n + 1)
+    let subs = singleUserCacheSubscribers.get(userId)
+    if (!subs) {
+      subs = new Set()
+      singleUserCacheSubscribers.set(userId, subs)
+    }
+    subs.add(callback)
+    // 初始化 state
+    const cached = singleUserCache.get(userId)
+    if (cached) setData(cached)
+    const loadingCached = singleUserCacheLoading.get(userId)
+    if (loadingCached !== undefined) setLoading(loadingCached)
+    return () => {
+      subs.delete(callback)
+      if (subs.size === 0) singleUserCacheSubscribers.delete(userId)
+    }
+  }, [isSingleUserQuery, userId])
+
   const fetch = useCallback(async (opts?: { silent?: boolean }) => {
     if (!mountedRef.current) return
     const seq = ++fetchSeqRef.current
@@ -71,6 +108,20 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
       setData([])
       setError(null)
       return
+    }
+
+    // 单用户查询：优先返回缓存，避免重复请求
+    if (isSingleUserQuery && userId) {
+      const cached = singleUserCache.get(userId)
+      if (cached) {
+        if (!opts?.silent) setLoading(false)
+        setData(cached)
+        setError(null)
+        return
+      }
+      // 标记正在加载
+      singleUserCacheLoading.set(userId, true)
+      notifySingleUserCacheChange(userId)
     }
 
     if (!opts?.silent) setLoading(true)
@@ -96,15 +147,28 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
       console.error('[useProfiles] 花名册加载失败', dbError)
       setError(APP_ERROR.loadFailed)
       setData([])
+      if (isSingleUserQuery && userId) {
+        singleUserCacheLoading.delete(userId)
+        notifySingleUserCacheChange(userId)
+      }
       return
     }
 
+    let result: ProfileRow[]
     if (userId) {
-      setData(Array.isArray(rows) ? (rows as ProfileRow[]) : rows ? [rows as ProfileRow] : [])
+      result = Array.isArray(rows) ? (rows as ProfileRow[]) : rows ? [rows as ProfileRow] : []
     } else {
-      setData((rows as ProfileRow[]) ?? [])
+      result = (rows as ProfileRow[]) ?? []
     }
-  }, [client, status, ids, userId, hasExplicitUndefinedUserId])
+    setData(result)
+
+    // 单用户查询：更新缓存并通知所有订阅者
+    if (isSingleUserQuery && userId) {
+      singleUserCache.set(userId, result)
+      singleUserCacheLoading.delete(userId)
+      notifySingleUserCacheChange(userId)
+    }
+  }, [client, status, ids, userId, hasExplicitUndefinedUserId, isSingleUserQuery])
 
   useEffect(() => {
     mountedRef.current = true
@@ -139,6 +203,7 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
    * 成功后直接更新本地 data，避免整页刷新。
    * 通过 .select("id") 检测实际更新行数：RLS 拒绝时 PostgREST 返回 200 + 空数据
    * （静默失败），0 行更新视为失败，避免 UI 声称成功但数据未写入。
+   * 单用户查询时同时更新模块级缓存，所有实例即时同步。
    */
   const update = useCallback(
     async (id: string, payload: ProfileUpdatePayload) => {
@@ -160,7 +225,18 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
           return false
         }
         if (mountedRef.current) {
+          // 更新本地 state
           setData((prev) => prev.map((r) => (r.id === id ? { ...r, ...payload } : r)))
+          // 单用户查询：同步更新模块级缓存，所有订阅者即时同步
+          if (isSingleUserQuery && userId && id === userId) {
+            const updated = singleUserCache.get(userId)?.map((r) =>
+              r.id === id ? { ...r, ...payload } : r
+            )
+            if (updated) {
+              singleUserCache.set(userId, updated)
+              notifySingleUserCacheChange(userId)
+            }
+          }
           setError(null)
         }
         return true
@@ -169,7 +245,7 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
         if (mountedRef.current) setSaving(false)
       }
     },
-    [client, saving]
+    [client, saving, isSingleUserQuery, userId]
   )
 
   return {
