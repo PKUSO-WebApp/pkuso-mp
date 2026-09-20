@@ -446,7 +446,7 @@ export type Database = {
           repertoire: string | null
           sign_in_code: string | null
           start_time: string | null
-          target_section: string | null
+          target_section: string[] | null
           time: string | null
           title: string | null
           type: string | null
@@ -465,7 +465,7 @@ export type Database = {
           repertoire?: string | null
           sign_in_code?: string | null
           start_time?: string | null
-          target_section?: string | null
+          target_section?: string[] | null
           time?: string | null
           title?: string | null
           type?: string | null
@@ -484,7 +484,7 @@ export type Database = {
           repertoire?: string | null
           sign_in_code?: string | null
           start_time?: string | null
-          target_section?: string | null
+          target_section?: string[] | null
           time?: string | null
           title?: string | null
           type?: string | null
