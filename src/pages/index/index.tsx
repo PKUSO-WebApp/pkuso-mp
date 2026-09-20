@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
-import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
+import Taro, { useDidShow, usePullDownRefresh, useShareAppMessage } from '@tarojs/taro'
 import { useRehearsals } from '@/hooks/useRehearsals'
 import { useAnnouncements } from '@/hooks/useAnnouncements'
 import { useMyProfile } from '@/hooks/useMyProfile'
@@ -8,12 +8,11 @@ import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { dataSyncBump } from '@/lib/dataSync'
 import { tAppError } from '@/lib/appError'
-import { parseLocalISO } from '@/lib/date-utils'
+import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
 import { ListState } from '@/components/ui/ListState'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 
-import { isRehearsalWithinNextWeek } from '@/lib/rehearsal-utils'
 import {
   isRehearsalUpdated,
   isRehearsalEnded,
@@ -57,6 +56,13 @@ export default function Index() {
     void fetchRehearsals({ silent: true })
     void fetchAnnouncement({ silent: true })
     dataSyncBump()
+
+    // 根据登录状态控制右上角转发菜单
+    if (isGuest) {
+      wx.hideShareMenu()
+    } else {
+      wx.showShareMenu({ menus: ['shareAppMessage'] })
+    }
   })
 
   // 下拉刷新：静默重取排练与公告
@@ -89,14 +95,20 @@ export default function Index() {
       return sortEndedFullRehearsals(rehearsals, now)
     }
     // 合排 tab：显示所有未来的合排（取消「未来一周」限制，但仍过滤掉已结束的）
-    // 分排 tab：保持「未来一周」限制
+    // 分排 tab：保持「未来一周」限制，且仅显示用户声部匹配的分排
     const filtered = rehearsals.filter((r) => {
       if (r.type !== scheduleTab) return false
       if (scheduleTab === 'full') return !isRehearsalEnded(r, now)
-      return isRehearsalWithinNextWeek(r.start_time, now)
+      // 分排：仅显示目标声部包含用户声部的排练
+      if (!myProfile?.instrument) return false
+      // 兼容旧数据：target_section 可能是字符串（旧格式）或数组（新格式）
+      const rawTargets = r.target_section
+      const targets = Array.isArray(rawTargets) ? rawTargets : rawTargets ? [rawTargets] : []
+      if (targets.length === 0) return false // 空 = 仅管理员可见
+      return targets.includes(myProfile.instrument)
     })
     return sortRehearsalsForMember(filtered, now)
-  }, [rehearsals, scheduleTab, nowTick])
+  }, [rehearsals, scheduleTab, nowTick, myProfile?.instrument])
 
   // 公告列表：根据 tab 和公告状态决定显示
   // - 合排 tab：仅显示最新的一条未过期公告（end_time > now）
@@ -143,6 +155,60 @@ export default function Index() {
   useEffect(() => {
     setRehearsalUnviewedFlag(hasUnviewed)
   }, [hasUnviewed])
+
+  // 分享：基于当前 tab 的排练日期范围生成标题
+  const shareTitle = useMemo(() => {
+    if (rehearsalList.length === 0) {
+      const today = getLocalDateString()
+      const todayDate = new Date(today + 'T00:00:00')
+      const endDate = new Date(todayDate)
+      endDate.setDate(todayDate.getDate() + 7)
+      const startStr = `${todayDate.getMonth() + 1}.${todayDate.getDate()}`
+      const endStr = `${endDate.getMonth() + 1}.${endDate.getDate()}`
+      if (scheduleTab === 'full') return t('schedule.share.fullTitle', { start: startStr, end: endStr })
+      if (scheduleTab === 'section') return t('schedule.share.sectionTitle', { start: startStr, end: endStr })
+      return t('schedule.share.historyTitle', { start: startStr, end: endStr })
+    }
+    const times = rehearsalList
+      .map((r) => {
+        if (!r.start_time) return null
+        const start = parseLocalISO(r.start_time)
+        if (start.getFullYear() < 2000) return null
+        let endMs = start.getTime() + 3 * 60 * 60 * 1000
+        if (r.end_time) {
+          const end = parseLocalISO(r.end_time)
+          if (end.getFullYear() >= 2000) endMs = end.getTime()
+        }
+        return { startMs: start.getTime(), endMs }
+      })
+      .filter((item): item is { startMs: number; endMs: number } => item !== null)
+    if (times.length === 0) {
+      const today = getLocalDateString()
+      const todayDate = new Date(today + 'T00:00:00')
+      const endDate = new Date(todayDate)
+      endDate.setDate(todayDate.getDate() + 7)
+      const startStr = `${todayDate.getMonth() + 1}.${todayDate.getDate()}`
+      const endStr = `${endDate.getMonth() + 1}.${endDate.getDate()}`
+      if (scheduleTab === 'full') return t('schedule.share.fullTitle', { start: startStr, end: endStr })
+      if (scheduleTab === 'section') return t('schedule.share.sectionTitle', { start: startStr, end: endStr })
+      return t('schedule.share.historyTitle', { start: startStr, end: endStr })
+    }
+    const minStart = Math.min(...times.map((item) => item.startMs))
+    const maxEnd = Math.max(...times.map((item) => item.endMs))
+    const startDate = new Date(minStart)
+    const endDate = new Date(maxEnd)
+    const startStr = `${startDate.getMonth() + 1}.${startDate.getDate()}`
+    const endStr = `${endDate.getMonth() + 1}.${endDate.getDate()}`
+    if (scheduleTab === 'full') return t('schedule.share.fullTitle', { start: startStr, end: endStr })
+    if (scheduleTab === 'section') return t('schedule.share.sectionTitle', { start: startStr, end: endStr })
+    return t('schedule.share.historyTitle', { start: startStr, end: endStr })
+  }, [rehearsalList, scheduleTab, t])
+
+  // 分享回调（未登录时不分享）
+  useShareAppMessage(() => {
+    if (isGuest) return { title: '' }
+    return { title: shareTitle }
+  })
 
   // 游客模式：未登录时显示空态提示（必须在 admin 检查之前，避免 useMyProfile 在无 user 时误查全表）
   if (isGuest) {

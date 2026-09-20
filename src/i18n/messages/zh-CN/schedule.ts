@@ -82,4 +82,9 @@ export const schedule = {
     date: '日期',
     author: '预约人',
   },
+  share: {
+    fullTitle: '{start} - {end} 合排日程',
+    sectionTitle: '{start} - {end} 分排日程',
+    historyTitle: '{start} - {end} 历史合排日程',
+  },
 }

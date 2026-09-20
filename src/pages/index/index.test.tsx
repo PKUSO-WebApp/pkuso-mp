@@ -35,6 +35,7 @@ vi.mock('@tarojs/taro', () => ({
   },
   useDidShow: vi.fn(),
   usePullDownRefresh: vi.fn(),
+  useShareAppMessage: vi.fn(),
 }))
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))

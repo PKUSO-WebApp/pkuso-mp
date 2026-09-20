@@ -21,6 +21,14 @@ const INSTRUMENT_CODE: Record<string, InstrumentCode> = {
   其他: 'other',
 }
 
+// 声部组 → i18n code（与 messages/*/instruments.ts 的 sectionGroups key 对应）
+const SECTION_GROUP_CODE: Record<string, SectionGroupCode> = {
+  弦乐: 'strings',
+  木管: 'woodwinds',
+  铜管: 'brass',
+  管乐: 'winds',
+}
+
 // 常见缩写 / 别名 → code。中文模式下保留原串（如「小提琴」保持「小提琴」），
 // 仅英文模式映射到规范译名（如「小提琴」→ "2nd Violin"）。
 const INSTRUMENT_ALIAS: Record<string, InstrumentCode> = {
@@ -83,6 +91,8 @@ type InstrumentCode =
   | 'keyboard'
   | 'harp'
   | 'other'
+
+type SectionGroupCode = 'strings' | 'woodwinds' | 'brass' | 'winds'
 
 /**
  * 将后端存储的乐器/声部中文串翻译为当前语言展示名。
@@ -154,4 +164,17 @@ export function matchInstrumentSection(query: string): string[] | null {
     }
   }
   return null
+}
+
+/**
+ * 将声部组中文名翻译为当前语言展示名。
+ * - 命中规范名：直接取对应语言译名（中文即原规范名）。
+ * - 未命中：返回原串（兜底）。
+ */
+export function translateSectionGroup(value: string | null | undefined, t: TFn): string {
+  const raw = (value ?? '').trim()
+  if (!raw) return ''
+  const code = SECTION_GROUP_CODE[raw]
+  if (!code) return raw
+  return t(`instruments.sectionGroups.${code}` as Parameters<TFn>[0])
 }

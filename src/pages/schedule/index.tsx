@@ -124,20 +124,20 @@ export default function Schedule() {
             其实际高度由 createSelectorQuery 测量后取 max(480, 实测) 赋给甘特图，使长屏撑满、矮屏保底
             480px 不挤字。页面根已预留 tabBar 50px+安全区，故可滚到底不遮挡 */}
       <View className='relative mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'>
-          <ScrollView scrollY id='schedule-gantt-scroll' className='h-full'>
-            {/* 空日期由甘特图自身渲染（时间轴+网格线，无预约块）；loadingOnlyWhenEmpty=false 让 loading 时直接显示加载态，不渲染甘特图 */}
-            <ListState loading={loading} loadingOnlyWhenEmpty={false} error={tAppError(t, error)}>
-              <ScheduleGantt
-                schedules={filteredSchedules}
-                selectedDate={selectedDate}
-                user={user}
-                remove={remove}
-                height={ganttHeight}
-                getAuthorName={getAuthorName}
-                ensureAuthorName={ensureAuthorName}
-              />
-            </ListState>
-          </ScrollView>
+        <ScrollView scrollY id='schedule-gantt-scroll' className='h-full'>
+          {/* 空日期由甘特图自身渲染（时间轴+网格线，无预约块）；loadingOnlyWhenEmpty=false 让 loading 时直接显示加载态，不渲染甘特图 */}
+          <ListState loading={loading} loadingOnlyWhenEmpty={false} error={tAppError(t, error)}>
+            <ScheduleGantt
+              schedules={filteredSchedules}
+              selectedDate={selectedDate}
+              user={user}
+              remove={remove}
+              height={ganttHeight}
+              getAuthorName={getAuthorName}
+              ensureAuthorName={ensureAuthorName}
+            />
+          </ListState>
+        </ScrollView>
 
         {/* 添加预约按钮：钉在甘特图容器右下角，不随内部滚动移动；
             任意 Modal 打开时隐藏，避免部分 iOS 上按钮盖在底部弹窗之上；

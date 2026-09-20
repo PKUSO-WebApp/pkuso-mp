@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { useUser } from '@/context/user-context'
-import { useProfiles } from '@/hooks/useProfiles'
+import { singleUserCache, subscribeSingleUserCache } from '@/hooks/useProfiles'
 import type { ProfileRow } from '@/types/database'
 
 export type MyProfileResult = {
@@ -10,12 +11,44 @@ export type MyProfileResult = {
 }
 
 /**
- * 当前登录用户的 profile（经 profiles_roster 视图按 userId 查询，本人永远看到未掩码原值）。
- * user 未就绪时传显式 undefined，useProfiles 跳过请求返回空列表（不退化全表查询）。
- * 供页面获取姓名/角色（管理端阻断判断）等自身信息，避免各页面重复拼 useProfiles 调用。
+ * 当前登录用户的 profile（直接读取模块级缓存并订阅变更，确保修改声部后即时生效）。
  */
 export function useMyProfile(): MyProfileResult {
   const { user } = useUser()
-  const { data, loading } = useProfiles(user ? { userId: user.id } : undefined)
-  return { profile: data[0] ?? null, loading }
+  const userId = user?.id
+
+  // 直接从缓存读取初始值
+  const [profile, setProfile] = useState<ProfileRow | null>(
+    userId ? (singleUserCache.get(userId)?.[0] ?? null) : null
+  )
+  const [loading, setLoading] = useState(true)
+
+  // 订阅缓存变更
+  useEffect(() => {
+    if (!userId) {
+      setProfile(null)
+      setLoading(false)
+      return
+    }
+
+    // 检查缓存是否已有数据
+    const cached = singleUserCache.get(userId)
+    if (cached) {
+      setProfile(cached[0] ?? null)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
+
+    // 订阅缓存变更
+    const unsubscribe = subscribeSingleUserCache(userId, () => {
+      const updated = singleUserCache.get(userId)
+      setProfile(updated?.[0] ?? null)
+      setLoading(false)
+    })
+
+    return unsubscribe
+  }, [userId])
+
+  return { profile, loading }
 }

@@ -6,12 +6,7 @@ $skeleton-dark-bg: #374151;
 $skeleton-dark-highlight: #4b5563;
 
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    $skeleton-bg 25%,
-    $skeleton-highlight 50%,
-    $skeleton-bg 75%
-  );
+  background: linear-gradient(90deg, $skeleton-bg 25%, $skeleton-highlight 50%, $skeleton-bg 75%);
   background-size: 200% 100%;
   animation: skeleton-loading 1.5s ease-in-out infinite;
   border-radius: 4px;

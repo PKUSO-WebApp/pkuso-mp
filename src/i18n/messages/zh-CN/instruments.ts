@@ -19,3 +19,10 @@ export const instruments = {
   harp: '竖琴',
   other: '其他',
 }
+
+export const sectionGroups = {
+  strings: '弦乐',
+  woodwinds: '木管',
+  brass: '铜管',
+  winds: '管乐',
+}
