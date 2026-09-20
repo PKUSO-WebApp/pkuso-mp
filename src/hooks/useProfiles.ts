@@ -61,19 +61,19 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
   // （如 profile 页 user 未就绪，跳过请求，避免退化为全表 select）
   const hasExplicitUndefinedUserId = filter != null && 'userId' in filter && userId === undefined
 
-  const fetch = useCallback(async () => {
+  const fetch = useCallback(async (opts?: { silent?: boolean }) => {
     if (!mountedRef.current) return
     const seq = ++fetchSeqRef.current
 
     // 调用方明确传了 userId: undefined（如 profile 页 user 未就绪）：不发请求，返回空列表
     if (hasExplicitUndefinedUserId) {
-      setLoading(false)
+      if (!opts?.silent) setLoading(false)
       setData([])
       setError(null)
       return
     }
 
-    setLoading(true)
+    if (!opts?.silent) setLoading(true)
     setError(null)
 
     // 查询改走 profiles_roster 视图（SECURITY DEFINER）——直查 profiles 表

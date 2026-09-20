@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { View, Text, ScrollView, Image, Input } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
@@ -126,10 +126,18 @@ export default function Profile() {
   }, [refreshNotifications])
 
   // A：每次切回「我的」tab 重新拉未读数，并重置全局轮询计时器
+  // 资料静默刷新：已有数据时不翻 loading，避免卡片闪烁
   useDidShow(() => {
     void refreshNotifications()
     dataSyncBump()
+    void refetchProfiles({ silent: true })
+  })
+
+  // 下拉刷新：重取资料与未读数
+  usePullDownRefresh(() => {
     void refetchProfiles()
+    void refreshNotifications({ silent: true })
+    Taro.stopPullDownRefresh()
   })
 
   // 换绑邮箱后同步 profiles.email（Issue #199 语义）：
