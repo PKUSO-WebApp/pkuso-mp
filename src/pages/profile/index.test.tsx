@@ -16,6 +16,8 @@ const { taroMock, updateProfileMock, notif, pickerProps } = vi.hoisted(() => ({
     showTabBarRedDot: vi.fn(() => Promise.resolve()),
     hideTabBarRedDot: vi.fn(() => Promise.resolve()),
     useDidShow: vi.fn(),
+    usePullDownRefresh: vi.fn(),
+    stopPullDownRefresh: vi.fn(),
   },
   updateProfileMock: vi.fn(async (_id: string, _payload: any) => true),
   notif: { totalUnread: 3 },
@@ -46,7 +48,7 @@ vi.mock('@tarojs/components', () => {
   }
 })
 
-vi.mock('@tarojs/taro', () => ({ default: taroMock, useDidShow: taroMock.useDidShow }))
+vi.mock('@tarojs/taro', () => ({ default: taroMock, useDidShow: taroMock.useDidShow, usePullDownRefresh: taroMock.usePullDownRefresh }))
 vi.mock('@/context/theme-context', () => ({
   useThemeClass: () => '',
   useThemeContext: () => ({ mode: 'light', preference: 'light', setPreference: vi.fn() }),

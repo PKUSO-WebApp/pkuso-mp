@@ -1,6 +1,6 @@
 import { useLayoutEffect, useEffect, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { dataSyncBump } from '@/lib/dataSync'
 import { tAppError } from '@/lib/appError'
 import { useSchedule } from '@/hooks/useSchedule'
@@ -88,6 +88,12 @@ export default function Schedule() {
     }
     void fetch(selectedDateRef.current, { silent: true })
     dataSyncBump()
+  })
+
+  // 下拉刷新：静默重取当前日期预约
+  usePullDownRefresh(() => {
+    void fetch(selectedDateRef.current, { silent: true })
+    Taro.stopPullDownRefresh()
   })
 
   // 当前日期的预约：走 hook 内存切片（含跨天）
