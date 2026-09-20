@@ -13,7 +13,6 @@ import { ListState } from '@/components/ui/ListState'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 
-import { isRehearsalWithinNextWeek } from '@/lib/rehearsal-utils'
 import {
   isRehearsalUpdated,
   isRehearsalEnded,
@@ -89,14 +88,20 @@ export default function Index() {
       return sortEndedFullRehearsals(rehearsals, now)
     }
     // 合排 tab：显示所有未来的合排（取消「未来一周」限制，但仍过滤掉已结束的）
-    // 分排 tab：保持「未来一周」限制
+    // 分排 tab：保持「未来一周」限制，且仅显示用户声部匹配的分排
     const filtered = rehearsals.filter((r) => {
       if (r.type !== scheduleTab) return false
       if (scheduleTab === 'full') return !isRehearsalEnded(r, now)
-      return isRehearsalWithinNextWeek(r.start_time, now)
+      // 分排：仅显示目标声部包含用户声部的排练
+      if (!myProfile?.instrument) return false
+      // 兼容旧数据：target_section 可能是字符串（旧格式）或数组（新格式）
+      const rawTargets = r.target_section
+      const targets = Array.isArray(rawTargets) ? rawTargets : (rawTargets ? [rawTargets] : [])
+      if (targets.length === 0) return false // 空 = 仅管理员可见
+      return targets.includes(myProfile.instrument)
     })
     return sortRehearsalsForMember(filtered, now)
-  }, [rehearsals, scheduleTab, nowTick])
+  }, [rehearsals, scheduleTab, nowTick, myProfile?.instrument])
 
   // 公告列表：根据 tab 和公告状态决定显示
   // - 合排 tab：仅显示最新的一条未过期公告（end_time > now）

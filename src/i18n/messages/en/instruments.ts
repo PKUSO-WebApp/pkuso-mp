@@ -18,3 +18,10 @@ export const instruments = {
   harp: 'Harp',
   other: 'Others',
 }
+
+export const sectionGroups = {
+  strings: 'Strings',
+  woodwinds: 'Woodwinds',
+  brass: 'Brass',
+  winds: 'Winds',
+}

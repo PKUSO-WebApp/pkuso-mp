@@ -5,8 +5,12 @@ import { StatusChip } from '@/components/ui/StatusChip'
 import { formatRehearsalCardParts } from '@/lib/date-utils'
 import { getUpdatedFields } from '@/lib/rehearsal-sort'
 import { useT } from '@/i18n'
-import { translateInstrument } from '@/lib/instrument-i18n'
+import { getSectionGroupLabel } from '@/constants/instruments'
 import type { RehearsalRow } from '@/types/database'
+
+function normalizeTargets(target: unknown): string[] {
+  return Array.isArray(target) ? target : (target ? [target] : [])
+}
 
 type Props = {
   item: RehearsalRow
@@ -49,7 +53,7 @@ export function RehearsalCard({ item, onClick, isUpdated, seen }: Props) {
         <Text className='mt-1 block text-sm text-text-muted'>
           {item.location || t('home.locationUnset')}
           {item.type === 'section' && item.target_section
-            ? ` · ${t('home.targetSection')}${translateInstrument(item.target_section, t)}`
+            ? ` · ${t('home.targetSection')}${getSectionGroupLabel(normalizeTargets(item.target_section))}`
             : ''}
         </Text>
 
