@@ -1,7 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import { logDiag } from '@/lib/session-diag'
 
-export type SyncEntity = 'rehearsals' | 'announcements' | 'notifications' | 'leave' | 'post' | 'schedules'
+export type SyncEntity =
+  'rehearsals' | 'announcements' | 'notifications' | 'leave' | 'post' | 'schedules'
 
 type Listener = () => void
 const listeners: Record<SyncEntity, Set<Listener>> = {

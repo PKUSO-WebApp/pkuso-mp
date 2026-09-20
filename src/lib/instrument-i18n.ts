@@ -92,11 +92,7 @@ type InstrumentCode =
   | 'harp'
   | 'other'
 
-type SectionGroupCode =
-  | 'strings'
-  | 'woodwinds'
-  | 'brass'
-  | 'winds'
+type SectionGroupCode = 'strings' | 'woodwinds' | 'brass' | 'winds'
 
 /**
  * 将后端存储的乐器/声部中文串翻译为当前语言展示名。

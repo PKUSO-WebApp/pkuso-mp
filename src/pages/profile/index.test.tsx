@@ -48,7 +48,11 @@ vi.mock('@tarojs/components', () => {
   }
 })
 
-vi.mock('@tarojs/taro', () => ({ default: taroMock, useDidShow: taroMock.useDidShow, usePullDownRefresh: taroMock.usePullDownRefresh }))
+vi.mock('@tarojs/taro', () => ({
+  default: taroMock,
+  useDidShow: taroMock.useDidShow,
+  usePullDownRefresh: taroMock.usePullDownRefresh,
+}))
 vi.mock('@/context/theme-context', () => ({
   useThemeClass: () => '',
   useThemeContext: () => ({ mode: 'light', preference: 'light', setPreference: vi.fn() }),
