@@ -96,7 +96,7 @@ export default function Index() {
       if (!myProfile?.instrument) return false
       // 兼容旧数据：target_section 可能是字符串（旧格式）或数组（新格式）
       const rawTargets = r.target_section
-      const targets = Array.isArray(rawTargets) ? rawTargets : rawTargets ? [rawTargets] : []
+      const targets = Array.isArray(rawTargets) ? rawTargets : (rawTargets ? [rawTargets] : [])
       if (targets.length === 0) return false // 空 = 仅管理员可见
       return targets.includes(myProfile.instrument)
     })

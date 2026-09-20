@@ -19,7 +19,7 @@ import { getSectionGroupLabel } from '@/constants/instruments'
 import './index.scss'
 
 function normalizeTargets(target: unknown): string[] {
-  return Array.isArray(target) ? target : target ? [target] : []
+  return Array.isArray(target) ? target : (target ? [target] : [])
 }
 
 const mapSignInError = (

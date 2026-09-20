@@ -9,7 +9,7 @@ import { getSectionGroupLabel } from '@/constants/instruments'
 import type { RehearsalRow } from '@/types/database'
 
 function normalizeTargets(target: unknown): string[] {
-  return Array.isArray(target) ? target : target ? [target] : []
+  return Array.isArray(target) ? target : (target ? [target] : [])
 }
 
 type Props = {
