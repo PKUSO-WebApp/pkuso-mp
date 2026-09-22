@@ -1,10 +1,16 @@
-export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: '14.5'
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -55,44 +61,44 @@ export type Database = {
           id: number
           rehearsal_id: number
           sign_in_time: string | null
-          status: Database['public']['Enums']['attendanceStatus'] | null
+          status: Database["public"]["Enums"]["attendanceStatus"] | null
           user_id: string
         }
         Insert: {
           id?: never
           rehearsal_id: number
           sign_in_time?: string | null
-          status?: Database['public']['Enums']['attendanceStatus'] | null
+          status?: Database["public"]["Enums"]["attendanceStatus"] | null
           user_id: string
         }
         Update: {
           id?: never
           rehearsal_id?: number
           sign_in_time?: string | null
-          status?: Database['public']['Enums']['attendanceStatus'] | null
+          status?: Database["public"]["Enums"]["attendanceStatus"] | null
           user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: 'attendances_rehearsal_id_fkey'
-            columns: ['rehearsal_id']
+            foreignKeyName: "attendances_rehearsal_id_fkey"
+            columns: ["rehearsal_id"]
             isOneToOne: false
-            referencedRelation: 'rehearsals'
-            referencedColumns: ['id']
+            referencedRelation: "rehearsals"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'attendances_user_id_profiles_fkey'
-            columns: ['user_id']
+            foreignKeyName: "attendances_user_id_profiles_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'attendances_user_id_profiles_fkey'
-            columns: ['user_id']
+            foreignKeyName: "attendances_user_id_profiles_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles_roster'
-            referencedColumns: ['id']
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -120,18 +126,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'feedback_created_by_fkey'
-            columns: ['created_by']
+            foreignKeyName: "feedback_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'feedback_created_by_fkey'
-            columns: ['created_by']
+            foreignKeyName: "feedback_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: 'profiles_roster'
-            referencedColumns: ['id']
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -167,8 +173,8 @@ export type Database = {
           reason: string
           rehearsal_id: number
           reject_reason: string | null
-          status: Database['public']['Enums']['leaveStatus']
-          target_status: Database['public']['Enums']['attendanceStatus']
+          status: Database["public"]["Enums"]["leaveStatus"]
+          target_status: Database["public"]["Enums"]["attendanceStatus"]
           updated_at: string
           user_id: string
         }
@@ -179,8 +185,8 @@ export type Database = {
           reason: string
           rehearsal_id: number
           reject_reason?: string | null
-          status?: Database['public']['Enums']['leaveStatus']
-          target_status?: Database['public']['Enums']['attendanceStatus']
+          status?: Database["public"]["Enums"]["leaveStatus"]
+          target_status?: Database["public"]["Enums"]["attendanceStatus"]
           updated_at?: string
           user_id: string
         }
@@ -191,32 +197,32 @@ export type Database = {
           reason?: string
           rehearsal_id?: number
           reject_reason?: string | null
-          status?: Database['public']['Enums']['leaveStatus']
-          target_status?: Database['public']['Enums']['attendanceStatus']
+          status?: Database["public"]["Enums"]["leaveStatus"]
+          target_status?: Database["public"]["Enums"]["attendanceStatus"]
           updated_at?: string
           user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: 'leave_requests_rehearsal_id_fkey'
-            columns: ['rehearsal_id']
+            foreignKeyName: "leave_requests_rehearsal_id_fkey"
+            columns: ["rehearsal_id"]
             isOneToOne: false
-            referencedRelation: 'rehearsals'
-            referencedColumns: ['id']
+            referencedRelation: "rehearsals"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'leave_requests_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "leave_requests_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'leave_requests_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "leave_requests_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles_roster'
-            referencedColumns: ['id']
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -255,7 +261,7 @@ export type Database = {
       }
       notifications: {
         Row: {
-          category: Database['public']['Enums']['notificationCategory']
+          category: Database["public"]["Enums"]["notificationCategory"]
           content: string
           created_at: string
           id: string
@@ -264,7 +270,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          category: Database['public']['Enums']['notificationCategory']
+          category: Database["public"]["Enums"]["notificationCategory"]
           content: string
           created_at?: string
           id?: string
@@ -273,7 +279,7 @@ export type Database = {
           user_id: string
         }
         Update: {
-          category?: Database['public']['Enums']['notificationCategory']
+          category?: Database["public"]["Enums"]["notificationCategory"]
           content?: string
           created_at?: string
           id?: string
@@ -283,18 +289,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'notifications_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'notifications_user_id_fkey'
-            columns: ['user_id']
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: 'profiles_roster'
-            referencedColumns: ['id']
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -311,7 +317,7 @@ export type Database = {
           locked_by: string | null
           missing_sections: string | null
           title: string
-          type: Database['public']['Enums']['postType']
+          type: Database["public"]["Enums"]["postType"]
         }
         Insert: {
           author_id: string
@@ -325,7 +331,7 @@ export type Database = {
           locked_by?: string | null
           missing_sections?: string | null
           title: string
-          type?: Database['public']['Enums']['postType']
+          type?: Database["public"]["Enums"]["postType"]
         }
         Update: {
           author_id?: string
@@ -339,22 +345,22 @@ export type Database = {
           locked_by?: string | null
           missing_sections?: string | null
           title?: string
-          type?: Database['public']['Enums']['postType']
+          type?: Database["public"]["Enums"]["postType"]
         }
         Relationships: [
           {
-            foreignKeyName: 'posts_author_id_fkey'
-            columns: ['author_id']
+            foreignKeyName: "posts_author_id_fkey"
+            columns: ["author_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'posts_author_id_fkey'
-            columns: ['author_id']
+            foreignKeyName: "posts_author_id_fkey"
+            columns: ["author_id"]
             isOneToOne: false
-            referencedRelation: 'profiles_roster'
-            referencedColumns: ['id']
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -375,10 +381,10 @@ export type Database = {
           is_section_leader: boolean
           join_date: string | null
           phone_number: string | null
-          role: Database['public']['Enums']['profileRole'] | null
+          role: Database["public"]["Enums"]["profileRole"] | null
           session_started_at: string | null
           session_token: string | null
-          status: Database['public']['Enums']['profileStatus'] | null
+          status: Database["public"]["Enums"]["profileStatus"] | null
           wechat_openid: string | null
         }
         Insert: {
@@ -397,10 +403,10 @@ export type Database = {
           is_section_leader?: boolean
           join_date?: string | null
           phone_number?: string | null
-          role?: Database['public']['Enums']['profileRole'] | null
+          role?: Database["public"]["Enums"]["profileRole"] | null
           session_started_at?: string | null
           session_token?: string | null
-          status?: Database['public']['Enums']['profileStatus'] | null
+          status?: Database["public"]["Enums"]["profileStatus"] | null
           wechat_openid?: string | null
         }
         Update: {
@@ -419,10 +425,10 @@ export type Database = {
           is_section_leader?: boolean
           join_date?: string | null
           phone_number?: string | null
-          role?: Database['public']['Enums']['profileRole'] | null
+          role?: Database["public"]["Enums"]["profileRole"] | null
           session_started_at?: string | null
           session_token?: string | null
-          status?: Database['public']['Enums']['profileStatus'] | null
+          status?: Database["public"]["Enums"]["profileStatus"] | null
           wechat_openid?: string | null
         }
         Relationships: []
@@ -556,18 +562,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'schedule_groups_author_id_fkey'
-            columns: ['author_id']
+            foreignKeyName: "schedule_groups_author_id_fkey"
+            columns: ["author_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'schedule_groups_author_id_fkey'
-            columns: ['author_id']
+            foreignKeyName: "schedule_groups_author_id_fkey"
+            columns: ["author_id"]
             isOneToOne: false
-            referencedRelation: 'profiles_roster'
-            referencedColumns: ['id']
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -604,32 +610,251 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'schedules_author_id_fkey'
-            columns: ['author_id']
+            foreignKeyName: "schedules_author_id_fkey"
+            columns: ["author_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'schedules_author_id_fkey'
-            columns: ['author_id']
+            foreignKeyName: "schedules_author_id_fkey"
+            columns: ["author_id"]
             isOneToOne: false
-            referencedRelation: 'profiles_roster'
-            referencedColumns: ['id']
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'schedules_group_id_fkey'
-            columns: ['group_id']
+            foreignKeyName: "schedules_group_id_fkey"
+            columns: ["group_id"]
             isOneToOne: false
-            referencedRelation: 'schedule_groups'
-            referencedColumns: ['id']
+            referencedRelation: "schedule_groups"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'schedules_rehearsal_id_fkey'
-            columns: ['rehearsal_id']
+            foreignKeyName: "schedules_rehearsal_id_fkey"
+            columns: ["rehearsal_id"]
             isOneToOne: false
-            referencedRelation: 'rehearsals'
-            referencedColumns: ['id']
+            referencedRelation: "rehearsals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sheet_music: {
+        Row: {
+          composer: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          notes: string | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          composer?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          composer?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_music_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sheet_music_analysis_logs: {
+        Row: {
+          created_at: string | null
+          extracted_text: string | null
+          file_name: string
+          id: string
+          llm_result: Json | null
+          user_correction: Json | null
+        }
+        Insert: {
+          created_at?: string | null
+          extracted_text?: string | null
+          file_name: string
+          id?: string
+          llm_result?: Json | null
+          user_correction?: Json | null
+        }
+        Update: {
+          created_at?: string | null
+          extracted_text?: string | null
+          file_name?: string
+          id?: string
+          llm_result?: Json | null
+          user_correction?: Json | null
+        }
+        Relationships: []
+      }
+      sheet_music_distributions: {
+        Row: {
+          distributed_at: string | null
+          distributed_by: string | null
+          id: string
+          part_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          distributed_at?: string | null
+          distributed_by?: string | null
+          id?: string
+          part_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          distributed_at?: string | null
+          distributed_by?: string | null
+          id?: string
+          part_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_music_distributions_distributed_by_fkey"
+            columns: ["distributed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_distributions_distributed_by_fkey"
+            columns: ["distributed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_distributions_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music_parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_distributions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_distributions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sheet_music_files: {
+        Row: {
+          created_at: string | null
+          file_name: string
+          file_size: number | null
+          id: string
+          page_count: number | null
+          part_id: string | null
+          storage_path: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          file_name: string
+          file_size?: number | null
+          id?: string
+          page_count?: number | null
+          part_id?: string | null
+          storage_path: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          file_name?: string
+          file_size?: number | null
+          id?: string
+          page_count?: number | null
+          part_id?: string | null
+          storage_path?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_music_files_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music_parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_files_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_files_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sheet_music_parts: {
+        Row: {
+          created_at: string | null
+          id: string
+          instrument: string
+          sheet_music_id: string | null
+          sort_order: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          instrument: string
+          sheet_music_id?: string | null
+          sort_order?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          instrument?: string
+          sheet_music_id?: string | null
+          sort_order?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_music_parts_sheet_music_id_fkey"
+            columns: ["sheet_music_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -657,18 +882,18 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: 'system_notifications_publisher_id_fkey'
-            columns: ['publisher_id']
+            foreignKeyName: "system_notifications_publisher_id_fkey"
+            columns: ["publisher_id"]
             isOneToOne: false
-            referencedRelation: 'profiles'
-            referencedColumns: ['id']
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'system_notifications_publisher_id_fkey'
-            columns: ['publisher_id']
+            foreignKeyName: "system_notifications_publisher_id_fkey"
+            columns: ["publisher_id"]
             isOneToOne: false
-            referencedRelation: 'profiles_roster'
-            referencedColumns: ['id']
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -724,8 +949,8 @@ export type Database = {
           is_section_leader: boolean | null
           join_date: string | null
           phone_number: string | null
-          role: Database['public']['Enums']['profileRole'] | null
-          status: Database['public']['Enums']['profileStatus'] | null
+          role: Database["public"]["Enums"]["profileRole"] | null
+          status: Database["public"]["Enums"]["profileStatus"] | null
         }
         Insert: {
           avatar_url?: string | null
@@ -743,8 +968,8 @@ export type Database = {
           is_section_leader?: boolean | null
           join_date?: string | null
           phone_number?: never
-          role?: Database['public']['Enums']['profileRole'] | null
-          status?: Database['public']['Enums']['profileStatus'] | null
+          role?: Database["public"]["Enums"]["profileRole"] | null
+          status?: Database["public"]["Enums"]["profileStatus"] | null
         }
         Update: {
           avatar_url?: string | null
@@ -762,8 +987,8 @@ export type Database = {
           is_section_leader?: boolean | null
           join_date?: string | null
           phone_number?: never
-          role?: Database['public']['Enums']['profileRole'] | null
-          status?: Database['public']['Enums']['profileStatus'] | null
+          role?: Database["public"]["Enums"]["profileRole"] | null
+          status?: Database["public"]["Enums"]["profileStatus"] | null
         }
         Relationships: []
       }
@@ -773,9 +998,9 @@ export type Database = {
         Args: { p_rehearsal_id: number }
         Returns: {
           attachment_path: string
-          previous_status: Database['public']['Enums']['leaveStatus']
+          previous_status: Database["public"]["Enums"]["leaveStatus"]
           request_id: string
-          status: Database['public']['Enums']['leaveStatus']
+          status: Database["public"]["Enums"]["leaveStatus"]
         }[]
       }
       check_data_versions: { Args: never; Returns: Json }
@@ -788,7 +1013,7 @@ export type Database = {
         Returns: {
           email: string
           full_name: string
-          status: Database['public']['Enums']['profileStatus']
+          status: Database["public"]["Enums"]["profileStatus"]
         }[]
       }
       get_my_session: {
@@ -810,7 +1035,7 @@ export type Database = {
           id: number
           rehearsal_id: number
           sign_in_time: string
-          status: Database['public']['Enums']['attendanceStatus']
+          status: Database["public"]["Enums"]["attendanceStatus"]
           user_id: string
         }[]
       }
@@ -823,12 +1048,17 @@ export type Database = {
       }
     }
     Enums: {
-      attendanceStatus: 'present' | 'late' | 'absent' | 'excused'
-      leaveStatus: 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'canceled'
-      notificationCategory: 'attendance' | 'activity' | 'system'
-      postType: 'ensemble' | 'gathering'
-      profileRole: 'member' | 'admin'
-      profileStatus: 'pending' | 'approved' | 'rejected'
+      attendanceStatus: "present" | "late" | "absent" | "excused"
+      leaveStatus:
+        | "pending"
+        | "approved"
+        | "rejected"
+        | "withdrawn"
+        | "canceled"
+      notificationCategory: "attendance" | "activity" | "system"
+      postType: "ensemble" | "gathering"
+      profileRole: "member" | "admin" | "score_manager"
+      profileStatus: "pending" | "approved" | "rejected"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -836,31 +1066,33 @@ export type Database = {
   }
 }
 
-type DatabaseWithoutInternals = Omit<Database, '__InternalSupabase'>
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, 'public'>]
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema['Tables'] & DefaultSchema['Views'])
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
     : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])[TableName] extends {
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
     ? R
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema['Tables'] & DefaultSchema['Views'])
-    ? (DefaultSchema['Tables'] & DefaultSchema['Views'])[DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
         Row: infer R
       }
       ? R
@@ -869,22 +1101,23 @@ export type Tables<
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    keyof DefaultSchema['Tables'] | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Insert: infer I
     }
     ? I
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema['Tables']
-    ? DefaultSchema['Tables'][DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
         Insert: infer I
       }
       ? I
@@ -893,22 +1126,23 @@ export type TablesInsert<
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    keyof DefaultSchema['Tables'] | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Update: infer U
     }
     ? U
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema['Tables']
-    ? DefaultSchema['Tables'][DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
         Update: infer U
       }
       ? U
@@ -917,45 +1151,47 @@ export type TablesUpdate<
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    keyof DefaultSchema['Enums'] | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
   EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums'][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema['Enums']
-    ? DefaultSchema['Enums'][DefaultSchemaEnumNameOrOptions]
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
     : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    keyof DefaultSchema['CompositeTypes'] | { schema: keyof DatabaseWithoutInternals },
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes']
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
     : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes'][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema['CompositeTypes']
-    ? DefaultSchema['CompositeTypes'][PublicCompositeTypeNameOrOptions]
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
 export const Constants = {
   public: {
     Enums: {
-      attendanceStatus: ['present', 'late', 'absent', 'excused'],
-      leaveStatus: ['pending', 'approved', 'rejected', 'withdrawn', 'canceled'],
-      notificationCategory: ['attendance', 'activity', 'system'],
-      postType: ['ensemble', 'gathering'],
-      profileRole: ['member', 'admin'],
-      profileStatus: ['pending', 'approved', 'rejected'],
+      attendanceStatus: ["present", "late", "absent", "excused"],
+      leaveStatus: ["pending", "approved", "rejected", "withdrawn", "canceled"],
+      notificationCategory: ["attendance", "activity", "system"],
+      postType: ["ensemble", "gathering"],
+      profileRole: ["member", "admin", "score_manager"],
+      profileStatus: ["pending", "approved", "rejected"],
     },
   },
 } as const
