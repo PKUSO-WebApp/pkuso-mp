@@ -29,3 +29,11 @@ declare module '@vendor/wechat-miniprogram-pdf' {
   }
   export function createPdfEngine(options?: Record<string, unknown>): PdfEngine
 }
+
+// JBIG2 回退件（构建期由 scripts/build-pdf-runtime.mjs 从 pdfjs-dist 降级生成）。
+// 默认导出是一个「返回解码器」的工厂函数，由 src/app.ts 挂到 globalThis 供
+// pdf 运行时取用——这样它打进主包，不占 score-reader 分包的 2MB 预算。
+declare module '@vendor/jbig2_nowasm_fallback' {
+  const jbig2Fallback: () => unknown
+  export default jbig2Fallback
+}
