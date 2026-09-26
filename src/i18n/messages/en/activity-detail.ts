@@ -6,6 +6,7 @@ export const activityDetail = {
     notApproved: 'Account not approved',
     outsideWindow: 'Outside the sign-in window',
     alreadySigned: 'Already signed in',
+    exempt: 'Marked as exempt — sign-in unavailable',
     tooFar: 'Too far from the check-in point. Please move closer.',
     locationRequired: 'Location unavailable. Check location permission.',
     locationDenied: 'Location not authorized. Enable it in Settings.',
