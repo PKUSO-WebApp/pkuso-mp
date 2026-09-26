@@ -12,7 +12,7 @@ import type { AttendanceRow } from '@/types/database'
 
 // 统计栏目顺序（只声明 key 顺序）：文案取 STATUS_LABEL、颜色取 STATUS_TEXT_COLOR，
 // 均从 attendance-status 派生（单一事实源）；「未签到/未评定」不参与分类
-const ATTENDANCE_SUMMARY_ITEMS: AttendanceSummaryKey[] = ['present', 'excused', 'absent']
+const ATTENDANCE_SUMMARY_ITEMS: AttendanceSummaryKey[] = ['present', 'excused', 'absent', 'exempt']
 
 /**
  * 考勤状态展示（与 Web 端 profile 考勤弹窗同源语义）：

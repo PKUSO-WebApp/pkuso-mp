@@ -23,6 +23,7 @@ export const activityDetail = {
     present: '出勤',
     notStarted: '未开始',
     excused: '已请假',
+    exempt: '无需出勤',
     absent: '缺勤',
     override: '覆盖签到',
     signIn: '签到',

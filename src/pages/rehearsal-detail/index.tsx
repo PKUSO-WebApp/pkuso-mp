@@ -267,7 +267,7 @@ export default function RehearsalDetail() {
     new Date(nowTick)
   )
   const rehearsalEnded = blockReason === 'ended'
-  const canRequestLeave = !(attendance?.status === 'present')
+  const canRequestLeave = attendance?.status !== 'present' && attendance?.status !== 'exempt'
 
   let signLabel = ''
   let signClass = 'bg-muted text-text-subtle'
@@ -279,6 +279,10 @@ export default function RehearsalDetail() {
   } else if (signedIn) {
     signLabel = t('activityDetail.status.present')
     signClass = 'bg-success-bg text-success'
+  } else if (explicitStatus === 'exempt') {
+    // 无需出勤（长期免出勤成员，管理员设置）：不参与签到。分支放在时间窗口判断之前，
+    // 使排练前后显示同一状态——否则结束后会落进 absent 分支误显示「缺勤」
+    signLabel = t('activityDetail.status.exempt')
   } else if (blockReason === 'not-started') {
     signLabel = t('activityDetail.status.notStarted')
   } else if (blockReason === 'ended') {
