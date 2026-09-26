@@ -5,11 +5,12 @@
  * 统计口径（与列表展示口径统一，占位判定共用 attendance-utils 的
  * isAbsentPlaceholder，与 getAttendanceDisplay 同源）：
  * - total 总排练数 = 区间内全部行数（含未签到/未评定行），保持用户原始语义
- *   「区间内总排练数」——total 可能大于三类之和，因未签到/未评定不参与分类；
- * - present/excused/absent 三类按展示口径计：absent 占位行（未签到 +
+ *   「区间内总排练数」——total 可能大于四类之和，因未签到/未评定不参与分类；
+ * - present/excused/absent/exempt 四类按展示口径计：absent 占位行（未签到 +
  *   排练未结束，列表显示「未签到」）不计入缺勤、不计入任何栏目；status 为 null
  *   （未评定/历史数据，列表显示「—」）同样不计入任何栏目——两者仅计入 total；
  * - 已结束排练的 absent（或已签到补签）占位解除，按原始 status 计入缺勤。
+ * - exempt（无需出勤）由管理员设置，按原始 status 直计，不并入其他栏目。
  * - 历史数据中的 late（迟到）视为 present（出席）计入。
  */
 
@@ -22,18 +23,20 @@ export type AttendanceSummary = {
   present: number
   excused: number
   absent: number
+  exempt: number
 }
 
 /** 统计栏目 key（渲染统计行用；文案/颜色派生见 profile 页统计区） */
 export type AttendanceSummaryKey = keyof Omit<AttendanceSummary, 'total'>
 
-/** 已知状态白名单：只对枚举内三值（present/absent/excused）计数，
+/** 已知状态白名单：只对枚举内各值（present/late/absent/excused/exempt）计数，
  *  历史 late 数据合并计入 present；未知/脏数据直接跳过，避免写入 NaN 垃圾键 */
 const KNOWN_ATTENDANCE_STATUSES: ReadonlySet<string> = new Set([
   'present',
   'late',
   'absent',
   'excused',
+  'exempt',
 ])
 
 /** 参与统计的行（与列表同源：status/sign_in_time + join 的排练起止时间，
@@ -55,6 +58,7 @@ export function summarizeAttendance(
     present: 0,
     excused: 0,
     absent: 0,
+    exempt: 0,
   }
   for (const row of rows) {
     if (row.status === null) {
@@ -74,7 +78,7 @@ export function summarizeAttendance(
       // 不计入缺勤、不计入任何栏目，仅计入 total
       continue
     }
-    // 已评定的非占位行：按原始 status 计三类（含已结束的 absent）
+    // 已评定的非占位行：按原始 status 计四类（含已结束的 absent、管理员设的 exempt）
     // 历史 late 数据合并计入 present
     if (KNOWN_ATTENDANCE_STATUSES.has(row.status)) {
       const key = row.status === 'late' ? 'present' : row.status

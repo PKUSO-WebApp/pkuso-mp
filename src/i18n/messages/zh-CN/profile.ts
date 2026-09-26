@@ -92,6 +92,7 @@ export const profile = {
       late: '迟到',
       absent: '缺勤',
       excused: '请假',
+      exempt: '无需出勤',
     },
     startDate: '开始日期',
     endDate: '结束日期',

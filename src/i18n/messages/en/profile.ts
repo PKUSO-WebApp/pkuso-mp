@@ -84,6 +84,7 @@ export const profile = {
       late: 'Late',
       absent: 'Absent',
       excused: 'Excused',
+      exempt: 'Exempt',
     },
     startDate: 'Start Date',
     endDate: 'End Date',

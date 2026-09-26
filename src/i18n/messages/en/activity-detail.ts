@@ -23,6 +23,7 @@ export const activityDetail = {
     present: 'Present',
     notStarted: 'Not Started',
     excused: 'Excused',
+    exempt: 'Exempt',
     absent: 'Absent',
     override: 'Override Sign-in',
     signIn: 'Sign In',
