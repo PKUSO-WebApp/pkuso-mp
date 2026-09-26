@@ -26,6 +26,10 @@ import usersActiveDark from '@/assets/icons/users-active-dark.png'
 import user from '@/assets/icons/user.png'
 import userActive from '@/assets/icons/user-active.png'
 import userActiveDark from '@/assets/icons/user-active-dark.png'
+// 谱务乐谱图标三色（与 app.config.ts 的 tabBar.list 同步）
+import score from '@/assets/icons/score.png'
+import scoreActive from '@/assets/icons/score-active.png'
+import scoreActiveDark from '@/assets/icons/score-active-dark.png'
 import { subscribeLocale, translateCurrent } from '@/i18n'
 
 // 底边栏 UI：由框架专用槽位组件 src/custom-tab-bar 渲染，状态（选中/未读/主题/Modal 覆盖）
@@ -50,6 +54,14 @@ const LIST = [
   //   selectedIcon: messageSquareActive,
   //   selectedIconDark: messageSquareActiveDark,
   // },
+  {
+    // 谱务：位于「首页（排练）」与「B108」之间；与 TAB_PAGE_PATHS / app.config 顺序一致
+    pagePath: '/pages/score/index',
+    key: 'ui.tabBar.score',
+    icon: score,
+    selectedIcon: scoreActive,
+    selectedIconDark: scoreActiveDark,
+  },
   {
     pagePath: '/pages/schedule/index',
     key: 'ui.tabBar.schedule',
@@ -137,8 +149,8 @@ export default class CustomTabBar extends Component {
   unsubLocale?: () => void
 
   switchTab = (idx: number) => {
-    // 未登录时点击"我的" tab，跳转到登录页
-    if (idx === 3 && !this.state.loggedIn) {
+    // 未登录时点击"我的" tab，跳转到登录页（新增/删减 tab 时此索引需同步调整）
+    if (idx === 4 && !this.state.loggedIn) {
       Taro.navigateTo({ url: '/pages/login/index' })
       return
     }
@@ -188,7 +200,7 @@ export default class CustomTabBar extends Component {
                   src={isSelected ? (dark ? tab.selectedIconDark : tab.selectedIcon) : tab.icon}
                   style={{ width: '24px', height: '24px' }}
                 />
-                {idx === 3 && unread > 0 && (
+                {idx === 4 && unread > 0 && (
                   <View
                     style={{
                       position: 'absolute',

@@ -19,6 +19,10 @@ export type ScheduleGroupRow = PublicSchema['Tables']['schedule_groups']['Row']
 export type LeaveRequestRow = PublicSchema['Tables']['leave_requests']['Row']
 export type NotificationRow = PublicSchema['Tables']['notifications']['Row']
 export type FeedbackRow = PublicSchema['Tables']['feedback']['Row']
+export type SheetMusicRow = PublicSchema['Tables']['sheet_music']['Row']
+export type SheetMusicPartRow = PublicSchema['Tables']['sheet_music_parts']['Row']
+export type SheetMusicFileRow = PublicSchema['Tables']['sheet_music_files']['Row']
+export type SheetMusicDistributionRow = PublicSchema['Tables']['sheet_music_distributions']['Row']
 
 // ---- 枚举类型(从 database.types.ts Enums 派生) ----
 export type ProfileStatus = PublicSchema['Enums']['profileStatus']

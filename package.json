@@ -1,6 +1,6 @@
 {
   "name": "pkuso-miniprogram",
-  "version": "0.4.24",
+  "version": "0.5.0",
   "private": true,
   "description": "PKUSO wechat miniprogram (member end)",
   "templateInfo": {
@@ -12,7 +12,8 @@
   "scripts": {
     "prepare": "husky",
     "new": "taro new",
-    "build:weapp": "taro build --type weapp",
+    "build:pdf-runtime": "node scripts/build-pdf-runtime.mjs",
+    "build:weapp": "node scripts/build-pdf-runtime.mjs && taro build --type weapp",
     "build:swan": "taro build --type swan",
     "build:alipay": "taro build --type alipay",
     "build:tt": "taro build --type tt",
@@ -21,7 +22,7 @@
     "build:qq": "taro build --type qq",
     "build:jd": "taro build --type jd",
     "build:harmony-hybrid": "taro build --type harmony-hybrid",
-    "dev:weapp": "cross-env NODE_ENV=development taro build --type weapp",
+    "dev:weapp": "node scripts/build-pdf-runtime.mjs && cross-env NODE_ENV=development taro build --type weapp",
     "dev:swan": "npm run build:swan -- --watch",
     "dev:alipay": "npm run build:alipay -- --watch",
     "dev:tt": "npm run build:tt -- --watch",
@@ -70,7 +71,8 @@
     "@tarojs/taro": "4.2.1",
     "pinyin-pro": "3.29.2",
     "react": "^18.0.0",
-    "react-dom": "^18.0.0"
+    "react-dom": "^18.0.0",
+    "wechat-miniprogram-pdf": "^0.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.4",
@@ -91,6 +93,7 @@
     "@types/webpack-env": "^1.13.6",
     "babel-preset-taro": "4.2.1",
     "cross-env": "^10.1.0",
+    "esbuild": "^0.28.2",
     "eslint": "^8.57.0",
     "eslint-config-taro": "4.2.1",
     "eslint-plugin-react": "^7.34.1",

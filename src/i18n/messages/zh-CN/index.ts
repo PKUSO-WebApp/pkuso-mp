@@ -20,6 +20,10 @@ import { members } from './members'
 import { myActivities } from './myActivities'
 import { ui } from './ui'
 import { instruments } from './instruments'
+import { score } from './score'
+import { scoreDetail } from './score-detail'
+import { scorePart } from './score-part'
+import { scoreReader } from './score-reader'
 
 // 按页聚合的中文字典（基准语言）。en 必须与之同型（缺/多 key 都会编译报错）。
 // 新增页面文案：在对应页文件加 key，并在本处聚合即可。
@@ -46,6 +50,10 @@ export const zhCN = {
   myActivities,
   ui,
   instruments,
+  score,
+  scoreDetail,
+  scorePart,
+  scoreReader,
 }
 
 export type ZHCNMessages = typeof zhCN

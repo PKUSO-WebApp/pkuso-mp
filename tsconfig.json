@@ -22,6 +22,11 @@
     "paths": {
       // TS5090 leading './'
       "@/*": ["./src/*"]
+      // 注意：不要为 @vendor/* 配 path 映射 —— 它会让 tsc 读入 2.1MB 的
+      // vendor/wechat-miniprogram-pdf.js 并触发 TS5.4.5 内部崩溃
+      // （Debug Failure. False expression）。@vendor/* 的类型由
+      // types/wechat-miniprogram-pdf.d.ts 的 ambient module 提供，
+      // webpack 侧解析由 config/index.ts 的 resolve.alias 负责。
     }
   },
   "include": ["./src", "./types", "./config"],

@@ -246,7 +246,7 @@ export default function LoginPage() {
                 <View className='flex items-center gap-2'>
                   <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
                     <Input
-                      className='h-10 w-full bg-transparent text-sm'
+                      className='h-10 w-full bg-transparent text-sm text-text'
                       placeholder={t('login.codePlaceholder')}
                       type='number'
                       maxlength={6}

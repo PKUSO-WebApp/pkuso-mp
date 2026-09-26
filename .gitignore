@@ -10,3 +10,4 @@ node_modules/
 .env.production
 project.private.config.json
 *.key
+vendor/*.js

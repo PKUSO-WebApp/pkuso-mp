@@ -24,6 +24,7 @@ export const ui = {
     home: 'Home',
     community: 'Community',
     schedule: 'B108',
+    score: 'Scores',
     members: 'Members',
     profile: 'Me',
   },

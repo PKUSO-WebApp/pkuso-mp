@@ -25,6 +25,18 @@ export default defineAppConfig({
     'pages/feedback/index',
     'pages/attendance/index',
     'pages/agreement/index',
+    'pages/score/index',
+    'pages/score-detail/index',
+    'pages/score-part/index',
+  ],
+  // 独立分包：PDF 渲染运行时（wechat-miniprogram-pdf，1.61MB）必须隔离在分包，
+  // 否则主包超微信 2MB 上限（主包基线约 1.5MB）
+  subpackages: [
+    {
+      root: 'pages/score-reader',
+      pages: ['index'],
+      name: 'scoreReader',
+    },
   ],
   // 原生 darkmode：系统暗色时原生顶栏/窗口按 theme.json 零延迟上色，消除冷启动白闪；
   // 手动覆盖仍由 setNavigationBarColor（useNavTitle / ThemeProvider）接管
@@ -56,6 +68,12 @@ export default defineAppConfig({
         text: '首页',
         iconPath: 'assets/icons/house.png',
         selectedIconPath: 'assets/icons/house-active.png',
+      },
+      {
+        pagePath: 'pages/score/index',
+        text: '谱务',
+        iconPath: 'assets/icons/score.png',
+        selectedIconPath: 'assets/icons/score-active.png',
       },
       // [FALLBACK] 社区页面因无法通过微信服务类目审核，暂时隐藏。恢复时取消注释。
       // {
