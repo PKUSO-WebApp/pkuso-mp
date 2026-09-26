@@ -6,6 +6,7 @@ export const activityDetail = {
     notApproved: '账号未通过审核',
     outsideWindow: '不在签到时间窗口内',
     alreadySigned: '已签到，不可重复签到',
+    exempt: '已被设为无需出勤，无法签到',
     tooFar: '距签到点过远，请靠近后重试',
     locationRequired: '未能获取定位，请检查定位权限',
     locationDenied: '未授权定位，请在设置中开启',

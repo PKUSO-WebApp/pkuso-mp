@@ -34,6 +34,9 @@ const mapSignInError = (
   if (msg.includes('not approved')) return tf('activityDetail.signIn.notApproved')
   if (msg.includes('outside the allowed window')) return tf('activityDetail.signIn.outsideWindow')
   if (msg.includes('already been signed')) return tf('activityDetail.signIn.alreadySigned')
+  // 服务端兜底：被设为「无需出勤」的成员签到会被拒（pkuso-backend#47）。
+  // 状态机已对该状态禁用签到按钮，这条只在陈旧客户端 / 页面打开期间被改时命中
+  if (msg.includes('attendance status is exempt')) return tf('activityDetail.signIn.exempt')
   return tf('activityDetail.signIn.failed')
 }
 
