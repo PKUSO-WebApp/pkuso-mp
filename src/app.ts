@@ -10,6 +10,7 @@ import { ErrorBoundary } from './components/error-boundary'
 import { logDiag, startSessionDiag } from './lib/session-diag'
 import { installSessionDiagFileSink } from './lib/session-diag-file'
 import { flushErrorQueue, reportClientError } from './lib/error-report'
+import { setRequestFailureReporter } from './lib/supabase'
 
 import './app.css'
 import './app.scss'
@@ -18,6 +19,10 @@ const IGNORE_ERRORS = [/not TabBar page/i]
 
 function App({ children }: PropsWithChildren<any>) {
   useLaunch(() => {
+    // 接上「请求失败统一上报」的口子。supabase.ts 不能直接 import error-report
+    // （后者依赖 supabase，会成环），只能在这里注入——漏了这行，全站的请求失败
+    // 都不会再上报。
+    setRequestFailureReporter(reportClientError)
     installSessionDiagFileSink()
     startSessionDiag()
     logDiag('app_launch', { env: process.env.TARO_ENV })
