@@ -132,7 +132,13 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
         : JSON.stringify(response.data)
     return createFetchResponse(response.statusCode, response.header, responseData)
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err)
+    // 微信的 Taro.request 失败时 reject 的是 `{ errMsg }` 对象、不是 Error 实例，
+    // 不优先取 errMsg 会得到 "[object Object]"（实测踩过）。此处内联而非复用
+    // error-report 的 describeError：supabase 是它的依赖，import 会成环。
+    const errMsg =
+      err instanceof Error
+        ? err.message
+        : ((err as { errMsg?: string } | null)?.errMsg ?? String(err))
     logDiag('http_error', { path: shortUrl, ms: Date.now() - startedAtMs, err: errMsg })
     // 网络层失败：DNS 解析不了（ERR_NAME_NOT_RESOLVED）/ 连接超时 / 网络切换……
     // 这正是「点了没反应」的真身，也是服务端永远看不到的那一半

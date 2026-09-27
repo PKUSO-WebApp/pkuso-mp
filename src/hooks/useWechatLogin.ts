@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import Taro from '@tarojs/taro'
 import { supabase as defaultClient } from '@/lib/supabase'
-import { reportClientError } from '@/lib/error-report'
+import { describeError, reportClientError } from '@/lib/error-report'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { useT } from '@/i18n'
 
@@ -34,7 +34,7 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
       } catch (err) {
         // wx.login 失败此前只塌缩成一句「微信登录失败」，而它恰恰是「点了没反应、
         // 服务端查不到任何请求」这类现象的最上游来源——errMsg 必须留下来。
-        const errMsg = (err as { errMsg?: string } | null)?.errMsg ?? String(err)
+        const errMsg = describeError(err)
         reportClientError({
           event: 'wechat_login',
           message: errMsg,
@@ -104,7 +104,7 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
             confirmText: t('login.goRegister'),
           })
         } catch (err) {
-          const errMsg = (err as { errMsg?: string } | null)?.errMsg ?? String(err)
+          const errMsg = describeError(err)
           reportClientError({
             event: 'wechat_login',
             message: `user_not_found 弹窗失败: ${errMsg}`,

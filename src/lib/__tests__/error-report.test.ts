@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { __resetErrorReportState, flushErrorQueue, reportClientError } from '../error-report'
+import {
+  __resetErrorReportState,
+  describeError,
+  flushErrorQueue,
+  reportClientError,
+} from '../error-report'
 
 // 本地 storage（队列就存在这里）
 const storage = new Map<string, string>()
 // 每次 insert 调用的报文数组
 const insertCalls: Record<string, unknown>[][] = []
-let insertMode: 'ok' | 'reject' | 'server_error' | 'throw' = 'ok'
+let insertMode: 'ok' | 'reject' | 'server_error' | 'throw' | 'network' = 'ok'
 
 vi.mock('@tarojs/taro', () => ({
   default: {
@@ -16,7 +21,7 @@ vi.mock('@tarojs/taro', () => ({
     removeStorageSync: (key: string) => {
       storage.delete(key)
     },
-    getSystemInfoSync: () => ({ platform: 'devtools' }),
+    getDeviceInfo: () => ({ platform: 'devtools' }),
     getCurrentPages: () => [{ route: 'pages/login/index' }],
   },
 }))
@@ -29,10 +34,27 @@ vi.mock('@/lib/supabase', () => ({
         insertCalls.push(batch)
         if (insertMode === 'throw') throw new Error('sync boom')
         if (insertMode === 'reject') return Promise.reject(new Error('network down'))
-        if (insertMode === 'server_error') {
-          return Promise.resolve({ error: { message: 'check constraint violated' } })
+        // postgrest-js 在网络失败时**不 reject**，而是 resolve 一个 status:0 的响应
+        // （见 postgrest-js/dist/index.cjs 的网络错误分支）——这里照实模拟
+        if (insertMode === 'network') {
+          return Promise.resolve({
+            data: null,
+            error: { message: 'FetchError: undefined', details: '', hint: '', code: '' },
+            status: 0,
+            count: null,
+            statusText: '',
+          })
         }
-        return Promise.resolve({ error: null })
+        if (insertMode === 'server_error') {
+          return Promise.resolve({
+            data: null,
+            error: { message: 'check constraint violated', details: '', hint: '', code: '23514' },
+            status: 400,
+            count: null,
+            statusText: 'Bad Request',
+          })
+        }
+        return Promise.resolve({ data: [], error: null, status: 201, count: null, statusText: 'Created' })
       },
     }),
   },
@@ -130,12 +152,37 @@ describe('reportClientError', () => {
     expect(readQueue()).toHaveLength(0)
   })
 
-  it('服务端拒绝时整批丢弃——毒丸不能永久堵住队列', async () => {
+  it('网络失败（postgrest 的 status:0 响应）必须保留队列——不能当成服务端拒绝丢掉', async () => {
+    // 回归用例：曾按「res.error 非空 = 服务端拒绝」处理，而 postgrest 在网络失败时
+    // 恰恰是 resolve 一个带 error、status 为 0 的响应，导致断网期间整队列被丢弃
+    insertMode = 'network'
+    reportClientError({ event: 'request_failed', message: 'net down A' })
+    await flush()
+
+    expect(readQueue()).toHaveLength(1)
+
+    // 网络恢复后仍能补送出去
+    insertMode = 'ok'
+    flushErrorQueue()
+    await flush()
+    expect(readQueue()).toHaveLength(0)
+    expect(insertCalls[insertCalls.length - 1][0].message).toBe('net down A')
+  })
+
+  it('服务端拒绝（带真实 HTTP 码）时整批丢弃——毒丸不能永久堵住队列', async () => {
     insertMode = 'server_error'
     reportClientError({ event: 'app_error', message: 'poison' })
     await flush()
 
     expect(readQueue()).toHaveLength(0)
+  })
+
+  it('describeError 能取出微信 errMsg 对象里的文本（而非 [object Object]）', () => {
+    expect(describeError(new Error('普通错误'))).toBe('普通错误')
+    // Taro.request 失败时 reject 的是这种对象
+    expect(describeError({ errMsg: 'request:fail timeout' })).toBe('request:fail timeout')
+    expect(describeError({ message: 'fallback message' })).toBe('fallback message')
+    expect(describeError(null)).toBe('null')
   })
 
   it('队列超限时丢最旧的，保留最新的', async () => {

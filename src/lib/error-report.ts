@@ -134,12 +134,26 @@ function fitDetail(detail: Record<string, unknown> | undefined): Json | null {
   return kept
 }
 
+/**
+ * 取错误的人类可读文本。
+ *
+ * 微信的 Taro.request 失败时 reject 的**不是 Error 实例**，而是 `{ errMsg }` 对象——
+ * 直接走 `instanceof Error ? err.message : String(err)` 只会得到 "[object Object]"，
+ * 库里就只剩「哪个端点挂了」这半条信息（实测踩过）。
+ */
+export function describeError(err: unknown): string {
+  if (err instanceof Error) return err.message
+  const e = err as { errMsg?: unknown; message?: unknown; error?: unknown } | null
+  const text = e?.errMsg ?? e?.message ?? e?.error
+  return typeof text === 'string' && text ? text : String(err)
+}
+
 function collectContext(): { platform: string | null; page: string | null; appVersion: string | null } {
   let platform: string | null = null
   try {
-    // platform（ios / android / devtools）只在 getSystemInfoSync 上，
-    // getAppBaseInfo 没有这个字段
-    const info = Taro.getSystemInfoSync?.() as { platform?: string } | undefined
+    // platform（ios / android / devtools）从 getDeviceInfo 取。
+    // 曾用 getSystemInfoSync——它已被微信废弃，每次调用都会在控制台刷一条 deprecation 告警。
+    const info = Taro.getDeviceInfo?.() as { platform?: string } | undefined
     platform = info?.platform ? truncate(String(info.platform), MAX_PLATFORM_LEN) : null
   } catch {
     // 取不到就不带
@@ -208,10 +222,16 @@ function removeSent(sent: QueueItem[]): void {
  * 把本地队列送出去。触发点：每次上报后、冷启动、网络恢复（见 app.ts）。
  *
  * 成败处理刻意不对称：
- * - **网络层失败**（promise reject）→ 保留队列，等下次补送。这是队列存在的理由。
- * - **服务端拒绝**（resolve 但带 error，通常 4xx）→ 丢弃**本批**并留痕。这类是「毒丸」，
- *   重试一万次也不会成功，留着会永久堵死排在它后面的记录；客户端已按库端上限截断过，
- *   真走到这里说明约束或权限有变，值得在 console 里露一面。
+ * - **网络层失败** → 保留队列，等下次补送。这是队列存在的理由。
+ * - **服务端拒绝**（通常 4xx）→ 丢弃**本批**并留痕。这类是「毒丸」，重试一万次也不会
+ *   成功，留着会永久堵死排在它后面的记录；客户端已按库端上限截断过，真走到这里说明
+ *   约束或权限有变，值得在 console 里露一面。
+ *
+ * ⚠️ 区分二者的依据是 **`res.status`，不能是「res.error 是否非空」**：
+ * postgrest-js 在 supabase-js 默认配置（shouldThrowOnError=false）下，把**网络失败**
+ * 也包装成 `{ data: null, error, status: 0 }` 并 **resolve** —— 也就是说下面那个 reject
+ * 回调对网络故障根本不会被走到。曾经按「error 非空即服务端拒绝」处理，结果断网期间的
+ * 记录被成批丢弃，而那恰恰是最该留下的那批（实测：一次断网丢掉整队列，只剩另一批侥幸送达）。
  *
  * ⚠️ 两个都不能用「清空队列」收尾：发送期间（异步窗口内）新报上来的记录会排在队尾，
  * 清空会把它们一并抹掉——那些记录既没送出去、也没留下，等于凭空丢失。
@@ -229,6 +249,8 @@ export function flushErrorQueue(): void {
       .then(
         (res) => {
           flushing = false
+          // status 0 = 网络层失败/中断（postgrest 的网络分支恒填 0）→ 保留队列等重试
+          if (res?.status === 0) return
           if (res?.error) {
             // eslint-disable-next-line no-console
             console.error('[error-report] 队列被服务端拒绝，已丢弃：', res.error.message)

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
-import { reportClientError } from '@/lib/error-report'
+import { describeError, reportClientError } from '@/lib/error-report'
 import { useCountdown } from './useCountdown'
 
 export type UseSendLoginCodeResult = {
@@ -51,7 +51,7 @@ export function useSendLoginCode(
       } catch (err) {
         reportClientError({
           event: 'send_login_code',
-          message: err instanceof Error ? err.message : String(err),
+          message: describeError(err),
           detail: { step: 'throw', errorName: (err as { name?: string })?.name },
         })
         return { success: false }
