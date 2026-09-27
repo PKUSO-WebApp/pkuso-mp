@@ -208,6 +208,20 @@ describe('LoginPage', () => {
     expect(loginWithWechatMock).toHaveBeenCalled()
   })
 
+  it('微信登录返回错误时把文案渲染到页面', async () => {
+    loginWithWechatMock.mockResolvedValue({ error: '微信登录失败，code 已过期，请重试' })
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '微信授权登录' }))
+    expect(await screen.findByText('微信登录失败，code 已过期，请重试')).toBeTruthy()
+  })
+
+  it('微信登录抛异常时降级为可读文案而非冒泡', async () => {
+    loginWithWechatMock.mockRejectedValue(new Error('routeAfterLogin failed'))
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '微信授权登录' }))
+    expect(await screen.findByText('微信登录失败，请重试')).toBeTruthy()
+  })
+
   it('切换到密码登录模式', () => {
     renderPage()
     // 初始为验证码模式，显示获取验证码按钮
