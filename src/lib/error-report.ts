@@ -148,7 +148,38 @@ export function describeError(err: unknown): string {
   return typeof text === 'string' && text ? text : String(err)
 }
 
-function collectContext(): { platform: string | null; page: string | null; appVersion: string | null } {
+// --- 网络状态（缓存值）---
+//
+// 「用户网络是不是通的」是每次排查的第一个问题，而 `getNetworkType` 只有异步版本，
+// 报错路径要的是同步可得的值 ⇒ 只能缓存。
+//
+// ⚠️ 因此它是**最近一次已知**的状态，不是失败那一刻的：字段名就叫 netLastKnown，
+// 别当成「当时就是这个网」。刷新点有三处：启动、系统网络变化回调、每次上报之后
+// （上报后刷一次，能让「连续报错」收敛到真实值）。
+// ⚠️ 开发者工具模拟离线**不会**触发 onNetworkStatusChange（模拟的是请求失败，不是
+// 系统网络状态），所以工具里这个字段会停在 wifi——那是工具的失真，不是设备的失真。
+let lastNetworkType: string | null = null
+
+/** 异步取一次当前网络类型并缓存；失败静默（它只是上下文，缺了不影响记录本身）。 */
+export function refreshNetworkType(): void {
+  try {
+    Taro.getNetworkType?.({
+      success: (res) => {
+        lastNetworkType = res?.networkType ? truncate(String(res.networkType), 16) : null
+      },
+      fail: () => {},
+    })
+  } catch {
+    // 取不到就沿用旧值
+  }
+}
+
+function collectContext(): {
+  platform: string | null
+  page: string | null
+  appVersion: string | null
+  netLastKnown: string | null
+} {
   let platform: string | null = null
   try {
     // platform（ios / android / devtools）从 getDeviceInfo 取。
@@ -167,7 +198,7 @@ function collectContext(): { platform: string | null; page: string | null; appVe
     // 同上
   }
   const appVersion = typeof APP_VERSION !== 'undefined' ? APP_VERSION : null
-  return { platform, page, appVersion }
+  return { platform, page, appVersion, netLastKnown: lastNetworkType }
 }
 
 // --- 本地队列的读写与补送 ---
@@ -289,12 +320,16 @@ export function reportClientError(input: ReportInput): void {
       source: 'mp',
       event: truncate(input.event, MAX_EVENT_LEN),
       message: message || null,
-      detail: fitDetail(input.detail),
+      // netLastKnown 拼在最后：detail 超预算时按顺序截断，它是最不该挤掉别人的那个
+      // （它只是背景信息，而 diag / step / ms 是对账用的）
+      detail: fitDetail({ ...(input.detail ?? {}), netLastKnown: ctx.netLastKnown }),
       app_version: ctx.appVersion,
       platform: ctx.platform,
       page: ctx.page,
     })
     flushErrorQueue()
+    // 让「下一条」记录的网络状态更接近真实（异步、不 await）
+    refreshNetworkType()
   } catch {
     // 上报自身绝不能影响业务，也绝不能抛出（会被 onUnhandledRejection 再抓一次）
   }
@@ -304,5 +339,6 @@ export function reportClientError(input: ReportInput): void {
 export function __resetErrorReportState(): void {
   lastSentAt.clear()
   writeQueue([])
+  lastNetworkType = null
 }
 

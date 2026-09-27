@@ -9,7 +9,7 @@ import { DataSyncProvider } from './components/data-sync-provider'
 import { ErrorBoundary } from './components/error-boundary'
 import { logDiag, startSessionDiag } from './lib/session-diag'
 import { installSessionDiagFileSink } from './lib/session-diag-file'
-import { flushErrorQueue, reportClientError } from './lib/error-report'
+import { flushErrorQueue, refreshNetworkType, reportClientError } from './lib/error-report'
 import { setRequestFailureReporter, setRequestSuccessHook } from './lib/supabase'
 
 import './app.css'
@@ -78,7 +78,11 @@ function App({ children }: PropsWithChildren<any>) {
     // 补送上次断网期间积压的错误记录：冷启动一次，网络恢复再一次
     // （错误发生的那一刻常常正是断网时刻，那次上报必然失败）
     flushErrorQueue()
+    // 网络状态是排查的第一个问题，但 getNetworkType 只有异步版，而报错路径要的是
+    // 同步可得的上下文 ⇒ 缓存一份，在这三处刷新（见 error-report.refreshNetworkType）
+    refreshNetworkType()
     Taro.onNetworkStatusChange?.((res) => {
+      refreshNetworkType()
       if (res.isConnected) flushErrorQueue()
     })
   })

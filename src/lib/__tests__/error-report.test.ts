@@ -12,6 +12,10 @@ const storage = new Map<string, string>()
 const insertCalls: Record<string, unknown>[][] = []
 let insertMode: 'ok' | 'reject' | 'server_error' | 'throw' | 'network' = 'ok'
 
+// 网络类型：真实 API 是异步的，而报错路径要同步可得 ⇒ 缓存。这里同步回调即可
+// 覆盖那条缓存路径。
+let networkType = 'wifi'
+
 vi.mock('@tarojs/taro', () => ({
   default: {
     getStorageSync: (key: string) => storage.get(key) ?? '',
@@ -23,6 +27,9 @@ vi.mock('@tarojs/taro', () => ({
     },
     getDeviceInfo: () => ({ platform: 'devtools' }),
     getCurrentPages: () => [{ route: 'pages/login/index' }],
+    getNetworkType: (opts: { success?: (res: { networkType: string }) => void }) => {
+      opts.success?.({ networkType })
+    },
   },
 }))
 
@@ -104,6 +111,41 @@ describe('reportClientError', () => {
     const t = Date.parse(sent)
     expect(Number.isFinite(t)).toBe(true)
     expect(t).toBeGreaterThanOrEqual(before)
+  })
+
+  it('detail 里带上网状态——它是「最近一次已知」的值，不是失败那一刻的', async () => {
+    networkType = 'wifi'
+    // 第一次上报：缓存还是空的（网络类型只有异步 API，报错路径同步取不到）
+    reportClientError({ event: 'app_error', message: 'first' })
+    await flush()
+    expect((insertCalls[0][0].detail as Record<string, unknown>).netLastKnown).toBeNull()
+
+    // 上一条上报结束时刷新了缓存 ⇒ 这一条就带上了。字段名刻意叫 netLastKnown：
+    // 名字里就写明它是「最近一次已知」，不该被读成「当时就是这个网」
+    networkType = '4g'
+    reportClientError({ event: 'app_error', message: 'second' })
+    await flush()
+    expect((insertCalls[1][0].detail as Record<string, unknown>).netLastKnown).toBe('wifi')
+
+    // 再下一条才收敛到 4g
+    reportClientError({ event: 'app_error', message: 'third' })
+    await flush()
+    expect((insertCalls[2][0].detail as Record<string, unknown>).netLastKnown).toBe('4g')
+  })
+
+  it('调用方自己的 detail 与网状态合并，不是二选一', async () => {
+    networkType = 'wifi'
+    reportClientError({
+      event: 'wechat_login',
+      message: 'merged',
+      detail: { step: 'invoke', diag: 'abc-1' },
+    })
+    await flush()
+
+    const detail = insertCalls[0][0].detail as Record<string, unknown>
+    expect(detail.step).toBe('invoke')
+    expect(detail.diag).toBe('abc-1')
+    expect(detail).toHaveProperty('netLastKnown')
   })
 
   // --- 本地队列：断网不丢 ---
