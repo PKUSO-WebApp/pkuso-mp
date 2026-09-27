@@ -58,6 +58,16 @@ export function setRequestFailureReporter(fn: RequestFailureReporter): void {
 // 上报端点自身绝不再上报：网络故障时若连上报请求都失败，会形成 上报→失败→上报 的循环
 const ERROR_REPORT_PATH = '/rest/v1/client_error_logs'
 
+// 请求成功 = 网络确实可用。这是「断网恢复」最可靠的信号：onNetworkStatusChange 在
+// 开发者工具模拟离线时未必触发（工具模拟的是请求失败，不一定改系统网络状态），
+// 而任何一次成功的业务请求都必然意味着网通了。由 app.ts 注入为 flushErrorQueue
+// （队列为空时它立即返回，所以挂在每个成功请求上也无额外开销）。
+let requestSuccessHook: (() => void) | null = null
+
+export function setRequestSuccessHook(fn: () => void): void {
+  requestSuccessHook = fn
+}
+
 function reportRequestFailure(
   url: string,
   method: string,
@@ -130,6 +140,15 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
       (typeof Blob !== 'undefined' && response.data instanceof Blob)
         ? response.data
         : JSON.stringify(response.data)
+    // 拿到了响应就说明网是通的（4xx/5xx 也算——那至少证明链路可达），
+    // 顺带把积压的错误队列送出去。排除上报端点自身，否则 flush 成功会再触发 flush。
+    if (!url.includes(ERROR_REPORT_PATH)) {
+      try {
+        requestSuccessHook?.()
+      } catch {
+        // 钩子绝不能反过来影响请求本身
+      }
+    }
     return createFetchResponse(response.statusCode, response.header, responseData)
   } catch (err) {
     // 微信的 Taro.request 失败时 reject 的是 `{ errMsg }` 对象、不是 Error 实例，

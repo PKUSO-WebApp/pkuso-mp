@@ -15,7 +15,7 @@ import { ErrorBoundary } from './components/error-boundary'
 import { logDiag, startSessionDiag } from './lib/session-diag'
 import { installSessionDiagFileSink } from './lib/session-diag-file'
 import { flushErrorQueue, reportClientError } from './lib/error-report'
-import { setRequestFailureReporter } from './lib/supabase'
+import { setRequestFailureReporter, setRequestSuccessHook } from './lib/supabase'
 
 import './app.css'
 import './app.scss'
@@ -30,6 +30,10 @@ function App({ children }: PropsWithChildren<any>) {
     // （后者依赖 supabase，会成环），只能在这里注入——漏了这行，全站的请求失败
     // 都不会再上报。
     setRequestFailureReporter(reportClientError)
+    // 任何一次成功的请求都意味着网通了——这是「断网恢复」最可靠的补送信号
+    // （onNetworkStatusChange 在开发者工具模拟离线时未必触发）。队列为空时
+    // flushErrorQueue 立即返回，挂在这里无额外开销。
+    setRequestSuccessHook(flushErrorQueue)
     installSessionDiagFileSink()
     startSessionDiag()
     logDiag('app_launch', { env: process.env.TARO_ENV })

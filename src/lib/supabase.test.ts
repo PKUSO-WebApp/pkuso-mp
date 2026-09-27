@@ -177,6 +177,33 @@ describe('supabase 官方客户端适配', () => {
     expect(reported).toHaveLength(3)
   })
 
+  it('请求成功后触发 success hook（供补送队列），但上报端点自身不触发', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+
+    const { taroFetch, setRequestSuccessHook } = await import('@/lib/supabase')
+    let hits = 0
+    setRequestSuccessHook(() => {
+      hits += 1
+    })
+
+    request.mockResolvedValueOnce({ statusCode: 200, header: {}, data: '{}' })
+    await taroFetch('https://project.supabase.co/rest/v1/posts')
+    expect(hits).toBe(1)
+
+    // 拿到响应就说明链路可达，4xx 也算「网通了」
+    request.mockResolvedValueOnce({ statusCode: 401, header: {}, data: '{}' })
+    await taroFetch('https://project.supabase.co/rest/v1/profiles')
+    expect(hits).toBe(2)
+
+    // 上报端点自身绝不触发：否则 flush 成功会再触发一次 flush（递归）
+    request.mockResolvedValueOnce({ statusCode: 201, header: {}, data: '{}' })
+    await taroFetch('https://project.supabase.co/rest/v1/client_error_logs')
+    expect(hits).toBe(2)
+  })
+
   it('未注入 reporter 时请求失败保持静默（不影响请求本身）', async () => {
     vi.stubEnv('TARO_ENV', 'weapp')
     vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
