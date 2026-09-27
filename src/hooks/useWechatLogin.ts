@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import Taro from '@tarojs/taro'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { describeError, reportClientError } from '@/lib/error-report'
+import { DIAG_HEADER, newDiagId } from '@/lib/diag'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { useT } from '@/i18n'
 
@@ -52,8 +53,14 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
       }
 
       // 2. Edge Function 桥接：mode=login → 仅查找已有账号，不自动创建
+      //
+      // diag：这次请求的关联 id。同一个值既随请求头送给服务端（它写进函数日志），
+      // 也写进下面的失败记录——登录失败时客户端还没有会话（user_id 是 null），
+      // 两端除了时间戳原本没有任何可对账的字段。见 lib/diag.ts。
+      const diag = newDiagId()
       const { data, error: invokeError } = await client.functions.invoke('wechat-auth', {
         body: { code, mode: 'login' },
+        headers: { [DIAG_HEADER]: diag },
       })
       if (invokeError) {
         let message = t('login.wechatLoginFailed')
@@ -69,14 +76,20 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         } catch {
           // 保留默认文案
         }
-        // errorName 区分「网络层根本没连上」（FunctionsFetchError）与「服务端返回了
-        // 非 2xx」（FunctionsHttpError）——这两类的修法完全不同，必须分开记。
+        // 三类信息缺一不可，各自的用途不同：
+        // - errorName 区分「网络层根本没连上」（FunctionsFetchError）与「服务端返回了
+        //   非 2xx」（FunctionsHttpError）——这两类的修法完全不同；
+        // - httpStatus 是平台网关（502/504）与我们自己函数的错误之间**唯一**的分界：
+        //   网关的响应体不是我们的 JSON，serverError 会是空串，没有状态码就等于什么都没说；
+        // - serverError 是函数自己的 error 字符串（如 'token exchange failed'）。
         reportClientError({
           event: 'wechat_login',
           message: (invokeError as { message?: string }).message ?? 'functions.invoke failed',
           detail: {
             step: 'invoke',
+            diag,
             errorName: (invokeError as { name?: string }).name,
+            httpStatus: (invokeError as { context?: { status?: number } }).context?.status,
             serverError,
           },
         })
@@ -119,7 +132,13 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         reportClientError({
           event: 'wechat_login',
           message: 'payload missing tokens',
-          detail: { step: 'invoke', payloadKeys: Object.keys(payload ?? {}).join(',') },
+          detail: {
+            step: 'invoke',
+            diag,
+            // 200 但没 token：把 payload 的**键名**记下来。带 error 字段却没有 token 时，
+            // 键名本身就是线索（而且不能记值——那里面是服务端返回的会话材料）
+            payloadKeys: Object.keys(payload ?? {}).join(','),
+          },
         })
         return { error: t('login.wechatLoginFailed') }
       }
@@ -133,7 +152,15 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         reportClientError({
           event: 'wechat_login',
           message: sessionError?.message ?? 'setSession returned no session',
-          detail: { step: 'set_session', errorName: sessionError?.name },
+          // GoTrue 的 code（如 refresh_token_not_found / invalid_grant）与 HTTP 状态
+          // 是判「token 被别的设备顶掉了」还是「服务端 5xx」的依据，message 里读不出来
+          detail: {
+            step: 'set_session',
+            diag,
+            errorName: sessionError?.name,
+            errorCode: sessionError?.code,
+            httpStatus: sessionError?.status,
+          },
         })
         return { error: t('login.wechatLoginFailed') }
       }

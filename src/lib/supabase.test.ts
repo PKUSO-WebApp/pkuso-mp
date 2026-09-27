@@ -1,15 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const { webCreate, request, getStorage, setStorage, removeStorage } = vi.hoisted(() => ({
-  webCreate: vi.fn(),
-  request: vi.fn(),
-  getStorage: vi.fn(),
-  setStorage: vi.fn(),
-  removeStorage: vi.fn(),
-}))
+const { webCreate, request, getStorage, setStorage, removeStorage, getStorageSync, setStorageSync } =
+  vi.hoisted(() => ({
+    webCreate: vi.fn(),
+    request: vi.fn(),
+    getStorage: vi.fn(),
+    setStorage: vi.fn(),
+    removeStorage: vi.fn(),
+    // lib/diag 用它持久化安装 id
+    getStorageSync: vi.fn(() => ''),
+    setStorageSync: vi.fn(),
+  }))
 
 vi.mock('@tarojs/taro', () => ({
-  default: { request, getStorage, setStorage, removeStorage },
+  default: { request, getStorage, setStorage, removeStorage, getStorageSync, setStorageSync },
 }))
 
 describe('supabase 官方客户端适配', () => {
@@ -214,6 +218,70 @@ describe('supabase 官方客户端适配', () => {
     const { taroFetch } = await import('@/lib/supabase')
     // 没有 reporter 也不能改变请求语义：照常 reject
     await expect(taroFetch('https://project.supabase.co/rest/v1/test')).rejects.toThrow('网络失败')
+  })
+
+  it('每次请求都带关联 id；调用方自带的优先（登录链路要拿同一个值去写失败记录）', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+    request.mockResolvedValue({ statusCode: 200, header: {}, data: '{}' })
+
+    const { taroFetch } = await import('@/lib/supabase')
+    const diagOf = (call: number) => request.mock.calls[call][0].header['x-pkuso-diag'] as string
+
+    // 没带 → 自动生成，且必须满足服务端契约（不满足会被服务端静默丢弃、且不报错）
+    await taroFetch('https://project.supabase.co/rest/v1/test')
+    expect(diagOf(0)).toMatch(/^[A-Za-z0-9._-]{1,64}$/)
+    await taroFetch('https://project.supabase.co/rest/v1/test')
+    expect(diagOf(1)).not.toBe(diagOf(0))
+
+    // 调用方带了 → 用它的（登录链路靠这个把「请求头里的 id」和「失败记录里的 id」对齐）
+    await taroFetch('https://project.supabase.co/rest/v1/test', {
+      headers: { 'x-pkuso-diag': 'caller-owned' },
+    })
+    expect(diagOf(2)).toBe('caller-owned')
+
+    // 大小写不敏感：换了大小写也算「已带」，不重复注入
+    await taroFetch('https://project.supabase.co/rest/v1/test', {
+      headers: { 'X-Pkuso-Diag': 'caller-cased' },
+    })
+    expect(request.mock.calls[3][0].header['X-Pkuso-Diag']).toBe('caller-cased')
+    expect(request.mock.calls[3][0].header['x-pkuso-diag']).toBeUndefined()
+  })
+
+  it('失败记录带上 diag / ms / errRaw / 状态码：分别回答「对得上吗」「卡了多久」「到底报了什么」', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+
+    const { taroFetch, setRequestFailureReporter } = await import('@/lib/supabase')
+    const reported: { detail: Record<string, unknown> }[] = []
+    setRequestFailureReporter((input) => {
+      reported.push(input as { detail: Record<string, unknown> })
+    })
+
+    // 网络层失败：微信只给一句光秃秃的 `request:fail`，原因往往挂在同一个对象的别的字段上
+    request.mockRejectedValueOnce({ errMsg: 'request:fail', errCode: -1 })
+    await expect(
+      taroFetch('https://project.supabase.co/rest/v1/posts')
+    ).rejects.toMatchObject({ errMsg: 'request:fail' })
+
+    expect(reported[0].detail.diag).toMatch(/^[A-Za-z0-9._-]{1,64}$/)
+    expect(reported[0].detail.ms).toBeGreaterThanOrEqual(0)
+    // 整个对象都留下，不只 errMsg——否则又要靠猜
+    expect(reported[0].detail.errRaw).toContain('request:fail')
+    expect(reported[0].detail.errRaw).toContain('errCode')
+
+    // HTTP 失败：状态码既进 message（指纹粒度）也进字段（可聚合）；
+    // diag 与请求头里带的是同一个值——服务端日志就是靠它对上的
+    request.mockResolvedValueOnce({ statusCode: 502, header: {}, data: 'bad gateway' })
+    await taroFetch('https://project.supabase.co/functions/v1/wechat-auth')
+    expect(reported[1].detail.status).toBe(502)
+    expect(reported[1].detail.diag).toBe(
+      request.mock.calls[1][0].header['x-pkuso-diag'] as string
+    )
   })
 
   it('taroFetch 兜底注入 apikey，已有 apikey 不重复注入', async () => {

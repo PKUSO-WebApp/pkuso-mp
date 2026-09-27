@@ -7,6 +7,7 @@ import Taro from '@tarojs/taro'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
 import { logDiag } from './session-diag'
+import { DIAG_HEADER, newDiagId } from './diag'
 
 const supabaseUrl = process.env.TARO_APP_SUPABASE_URL
 const supabaseAnonKey = process.env.TARO_APP_SUPABASE_ANON_KEY
@@ -72,7 +73,8 @@ function reportRequestFailure(
   url: string,
   method: string,
   message: string,
-  level: 'error' | 'warn'
+  level: 'error' | 'warn',
+  extra: Record<string, unknown> = {}
 ): void {
   if (!requestFailureReporter) return
   if (url.includes(ERROR_REPORT_PATH)) return
@@ -84,10 +86,30 @@ function reportRequestFailure(
       // message 里带上路径：指纹是「event + message 前缀」，于是不同端点的失败各算一条，
       // 而同一端点的重复失败仍被去重挡掉——这正是我们想要的粒度
       message: `${message} @ ${path}`,
-      detail: { urlPath: path, method },
+      // extra 排在后面：detail 超预算时是按顺序截断的（见 error-report 的 fitDetail），
+      // 最长的 errRaw 必须最后放，否则会把 diag / 状态码这些短字段挤掉
+      detail: { urlPath: path, method, ...extra },
     })
   } catch {
     // 上报绝不能反过来影响请求本身
+  }
+}
+
+/**
+ * 把 reject 到的**整个**对象序列化成可入库的短文本。
+ *
+ * 只取 `errMsg` 会漏：实测微信的网络失败只给一句光秃秃的 `request:fail`（DNS 解析
+ * 失败 / 连接重置 / 超时这些原因都不在里面），而别的原因很可能挂在同一个对象的其它
+ * 字段上。宁可多留一坨文本，也别再来一次「只有半条信息」。
+ *
+ * 用 try 兜住 JSON.stringify：循环引用会抛，而这里的契约是「绝不能反过来影响请求」。
+ */
+function stringifyErr(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`
+  try {
+    return JSON.stringify(err) ?? String(err)
+  } catch {
+    return String(err)
   }
 }
 
@@ -110,6 +132,12 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
   // 「No API key found in request」（用户实测 RPC 出现该 400）
   const hasApikey = Object.keys(headers).some((key) => key.toLowerCase() === 'apikey')
   if (!hasApikey) headers.apikey = supabaseAnonKey
+  // 关联 id（见 lib/diag.ts）：服务端把它写进每条函数日志，失败时客户端把**同一个值**
+  // 写进 cel —— 两边一对，「请求有没有送到」就不用再猜了。
+  // 调用方自己带了的就用它的：登录链路要拿同一个值去写失败记录，得由它决定。
+  const diagKey = Object.keys(headers).find((key) => key.toLowerCase() === DIAG_HEADER)
+  const diag = diagKey ? headers[diagKey] : newDiagId()
+  if (!diagKey) headers[DIAG_HEADER] = diag
   const body = await toTaroBody(init.body)
   // 会话诊断：auth 端点 / 单会话 RPC / 失败请求必记（低噪过滤），定位登录丢失附近的网络事件
   const startedAtMs = Date.now()
@@ -129,10 +157,16 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
     }
     // HTTP 层失败：5xx 算故障；4xx 降为 warn——那多半是鉴权/参数问题（如未登录查表返回
     // 401），跟断网不是一回事，混在同一等级会让真正的故障淹掉
-    if (response.statusCode >= 500) {
-      reportRequestFailure(url, String(method), `HTTP ${response.statusCode}`, 'error')
-    } else if (response.statusCode >= 400) {
-      reportRequestFailure(url, String(method), `HTTP ${response.statusCode}`, 'warn')
+    if (response.statusCode >= 400) {
+      reportRequestFailure(
+        url,
+        String(method),
+        `HTTP ${response.statusCode}`,
+        response.statusCode >= 500 ? 'error' : 'warn',
+        // 状态码同时进 message（指纹粒度）和字段（可聚合）。ms 是「卡了多久」的唯一来源：
+        // 502 在 30s 后出现和 0.2s 后出现，指向完全不同的病因。
+        { diag, ms: Date.now() - startedAtMs, status: response.statusCode }
+      )
     }
     const responseData =
       typeof response.data === 'string' ||
@@ -160,8 +194,14 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
         : ((err as { errMsg?: string } | null)?.errMsg ?? String(err))
     logDiag('http_error', { path: shortUrl, ms: Date.now() - startedAtMs, err: errMsg })
     // 网络层失败：DNS 解析不了（ERR_NAME_NOT_RESOLVED）/ 连接超时 / 网络切换……
-    // 这正是「点了没反应」的真身，也是服务端永远看不到的那一半
-    reportRequestFailure(url, String(method), errMsg, 'error')
+    // 这正是「点了没反应」的真身，也是服务端永远看不到的那一半。
+    // ms 尤其关键：它把「卡了 55s 才失败」和「立刻失败」分开——前者是挂起，
+    // 后者是链路不通，而用户看到的都是同一句文案。
+    reportRequestFailure(url, String(method), errMsg, 'error', {
+      diag,
+      ms: Date.now() - startedAtMs,
+      errRaw: stringifyErr(err),
+    })
     throw err
   }
 }

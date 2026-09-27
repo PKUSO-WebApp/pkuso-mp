@@ -18,6 +18,13 @@ vi.mock('@tarojs/taro', () => taroMock)
 // 模块加载即校验环境变量，直接 mock 掉 supabase 模块（测试显式传 client）
 vi.mock('@/lib/supabase', () => ({ supabase: {} }))
 
+// 只替换上报函数，保留 describeError 的真实实现
+const { reportClientErrorMock } = vi.hoisted(() => ({ reportClientErrorMock: vi.fn() }))
+vi.mock('@/lib/error-report', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/error-report')>()),
+  reportClientError: reportClientErrorMock,
+}))
+
 // 入口路由由 routeAfterLogin 承担（其行为另有单测），此处断言「委托了路由」
 const { routeAfterLoginMock } = vi.hoisted(() => ({ routeAfterLoginMock: vi.fn() }))
 vi.mock('@/lib/post-auth-route', () => ({ routeAfterLogin: routeAfterLoginMock }))
@@ -55,6 +62,7 @@ describe('useWechatLogin', () => {
     taroMock.reLaunch.mockReset()
     taroMock.showToast.mockReset()
     routeAfterLoginMock.mockReset()
+    reportClientErrorMock.mockReset()
   })
 
   it('微信登录成功：setSession + 委托 routeAfterLogin 路由入口', async () => {
@@ -145,5 +153,79 @@ describe('useWechatLogin', () => {
     const second = await act(() => result.current.loginWithWechat())
     expect(second.error).toBe('请勿重复提交')
     await first
+  })
+
+  // --- 关联 id（与服务端 _shared/diag.ts 对账）---
+
+  it('invoke 失败：请求头带关联 id，失败记录用**同一个** id——两端靠它对上', async () => {
+    taroMock.login.mockResolvedValue({ code: 'wx-code-1' })
+    const invokeError = new Error('functions error') as Error & {
+      name: string
+      context?: { status?: number; json: () => Promise<{ error?: string }> }
+    }
+    invokeError.name = 'FunctionsHttpError'
+    invokeError.context = {
+      status: 502,
+      json: () => Promise.resolve({ error: 'token exchange failed' }),
+    }
+    const c = mockClient({ data: null, error: invokeError }, sessionOk())
+    const { result } = renderHook(() => useWechatLogin(c as never))
+    await act(() => result.current.loginWithWechat())
+
+    // 请求头里必须带（服务端据此把它写进自己的日志行）
+    const diag = c.functions.invoke.mock.calls[0][1].headers['x-pkuso-diag'] as string
+    expect(diag).toMatch(/^[A-Za-z0-9._-]{1,64}$/)
+
+    const reported = reportClientErrorMock.mock.calls
+      .map((call) => call[0] as { detail?: Record<string, unknown> })
+      .find((input) => input.detail?.step === 'invoke')
+    expect(reported).toBeDefined()
+    // 同一个值：这就是「请求有没有送到」的判据（只有客户端有 = 没送到）
+    expect(reported?.detail?.diag).toBe(diag)
+    // 平台网关（502/504，响应体不是我们的 JSON）与我们自己函数的错误，只靠状态码分得开
+    expect(reported?.detail?.httpStatus).toBe(502)
+    expect(reported?.detail?.serverError).toBe('token exchange failed')
+    expect(reported?.detail?.errorName).toBe('FunctionsHttpError')
+  })
+
+  it('setSession 失败：记下 GoTrue 的 code 与状态码（判「被别的设备顶掉」还是「服务端 5xx」）', async () => {
+    taroMock.login.mockResolvedValue({ code: 'wx-code-1' })
+    const c = mockClient(
+      { data: { access_token: 'at', refresh_token: 'rt' }, error: null },
+      {
+        error: {
+          message: 'Invalid Refresh Token',
+          name: 'AuthApiError',
+          code: 'refresh_token_not_found',
+          status: 400,
+        },
+      } as never
+    )
+    const { result } = renderHook(() => useWechatLogin(c as never))
+    await act(() => result.current.loginWithWechat())
+
+    const reported = reportClientErrorMock.mock.calls
+      .map((call) => call[0] as { message: string; detail?: Record<string, unknown> })
+      .find((input) => input.detail?.step === 'set_session')
+    expect(reported?.message).toBe('Invalid Refresh Token')
+    expect(reported?.detail).toMatchObject({
+      errorCode: 'refresh_token_not_found',
+      httpStatus: 400,
+    })
+  })
+
+  it('wx.login 失败发生在发请求之前：不生成关联 id（那时服务端什么都不会有）', async () => {
+    taroMock.login.mockRejectedValue({ errMsg: 'login:fail timeout' })
+    const c = mockClient({ data: null, error: null }, sessionOk())
+    const { result } = renderHook(() => useWechatLogin(c as never))
+    await act(() => result.current.loginWithWechat())
+
+    expect(c.functions.invoke).not.toHaveBeenCalled()
+    const reported = reportClientErrorMock.mock.calls
+      .map((call) => call[0] as { detail?: Record<string, unknown> })
+      .find((input) => input.detail?.step === 'wx_login')
+    expect(reported?.detail?.errMsg).toBe('login:fail timeout')
+    // 没有请求就没有可对账的 id——记一个服务端永远不会有的是误导
+    expect(reported?.detail?.diag).toBeUndefined()
   })
 })
