@@ -104,10 +104,14 @@ jobs:
           VERSION=$(node -e "console.log(require('./package.json').version)")
           git diff --cached --quiet || git commit -m "chore: release $VERSION [skip ci]"
           git push
-          # 推送 tag 到远程
-          if git tag "v$VERSION" 2>/dev/null; then
-            echo "✓ 已创建发布 tag: v$VERSION"
+          # 推送 tag 到远程。
+          # ⚠️ 必须先查**远程**是否已有：同一个版本号部署两次是常见情形（改了 CI 配置
+          # 后再推一次 main、或补跑发布），此时本地建 tag 会成功，但 push 会被拒绝，
+          # 在 `-e` 下让整个 release job 挂掉——而代码其实早已上传成功，失败点纯属尾部噪音。
+          if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q .; then
+            echo "✓ 远程已有 tag v$VERSION，跳过"
           else
-            echo "✓ tag v$VERSION 已存在"
+            git tag "v$VERSION" 2>/dev/null || true
+            git push origin "v$VERSION"
+            echo "✓ 已创建并推送 tag: v$VERSION"
           fi
-          git push origin "v$VERSION"
