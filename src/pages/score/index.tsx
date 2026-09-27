@@ -55,7 +55,7 @@ export default function Score() {
     const ids = myPartsBySheet[s.id] ?? []
     const names = s.parts
       .filter((p) => ids.includes(p.id))
-      .map((p) => translateInstrument(p.section ?? p.instrument, t))
+      .map((p) => translateInstrument(p.section, t))
       .filter(Boolean)
     return Array.from(new Set(names)).join('、')
   }

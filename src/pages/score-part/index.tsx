@@ -65,7 +65,7 @@ export default function ScorePart() {
     })
   }
 
-  const sectionLabel = part ? translateInstrument(part.section ?? part.instrument, t) : ''
+  const sectionLabel = part ? translateInstrument(part.section, t) : ''
 
   return (
     <View

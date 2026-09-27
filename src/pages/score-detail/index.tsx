@@ -56,7 +56,7 @@ export default function ScoreDetail() {
                   </Text>
                 ) : (
                   item.parts.map((p) => {
-                    const sectionLabel = translateInstrument(p.section ?? p.instrument, t)
+                    const sectionLabel = translateInstrument(p.section, t)
                     return (
                       <View
                         key={p.id}
