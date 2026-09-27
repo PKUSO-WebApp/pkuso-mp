@@ -85,6 +85,9 @@ jobs:
         env:
           WX_APPID: ${{ secrets.WX_APPID }}
           WX_PRIVATE_KEY: ${{ secrets.WX_PRIVATE_KEY }}
+          # robot 1 固定给开发版；正式版用 robot 2（见 deploy-prod.yml）。
+          # 微信把每个 robot 当作开发版列表里的独立上传位置，不同 robot 互不覆盖。
+          WX_UPLOAD_ROBOT: 1
         run: |
           mkdir -p key
           echo "$WX_PRIVATE_KEY" > key/private.key
