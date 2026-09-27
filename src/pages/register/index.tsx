@@ -67,7 +67,8 @@ export default function RegisterPage() {
         if (cancelled) return
         await routeAfterLogin(supabase)
       } catch {
-        if (!cancelled) void supabase.auth.signOut()
+        // 同上：只清本机，别把该用户其他设备的会话一并撤销
+        if (!cancelled) void supabase.auth.signOut({ scope: 'local' })
       }
     }
     void verifyAndEnter()

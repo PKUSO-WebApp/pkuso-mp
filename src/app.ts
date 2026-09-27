@@ -9,6 +9,8 @@ import { DataSyncProvider } from './components/data-sync-provider'
 import { ErrorBoundary } from './components/error-boundary'
 import { logDiag, startSessionDiag } from './lib/session-diag'
 import { installSessionDiagFileSink } from './lib/session-diag-file'
+import { flushErrorQueue, reportClientError } from './lib/error-report'
+import { setRequestFailureReporter, setRequestSuccessHook } from './lib/supabase'
 
 import './app.css'
 import './app.scss'
@@ -17,6 +19,14 @@ const IGNORE_ERRORS = [/not TabBar page/i]
 
 function App({ children }: PropsWithChildren<any>) {
   useLaunch(() => {
+    // 接上「请求失败统一上报」的口子。supabase.ts 不能直接 import error-report
+    // （后者依赖 supabase，会成环），只能在这里注入——漏了这行，全站的请求失败
+    // 都不会再上报。
+    setRequestFailureReporter(reportClientError)
+    // 任何一次成功的请求都意味着网通了——这是「断网恢复」最可靠的补送信号
+    // （onNetworkStatusChange 在开发者工具模拟离线时未必触发）。队列为空时
+    // flushErrorQueue 立即返回，挂在这里无额外开销。
+    setRequestSuccessHook(flushErrorQueue)
     installSessionDiagFileSink()
     startSessionDiag()
     logDiag('app_launch', { env: process.env.TARO_ENV })
@@ -50,17 +60,27 @@ function App({ children }: PropsWithChildren<any>) {
       return { message: String(err ?? '未知错误'), stack: '' }
     }
 
-    const report = (err: unknown) => {
+    const report = (err: unknown, event: string) => {
       const { message, stack } = extractError(err)
       if (IGNORE_ERRORS.some((re) => re.test(message))) return
       const pages = Taro.getCurrentPages?.() ?? []
       const cur = pages[pages.length - 1]?.route ?? ''
       if (cur.endsWith('/error/index')) return
+      // 回传库：redirectTo 到错误页只有当事用户看得到，且页面一关就没了——
+      // 库里那份才能跨用户聚合、事后追查（这正是「复现不了」时唯一的手段）。
+      reportClientError({ event, message, detail: { stack, route: cur } })
       const url = `/pages/error/index?msg=${encodeURIComponent(message)}&stack=${encodeURIComponent(stack)}`
       Taro.redirectTo({ url }).catch(() => {})
     }
-    Taro.onError(report)
-    Taro.onUnhandledRejection((res) => report(res?.reason ?? res))
+    Taro.onError((err) => report(err, 'app_error'))
+    Taro.onUnhandledRejection((res) => report(res?.reason ?? res, 'unhandled_rejection'))
+
+    // 补送上次断网期间积压的错误记录：冷启动一次，网络恢复再一次
+    // （错误发生的那一刻常常正是断网时刻，那次上报必然失败）
+    flushErrorQueue()
+    Taro.onNetworkStatusChange?.((res) => {
+      if (res.isConnected) flushErrorQueue()
+    })
   })
 
   // children 是将要会渲染的页面；Provider 在冷启动恢复会话/主题并供各页面使用。

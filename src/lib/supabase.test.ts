@@ -136,6 +136,86 @@ describe('supabase 官方客户端适配', () => {
     await expect(import('@/lib/supabase')).rejects.toThrow('缺少 Supabase 配置')
   })
 
+  it('请求失败统一上报：网络层与 5xx 记 error、4xx 记 warn，且上报端点自身不上报', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+
+    const { taroFetch, setRequestFailureReporter } = await import('@/lib/supabase')
+    const reported: { event: string; level: string; message: string }[] = []
+    setRequestFailureReporter((input) => {
+      reported.push(input as { event: string; level: string; message: string })
+    })
+
+    // 网络层失败（断网 / DNS 解析不了）→ error
+    request.mockRejectedValueOnce(new Error('net::ERR_NAME_NOT_RESOLVED'))
+    await expect(
+      taroFetch('https://project.supabase.co/rest/v1/notifications?select=*')
+    ).rejects.toThrow('ERR_NAME_NOT_RESOLVED')
+    expect(reported[0]).toMatchObject({ event: 'request_failed', level: 'error' })
+    // 路径进 message：指纹按 event+message 算，于是不同端点各算一条、同一端点仍被去重
+    expect(reported[0].message).toContain('/rest/v1/notifications')
+    expect(reported[0].message).not.toContain('?') // 去掉 query，避免同端点不同参数各算一条
+
+    // 5xx → error
+    request.mockResolvedValueOnce({ statusCode: 503, header: {}, data: 'oops' })
+    await taroFetch('https://project.supabase.co/rest/v1/posts')
+    expect(reported[1]).toMatchObject({ level: 'error' })
+    expect(reported[1].message).toContain('503')
+
+    // 4xx → warn（鉴权/参数问题不该和断网同级）
+    request.mockResolvedValueOnce({ statusCode: 401, header: {}, data: '{}' })
+    await taroFetch('https://project.supabase.co/rest/v1/profiles')
+    expect(reported[2]).toMatchObject({ level: 'warn' })
+
+    // 上报端点自身失败绝不再上报——否则断网时形成 上报→失败→上报 的循环
+    request.mockRejectedValueOnce(new Error('still down'))
+    await expect(
+      taroFetch('https://project.supabase.co/rest/v1/client_error_logs')
+    ).rejects.toThrow('still down')
+    expect(reported).toHaveLength(3)
+  })
+
+  it('请求成功后触发 success hook（供补送队列），但上报端点自身不触发', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+
+    const { taroFetch, setRequestSuccessHook } = await import('@/lib/supabase')
+    let hits = 0
+    setRequestSuccessHook(() => {
+      hits += 1
+    })
+
+    request.mockResolvedValueOnce({ statusCode: 200, header: {}, data: '{}' })
+    await taroFetch('https://project.supabase.co/rest/v1/posts')
+    expect(hits).toBe(1)
+
+    // 拿到响应就说明链路可达，4xx 也算「网通了」
+    request.mockResolvedValueOnce({ statusCode: 401, header: {}, data: '{}' })
+    await taroFetch('https://project.supabase.co/rest/v1/profiles')
+    expect(hits).toBe(2)
+
+    // 上报端点自身绝不触发：否则 flush 成功会再触发一次 flush（递归）
+    request.mockResolvedValueOnce({ statusCode: 201, header: {}, data: '{}' })
+    await taroFetch('https://project.supabase.co/rest/v1/client_error_logs')
+    expect(hits).toBe(2)
+  })
+
+  it('未注入 reporter 时请求失败保持静默（不影响请求本身）', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+    request.mockRejectedValueOnce(new Error('网络失败'))
+
+    const { taroFetch } = await import('@/lib/supabase')
+    // 没有 reporter 也不能改变请求语义：照常 reject
+    await expect(taroFetch('https://project.supabase.co/rest/v1/test')).rejects.toThrow('网络失败')
+  })
+
   it('taroFetch 兜底注入 apikey，已有 apikey 不重复注入', async () => {
     vi.stubEnv('TARO_ENV', 'weapp')
     vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')

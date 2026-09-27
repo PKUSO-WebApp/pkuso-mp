@@ -33,6 +33,64 @@ const storage = {
   },
 }
 
+// --- 请求失败的统一上报口 ---
+//
+// taroFetch 是所有 Supabase 请求（REST / auth / functions / storage）的唯一出口，
+// 在这里接住失败就等于**全站覆盖**，不必逐个 hook 埋点——业务 hook 大多自己 catch
+// 了错误（不会冒泡到 onUnhandledRejection），逐个埋既漏又难维护。
+//
+// 之所以用「注入」而不是直接 import error-report：后者依赖 supabase（要 insert 队列），
+// 互相 import 会成环。由 app.ts 在启动时注入。
+type RequestFailureReporter = (input: {
+  event: string
+  level: 'error' | 'warn'
+  message: string
+  detail: Record<string, unknown>
+}) => void
+
+let requestFailureReporter: RequestFailureReporter | null = null
+
+/** 由 app.ts 注入（漏注入 = 请求失败不再上报，故只此一处，注释在此看守） */
+export function setRequestFailureReporter(fn: RequestFailureReporter): void {
+  requestFailureReporter = fn
+}
+
+// 上报端点自身绝不再上报：网络故障时若连上报请求都失败，会形成 上报→失败→上报 的循环
+const ERROR_REPORT_PATH = '/rest/v1/client_error_logs'
+
+// 请求成功 = 网络确实可用。这是「断网恢复」最可靠的信号：onNetworkStatusChange 在
+// 开发者工具模拟离线时未必触发（工具模拟的是请求失败，不一定改系统网络状态），
+// 而任何一次成功的业务请求都必然意味着网通了。由 app.ts 注入为 flushErrorQueue
+// （队列为空时它立即返回，所以挂在每个成功请求上也无额外开销）。
+let requestSuccessHook: (() => void) | null = null
+
+export function setRequestSuccessHook(fn: () => void): void {
+  requestSuccessHook = fn
+}
+
+function reportRequestFailure(
+  url: string,
+  method: string,
+  message: string,
+  level: 'error' | 'warn'
+): void {
+  if (!requestFailureReporter) return
+  if (url.includes(ERROR_REPORT_PATH)) return
+  const path = url.replace(/^https?:\/\/[^/]+/, '').split('?')[0].slice(0, 120)
+  try {
+    requestFailureReporter({
+      event: 'request_failed',
+      level,
+      // message 里带上路径：指纹是「event + message 前缀」，于是不同端点的失败各算一条，
+      // 而同一端点的重复失败仍被去重挡掉——这正是我们想要的粒度
+      message: `${message} @ ${path}`,
+      detail: { urlPath: path, method },
+    })
+  } catch {
+    // 上报绝不能反过来影响请求本身
+  }
+}
+
 export const taroFetch: typeof fetch = async (input, init = {}) => {
   const url = typeof input === 'string' ? input : 'url' in input ? input.url : input.toString()
   const method =
@@ -69,19 +127,41 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
     if (isAuthUrl || isSessionRpc || response.statusCode >= 400) {
       logDiag('http', { path: shortUrl, status: response.statusCode, ms: Date.now() - startedAtMs })
     }
+    // HTTP 层失败：5xx 算故障；4xx 降为 warn——那多半是鉴权/参数问题（如未登录查表返回
+    // 401），跟断网不是一回事，混在同一等级会让真正的故障淹掉
+    if (response.statusCode >= 500) {
+      reportRequestFailure(url, String(method), `HTTP ${response.statusCode}`, 'error')
+    } else if (response.statusCode >= 400) {
+      reportRequestFailure(url, String(method), `HTTP ${response.statusCode}`, 'warn')
+    }
     const responseData =
       typeof response.data === 'string' ||
       (typeof ArrayBuffer !== 'undefined' && response.data instanceof ArrayBuffer) ||
       (typeof Blob !== 'undefined' && response.data instanceof Blob)
         ? response.data
         : JSON.stringify(response.data)
+    // 拿到了响应就说明网是通的（4xx/5xx 也算——那至少证明链路可达），
+    // 顺带把积压的错误队列送出去。排除上报端点自身，否则 flush 成功会再触发 flush。
+    if (!url.includes(ERROR_REPORT_PATH)) {
+      try {
+        requestSuccessHook?.()
+      } catch {
+        // 钩子绝不能反过来影响请求本身
+      }
+    }
     return createFetchResponse(response.statusCode, response.header, responseData)
   } catch (err) {
-    logDiag('http_error', {
-      path: shortUrl,
-      ms: Date.now() - startedAtMs,
-      err: err instanceof Error ? err.message : String(err),
-    })
+    // 微信的 Taro.request 失败时 reject 的是 `{ errMsg }` 对象、不是 Error 实例，
+    // 不优先取 errMsg 会得到 "[object Object]"（实测踩过）。此处内联而非复用
+    // error-report 的 describeError：supabase 是它的依赖，import 会成环。
+    const errMsg =
+      err instanceof Error
+        ? err.message
+        : ((err as { errMsg?: string } | null)?.errMsg ?? String(err))
+    logDiag('http_error', { path: shortUrl, ms: Date.now() - startedAtMs, err: errMsg })
+    // 网络层失败：DNS 解析不了（ERR_NAME_NOT_RESOLVED）/ 连接超时 / 网络切换……
+    // 这正是「点了没反应」的真身，也是服务端永远看不到的那一半
+    reportRequestFailure(url, String(method), errMsg, 'error')
     throw err
   }
 }

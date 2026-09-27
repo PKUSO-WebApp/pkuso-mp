@@ -10,6 +10,7 @@ import { useWechatLogin } from '@/hooks/useWechatLogin'
 import { useSendLoginCode } from '@/hooks/useSendLoginCode'
 import { useT, useNavTitle } from '@/i18n'
 import { routeAfterLogin } from '@/lib/post-auth-route'
+import { describeError, reportClientError } from '@/lib/error-report'
 import { supabase } from '@/lib/supabase'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
@@ -51,7 +52,9 @@ export default function LoginPage() {
       } catch {
         if (!cancelled) {
           setRedirecting(false)
-          void supabase.auth.signOut()
+          // 只清本机：getUser 失败可能只是一次网络抖动（诊断日志里见过 /user 403 与
+          // 瞬时失败），用默认的 global scope 会把该用户**所有设备**一起登出。
+          void supabase.auth.signOut({ scope: 'local' })
         }
       }
     }
@@ -178,6 +181,29 @@ export default function LoginPage() {
     }
   }
 
+  // 微信登录：把 hook 返回的错误文案渲染到 errorMsg。此前按钮直接 `void loginWithWechat()`，
+  // 返回值被丢弃，任何失败（invoke 网络错误 / code 过期 / setSession 失败）在界面上都无提示，
+  // 用户只能看到顶部与会话恢复失败共用的「网络异常，请重试」黄条，从而把两件事混为一谈。
+  // catch 兜底：loginWithWechat 内的 routeAfterLogin 抛错会让 promise reject，不接住就会
+  // 冒泡成 unhandledRejection（app.ts 会 redirectTo 错误页），这里降级为可读文案。
+  const handleWechatLogin = async () => {
+    setErrorMsg('')
+    try {
+      const result = await loginWithWechat()
+      if (result.error) setErrorMsg(result.error)
+    } catch (err) {
+      // 这里是「微信登录失败，请重试」的唯一来源：loginWithWechat 内部任何未兜住的
+      // 异常都会落到这（例如 user_not_found 分支的 showModal reject）。不记下来就只能
+      // 看到一句泛化文案，而真正的原因（谁抛的、什么错误）全丢了。
+      reportClientError({
+        event: 'wechat_login',
+        message: describeError(err),
+        detail: { step: 'handler_throw', errorName: (err as { name?: string })?.name },
+      })
+      setErrorMsg(t('login.wechatLoginFailed'))
+    }
+  }
+
   const switchMode = () => {
     setMode((prev) => (prev === 'code' ? 'password' : 'code'))
     setErrorMsg('')
@@ -210,7 +236,7 @@ export default function LoginPage() {
             hoverClass='none'
             className='flex h-11 w-full items-center justify-center rounded-2xl bg-[#03DB6C] text-sm font-medium text-white disabled:opacity-60'
             disabled={wechatSubmitting}
-            onClick={() => void loginWithWechat()}
+            onClick={() => void handleWechatLogin()}
           >
             {wechatSubmitting ? t('login.wechatSubmitting') : t('login.wechatLogin')}
           </Button>

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import Taro from '@tarojs/taro'
 import { supabase as defaultClient } from '@/lib/supabase'
+import { describeError, reportClientError } from '@/lib/error-report'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { useT } from '@/i18n'
 
@@ -30,10 +31,25 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
       try {
         const loginRes = await Taro.login()
         code = loginRes.code ?? ''
-      } catch {
+      } catch (err) {
+        // wx.login 失败此前只塌缩成一句「微信登录失败」，而它恰恰是「点了没反应、
+        // 服务端查不到任何请求」这类现象的最上游来源——errMsg 必须留下来。
+        const errMsg = describeError(err)
+        reportClientError({
+          event: 'wechat_login',
+          message: errMsg,
+          detail: { step: 'wx_login', errMsg },
+        })
         return { error: t('login.wechatLoginFailed') }
       }
-      if (!code) return { error: t('login.wechatLoginFailed') }
+      if (!code) {
+        reportClientError({
+          event: 'wechat_login',
+          message: 'wx.login returned empty code',
+          detail: { step: 'wx_login', emptyCode: true, loginResult: Boolean(code) },
+        })
+        return { error: t('login.wechatLoginFailed') }
+      }
 
       // 2. Edge Function 桥接：mode=login → 仅查找已有账号，不自动创建
       const { data, error: invokeError } = await client.functions.invoke('wechat-auth', {
@@ -41,16 +57,29 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
       })
       if (invokeError) {
         let message = t('login.wechatLoginFailed')
+        let serverError = ''
         try {
           const ctx = await (
             invokeError as { context?: { json?: () => Promise<{ error?: string }> } }
           ).context?.json?.()
+          serverError = ctx?.error ?? ''
           if (ctx?.error === 'wechat code2session failed') {
             message = t('login.wechatCodeExpired')
           }
         } catch {
           // 保留默认文案
         }
+        // errorName 区分「网络层根本没连上」（FunctionsFetchError）与「服务端返回了
+        // 非 2xx」（FunctionsHttpError）——这两类的修法完全不同，必须分开记。
+        reportClientError({
+          event: 'wechat_login',
+          message: (invokeError as { message?: string }).message ?? 'functions.invoke failed',
+          detail: {
+            step: 'invoke',
+            errorName: (invokeError as { name?: string }).name,
+            serverError,
+          },
+        })
         return { error: message }
       }
 
@@ -61,19 +90,37 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         error?: string
       } | null
 
-      // user_not_found → 弹窗提示并跳转注册页
+      // user_not_found → 弹窗提示并跳转注册页。
+      // ⚠️ showModal 必须单独兜住：它 reject 时（真机上见过——modal 未弹出/被抢占）
+      // 异常会冒泡出 loginWithWechat，调用方 catch 后兜底成「微信登录失败，请重试」，
+      // 于是「你没注册」被显示成「登录失败」，而且 **reLaunch 跳注册页也被一起跳过**。
+      // 失败也要跳转，并把 modal 的真实错误记下来。
       if (payload?.error === 'user_not_found') {
-        await Taro.showModal({
-          title: t('login.notRegisteredTitle'),
-          content: t('login.notRegisteredContent'),
-          showCancel: false,
-          confirmText: t('login.goRegister'),
-        })
+        try {
+          await Taro.showModal({
+            title: t('login.notRegisteredTitle'),
+            content: t('login.notRegisteredContent'),
+            showCancel: false,
+            confirmText: t('login.goRegister'),
+          })
+        } catch (err) {
+          const errMsg = describeError(err)
+          reportClientError({
+            event: 'wechat_login',
+            message: `user_not_found 弹窗失败: ${errMsg}`,
+            detail: { step: 'user_not_found_modal', errMsg },
+          })
+        }
         void Taro.reLaunch({ url: '/pages/register/index' })
         return { error: null }
       }
 
       if (!payload?.access_token || !payload?.refresh_token) {
+        reportClientError({
+          event: 'wechat_login',
+          message: 'payload missing tokens',
+          detail: { step: 'invoke', payloadKeys: Object.keys(payload ?? {}).join(',') },
+        })
         return { error: t('login.wechatLoginFailed') }
       }
 
@@ -83,6 +130,11 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         refresh_token: payload.refresh_token,
       })
       if (sessionError || !sessionData?.session?.user?.id) {
+        reportClientError({
+          event: 'wechat_login',
+          message: sessionError?.message ?? 'setSession returned no session',
+          detail: { step: 'set_session', errorName: sessionError?.name },
+        })
         return { error: t('login.wechatLoginFailed') }
       }
 
