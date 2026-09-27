@@ -178,6 +178,21 @@ export default function LoginPage() {
     }
   }
 
+  // 微信登录：把 hook 返回的错误文案渲染到 errorMsg。此前按钮直接 `void loginWithWechat()`，
+  // 返回值被丢弃，任何失败（invoke 网络错误 / code 过期 / setSession 失败）在界面上都无提示，
+  // 用户只能看到顶部与会话恢复失败共用的「网络异常，请重试」黄条，从而把两件事混为一谈。
+  // catch 兜底：loginWithWechat 内的 routeAfterLogin 抛错会让 promise reject，不接住就会
+  // 冒泡成 unhandledRejection（app.ts 会 redirectTo 错误页），这里降级为可读文案。
+  const handleWechatLogin = async () => {
+    setErrorMsg('')
+    try {
+      const result = await loginWithWechat()
+      if (result.error) setErrorMsg(result.error)
+    } catch {
+      setErrorMsg(t('login.wechatLoginFailed'))
+    }
+  }
+
   const switchMode = () => {
     setMode((prev) => (prev === 'code' ? 'password' : 'code'))
     setErrorMsg('')
@@ -210,7 +225,7 @@ export default function LoginPage() {
             hoverClass='none'
             className='flex h-11 w-full items-center justify-center rounded-2xl bg-[#03DB6C] text-sm font-medium text-white disabled:opacity-60'
             disabled={wechatSubmitting}
-            onClick={() => void loginWithWechat()}
+            onClick={() => void handleWechatLogin()}
           >
             {wechatSubmitting ? t('login.wechatSubmitting') : t('login.wechatLogin')}
           </Button>
