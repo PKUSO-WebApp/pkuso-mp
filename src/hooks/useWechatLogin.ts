@@ -90,14 +90,27 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         error?: string
       } | null
 
-      // user_not_found → 弹窗提示并跳转注册页
+      // user_not_found → 弹窗提示并跳转注册页。
+      // ⚠️ showModal 必须单独兜住：它 reject 时（真机上见过——modal 未弹出/被抢占）
+      // 异常会冒泡出 loginWithWechat，调用方 catch 后兜底成「微信登录失败，请重试」，
+      // 于是「你没注册」被显示成「登录失败」，而且 **reLaunch 跳注册页也被一起跳过**。
+      // 失败也要跳转，并把 modal 的真实错误记下来。
       if (payload?.error === 'user_not_found') {
-        await Taro.showModal({
-          title: t('login.notRegisteredTitle'),
-          content: t('login.notRegisteredContent'),
-          showCancel: false,
-          confirmText: t('login.goRegister'),
-        })
+        try {
+          await Taro.showModal({
+            title: t('login.notRegisteredTitle'),
+            content: t('login.notRegisteredContent'),
+            showCancel: false,
+            confirmText: t('login.goRegister'),
+          })
+        } catch (err) {
+          const errMsg = (err as { errMsg?: string } | null)?.errMsg ?? String(err)
+          reportClientError({
+            event: 'wechat_login',
+            message: `user_not_found 弹窗失败: ${errMsg}`,
+            detail: { step: 'user_not_found_modal', errMsg },
+          })
+        }
         void Taro.reLaunch({ url: '/pages/register/index' })
         return { error: null }
       }

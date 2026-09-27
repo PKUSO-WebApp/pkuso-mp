@@ -10,6 +10,7 @@ import { useWechatLogin } from '@/hooks/useWechatLogin'
 import { useSendLoginCode } from '@/hooks/useSendLoginCode'
 import { useT, useNavTitle } from '@/i18n'
 import { routeAfterLogin } from '@/lib/post-auth-route'
+import { reportClientError } from '@/lib/error-report'
 import { supabase } from '@/lib/supabase'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
@@ -188,7 +189,15 @@ export default function LoginPage() {
     try {
       const result = await loginWithWechat()
       if (result.error) setErrorMsg(result.error)
-    } catch {
+    } catch (err) {
+      // 这里是「微信登录失败，请重试」的唯一来源：loginWithWechat 内部任何未兜住的
+      // 异常都会落到这（例如 user_not_found 分支的 showModal reject）。不记下来就只能
+      // 看到一句泛化文案，而真正的原因（谁抛的、什么错误）全丢了。
+      reportClientError({
+        event: 'wechat_login',
+        message: err instanceof Error ? err.message : String(err),
+        detail: { step: 'handler_throw', errorName: (err as { name?: string })?.name },
+      })
       setErrorMsg(t('login.wechatLoginFailed'))
     }
   }

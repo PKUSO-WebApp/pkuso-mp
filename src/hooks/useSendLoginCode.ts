@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
+import { reportClientError } from '@/lib/error-report'
 import { useCountdown } from './useCountdown'
 
 export type UseSendLoginCodeResult = {
@@ -31,6 +32,14 @@ export function useSendLoginCode(
           body: { email: email.trim().toLowerCase() },
         })
         if (error) {
+          // 服务端对「未注册」也返回 200（body 里带 user_not_found），所以走到这里
+          // 意味着 invoke 在 HTTP/网络层就失败了——前端只会显示一句「验证码发送失败」，
+          // 而 errorName 才能区分是没连上（FunctionsFetchError）还是非 2xx（FunctionsHttpError）。
+          reportClientError({
+            event: 'send_login_code',
+            message: (error as { message?: string }).message ?? 'functions.invoke failed',
+            detail: { step: 'invoke', errorName: (error as { name?: string }).name },
+          })
           return { success: false }
         }
         // 检查用户是否存在
@@ -39,7 +48,12 @@ export function useSendLoginCode(
         }
         start()
         return { success: true }
-      } catch {
+      } catch (err) {
+        reportClientError({
+          event: 'send_login_code',
+          message: err instanceof Error ? err.message : String(err),
+          detail: { step: 'throw', errorName: (err as { name?: string })?.name },
+        })
         return { success: false }
       } finally {
         sendingRef.current = false
