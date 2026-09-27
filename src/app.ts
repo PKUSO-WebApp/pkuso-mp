@@ -9,6 +9,7 @@ import { DataSyncProvider } from './components/data-sync-provider'
 import { ErrorBoundary } from './components/error-boundary'
 import { logDiag, startSessionDiag } from './lib/session-diag'
 import { installSessionDiagFileSink } from './lib/session-diag-file'
+import { reportClientError } from './lib/error-report'
 
 import './app.css'
 import './app.scss'
@@ -50,17 +51,20 @@ function App({ children }: PropsWithChildren<any>) {
       return { message: String(err ?? '未知错误'), stack: '' }
     }
 
-    const report = (err: unknown) => {
+    const report = (err: unknown, event: string) => {
       const { message, stack } = extractError(err)
       if (IGNORE_ERRORS.some((re) => re.test(message))) return
       const pages = Taro.getCurrentPages?.() ?? []
       const cur = pages[pages.length - 1]?.route ?? ''
       if (cur.endsWith('/error/index')) return
+      // 回传库：redirectTo 到错误页只有当事用户看得到，且页面一关就没了——
+      // 库里那份才能跨用户聚合、事后追查（这正是「复现不了」时唯一的手段）。
+      reportClientError({ event, message, detail: { stack, route: cur } })
       const url = `/pages/error/index?msg=${encodeURIComponent(message)}&stack=${encodeURIComponent(stack)}`
       Taro.redirectTo({ url }).catch(() => {})
     }
-    Taro.onError(report)
-    Taro.onUnhandledRejection((res) => report(res?.reason ?? res))
+    Taro.onError((err) => report(err, 'app_error'))
+    Taro.onUnhandledRejection((res) => report(res?.reason ?? res, 'unhandled_rejection'))
   })
 
   // children 是将要会渲染的页面；Provider 在冷启动恢复会话/主题并供各页面使用。
