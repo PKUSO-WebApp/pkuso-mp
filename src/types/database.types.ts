@@ -781,7 +781,7 @@ export type Database = {
           page_count: number | null
           part_id: string | null
           storage_path: string
-          sub_parts: number[] | null
+          sub_parts: number[]
           uploaded_by: string | null
         }
         Insert: {
@@ -793,7 +793,7 @@ export type Database = {
           page_count?: number | null
           part_id?: string | null
           storage_path: string
-          sub_parts?: number[] | null
+          sub_parts?: number[]
           uploaded_by?: string | null
         }
         Update: {
@@ -805,7 +805,7 @@ export type Database = {
           page_count?: number | null
           part_id?: string | null
           storage_path?: string
-          sub_parts?: number[] | null
+          sub_parts?: number[]
           uploaded_by?: string | null
         }
         Relationships: [
@@ -836,24 +836,21 @@ export type Database = {
         Row: {
           created_at: string | null
           id: string
-          instrument: string | null
-          section: string | null
+          section: string
           sheet_music_id: string | null
           sort_order: number | null
         }
         Insert: {
           created_at?: string | null
           id?: string
-          instrument?: string | null
-          section?: string | null
+          section: string
           sheet_music_id?: string | null
           sort_order?: number | null
         }
         Update: {
           created_at?: string | null
           id?: string
-          instrument?: string | null
-          section?: string | null
+          section?: string
           sheet_music_id?: string | null
           sort_order?: number | null
         }
