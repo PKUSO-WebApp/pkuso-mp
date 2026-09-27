@@ -52,7 +52,9 @@ export default function LoginPage() {
       } catch {
         if (!cancelled) {
           setRedirecting(false)
-          void supabase.auth.signOut()
+          // 只清本机：getUser 失败可能只是一次网络抖动（诊断日志里见过 /user 403 与
+          // 瞬时失败），用默认的 global scope 会把该用户**所有设备**一起登出。
+          void supabase.auth.signOut({ scope: 'local' })
         }
       }
     }

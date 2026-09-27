@@ -44,7 +44,9 @@ export function useAuth(client: typeof defaultClient = defaultClient): UseAuthRe
     // 标记为主动登出，避免 onAuthStateChange 的 SIGNED_OUT 被误判为「被其他设备挤下线」
     markIntentionalSignOut()
     logDiag('sign_out_intentional')
-    const { error: authError } = await client.auth.signOut()
+    // scope 必须显式给 local：Supabase 默认是 global，会撤销该用户**所有设备**的会话。
+    // 而这里的语义只是「本机退出」——紧接着就是 clearSessionToken()（只清本机令牌）。
+    const { error: authError } = await client.auth.signOut({ scope: 'local' })
     // 清空本机单设备会话令牌，避免残留令牌干扰下次登录的挤下线判定
     clearSessionToken()
     if (authError) {
