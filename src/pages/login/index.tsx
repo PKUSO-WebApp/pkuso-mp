@@ -10,7 +10,7 @@ import { useWechatLogin } from '@/hooks/useWechatLogin'
 import { useSendLoginCode } from '@/hooks/useSendLoginCode'
 import { useT, useNavTitle } from '@/i18n'
 import { routeAfterLogin } from '@/lib/post-auth-route'
-import { reportClientError } from '@/lib/error-report'
+import { describeError, reportClientError } from '@/lib/error-report'
 import { supabase } from '@/lib/supabase'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
@@ -197,7 +197,7 @@ export default function LoginPage() {
       // 看到一句泛化文案，而真正的原因（谁抛的、什么错误）全丢了。
       reportClientError({
         event: 'wechat_login',
-        message: err instanceof Error ? err.message : String(err),
+        message: describeError(err),
         detail: { step: 'handler_throw', errorName: (err as { name?: string })?.name },
       })
       setErrorMsg(t('login.wechatLoginFailed'))
