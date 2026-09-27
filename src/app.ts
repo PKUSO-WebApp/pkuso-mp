@@ -9,7 +9,7 @@ import { DataSyncProvider } from './components/data-sync-provider'
 import { ErrorBoundary } from './components/error-boundary'
 import { logDiag, startSessionDiag } from './lib/session-diag'
 import { installSessionDiagFileSink } from './lib/session-diag-file'
-import { reportClientError } from './lib/error-report'
+import { flushErrorQueue, reportClientError } from './lib/error-report'
 
 import './app.css'
 import './app.scss'
@@ -65,6 +65,13 @@ function App({ children }: PropsWithChildren<any>) {
     }
     Taro.onError((err) => report(err, 'app_error'))
     Taro.onUnhandledRejection((res) => report(res?.reason ?? res, 'unhandled_rejection'))
+
+    // 补送上次断网期间积压的错误记录：冷启动一次，网络恢复再一次
+    // （错误发生的那一刻常常正是断网时刻，那次上报必然失败）
+    flushErrorQueue()
+    Taro.onNetworkStatusChange?.((res) => {
+      if (res.isConnected) flushErrorQueue()
+    })
   })
 
   // children 是将要会渲染的页面；Provider 在冷启动恢复会话/主题并供各页面使用。

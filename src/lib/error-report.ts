@@ -6,6 +6,9 @@
 // 于是有了这条「用户那里出错 → 自动回到库里」的通道，让复现不了的故障也能自证。
 //
 // 设计约束（按免费计划 500MB 库容 / 90 天保留推算，见 migration 20260927120000）：
+// - **本地队列**：错误发生时可能正好断网——而那恰恰是最该记下来的时刻。直接用
+//   网络去报告网络故障是个悖论，所以每条记录先写进本地 storage 队列（同步、不依赖
+//   网络），再尝试送出：成功即清空，网络失败则留在队列，等下次冷启动或网络恢复补送。
 // - 指纹去重：同一 (event, message 前缀) 在 DEDUP_WINDOW_MS 内只报一次。防的是循环报错
 //   把库写爆——存储评估里唯一会失控的场景（心跳类定时器一旦接上上报就是几千条/天/人）。
 // - 长度截断：与库端 CHECK 约束对齐（message ≤ 500 字符、detail ≤ 4096 字节），
@@ -39,6 +42,26 @@ const MAX_PLATFORM_LEN = 64
 const MAX_DETAIL_BYTES = 4096
 // detail 内单字段的字符上限（栈往往最长）
 const MAX_DETAIL_STRING_LEN = 800
+
+// --- 本地待发队列 ---
+const QUEUE_KEY = 'pkuso_error_queue'
+// 队列上限：超出丢最旧的。50 条 × 约 1KB ≈ 50KB，Taro storage 上限 10MB，毫无压力
+const MAX_QUEUE = 50
+// 超过这个年龄的记录直接丢弃（陈旧到没有诊断价值的，不值得占用队列）
+const MAX_QUEUE_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
+/** 队列里的一条 = client_error_logs 的一行（含「发生时刻」，不是发送时刻） */
+type QueueItem = {
+  created_at: string
+  level: ErrorLevel
+  source: 'mp'
+  event: string
+  message: string | null
+  detail: Json | null
+  app_version: string | null
+  platform: string | null
+  page: string | null
+}
 
 const lastSentAt = new Map<string, number>()
 
@@ -133,9 +156,102 @@ function collectContext(): { platform: string | null; page: string | null; appVe
   return { platform, page, appVersion }
 }
 
+// --- 本地队列的读写与补送 ---
+
+function readQueue(): QueueItem[] {
+  try {
+    const raw = Taro.getStorageSync(QUEUE_KEY)
+    if (typeof raw !== 'string' || !raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as QueueItem[]) : []
+  } catch {
+    return []
+  }
+}
+
+function writeQueue(items: QueueItem[]): void {
+  try {
+    if (items.length === 0) Taro.removeStorageSync(QUEUE_KEY)
+    else Taro.setStorageSync(QUEUE_KEY, JSON.stringify(items))
+  } catch {
+    // 存储不可用（配额满 / 隐私模式等）：放弃排队，但绝不能因此影响业务
+  }
+}
+
+function enqueue(item: QueueItem): void {
+  const now = Date.now()
+  const kept = readQueue()
+    .filter((x) => {
+      const t = Date.parse(x.created_at)
+      return Number.isFinite(t) && now - t < MAX_QUEUE_AGE_MS
+    })
+    .concat(item)
+    // 超限丢最旧的：保留最后 MAX_QUEUE 条
+    .slice(-MAX_QUEUE)
+  writeQueue(kept)
+}
+
+let flushing = false
+
+/** 队列项的身份键：同一条记录唯一（created_at 精确到毫秒） */
+function itemKey(item: QueueItem): string {
+  return `${item.created_at}|${item.event}|${item.message ?? ''}`
+}
+
+/** 只移除已送达的那些，保留 flush 期间新入队的 */
+function removeSent(sent: QueueItem[]): void {
+  const sentKeys = new Set(sent.map(itemKey))
+  writeQueue(readQueue().filter((x) => !sentKeys.has(itemKey(x))))
+}
+
+/**
+ * 把本地队列送出去。触发点：每次上报后、冷启动、网络恢复（见 app.ts）。
+ *
+ * 成败处理刻意不对称：
+ * - **网络层失败**（promise reject）→ 保留队列，等下次补送。这是队列存在的理由。
+ * - **服务端拒绝**（resolve 但带 error，通常 4xx）→ 丢弃**本批**并留痕。这类是「毒丸」，
+ *   重试一万次也不会成功，留着会永久堵死排在它后面的记录；客户端已按库端上限截断过，
+ *   真走到这里说明约束或权限有变，值得在 console 里露一面。
+ *
+ * ⚠️ 两个都不能用「清空队列」收尾：发送期间（异步窗口内）新报上来的记录会排在队尾，
+ * 清空会把它们一并抹掉——那些记录既没送出去、也没留下，等于凭空丢失。
+ */
+export function flushErrorQueue(): void {
+  if (flushing) return
+  const queue = readQueue()
+  if (queue.length === 0) return
+  flushing = true
+  const sending = queue.slice()
+  try {
+    void supabase
+      .from('client_error_logs')
+      .insert(sending)
+      .then(
+        (res) => {
+          flushing = false
+          if (res?.error) {
+            // eslint-disable-next-line no-console
+            console.error('[error-report] 队列被服务端拒绝，已丢弃：', res.error.message)
+          }
+          removeSent(sending)
+        },
+        () => {
+          // 网络不通：留在队列里，等下次冷启动 / 网络恢复
+          flushing = false
+        }
+      )
+  } catch {
+    // 构造请求时就同步抛错：保留队列，且必须复位守卫——否则后面所有 flush 都会被跳过
+    flushing = false
+  }
+}
+
 /**
  * 上报一条客户端错误。同步返回、不抛出、不阻塞调用方——
  * 调用点（错误处理路径）不应该因为「记录错误」而产生新的错误。
+ *
+ * 先入队再发送：入队是同步的本地写，不依赖网络，所以即使此刻完全断网，
+ * 记录也不会丢——这正是「错误发生时恰好断网」这一最需要记录的场景。
  */
 export function reportClientError(input: ReportInput): void {
   try {
@@ -144,28 +260,27 @@ export function reportClientError(input: ReportInput): void {
     if (!shouldSend(fingerprint(input.event, message), now)) return
 
     const ctx = collectContext()
-    void supabase
-      .from('client_error_logs')
-      .insert({
-        level: input.level ?? 'error',
-        source: 'mp',
-        event: truncate(input.event, MAX_EVENT_LEN),
-        message: message || null,
-        detail: fitDetail(input.detail),
-        app_version: ctx.appVersion,
-        platform: ctx.platform,
-        page: ctx.page,
-      })
-      .then(
-        () => undefined,
-        () => undefined
-      )
+    enqueue({
+      // 用错误发生时刻，不是发送时刻：断网恢复后补送时，库里仍能还原真实时间线
+      created_at: new Date(now).toISOString(),
+      level: input.level ?? 'error',
+      source: 'mp',
+      event: truncate(input.event, MAX_EVENT_LEN),
+      message: message || null,
+      detail: fitDetail(input.detail),
+      app_version: ctx.appVersion,
+      platform: ctx.platform,
+      page: ctx.page,
+    })
+    flushErrorQueue()
   } catch {
     // 上报自身绝不能影响业务，也绝不能抛出（会被 onUnhandledRejection 再抓一次）
   }
 }
 
-/** 仅供测试：清空去重状态 */
+/** 仅供测试：清空去重状态与待发队列 */
 export function __resetErrorReportState(): void {
   lastSentAt.clear()
+  writeQueue([])
 }
+
