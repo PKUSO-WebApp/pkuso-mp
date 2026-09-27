@@ -7,6 +7,7 @@
  *   WX_PRIVATE_KEY_PATH - 上传密钥路径
  *   WX_UPLOAD_VERSION - 版本号（覆盖命令行参数）
  *   WX_UPLOAD_DESC - 上传描述（覆盖命令行参数）
+ *   WX_UPLOAD_ROBOT - 机器人编号 1~30（开发版列表里的上传位置，见下方 robot 说明）
  */
 const ci = require('miniprogram-ci')
 const fs = require('fs')
@@ -29,10 +30,23 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'packa
 const version = process.env.WX_UPLOAD_VERSION || process.argv[2] || packageJson.version
 const desc = process.env.WX_UPLOAD_DESC || process.argv[3] || `CI 上传 ${new Date().toISOString()}`
 
+// 机器人编号（1~30）。微信把每个 robot 当作「开发版」列表里的一个独立上传位置：
+// 同一 robot 重复上传覆盖自己那份，**不同 robot 互不覆盖**。用它把 dev 与 prod 的
+// CI 产物分到各自槽位——ci.upload() 没有「版本类型」参数，服务端也没有登录态可区分
+// 来源，不区分的话两边会互相顶掉。
+// 缺省 1（与历史行为一致）；越界在上传前拦下，免得微信侧报个看不懂的错。
+const rawRobot = process.env.WX_UPLOAD_ROBOT
+const robot = rawRobot === undefined || rawRobot === '' ? 1 : Number(rawRobot)
+if (!Number.isInteger(robot) || robot < 1 || robot > 30) {
+  console.error(`错误: WX_UPLOAD_ROBOT 必须是 1~30 的整数，当前为 "${rawRobot}"`)
+  process.exit(1)
+}
+
 console.log(`上传信息:`)
 console.log(`  AppID: ${APPID}`)
 console.log(`  版本: ${version}`)
 console.log(`  描述: ${desc}`)
+console.log(`  槽位: robot ${robot}`)
 console.log(`  密钥: ${PRIVATE_KEY_PATH}`)
 console.log('')
 
@@ -52,6 +66,7 @@ async function upload() {
       project,
       version,
       desc,
+      robot,
       setting: {
         es6: true,
         minify: true,
