@@ -107,7 +107,7 @@ node scripts/version.js          # 只打印当前版本
 
 推论：
 
-- 在功能分支里改 `version`，合到 `dev` / `main` 后基本会被 CI 覆盖——**除非你要改的正是「基础版本号」那一段**（`0.4.26` 里的 `0.4`）。
+- 在功能分支里改 `version`，**被 CI 重写的只有预发布后缀**：三段基础版本（`0.4.26`）会被沿用。所以为了标记「开发阶段」而跑 `pnpm version:dev` / `version:rc` 是白做的（本地看得见，CI 里会被替换成 `-dev.<run_number>` 或直接去掉）；但升基础版本（`pnpm version:bump` / `minor` / `major`）会真实生效。
 - 想发新版：正常改代码 → 合 `dev` → 验证 → 合 `main`。版本号与上传都交给 CI，不要手工模拟。
 
 ### 2.3 ⚠️ `pnpm branch:create` 的两个坑
