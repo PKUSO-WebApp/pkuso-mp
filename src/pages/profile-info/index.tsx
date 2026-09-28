@@ -83,7 +83,7 @@ export default function ProfileInfoPage() {
     isInOrchestra: boolean
     isJoinTouched: boolean
   }
-  const editDraft = useEditDraft<DraftData>({
+  const editDraft = useEditDraft<DraftData>('profile-info', {
     instrument: '',
     phone: '',
     college: '',
@@ -96,7 +96,8 @@ export default function ProfileInfoPage() {
     isJoinTouched: false,
   })
 
-  // 页面从后台回前台时，若存在草稿则恢复编辑态
+  // 页面从后台回前台（含被重建后首次 show）时，若存在草稿则恢复编辑态。
+  // 恢复后不 clear：草稿要一直保持为「完整快照」，详见 useEditDraft 的注释。
   useDidShow(() => {
     if (editDraft.hasDraft()) {
       const draft = editDraft.get()
@@ -111,7 +112,6 @@ export default function ProfileInfoPage() {
       setEditIsInOrchestra(draft.isInOrchestra)
       setIsJoinTouched(draft.isJoinTouched)
       setIsEditing(true)
-      editDraft.clear()
     }
   })
 

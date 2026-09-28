@@ -47,7 +47,7 @@ export default function PostCreatePage() {
     imageFile: UploadFileLike | null
     imagePreview: string | null
   }
-  const editDraft = useEditDraft<DraftData>({
+  const editDraft = useEditDraft<DraftData>('post-create', {
     type: initialType,
     title: '',
     content: '',
@@ -58,7 +58,8 @@ export default function PostCreatePage() {
     imagePreview: null,
   })
 
-  // 页面从后台回前台时，若存在草稿则恢复
+  // 页面从后台回前台（含被重建后首次 show）时，若存在草稿则恢复。
+  // 恢复后不 clear：草稿要一直保持为「完整快照」，详见 useEditDraft 的注释。
   useDidShow(() => {
     if (editDraft.hasDraft()) {
       const draft = editDraft.get()
@@ -70,7 +71,6 @@ export default function PostCreatePage() {
       setContactInfo(draft.contactInfo)
       setImageFile(draft.imageFile)
       setImagePreview(draft.imagePreview)
-      editDraft.clear()
     }
   })
 
