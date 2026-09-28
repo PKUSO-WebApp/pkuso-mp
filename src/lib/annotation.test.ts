@@ -6,7 +6,7 @@ import {
   loadAnnoDoc,
   saveAnnoDoc,
   type AnnoDoc,
-} from '../annotation'
+} from './annotation'
 
 const storage = new Map<string, string>()
 

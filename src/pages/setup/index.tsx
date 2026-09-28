@@ -10,6 +10,7 @@ import { useUser } from '@/context/user-context'
 import { useLogout } from '@/hooks/useLogout'
 import { useProfileStatus } from '@/hooks/useProfileStatus'
 import { useSignupEmailVerify } from '@/hooks/useSignupEmailVerify'
+import { useCountdown } from '@/hooks/useCountdown'
 import { isSyntheticEmail } from '@/lib/profile-gate'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { supabase } from '@/lib/supabase'
@@ -62,11 +63,15 @@ export default function SetupPage() {
   // 邮箱验证：验证码状态（复用现有 send-verification-code + verify-and-update）
   const [codeSending, setCodeSending] = useState(false)
   const [codeSent, setCodeSent] = useState(false)
-  const [codeCountdown, setCodeCountdown] = useState(0)
   const [codeVerifying, setCodeVerifying] = useState(false)
   const [verifyCode, setVerifyCode] = useState('')
   const [modalErrorMsg, setModalErrorMsg] = useState<string | null>(null)
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // 重发冷却：定时器与归零都交给 hook（原本手写 setInterval + 一个专门的卸载清理 effect）
+  const {
+    countdown: codeCountdown,
+    start: startCodeCountdown,
+    stop: stopCodeCountdown,
+  } = useCountdown(60)
 
   useEffect(() => {
     if (!profile || prefillRef.current) return
@@ -80,13 +85,6 @@ export default function SetupPage() {
       void Taro.reLaunch({ url: '/pages/login/index' })
     }
   }, [ready, user])
-
-  // 清理倒计时
-  useEffect(() => {
-    return () => {
-      if (countdownRef.current) clearInterval(countdownRef.current)
-    }
-  }, [])
 
   /** 实际提交资料到 profiles */
   const doSubmit = async (finalEmail: string) => {
@@ -133,17 +131,7 @@ export default function SetupPage() {
         return
       }
       setCodeSent(true)
-      setCodeCountdown(60)
-      if (countdownRef.current) clearInterval(countdownRef.current)
-      countdownRef.current = setInterval(() => {
-        setCodeCountdown((prev) => {
-          if (prev <= 1) {
-            if (countdownRef.current) clearInterval(countdownRef.current)
-            return 0
-          }
-          return prev - 1
-        })
-      }, 1000)
+      startCodeCountdown()
     } catch (err) {
       console.error('[setup] send code error', err)
       setModalErrorMsg(t('setup.emailVerify.sendFailed'))
@@ -175,9 +163,8 @@ export default function SetupPage() {
         }
         return false
       }
-      if (countdownRef.current) clearInterval(countdownRef.current)
+      stopCodeCountdown()
       setCodeSent(false)
-      setCodeCountdown(0)
       setVerifyCode('')
       return true
     } catch (err) {
@@ -251,10 +238,9 @@ export default function SetupPage() {
   const handleClose = () => {
     emailVerify.handleClose()
     setCodeSent(false)
-    setCodeCountdown(0)
+    stopCodeCountdown()
     setVerifyCode('')
     setModalErrorMsg(null)
-    if (countdownRef.current) clearInterval(countdownRef.current)
   }
 
   if (!ready || !user) {
