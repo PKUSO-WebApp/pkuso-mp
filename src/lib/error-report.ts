@@ -302,15 +302,27 @@ export function flushErrorQueue(): void {
   const sending = queue.slice()
   try {
     void supabase
-      .from('client_error_logs')
-      // ⚠️ **不要改回 insert**。这个队列是「至少一次投递」：插入已提交但响应丢失/中断时
-      // 整队会被保留（见下面 status 0 分支），下次 flush 会把同一批再送一遍——用 insert
-      // 就是再插一行。生产库实测出现过 21 组这样的重复（同一错误两行，一行未登录一行已登录）。
+      // ⚠️ **不要改回直写表**（insert 与 upsert 都不行），理由见下。
       //
-      // 改成 upsert + ignoreDuplicates：库端 `client_id` 上有唯一约束，重复补送变成 no-op。
-      // 用 ignoreDuplicates（等价 ON CONFLICT DO NOTHING）而**不是**默认的 merge
-      // （DO UPDATE）：本表对客户端没有 SELECT 权限，而 DO UPDATE 需要读到冲突行。
-      .upsert(sending, { onConflict: 'client_id', ignoreDuplicates: true })
+      // 这个队列是「至少一次投递」：插入已提交、但响应丢失或中断时整队会被保留（见下面
+      // status 0 分支），下次 flush 把同一批再送一遍。所以写入**必须幂等**，否则同一条错误
+      // 会在库里出现多行——生产库实测过 21 组这样的重复。
+      //
+      // 而幂等没法由客户端直写实现：
+      // - `.upsert(…, { onConflict: 'client_id' })` —— **必然被 RLS 拒成 42501，整批丢弃**。
+      //   实测（同一张表 / 同一 anon key / 同一 payload，只改 Prefer 头）：无 Prefer 与
+      //   return=minimal 是 201，而 return=representation、resolution=merge-duplicates、
+      //   resolution=ignore-duplicates 全是 42501（后三者再加 return=minimal 也救不回来）。
+      //   原因是 PostgREST 生成 `INSERT … RETURNING $2`：minimal 时 $2 是常量（不读任何列），
+      //   而 **upsert 整条路径**会把它填成列清单——`INSERT … RETURNING <列>` 在 RLS 下要求
+      //   新行对 SELECT 策略可见，本表的 SELECT 策略只有 is_admin()，于是谁都过不去。
+      //   与 payload 内容无关，与登录与否无关，**改客户端绕不过去**。
+      // - `.insert()` —— 走 minimal，凑巧不读回，所以"一直能用"，但它完全不幂等。
+      //
+      // 因此写入收进库端 `log_client_errors`（SECURITY DEFINER，函数内 on conflict do nothing）：
+      // 不读回 ⇒ 不触发那条检查；幂等不变；user_id 由函数写成 auth.uid()，客户端伪造不了归属。
+      // 参数名与列名一一对应，函数的 jsonb_to_recordset 只认这 10 个键，多余键被忽略。
+      .rpc('log_client_errors', { rows: sending })
       .then(
         (res) => {
           flushing = false

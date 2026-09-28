@@ -10,8 +10,8 @@ import {
 const storage = new Map<string, string>()
 // 每次上报调用的报文数组
 const insertCalls: Record<string, unknown>[][] = []
-// 每次 upsert 带的选项——幂等补送全靠它，所以要能断言（见下面「补送幂等」用例）
-const upsertOptions: unknown[] = []
+// 每次 rpc 调用的函数名与参数——幂等补送全靠库端那个函数，所以要能断言（见「补送幂等」用例）
+const rpcCalls: { fn: string; args: Record<string, unknown> | undefined }[] = []
 let insertMode: 'ok' | 'reject' | 'server_error' | 'throw' | 'network' = 'ok'
 
 // 网络类型：真实 API 是异步的，而报错路径要同步可得 ⇒ 缓存。这里同步回调即可
@@ -72,16 +72,23 @@ vi.mock('@/lib/supabase', () => {
   }
   return {
     supabase: {
+      // 生产代码走 rpc('log_client_errors')：库端 SECURITY DEFINER 函数内
+      // `insert … on conflict (client_id) do nothing`。直写表做不到幂等，理由见
+      // error-report.ts 里那段注释（upsert 必被 RLS 拒成 42501）。
+      rpc: (fn: string, args?: Record<string, unknown>) => {
+        rpcCalls.push({ fn, args })
+        record(args?.rows)
+        return respond()
+      },
+      // 保留 from/insert/upsert 只是为了让「万一有人改回去」时用例报出可读的断言
+      // （rpcCalls 为空），而不是 `from is not a function`
       from: () => ({
-        // 生产代码走 upsert（幂等补送）。保留 insert 是为了「万一有人改回去」时
-        // 用例仍报出可读的断言失败，而不是 `upsert is not a function`
         insert: (rows: unknown) => {
           record(rows)
           return respond()
         },
-        upsert: (rows: unknown, opts?: unknown) => {
+        upsert: (rows: unknown) => {
           record(rows)
-          upsertOptions.push(opts)
           return respond()
         },
       }),
@@ -98,7 +105,7 @@ describe('reportClientError', () => {
   beforeEach(() => {
     storage.clear()
     insertCalls.length = 0
-    upsertOptions.length = 0
+    rpcCalls.length = 0
     insertMode = 'ok'
     __resetErrorReportState()
   })
@@ -380,9 +387,9 @@ describe('reportClientError', () => {
     expect(insertCalls).toHaveLength(1)
   })
 
-  // --- 补送幂等（库端 client_id 唯一约束 + 这里的 upsert 参数，两者缺一不可） ---
+  // --- 补送幂等（库端 client_id 唯一约束 + 函数里的 on conflict do nothing） ---
 
-  it('每条都带 uuid 形状的 client_id，且走的是幂等 upsert', async () => {
+  it('每条都带 uuid 形状的 client_id，且走库端的 log_client_errors 函数', async () => {
     reportClientError({ event: 'app_error', message: 'idempotent' })
     await flush()
 
@@ -392,9 +399,15 @@ describe('reportClientError', () => {
     expect(String(insertCalls[0][0].client_id)).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
     )
-    // 幂等全靠这两个参数。改回 insert（或去掉 ignoreDuplicates）都会让生产库
-    // 重新出现成对的重复行——而那些重复正是这次改动要消掉的东西
-    expect(upsertOptions[0]).toEqual({ onConflict: 'client_id', ignoreDuplicates: true })
+    // 幂等的锚点在库端（函数内 `insert … on conflict (client_id) do nothing`），
+    // 参数名要对上签名 `log_client_errors(rows jsonb)`。
+    //
+    // ⚠️ 改回直写表（.insert 或 .upsert）这条就会红——而那不是"实现细节变了"，
+    // 是**每次上报都会被丢弃**：upsert 需要 PostgREST 读回插入的行，而本表对客户端
+    // 只有 INSERT 权限，于是必被 RLS 拒成 42501（实测，见 error-report.ts 的注释）。
+    expect(rpcCalls).toHaveLength(1)
+    expect(rpcCalls[0].fn).toBe('log_client_errors')
+    expect(rpcCalls[0].args).toHaveProperty('rows')
   })
 
   it('client_id 随队列持久化：补送时复用同一个值，绝不重新生成', async () => {
