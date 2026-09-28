@@ -165,8 +165,10 @@ export default function Index() {
       endDate.setDate(todayDate.getDate() + 7)
       const startStr = `${todayDate.getMonth() + 1}.${todayDate.getDate()}`
       const endStr = `${endDate.getMonth() + 1}.${endDate.getDate()}`
-      if (scheduleTab === 'full') return t('schedule.share.fullTitle', { start: startStr, end: endStr })
-      if (scheduleTab === 'section') return t('schedule.share.sectionTitle', { start: startStr, end: endStr })
+      if (scheduleTab === 'full')
+        return t('schedule.share.fullTitle', { start: startStr, end: endStr })
+      if (scheduleTab === 'section')
+        return t('schedule.share.sectionTitle', { start: startStr, end: endStr })
       return t('schedule.share.historyTitle', { start: startStr, end: endStr })
     }
     const times = rehearsalList
@@ -189,8 +191,10 @@ export default function Index() {
       endDate.setDate(todayDate.getDate() + 7)
       const startStr = `${todayDate.getMonth() + 1}.${todayDate.getDate()}`
       const endStr = `${endDate.getMonth() + 1}.${endDate.getDate()}`
-      if (scheduleTab === 'full') return t('schedule.share.fullTitle', { start: startStr, end: endStr })
-      if (scheduleTab === 'section') return t('schedule.share.sectionTitle', { start: startStr, end: endStr })
+      if (scheduleTab === 'full')
+        return t('schedule.share.fullTitle', { start: startStr, end: endStr })
+      if (scheduleTab === 'section')
+        return t('schedule.share.sectionTitle', { start: startStr, end: endStr })
       return t('schedule.share.historyTitle', { start: startStr, end: endStr })
     }
     const minStart = Math.min(...times.map((item) => item.startMs))
@@ -199,8 +203,10 @@ export default function Index() {
     const endDate = new Date(maxEnd)
     const startStr = `${startDate.getMonth() + 1}.${startDate.getDate()}`
     const endStr = `${endDate.getMonth() + 1}.${endDate.getDate()}`
-    if (scheduleTab === 'full') return t('schedule.share.fullTitle', { start: startStr, end: endStr })
-    if (scheduleTab === 'section') return t('schedule.share.sectionTitle', { start: startStr, end: endStr })
+    if (scheduleTab === 'full')
+      return t('schedule.share.fullTitle', { start: startStr, end: endStr })
+    if (scheduleTab === 'section')
+      return t('schedule.share.sectionTitle', { start: startStr, end: endStr })
     return t('schedule.share.historyTitle', { start: startStr, end: endStr })
   }, [rehearsalList, scheduleTab, t])
 

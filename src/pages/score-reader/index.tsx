@@ -507,7 +507,9 @@ export default function ScoreReader() {
       logDbg(`r p${target} z${job.zoom} ${layer} ${Math.round(w * dpr)}x${Math.round(h * dpr)}`)
       // 首帧：先把内容尺寸给出来，别让画布以 0 高存在
       if (firstPaint) setViewSize({ w, h })
-      const { node } = await queryCanvasNode(layer === 'a' ? '#reader-canvas-a' : '#reader-canvas-b')
+      const { node } = await queryCanvasNode(
+        layer === 'a' ? '#reader-canvas-a' : '#reader-canvas-b'
+      )
       drawMark(node as CanvasNode)
       await doc.renderPage(target, node, { scale, pixelRatio: dpr })
       const kept = markKept(node as CanvasNode)
