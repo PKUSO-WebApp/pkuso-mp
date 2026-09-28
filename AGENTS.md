@@ -31,6 +31,8 @@
 2. **CI 有 `paths:` 白名单**（清单见 §3.2）。改 `AGENTS.md` / `README.md` / `docs/**` / `.env*` **不触发 CI**；改 `package.json` / `src/**` / `scripts/**` **会触发一次真实构建与上传**——所以「顺手改一下 `version`」不是无副作用操作。
 3. **`main` 的现状并不等于「只接受从 dev 合并」**：历史里既有从 `dev` 合入，也有直接推 `main`、以及功能分支直接 merge 到 `main`。规范意图是 dev 先行，但别拿这句话去推断历史或断言别人做错了。
 
+⚠️ **`dev` 与 `main` 是两条并行维护的线**（`dev` 还压着未发布的谱务），改动该走哪条、怎么发版见 **§1.5**。
+
 ### 1.2 交付闸门（Delivery Gate）
 
 声明「完成 / 交付」前必须依次执行且全绿。**这是本仓库唯一的闸门定义**，`README.md` / `CONTRIBUTING.md` 与 CI 都以此为准：
@@ -76,6 +78,38 @@ grep -rl "$(grep -m1 TARO_APP_SUPABASE_URL .env.development | cut -d= -f2)" dist
 - 常用 type：`feat` `fix` `docs` `style` `refactor` `test` `chore` `ci`。
 - 描述用中文（沿用本仓库历史）。
 - 没有配置 `lint-staged`，提交前不会自动跑 lint / format——闸门得自己跑。
+
+### 1.5 ⚠️ 两条线：稳定线 `main` 与开发线 `dev`
+
+仓库同时跑两条线，**分支决定归属**：
+
+| 线     | 分支   | 内容                                            | 合并后触发                                                                                               |
+| ------ | ------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 稳定线 | `main` | 修复、体验、工具链、与 web 对齐——**随时可发**   | `Deploy to WeChat Prod`：生产库构建 → 上传开发版本列表 robot 2 → `version:release` → 回写版本号 + 推 tag |
+| 开发线 | `dev`  | **正在做、尚不稳定/未发布的（一个或多个）功能** | `Deploy to WeChat Dev`：开发库构建 → 上传 robot 1                                                        |
+
+⚠️ `dev` **不等于「谱务分支」**——它是「未发布功能的集成分支」，谱务只是**当前**占用它的那件事（上一个占用者是客户端错误收集）。占用者会换，下面这些规矩不变，所以别把规矩写成「谱务专属」。
+
+**版本号不标记线**：`dev` 上未发布的功能合进 `main` 之后，`main` 的版本号会跟着上去（`0.4.x` → `0.5.x`），两条线同档是正常状态。所以**别拿版本号判断一条改动属于哪条线——看分支**。
+
+**规矩**：
+
+1. **稳定化改动先合 `dev`**（拿开发版真机验收）→ 验完再 **cherry-pick 到 `main`** 发版。
+   不直接 `dev → main` 的原因：`dev` 上压着尚未发布的功能，直接合会把它们一起带上正式线。
+2. **稳定化改动不得触碰「尚未发布功能」的文件**。碰了就无法干净 cherry-pick——实测过一次：一个「测试布局统一」的顺手改动搬了 `src/lib/__tests__/annotation.test.ts`，而 `annotation.ts` 属于当时未发布的谱务，导致该提交挑到 `main` 时冲突。
+3. **稳定化改动保持单提交**（squash merge 天然满足），cherry-pick 才是一条命令的事。
+4. **发版前把 `main` 的 `package.json` 版本 bump 一档**：CI 的 `version:release` 只去预发布后缀、**不自动 +1**，而 `v<version>` 的 tag 已存在时会跳过推 tag——不 bump 就会用同一个版本号再传一次。
+5. 两条线并行维护，同一批改动可能在两边各有一份提交（例如 error-report）。挑过去时用 `git cherry-pick -x` 记录来源，便于日后对账。
+
+**哪些文件属于「尚未发布的功能」**——不必背清单，一条命令：
+
+```bash
+git cat-file -e origin/main:<路径>   # 报错 = main 上没有 = 属于未发布功能，稳定化改动别碰
+```
+
+当前（2026-09）`dev` 上未发布的是谱务，所以**这些**文件暂时不能碰：`src/pages/score-*`、`src/pages/score-reader/**`（独立分包）、`src/hooks/useSheetMusic.ts`、`src/lib/sheet-music-sort.ts`、`src/lib/annotation.ts`、`src/components/score/**`、`vendor/**`、`scripts/build-pdf-runtime.mjs`、`src/i18n/messages/*/score*.ts`。
+
+> 将来若把某个未发布功能挪到自己的分支：**必须同时改 CI**（`.github/workflows/deploy-dev.yml` 的 `branches:`），否则那条分支拿不到开发版构建。
 
 ---
 
