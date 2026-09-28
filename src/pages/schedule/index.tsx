@@ -126,7 +126,15 @@ export default function Schedule() {
       <View className='relative mb-4 flex-1 min-h-0 rounded-xl border border-border bg-card'>
         <ScrollView scrollY id='schedule-gantt-scroll' className='h-full'>
           {/* 空日期由甘特图自身渲染（时间轴+网格线，无预约块）；loadingOnlyWhenEmpty=false 让 loading 时直接显示加载态，不渲染甘特图 */}
-          <ListState loading={loading} loadingOnlyWhenEmpty={false} error={tAppError(t, error)}>
+          <ListState
+            loading={loading}
+            loadingOnlyWhenEmpty={false}
+            error={tAppError(t, error)}
+            // 以前没传 onRetry，而文案写着「加载失败，请重试」——界面上却无处可点，
+            // 只能靠下拉刷新或切 tab 回来。错误态给不出恢复入口，等于把用户堵在这一屏。
+            // 这里不传 silent：错误态下手头本来就没有数据可保，翻 loading 是对的反馈。
+            onRetry={() => void fetch(selectedDateRef.current)}
+          >
             <ScheduleGantt
               schedules={filteredSchedules}
               selectedDate={selectedDate}

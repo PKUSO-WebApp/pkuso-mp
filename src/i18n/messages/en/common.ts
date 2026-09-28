@@ -45,6 +45,7 @@ export const common = {
   errors: {
     loadFailed: 'Failed to load data, please retry',
     saveFailed: 'Operation failed, please retry',
+    navigateFailed: 'Failed to open the page, please retry',
   },
   agreement: {
     checkbox: 'I have read and agree to',

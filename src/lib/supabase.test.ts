@@ -23,6 +23,26 @@ vi.mock('@tarojs/taro', () => ({
   default: { request, getStorage, setStorage, removeStorage, getStorageSync, setStorageSync },
 }))
 
+/**
+ * 导入模块并把重试退避清零。
+ *
+ * afterEach 里有 `vi.resetModules()`，所以每个用例拿到的都是全新模块实例、退避会回到
+ * 生产值——不清零的话，凡是走到重试的用例都要为退避真等 2 秒上下。
+ */
+async function loadSupabase() {
+  const mod = await import('@/lib/supabase')
+  mod.__setRetryDelaysForTest([0, 0])
+  return mod
+}
+
+/** 发一次请求并返回它实际打了几次（用来断言「会重试 / 不会重试」） */
+async function attemptsOf(url: string, method?: string): Promise<number> {
+  const { taroFetch } = await loadSupabase()
+  const before = request.mock.calls.length
+  await expect(taroFetch(url, method ? { method } : {})).rejects.toThrow()
+  return request.mock.calls.length - before
+}
+
 describe('supabase 官方客户端适配', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -137,8 +157,13 @@ describe('supabase 官方客户端适配', () => {
     expect(objectResponse.headers.get('CONTENT-TYPE')).toBe('application/json')
     expect(objectResponse.headers.has('content-type')).toBe(true)
 
+    // 用 POST 让它落在「不可重试」那一类：这条用例验的是错误透传，不是重试
     request.mockRejectedValueOnce(new Error('网络失败'))
-    await expect(taroFetch('https://project.supabase.co/rest/v1/test')).rejects.toThrow('网络失败')
+    const callsBefore = request.mock.calls.length
+    await expect(
+      taroFetch('https://project.supabase.co/rest/v1/test', { method: 'POST' })
+    ).rejects.toThrow('网络失败')
+    expect(request.mock.calls.length).toBe(callsBefore + 1)
   })
 
   it('配置缺失时直接抛错', async () => {
@@ -153,37 +178,53 @@ describe('supabase 官方客户端适配', () => {
     vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
     vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
 
-    const { taroFetch, setRequestFailureReporter } = await import('@/lib/supabase')
-    const reported: { event: string; level: string; message: string }[] = []
+    const { taroFetch, setRequestFailureReporter } = await loadSupabase()
+    const reported: {
+      event: string
+      level: string
+      message: string
+      detail: Record<string, unknown>
+    }[] = []
     setRequestFailureReporter((input) => {
-      reported.push(input as { event: string; level: string; message: string })
+      reported.push(input as (typeof reported)[number])
     })
 
-    // 网络层失败（断网 / DNS 解析不了）→ error
-    request.mockRejectedValueOnce(new Error('net::ERR_NAME_NOT_RESOLVED'))
+    // 网络层失败（断网 / DNS 解析不了）→ error。持续失败 ⇒ 会重试到上限，
+    // 但**只报一条**：中途每次失败都报的话，一次请求要写 3 条，把 5 分钟指纹窗口占满、
+    // 掩盖掉真实的第二条错误
+    request.mockRejectedValue(new Error('net::ERR_NAME_NOT_RESOLVED'))
     await expect(
       taroFetch('https://project.supabase.co/rest/v1/notifications?select=*')
     ).rejects.toThrow('ERR_NAME_NOT_RESOLVED')
+    expect(request).toHaveBeenCalledTimes(3) // 1 次原始 + 2 次重试
+    expect(reported).toHaveLength(1)
     expect(reported[0]).toMatchObject({ event: 'request_failed', level: 'error' })
+    expect(reported[0].detail.attempts).toBe(3)
     // 路径进 message：指纹按 event+message 算，于是不同端点各算一条、同一端点仍被去重
     expect(reported[0].message).toContain('/rest/v1/notifications')
     expect(reported[0].message).not.toContain('?') // 去掉 query，避免同端点不同参数各算一条
 
-    // 5xx → error
-    request.mockResolvedValueOnce({ statusCode: 503, header: {}, data: 'oops' })
+    // 503 是 postgrest 原本在 db.retry 下会重试的瞬时故障之一——关掉 db.retry 后由我们接管
+    request.mockReset()
+    request.mockResolvedValue({ statusCode: 503, header: {}, data: 'oops' })
     await taroFetch('https://project.supabase.co/rest/v1/posts')
+    expect(request).toHaveBeenCalledTimes(3)
     expect(reported[1]).toMatchObject({ level: 'error' })
     expect(reported[1].message).toContain('503')
 
-    // 4xx → warn（鉴权/参数问题不该和断网同级）
+    // 4xx → warn（鉴权/参数问题不该和断网同级），且**不重试**——重试只是把同一个错误再犯一次
+    request.mockReset()
     request.mockResolvedValueOnce({ statusCode: 401, header: {}, data: '{}' })
     await taroFetch('https://project.supabase.co/rest/v1/profiles')
+    expect(request).toHaveBeenCalledTimes(1)
     expect(reported[2]).toMatchObject({ level: 'warn' })
 
     // 上报端点自身失败绝不再上报——否则断网时形成 上报→失败→上报 的循环
+    // （真实调用是 POST 插入，那类不重试，一次到底）
+    request.mockReset()
     request.mockRejectedValueOnce(new Error('still down'))
     await expect(
-      taroFetch('https://project.supabase.co/rest/v1/client_error_logs')
+      taroFetch('https://project.supabase.co/rest/v1/client_error_logs', { method: 'POST' })
     ).rejects.toThrow('still down')
     expect(reported).toHaveLength(3)
   })
@@ -220,9 +261,10 @@ describe('supabase 官方客户端适配', () => {
     vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
     vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
     vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
-    request.mockRejectedValueOnce(new Error('网络失败'))
+    // 持续失败：这条用例验的是「没有 reporter 也照常 reject」，与重试几次无关
+    request.mockRejectedValue(new Error('网络失败'))
 
-    const { taroFetch } = await import('@/lib/supabase')
+    const { taroFetch } = await loadSupabase()
     // 没有 reporter 也不能改变请求语义：照常 reject
     await expect(taroFetch('https://project.supabase.co/rest/v1/test')).rejects.toThrow('网络失败')
   })
@@ -263,14 +305,14 @@ describe('supabase 官方客户端适配', () => {
     vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
     vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
 
-    const { taroFetch, setRequestFailureReporter } = await import('@/lib/supabase')
+    const { taroFetch, setRequestFailureReporter } = await loadSupabase()
     const reported: { detail: Record<string, unknown> }[] = []
     setRequestFailureReporter((input) => {
       reported.push(input as { detail: Record<string, unknown> })
     })
 
     // 网络层失败：微信只给一句光秃秃的 `request:fail`，原因往往挂在同一个对象的别的字段上
-    request.mockRejectedValueOnce({ errMsg: 'request:fail', errCode: -1 })
+    request.mockRejectedValue({ errMsg: 'request:fail', errCode: -1 })
     await expect(taroFetch('https://project.supabase.co/rest/v1/posts')).rejects.toMatchObject({
       errMsg: 'request:fail',
     })
@@ -283,10 +325,15 @@ describe('supabase 官方客户端适配', () => {
 
     // HTTP 失败：状态码既进 message（指纹粒度）也进字段（可聚合）；
     // diag 与请求头里带的是同一个值——服务端日志就是靠它对上的
+    request.mockReset()
     request.mockResolvedValueOnce({ statusCode: 502, header: {}, data: 'bad gateway' })
     await taroFetch('https://project.supabase.co/functions/v1/wechat-auth')
     expect(reported[1].detail.status).toBe(502)
-    expect(reported[1].detail.diag).toBe(request.mock.calls[1][0].header['x-pkuso-diag'] as string)
+    // 502 不在可重试的 [520, 503] 里，所以只打了一次；用 at(-1) 取那一次，
+    // 免得以后重试策略再调整时这里跟着断
+    expect(reported[1].detail.diag).toBe(
+      request.mock.calls.at(-1)![0].header['x-pkuso-diag'] as string
+    )
   })
 
   it('taroFetch 兜底注入 apikey，已有 apikey 不重复注入', async () => {
@@ -309,5 +356,57 @@ describe('supabase 官方客户端适配', () => {
     })
     expect(request.mock.calls[2][0].header.Apikey).toBe('case-insensitive')
     expect(request.mock.calls[2][0].header.apikey).toBeUndefined()
+  })
+
+  it('重试只覆盖幂等方法与白名单内的只读 RPC；写请求一次都不重试', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+    request.mockRejectedValue(new Error('boom'))
+
+    // 幂等方法：重试到上限（1 次原始 + 2 次重试）
+    expect(await attemptsOf('https://project.supabase.co/rest/v1/rehearsals')).toBe(3)
+
+    // 只读 RPC：postgrest 里 `rpc()` 走的是 **POST**，所以「只重试 GET」覆盖不到它们。
+    // 其中 get_my_profile_entry 最要紧——它失败时 routeAfterLogin 会把已审核通过的成员
+    // 降级扔到「等待审核」页
+    const READ_RPCS = [
+      '/rest/v1/rpc/check_data_versions',
+      '/rest/v1/rpc/get_my_session',
+      '/rest/v1/rpc/get_my_profile_entry',
+    ]
+    for (const path of READ_RPCS) {
+      expect(await attemptsOf(`https://project.supabase.co${path}`, 'POST')).toBe(3)
+    }
+
+    // 写请求：一次都不重试。漏掉任何一条的代价都是**重复副作用**，不是变慢：
+    // touch_session 会轮换 session_token → 乱序的两次响应会让本地存到非最新值 →
+    // verifySession 判「被挤下线」→ 弹窗并清会话
+    const NEVER_RETRY = [
+      '/rest/v1/rpc/touch_session',
+      '/rest/v1/leave_requests',
+      '/functions/v1/wechat-auth',
+      '/auth/v1/token?grant_type=refresh_token',
+    ]
+    for (const path of NEVER_RETRY) {
+      expect(await attemptsOf(`https://project.supabase.co${path}`, 'POST')).toBe(1)
+    }
+  })
+
+  it('白名单与用例保持同步：往 RETRYABLE_READ_POSTS 加路径必须同时加断言', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+
+    const { RETRYABLE_READ_POSTS } = await loadSupabase()
+    // 这条断言是「漏项」的守门员：白名单里多一条而上一条用例没覆盖，这里就会红。
+    // 光靠注释挡不住——重试次数不对不会抛错，只会在弱网下偶发地把某个写操作做两遍。
+    expect([...RETRYABLE_READ_POSTS].sort()).toEqual([
+      '/rest/v1/rpc/check_data_versions',
+      '/rest/v1/rpc/get_my_profile_entry',
+      '/rest/v1/rpc/get_my_session',
+    ])
   })
 })

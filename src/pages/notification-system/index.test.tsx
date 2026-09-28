@@ -37,11 +37,13 @@ const activityRows = [
 
 const { taroMock, fetchMock, markCategoryMock, notifyMock, hideHolder } = vi.hoisted(() => ({
   taroMock: { showToast: vi.fn() },
-  fetchMock: vi.fn((category?: string) =>
-    Promise.resolve({
-      rows: category === 'activity' ? (activityRows as any[]) : (rows as any[]),
-      error: null,
-    })
+  // 显式标注返回类型：否则被推断成 error: null，后面模拟失败态就赋不进 'loadFailed'
+  fetchMock: vi.fn(
+    (category?: string): Promise<{ rows: any[]; error: string | null }> =>
+      Promise.resolve({
+        rows: category === 'activity' ? (activityRows as any[]) : (rows as any[]),
+        error: null,
+      })
   ),
   markCategoryMock: vi.fn(() => Promise.resolve(true)),
   notifyMock: vi.fn(),
@@ -142,5 +144,29 @@ describe('系统通知页', () => {
       hideHolder.cb()
     })
     expect(markCategoryMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('两类都失败时给重试入口；重试会重新取数并恢复内容', async () => {
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({ rows: [], error: 'loadFailed' as const })
+    )
+    const callsAfterFirstLoad = fetchMock.mock.calls.length
+    render(<NotificationSystemPage />)
+    // 失败文案与重试按钮都得出现——光有文案没有入口就是「只能退出重进」
+    expect(await screen.findByText('加载失败，请稍后重试')).toBeTruthy()
+    const retry = screen.getByText('重试')
+    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstLoad + 2) // system + activity
+
+    // 放行网络后再点：断言的是「真的又发了一次请求」，不只是按钮被点过
+    fetchMock.mockImplementation((category?: string) =>
+      Promise.resolve({ rows: category === 'activity' ? activityRows : rows, error: null })
+    )
+    fireEvent.click(retry)
+
+    expect(await screen.findByText('维护通知')).toBeTruthy()
+    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstLoad + 4)
+    // 内容回来后失败态（含按钮）必须撤掉，否则用户会以为还得再点
+    expect(screen.queryByText('加载失败，请稍后重试')).toBeNull()
+    expect(screen.queryByText('重试')).toBeNull()
   })
 })

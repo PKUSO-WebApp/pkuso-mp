@@ -18,6 +18,7 @@ import eyeDarkIcon from '@/assets/icons/eye-dark.png'
 import eyeOffDarkIcon from '@/assets/icons/eye-off-dark.png'
 import pencilIcon from '@/assets/icons/pencil-line.png'
 import pencilDarkIcon from '@/assets/icons/pencil-line-dark.png'
+import { invokeFunction } from '@/lib/functions'
 import './index.scss'
 
 // 入团时间选择器：年份区间 + 春/秋两季；存储恒为规范值「YYYY春/YYYY秋」，展示层经 translateJoinDate 本地化
@@ -214,7 +215,7 @@ export default function ProfileInfoPage() {
       // 学院字段内容审核
       const collegeText = editCollege.trim()
       if (collegeText) {
-        const textRes = await supabase.functions.invoke('wechat-content-check', {
+        const textRes = await invokeFunction(supabase, 'wechat-content-check', {
           body: { kind: 'text', content: collegeText },
         })
         const textData = textRes.data as { result?: string; ok?: boolean } | null
@@ -272,7 +273,7 @@ export default function ProfileInfoPage() {
         const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`
 
         // 图片内容审核
-        const imgRes = await supabase.functions.invoke('wechat-content-check', {
+        const imgRes = await invokeFunction(supabase, 'wechat-content-check', {
           body: { kind: 'image', imageUrl: publicUrl },
         })
         const imgData = imgRes.data as { result?: string; ok?: boolean; error?: string } | null

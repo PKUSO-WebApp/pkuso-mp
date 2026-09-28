@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { DIAG_HEADER, newDiagId } from '@/lib/diag'
+import { invokeFunction } from '@/lib/functions'
 import { useCountdown } from './useCountdown'
 
 export type UseSendLoginCodeResult = {
@@ -33,7 +34,7 @@ export function useSendLoginCode(
         // 服务端那边有几条「静默」分支（IP 冷却 / 查库失败 / 插入失败）**响应完全一样**，
         // 只有靠这条 id 才能把客户端这条记录对上服务端那行日志。见 lib/diag.ts。
         const diag = newDiagId()
-        const { data, error } = await client.functions.invoke('send-login-code', {
+        const { data, error } = await invokeFunction(client, 'send-login-code', {
           body: { email: email.trim().toLowerCase() },
           headers: { [DIAG_HEADER]: diag },
         })

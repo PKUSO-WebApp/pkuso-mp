@@ -11,6 +11,7 @@ import { INSTRUMENT_ORDER } from '@/constants/instruments'
 import { supabase } from '@/lib/supabase'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { getAcademicYearLabel } from '@/lib/academic-year'
+import { invokeFunction } from '@/lib/functions'
 import type { TFn } from '@/i18n/core'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
@@ -138,7 +139,7 @@ export default function RegisterPage() {
       const joinDate = `${YEAR_OPTIONS[yearIndex]}${getSeasonOptions(t)[seasonIndex]}`
       const instrument = getInstrumentOptions(t)[instrumentIndex]
 
-      const { data, error } = await supabase.functions.invoke('register-with-wechat', {
+      const { data, error } = await invokeFunction(supabase, 'register-with-wechat', {
         body: {
           code: wechatCode,
           full_name: fullName.trim(),

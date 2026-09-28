@@ -1,4 +1,5 @@
 import type { supabase as defaultClient } from '@/lib/supabase'
+import { invokeFunction } from '@/lib/functions'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 import type { TFn } from '@/i18n'
 
@@ -33,7 +34,7 @@ export async function moderateAndUploadPostImage(
   ]
     .filter(Boolean)
     .join('\n')
-  const textRes = await client.functions.invoke('wechat-content-check', {
+  const textRes = await invokeFunction(client, 'wechat-content-check', {
     body: { kind: 'text', content: textParts },
   })
   if (textRes.error) {
@@ -67,7 +68,7 @@ export async function moderateAndUploadPostImage(
     }
   const imageUrl = client.storage.from('community-images').getPublicUrl(path).data.publicUrl
 
-  const imgRes = await client.functions.invoke('wechat-content-check', {
+  const imgRes = await invokeFunction(client, 'wechat-content-check', {
     body: { kind: 'image', imageUrl },
   })
   const imgData = imgRes.data as { result?: string; ok?: boolean; error?: string } | null

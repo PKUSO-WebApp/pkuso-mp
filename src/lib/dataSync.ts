@@ -123,3 +123,21 @@ export function dataSyncStop() {
 export function dataSyncBump() {
   if (running) schedule()
 }
+
+/**
+ * 网络恢复后让各页重新取数（issue #7 的另一半：断网期间卡住的那一屏要能自愈）。
+ *
+ * 为什么需要它：断网期间失败的请求**不会自己回来**。重试只在「点击 / 加载」那一刻起作用，
+ * 而用户停在那一屏不动时，没有任何东西再去试一次——原来的 onNetworkStatusChange 只补送
+ * 错误队列（那是给**排查**用的），业务数据完全没人管，于是「网回来了，页面还是空的」。
+ *
+ * 做法是复用既有的心跳通道：emitSync 让每个订阅了该实体的 hook 自己去重取。
+ * 实体清单直接取自 listeners 的键，不另维护一份会漂移的列表。
+ * 多发是安全的——各 hook 的重取都是静默的（有数据不翻 loading），没有订阅者的实体
+ * 发出去就是空操作。
+ */
+export function dataSyncResync() {
+  for (const entity of Object.keys(listeners) as SyncEntity[]) emitSync(entity)
+  // 顺带重置 30 秒轮询的倒计时：刚重取过，没必要紧接着再轮询一次
+  dataSyncBump()
+}

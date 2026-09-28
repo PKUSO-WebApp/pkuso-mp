@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { useNotifications } from '@/hooks/useNotifications'
 import { notifyNotificationsUpdated } from '@/components/notification-badge-sync'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
+import { ListState } from '@/components/ui/ListState'
 import { StatusChip, type StatusTone } from '@/components/ui/StatusChip'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { useT, useNavTitle } from '@/i18n'
@@ -62,23 +63,30 @@ export default function LeaveRequestsPage() {
     { key: 'pending', label: t('leaveRequests.status.pending') },
   ]
 
+  const seqRef = useRef(0)
+
+  // 抽成具名函数是为了给失败态的「重试」一个入口——原来它写死在 effect 的 IIFE 里，
+  // 加载失败后除了退出重进页面别无他法（这正是四个页面里最像 bug 的那一处）
+  const load = useCallback(async () => {
+    setLoading(true)
+    setFailed(false)
+    const seq = ++seqRef.current
+    const { data, error } = await supabase
+      .from('leave_requests')
+      .select('*, rehearsals(type, start_time, end_time)')
+      .order('created_at', { ascending: false })
+    if (seq !== seqRef.current) return
+    setLoading(false)
+    if (error) {
+      setFailed(true)
+      return
+    }
+    setRequests((data as LeaveRequestWithRehearsal[]) ?? [])
+  }, [])
+
   useEffect(() => {
     Taro.setNavigationBarTitle({ title: t('leaveRequests.navTitle') })
-    let mounted = true
-    void (async () => {
-      const { data, error } = await supabase
-        .from('leave_requests')
-        .select('*, rehearsals(type, start_time, end_time)')
-        .order('created_at', { ascending: false })
-      if (!mounted) return
-      if (error) {
-        setFailed(true)
-        setLoading(false)
-        return
-      }
-      setRequests((data as LeaveRequestWithRehearsal[]) ?? [])
-      setLoading(false)
-    })()
+    void load()
     // 进入即视为已读「考勤与请假」通知（替代原 Modal 的标已读逻辑），清红点
     void (async () => {
       const { rows } = await fetchByCategory('attendance')
@@ -88,10 +96,9 @@ export default function LeaveRequestsPage() {
         if (ok) notifyNotificationsUpdated()
       }
     })()
-    return () => {
-      mounted = false
-    }
-  }, [fetchByCategory, markCategoryRead, t])
+    // 不带卸载守卫：原 mounted 标志只为避免卸载后 setState（React 18 下是无害 no-op），
+    // 而「慢的旧响应盖掉新响应」由 load 里的 seq 比对兜住——重试与切语言都走那条
+  }, [fetchByCategory, load, markCategoryRead, t])
 
   const filtered = useMemo(
     () => (tab === 'all' ? requests : requests.filter((r) => r.status === tab)),
@@ -105,20 +112,17 @@ export default function LeaveRequestsPage() {
 
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='px-4 pb-safe pt-1'>
-          {loading ? (
-            <Text className='block py-10 text-center text-xs text-text-muted'>
-              {t('common.actions.loading')}
-            </Text>
-          ) : failed ? (
-            <Text className='block py-10 text-center text-sm text-text-muted'>
-              {t('leaveRequests.loadFailed')}
-            </Text>
-          ) : filtered.length === 0 ? (
-            <Text className='block py-10 text-center text-sm text-text-muted'>
-              {t('leaveRequests.empty')}
-            </Text>
-          ) : (
-            filtered.map((r) => {
+          {/* loadingOnlyWhenEmpty=false：切 tab 只是本地过滤、不会重新加载，但首次加载失败后
+              重试时 loading 必须先于 failed 生效，否则按钮按下去没反应 */}
+          <ListState
+            loading={loading}
+            loadingOnlyWhenEmpty={false}
+            error={failed ? t('leaveRequests.loadFailed') : null}
+            isEmpty={filtered.length === 0}
+            emptyText={t('leaveRequests.empty')}
+            onRetry={() => void load()}
+          >
+            {filtered.map((r) => {
               const rehearsal = r.rehearsals
               const timeText = rehearsal?.start_time
                 ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
@@ -153,8 +157,8 @@ export default function LeaveRequestsPage() {
                   </View>
                 </View>
               )
-            })
-          )}
+            })}
+          </ListState>
         </View>
       </ScrollView>
     </View>

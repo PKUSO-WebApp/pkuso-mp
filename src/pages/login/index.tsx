@@ -13,6 +13,7 @@ import { routeAfterLogin } from '@/lib/post-auth-route'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { DIAG_HEADER, newDiagId } from '@/lib/diag'
 import { supabase } from '@/lib/supabase'
+import { invokeFunction } from '@/lib/functions'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
 
@@ -113,7 +114,7 @@ export default function LoginPage() {
       // diag：这次请求的关联 id，同时随请求头送服务端（login-with-code 的每条出口
       // 都写日志）。这里原本**一条记录都不上报**，失败只剩界面上那句泛化文案。见 lib/diag.ts。
       const diag = newDiagId()
-      const { data, error } = await supabase.functions.invoke('login-with-code', {
+      const { data, error } = await invokeFunction(supabase, 'login-with-code', {
         body: {
           email: email.trim().toLowerCase(),
           code: code.trim(),

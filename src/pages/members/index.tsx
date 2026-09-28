@@ -10,7 +10,7 @@ import { useMyProfile } from '@/hooks/useMyProfile'
 import { AdminBlockedPage } from '@/components/admin-blocked-page'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 
-import { Card } from '@/components/ui/Card'
+import { ListState } from '@/components/ui/ListState'
 import { StatusChip } from '@/components/ui/StatusChip'
 import { groupProfilesByInstrument } from '@/lib/roster-utils'
 import { filterByName } from '@/lib/name-search'
@@ -117,25 +117,17 @@ export default function Members() {
             placeholderStyle={placeholderStyle}
           />
 
-          {rosterLoading && (allProfiles ?? []).length === 0 ? (
-            <Text className='block py-8 text-center text-xs text-text-subtle'>
-              {t('common.actions.loading')}
-            </Text>
-          ) : rosterError ? (
-            <Card className='border-danger-bg bg-danger-bg/80'>
-              <Text className='block px-3 py-2 text-sm text-danger'>
-                {tAppError(t, rosterError)}
-              </Text>
-            </Card>
-          ) : rosterRows.length === 0 ? (
-            <Text className='block py-8 text-center text-xs text-text-muted'>
-              {t('members.emptyApproved')}
-            </Text>
-          ) : grouped.length === 0 ? (
-            <Text className='block py-8 text-center text-xs text-text-muted'>
-              {t('members.emptyMatch')}
-            </Text>
-          ) : (
+          {/* 两种空态（花名册本身为空 / 搜索无匹配）各自取词，故 emptyText 分情况；
+              loading 沿用「仅内容为空才显示」——切回本 tab 是静默刷新，不该闪加载 */}
+          <ListState
+            loading={rosterLoading}
+            isEmpty={grouped.length === 0}
+            error={tAppError(t, rosterError)}
+            emptyText={
+              rosterRows.length === 0 ? t('members.emptyApproved') : t('members.emptyMatch')
+            }
+            onRetry={() => void fetch()}
+          >
             <View>
               {grouped.map(({ group, users }) => (
                 <View key={group} className='mb-5'>
@@ -189,7 +181,7 @@ export default function Members() {
                 </View>
               ))}
             </View>
-          )}
+          </ListState>
           <View style={{ height: '8px' }} />
         </View>
       </ScrollView>

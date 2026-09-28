@@ -21,6 +21,7 @@ import type { NotificationCategory } from '@/types/database'
 import { dataSyncBump } from '@/lib/dataSync'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import { useCountdown } from '@/hooks/useCountdown'
+import { invokeFunction } from '@/lib/functions'
 
 import { SkeletonCircle, SkeletonText } from '@/components/ui/Skeleton'
 import { ThemeModal } from './components/theme-modal'
@@ -211,7 +212,7 @@ export default function Profile() {
         payload.new_email = newEmail.trim()
       }
       logDiag('send_code_invoke', { purpose, hasNewEmail: purpose === 'email_change' })
-      const { data, error } = await supabase.functions.invoke('send-verification-code', {
+      const { data, error } = await invokeFunction(supabase, 'send-verification-code', {
         body: payload,
       })
       logDiag('send_code_result', {
@@ -265,7 +266,7 @@ export default function Profile() {
     setIsUpdatingPwd(true)
     setPwdError(null)
     try {
-      const { data, error } = await supabase.functions.invoke('verify-and-update', {
+      const { data, error } = await invokeFunction(supabase, 'verify-and-update', {
         body: {
           purpose: 'password_change',
           code: verifyCode.trim(),
@@ -321,7 +322,7 @@ export default function Profile() {
     rebindSubmittingRef.current = true
     setIsRebindingEmail(true)
     try {
-      const { data, error } = await supabase.functions.invoke('verify-and-update', {
+      const { data, error } = await invokeFunction(supabase, 'verify-and-update', {
         body: {
           purpose: 'email_change',
           code: verifyCode.trim(),
