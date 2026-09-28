@@ -28,26 +28,26 @@ cp .env.example .env.production    # 生产构建（上传前填写）
 
 `.env.*` 中以 `TARO_APP_` 前缀的变量会被 Taro 注入到 `process.env`，供小程序运行时读取：
 
-| 变量                         | 说明                                         | 来源                                              |
-| ---------------------------- | -------------------------------------------- | ------------------------------------------------- |
-| `TARO_APP_SUPABASE_URL`      | Supabase 项目地址                            | 同 `pkuso-web` 的 `NEXT_PUBLIC_SUPABASE_URL`      |
-| `TARO_APP_SUPABASE_ANON_KEY` | Supabase publishable key（公开设计，不入库） | 同 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`         |
-| `TARO_APP_SESSION_DIAG`      | 会话诊断日志开关：`1` 开 / `0` 关            | 本地排障用                                        |
+| 变量                         | 说明                                         | 来源                                         |
+| ---------------------------- | -------------------------------------------- | -------------------------------------------- |
+| `TARO_APP_SUPABASE_URL`      | Supabase 项目地址                            | 同 `pkuso-web` 的 `NEXT_PUBLIC_SUPABASE_URL` |
+| `TARO_APP_SUPABASE_ANON_KEY` | Supabase publishable key（公开设计，不入库） | 同 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`    |
+| `TARO_APP_SESSION_DIAG`      | 会话诊断日志开关：`1` 开 / `0` 关            | 本地排障用                                   |
 
 ## 常用脚本
 
-| 命令               | 作用                                                              |
-| ------------------ | ----------------------------------------------------------------- |
+| 命令               | 作用                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
 | `pnpm dev:weapp`   | **开发环境**构建到 `dist/`（`NODE_ENV=development`，读 `.env.development`；**不是 watch 模式**） |
-| `pnpm build:weapp` | **生产环境**构建到 `dist/`（读 `.env.production`，**指向生产库**） |
-| `pnpm typecheck`   | `tsc --noEmit`                                                    |
-| `pnpm lint`        | ESLint（`--max-warnings 0`）                                      |
-| `pnpm test`        | Vitest 单测                                                       |
-| `pnpm format`      | Prettier 检查（`pnpm format:fix` 自动修）                         |
-| `pnpm verify`      | `format && lint && typecheck && test`（本地便利命令，**不含构建、CI 也不跑它**） |
-| `pnpm pull-types`  | 从本地 `../pkuso-backend` 复制 `database.types.ts`                |
-| `pnpm upload`      | 手动上传 `dist/` 到微信（见 `AGENTS.md` §3.4）                    |
-| `pnpm new`         | 创建新页面/组件                                                   |
+| `pnpm build:weapp` | **生产环境**构建到 `dist/`（读 `.env.production`，**指向生产库**）                               |
+| `pnpm typecheck`   | `tsc --noEmit`                                                                                   |
+| `pnpm lint`        | ESLint（`--max-warnings 0`）                                                                     |
+| `pnpm test`        | Vitest 单测                                                                                      |
+| `pnpm format`      | Prettier 检查（`pnpm format:fix` 自动修）                                                        |
+| `pnpm verify`      | `format && lint && typecheck && test`（本地便利命令，**不含构建、CI 也不跑它**）                 |
+| `pnpm pull-types`  | 从本地 `../pkuso-backend` 复制 `database.types.ts`                                               |
+| `pnpm upload`      | 手动上传 `dist/` 到微信（见 `AGENTS.md` §3.4）                                                   |
+| `pnpm new`         | 创建新页面/组件                                                                                  |
 
 > 版本号、分支、CI 相关命令（`version:*` / `branch:create`）见 `AGENTS.md` §2。
 
@@ -94,11 +94,11 @@ config/index.ts    Taro 构建配置（defineConstants 注入 APP_VERSION）
 
 ## CI/CD（摘要）
 
-| 分支   | push 后 CI 做什么                                                          |
-| ------ | -------------------------------------------------------------------------- |
-| `dev`  | verify（lint → typecheck → test → build）→ 上传到微信**开发版本**列表（robot 1） |
-| `main` | 同上（robot 2）→ 版本号回写 `main` + 推 tag `v<version>`                    |
-| 其他分支 / PR | **不触发任何 CI**（workflow 只监听 push 到 dev/main，且有 `paths:` 白名单） |
+| 分支          | push 后 CI 做什么                                                                |
+| ------------- | -------------------------------------------------------------------------------- |
+| `dev`         | verify（lint → typecheck → test → build）→ 上传到微信**开发版本**列表（robot 1） |
+| `main`        | 同上（robot 2）→ 版本号回写 `main` + 推 tag `v<version>`                         |
+| 其他分支 / PR | **不触发任何 CI**（workflow 只监听 push 到 dev/main，且有 `paths:` 白名单）      |
 
 **CI 只上传代码包，不发布正式版**——「提交审核 → 发布」必须人工在微信公众平台操作。完整机制见 `AGENTS.md` §3。
 

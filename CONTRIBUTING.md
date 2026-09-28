@@ -47,17 +47,17 @@ src/
 
 ## 常用命令
 
-| 命令               | 说明                                                                     |
-| ------------------ | ------------------------------------------------------------------------ |
-| `pnpm dev:weapp`   | 开发环境构建（读 `.env.development`；**一次性构建，不是 watch 模式**）   |
-| `pnpm build:weapp` | 生产环境构建（读 `.env.production`，**指向生产库**）                     |
-| `pnpm typecheck`   | TypeScript 类型检查                                                      |
-| `pnpm lint`        | ESLint（零警告）                                                         |
-| `pnpm test`        | Vitest 单测                                                              |
-| `pnpm format:fix`  | Prettier 格式化                                                          |
+| 命令               | 说明                                                                             |
+| ------------------ | -------------------------------------------------------------------------------- |
+| `pnpm dev:weapp`   | 开发环境构建（读 `.env.development`；**一次性构建，不是 watch 模式**）           |
+| `pnpm build:weapp` | 生产环境构建（读 `.env.production`，**指向生产库**）                             |
+| `pnpm typecheck`   | TypeScript 类型检查                                                              |
+| `pnpm lint`        | ESLint（零警告）                                                                 |
+| `pnpm test`        | Vitest 单测                                                                      |
+| `pnpm format:fix`  | Prettier 格式化                                                                  |
 | `pnpm verify`      | format + lint + typecheck + test（本地便利命令：**不含构建，CI 也不跑 format**） |
-| `pnpm pull-types`  | 从本地 `../pkuso-backend` 复制 `database.types.ts`                       |
-| `pnpm new`         | 创建新页面/组件                                                          |
+| `pnpm pull-types`  | 从本地 `../pkuso-backend` 复制 `database.types.ts`                               |
+| `pnpm new`         | 创建新页面/组件                                                                  |
 
 > 版本号与分支脚本（`version:*` / `branch:create`）的用法与坑见 `AGENTS.md` §2。
 
@@ -177,11 +177,11 @@ pnpm test
 
 ### 分支策略
 
-| 分支     | 用途                                                                     |
-| -------- | ------------------------------------------------------------------------ |
+| 分支     | 用途                                                                                           |
+| -------- | ---------------------------------------------------------------------------------------------- |
 | `main`   | 稳定发布基线。push 后 CI 自动 version:release → build → upload（robot 2）→ 版本号回写 + 推 tag |
-| `dev`    | 开发测试基线。push 后 CI 自动 version:dev → build → upload（robot 1）     |
-| 功能分支 | 从 `dev` 创建，squash merge 回 `dev`                                     |
+| `dev`    | 开发测试基线。push 后 CI 自动 version:dev → build → upload（robot 1）                          |
+| 功能分支 | 从 `dev` 创建，squash merge 回 `dev`                                                           |
 
 ### 创建功能分支
 

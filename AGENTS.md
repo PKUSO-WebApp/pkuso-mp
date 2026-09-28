@@ -18,12 +18,12 @@
 
 ### 1.1 我该在哪个分支，推上去会发生什么
 
-| 分支 | 是什么 | push 之后 |
-| --- | --- | --- |
-| `dev` | 日常开发与测试基线 | 触发 `Deploy to WeChat Dev`：verify → 构建 → **上传到微信「开发版本」列表（robot 1 槽位）** |
-| `main` | 稳定发布基线 | 触发 `Deploy to WeChat Prod`：verify → 构建 → **上传到微信「开发版本」列表（robot 2 槽位）** → 版本号提交回 `main` + 推 tag |
-| 功能分支 | 从 `dev`（或 `main`）拉出 | **不触发任何 CI** |
-| `master` | 历史遗留，别用 | —— |
+| 分支     | 是什么                    | push 之后                                                                                                                   |
+| -------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `dev`    | 日常开发与测试基线        | 触发 `Deploy to WeChat Dev`：verify → 构建 → **上传到微信「开发版本」列表（robot 1 槽位）**                                 |
+| `main`   | 稳定发布基线              | 触发 `Deploy to WeChat Prod`：verify → 构建 → **上传到微信「开发版本」列表（robot 2 槽位）** → 版本号提交回 `main` + 推 tag |
+| 功能分支 | 从 `dev`（或 `main`）拉出 | **不触发任何 CI**                                                                                                           |
+| `master` | 历史遗留，别用            | ——                                                                                                                          |
 
 ⚠️ 三条必须知道的事实：
 
@@ -53,11 +53,11 @@ pnpm test            # 4. vitest run
 
 ### 1.3 ⚠️ 本地构建默认连的是**生产库**
 
-| 命令 | `NODE_ENV` | 读取的 env 文件 | 指向的 Supabase |
-| --- | --- | --- | --- |
-| `pnpm build:weapp` | `production` | `.env.production` | **生产项目** |
-| `pnpm dev:weapp` | `development` | `.env.development` | 开发项目 |
-| `NODE_ENV=development pnpm build:weapp` | `development` | `.env.development` | 开发项目 |
+| 命令                                    | `NODE_ENV`    | 读取的 env 文件    | 指向的 Supabase |
+| --------------------------------------- | ------------- | ------------------ | --------------- |
+| `pnpm build:weapp`                      | `production`  | `.env.production`  | **生产项目**    |
+| `pnpm dev:weapp`                        | `development` | `.env.development` | 开发项目        |
+| `NODE_ENV=development pnpm build:weapp` | `development` | `.env.development` | 开发项目        |
 
 - env 文件由 Taro 按 `NODE_ENV` 选择；`NODE_ENV=development` 时 `config/index.ts` 额外 merge `config/dev.ts`。
 - `.env.development` / `.env.production` **都不入库**（`.gitignore`），CI 从 secrets 写出这两份文件。本地要构建得先有（`cp .env.example .env.development` 后填值）。
@@ -89,14 +89,14 @@ grep -rl "$(grep -m1 TARO_APP_SUPABASE_URL .env.development | cut -d= -f2)" dist
 node scripts/version.js          # 只打印当前版本
 ```
 
-| 命令 | 效果 | 场景 |
-| --- | --- | --- |
-| `pnpm version:dev` | `0.4.26` → `0.4.26-dev.1` | 开发期标记 |
-| `pnpm version:rc` | → `0.4.26-rc.1` | 准备提审 |
-| `pnpm version:release` | `0.4.26-rc.1` → `0.4.26` | 去预发布后缀 |
-| `pnpm version:bump` | `0.4.26` → `0.4.27` | patch 升级 |
-| `pnpm version:minor` | → `0.5.0` | 次版本 |
-| `pnpm version:major` | → `1.0.0` | 主版本 |
+| 命令                   | 效果                      | 场景         |
+| ---------------------- | ------------------------- | ------------ |
+| `pnpm version:dev`     | `0.4.26` → `0.4.26-dev.1` | 开发期标记   |
+| `pnpm version:rc`      | → `0.4.26-rc.1`           | 准备提审     |
+| `pnpm version:release` | `0.4.26-rc.1` → `0.4.26`  | 去预发布后缀 |
+| `pnpm version:bump`    | `0.4.26` → `0.4.27`       | patch 升级   |
+| `pnpm version:minor`   | → `0.5.0`                 | 次版本       |
+| `pnpm version:major`   | → `1.0.0`                 | 主版本       |
 
 ### 2.2 ⚠️ 大多数情况下你**不该**手动改版本号
 
@@ -136,14 +136,14 @@ pnpm branch:create <patch|minor|major> <描述>
 
 ### 3.1 步骤对照
 
-| | `dev` | `main` |
-| --- | --- | --- |
-| verify job（两个 workflow 相同） | `pnpm lint` → `pnpm typecheck` → `pnpm test` → 构建 | 同左 |
-| 构建前写 env | `.env.development`（secrets `DEV_SUPABASE_URL` / `DEV_SUPABASE_ANON_KEY`） | `.env.production`（`PROD_SUPABASE_URL` / `PROD_SUPABASE_ANON_KEY`） |
-| 版本号 | `DEV_VERSION_NUM=<run_number> pnpm version:dev` | `pnpm version:release` |
-| 构建命令 | `NODE_ENV=development pnpm build:weapp` | `pnpm build:weapp` |
-| 上传 | `node scripts/upload.js`，**robot 1** | 同左，**robot 2** |
-| 收尾 | —— | 版本号提交回 main（`[skip ci]`）+ 推 tag `v<version>`（远程已有则跳过） |
+|                                  | `dev`                                                                      | `main`                                                                  |
+| -------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| verify job（两个 workflow 相同） | `pnpm lint` → `pnpm typecheck` → `pnpm test` → 构建                        | 同左                                                                    |
+| 构建前写 env                     | `.env.development`（secrets `DEV_SUPABASE_URL` / `DEV_SUPABASE_ANON_KEY`） | `.env.production`（`PROD_SUPABASE_URL` / `PROD_SUPABASE_ANON_KEY`）     |
+| 版本号                           | `DEV_VERSION_NUM=<run_number> pnpm version:dev`                            | `pnpm version:release`                                                  |
+| 构建命令                         | `NODE_ENV=development pnpm build:weapp`                                    | `pnpm build:weapp`                                                      |
+| 上传                             | `node scripts/upload.js`，**robot 1**                                      | 同左，**robot 2**                                                       |
+| 收尾                             | ——                                                                         | 版本号提交回 main（`[skip ci]`）+ 推 tag `v<version>`（远程已有则跳过） |
 
 **两个 workflow 的 upload 步骤都只是「上传代码包」，都不发布版本。** 产物落进微信公众平台的**开发版本**列表；「提交审核」与「发布」没有开放 API，必须人工在平台上操作。所以：
 
@@ -158,9 +158,19 @@ pnpm branch:create <patch|minor|major> <描述>
 ```yaml
 on:
   push:
-    branches: [dev]        # deploy-prod.yml 是 [main]
-    paths: [src/**, config/**, scripts/**, package.json, pnpm-lock.yaml,
-            .npmrc, tsconfig.json, vitest.config.ts, app.css, app.scss, .github/**]
+    branches: [dev] # deploy-prod.yml 是 [main]
+    paths:
+      - src/**
+      - config/**
+      - scripts/**
+      - package.json
+      - pnpm-lock.yaml
+      - .npmrc
+      - tsconfig.json
+      - vitest.config.ts
+      - app.css
+      - app.scss
+      - .github/**
 ```
 
 - **只有 `push`，没有 `pull_request`。**
@@ -231,6 +241,7 @@ pnpm upload 0.4.27 "测试上传"   # 指定版本号与描述
   **关键坑：Taro 会把样式表（`.wxss`、Tailwind 工具类、`@utility`、`pb-[50px]` 等）里的 `px` 自动编译成 `rpx`**（`config/index.ts` 的 `designWidth: 750` + `pxtransform.enable`；`50px`→`50rpx`≈25px），而 tabBar 高度用的是**内联** `px`（不被转换）。所以写在 `app.css` / `className` 里的 `50px` 只留一半高度、照样遮挡——**只能在内联 `style` 里写真实 `px`**。
   关于 `pb-safe`：它是**有效**的纯安全区工具类（`src/app.css` 的 `@utility pb-safe`），但只覆盖安全区，**不足以替代 tabBar 的 50px 预留**，也不得用在 tab 页根容器上；`pb-8` / `pb-[50px]` 同理（后者还会被转 rpx）。
   **现役 tab 清单不要照抄本文档**——以 `src/app.config.ts` 的 `tabBar.list` 为准（`main` 与 `dev` 的 tab 集合可能不同），改动时逐个核对。
+
 - **新建页面必须有 `index.scss` 并 `import`**：建 `src/pages/<page>/index.scss`（可放一条占位规则）并在页面 `tsx` 顶部 `import './index.scss'`。实测（`src/pages/index`）**空的 `index.scss` 也会生成 0 字节的 `index.wxss`**，所以后果不是"文件不存在"；真正的坑是 Taro 会跳过给包裹层注入 `.page { height: 100% }`，短内容页面因此高度塌陷、露出窗口背景色——由 `src/app.css` 的全局兜底接住。规则照旧：新页面别漏这个文件。
 - **Modal 通过 `useLayoutEffect` 在绘制前隐藏 tabBar**（`src/components/ui/Modal.tsx`）。
 - **`Input` / `Textarea` 必须用 `View` 包裹以约束宽度**：小程序原生 `Input`/`Textarea` 直接写 `w-full` 仍可能撑破父容器、超出画面。统一用「外层 `View`（承载边框/圆角/背景，带 `w-full overflow-hidden`）包住内层 `Input`/`Textarea`（内层用 `w-full bg-transparent`，高度如 `h-10`）」的写法（参考 `src/pages/login/index.tsx` 的邮箱/密码框）。改动表单页时务必沿用此模式。
@@ -249,10 +260,10 @@ pnpm upload 0.4.27 "测试上传"   # 指定版本号与描述
 
 ### 解决方案
 
-| Hook | 用途 | 文件位置 |
-| --- | --- | --- |
+| Hook                           | 用途                              | 文件位置                      |
+| ------------------------------ | --------------------------------- | ----------------------------- |
 | `usePageRestore<T>(paramName)` | 缓存 `router.params` 中的关键参数 | `src/hooks/usePageRestore.ts` |
-| `useEditDraft<T>(defaultData)` | 缓存编辑态表单数据 | `src/hooks/useEditDraft.ts` |
+| `useEditDraft<T>(defaultData)` | 缓存编辑态表单数据                | `src/hooks/useEditDraft.ts`   |
 
 `usePageRestore` 的两个已知瑕疵（**别照抄它的 JSDoc 示例**）：
 
@@ -290,13 +301,13 @@ grep -rn "chooseMedia\|chooseAvatar\|getLocation" src --include=*.tsx --include=
 
 截至 2026-09-28（`main`）的核对结果：
 
-| 页面 | API | 现状 |
-| --- | --- | --- |
-| `rehearsal-detail` | getLocation | ✅ `usePageRestore<string>('id')` |
-| `post-edit` | chooseMedia | ✅ `usePageRestore<string>('id')`，但**不恢复未保存内容**（重新 `fetchOne` 会用服务端旧值覆盖用户已敲的标题/正文） |
-| `post-create` | chooseMedia | ✅ `useEditDraft` + `useDidShow`（标准范例）；`router.params.type` 未单独缓存，目前靠草稿掩盖 |
-| `profile-info` | chooseAvatar | ✅ `useEditDraft` + `useDidShow` |
-| `leave-request` | chooseMedia | ⚠️ **只缓存了路由参数**（手写 `initialParamsRef`，没复用 `usePageRestore`），`reason` / 附件仍是裸 `useState`——**选图会导致用户填的内容全丢**（已知缺口，未修） |
+| 页面               | API          | 现状                                                                                                                                                            |
+| ------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rehearsal-detail` | getLocation  | ✅ `usePageRestore<string>('id')`                                                                                                                               |
+| `post-edit`        | chooseMedia  | ✅ `usePageRestore<string>('id')`，但**不恢复未保存内容**（重新 `fetchOne` 会用服务端旧值覆盖用户已敲的标题/正文）                                              |
+| `post-create`      | chooseMedia  | ✅ `useEditDraft` + `useDidShow`（标准范例）；`router.params.type` 未单独缓存，目前靠草稿掩盖                                                                   |
+| `profile-info`     | chooseAvatar | ✅ `useEditDraft` + `useDidShow`                                                                                                                                |
+| `leave-request`    | chooseMedia  | ⚠️ **只缓存了路由参数**（手写 `initialParamsRef`，没复用 `usePageRestore`），`reason` / 附件仍是裸 `useState`——**选图会导致用户填的内容全丢**（已知缺口，未修） |
 
 其余仍在裸读 `router.params` 的页面（`error` / `login` / `post-detail` / `register`）当前都不调用那三个 API，属潜在雷；`dev` 上另有谱务相关页面（`score-*`，`main` 还没有）。**核验请按上面的命令跑一遍，以你所在分支的实际情况为准。**
 
