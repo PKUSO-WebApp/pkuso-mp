@@ -2,3 +2,6 @@ node_modules
 dist
 pnpm-lock.yaml
 .husky
+# 由 pkuso-backend 的 CI 生成后直接 push 过来（chore: sync database types），
+# 本地格式化它只会被下一次同步覆盖——要它合规得改生成侧，不是改这里
+src/types/database.types.ts

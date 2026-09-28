@@ -7,7 +7,10 @@
     "moduleResolution": "node",
     "skipLibCheck": true,
     "experimentalDecorators": true,
-    "noImplicitAny": false,
+    // 开启前实测：0 错（对照组 `tsc --strict` 报 10 错，证明标志确实生效）。
+    // 隐式 any 从此不再合法——它与 useUnknownInCatchVariables 等是 `--strict` 的
+    // 剩余部分，留着不关的代价是类型检查的实际强度低于 web。
+    "noImplicitAny": true,
     "allowSyntheticDefaultImports": true,
     "outDir": "lib",
     "noUnusedLocals": true,

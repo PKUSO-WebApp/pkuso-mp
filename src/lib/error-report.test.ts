@@ -4,7 +4,7 @@ import {
   describeError,
   flushErrorQueue,
   reportClientError,
-} from '../error-report'
+} from './error-report'
 
 // 本地 storage（队列就存在这里）
 const storage = new Map<string, string>()
@@ -61,7 +61,13 @@ vi.mock('@/lib/supabase', () => ({
             statusText: 'Bad Request',
           })
         }
-        return Promise.resolve({ data: [], error: null, status: 201, count: null, statusText: 'Created' })
+        return Promise.resolve({
+          data: [],
+          error: null,
+          status: 201,
+          count: null,
+          statusText: 'Created',
+        })
       },
     }),
   },

@@ -3,6 +3,7 @@ import { View, Text, Input, Textarea, Image, ScrollView } from '@tarojs/componen
 import Taro from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { usePageRestore } from '@/hooks/usePageRestore'
+import { useEditDraft } from '@/hooks/useEditDraft'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
@@ -10,6 +11,19 @@ import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 import './index.scss'
 
 const MAX_IMAGE_BYTES = 1024 * 1024
+
+/** 编辑现场的草稿快照：chooseMedia 往返后用它还原，避免被服务端旧值覆盖 */
+type PostEditDraft = {
+  type: PostType
+  title: string
+  content: string
+  currentSections: string
+  missingSections: string
+  contactInfo: string
+  imageFile: UploadFileLike | null
+  imagePreview: string | null
+  removeImage: boolean
+}
 
 /**
  * 编辑活动页（「我的活动」卡片「编辑 ›」进入，带 id 参数）。
@@ -25,21 +39,54 @@ export default function PostEditPage() {
   const { t } = useT()
   useNavTitle('postEdit.navTitle')
 
+  // 编辑现场草稿：按 id 隔离，chooseMedia 往返（页面重建）后靠它还原用户已敲的内容，
+  // 否则下方 fetchOne 会把标题/正文写回服务端旧值。
+  const editDraft = useEditDraft<PostEditDraft>(`post-edit:${id ?? 'none'}`, {
+    type: 'ensemble',
+    title: '',
+    content: '',
+    currentSections: '',
+    missingSections: '',
+    contactInfo: '',
+    imageFile: null,
+    imagePreview: null,
+    removeImage: false,
+  })
+  const initialDraft = editDraft.hasDraft() ? editDraft.get() : null
+
   const [post, setPost] = useState<PostRowWithAuthor | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
-  const [type, setType] = useState<PostType>('ensemble')
-  const [title, setTitle] = useState('')
-  const [content, setContent] = useState('')
-  const [currentSections, setCurrentSections] = useState('')
-  const [missingSections, setMissingSections] = useState('')
-  const [contactInfo, setContactInfo] = useState('')
-  const [imageFile, setImageFile] = useState<UploadFileLike | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [removeImage, setRemoveImage] = useState(false)
+  const [type, setType] = useState<PostType>(initialDraft?.type ?? 'ensemble')
+  const [title, setTitle] = useState(initialDraft?.title ?? '')
+  const [content, setContent] = useState(initialDraft?.content ?? '')
+  const [currentSections, setCurrentSections] = useState(initialDraft?.currentSections ?? '')
+  const [missingSections, setMissingSections] = useState(initialDraft?.missingSections ?? '')
+  const [contactInfo, setContactInfo] = useState(initialDraft?.contactInfo ?? '')
+  const [imageFile, setImageFile] = useState<UploadFileLike | null>(initialDraft?.imageFile ?? null)
+  const [imagePreview, setImagePreview] = useState<string | null>(
+    initialDraft?.imagePreview ?? null
+  )
+  const [removeImage, setRemoveImage] = useState(initialDraft?.removeImage ?? false)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submittingRef = useRef(false)
+
+  /** 落一次草稿：写**完整快照**（当前 state + 显式覆盖的 patch），理由见 useEditDraft */
+  const saveDraft = (patch: Partial<PostEditDraft> = {}) => {
+    editDraft.save({
+      type,
+      title,
+      content,
+      currentSections,
+      missingSections,
+      contactInfo,
+      imageFile,
+      imagePreview,
+      removeImage,
+      ...patch,
+    })
+  }
 
   useEffect(() => {
     if (!id) {
@@ -56,6 +103,9 @@ export default function PostEditPage() {
         return
       }
       setPost(p)
+      // 有草稿 = 用户正在编辑（含重建后还原）：只补 post 元数据，**不能**把服务端
+      // 旧值写回表单，否则用户选图前敲的标题/正文会被抹掉
+      if (editDraft.hasDraft()) return
       setType(p.type as PostType)
       setTitle(p.title)
       setContent(p.content ?? '')
@@ -67,9 +117,11 @@ export default function PostEditPage() {
     return () => {
       active = false
     }
-  }, [id, fetchOne])
+  }, [id, fetchOne, editDraft])
 
   const handleChooseImage = () => {
+    // 选图前先落盘：chooseMedia 可能销毁页面，草稿是唯一能跨过去的东西
+    saveDraft()
     Taro.chooseMedia({
       count: 1,
       mediaType: ['image'],
@@ -84,6 +136,7 @@ export default function PostEditPage() {
         setImageFile(f)
         setImagePreview(f.tempFilePath)
         setRemoveImage(false)
+        saveDraft({ imageFile: f, imagePreview: f.tempFilePath, removeImage: false })
       },
     })
   }
@@ -91,6 +144,7 @@ export default function PostEditPage() {
     setImageFile(null)
     setImagePreview(null)
     setRemoveImage(true)
+    saveDraft({ imageFile: null, imagePreview: null, removeImage: true })
   }
 
   const handleSubmit = async () => {
@@ -122,6 +176,7 @@ export default function PostEditPage() {
         setError(res.error)
         return
       }
+      editDraft.clear()
       Taro.showToast({ title: t('postEdit.saved'), icon: 'success' })
       setTimeout(() => Taro.navigateBack(), 300)
     } finally {
@@ -167,7 +222,11 @@ export default function PostEditPage() {
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Input
               value={title}
-              onInput={(e) => setTitle(String(e.detail.value ?? ''))}
+              onInput={(e) => {
+                const value = String(e.detail.value ?? '')
+                setTitle(value)
+                saveDraft({ title: value })
+              }}
               placeholder={t('postEdit.titlePlaceholder')}
               maxlength={50}
               className='h-10 w-full bg-transparent text-sm text-text'
@@ -181,7 +240,11 @@ export default function PostEditPage() {
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Textarea
               value={content}
-              onInput={(e) => setContent(String((e.detail as { value?: string })?.value ?? ''))}
+              onInput={(e) => {
+                const value = String((e.detail as { value?: string })?.value ?? '')
+                setContent(value)
+                saveDraft({ content: value })
+              }}
               placeholder={t('postEdit.contentPlaceholder')}
               className='w-full bg-transparent py-2 text-sm text-text'
               style={{ minHeight: '120px' }}
@@ -197,7 +260,11 @@ export default function PostEditPage() {
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={currentSections}
-                  onInput={(e) => setCurrentSections(String(e.detail.value ?? ''))}
+                  onInput={(e) => {
+                    const value = String(e.detail.value ?? '')
+                    setCurrentSections(value)
+                    saveDraft({ currentSections: value })
+                  }}
                   placeholder={t('postEdit.currentSectionsPlaceholder')}
                   className='h-10 w-full bg-transparent text-sm text-text'
                 />
@@ -208,7 +275,11 @@ export default function PostEditPage() {
               <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
                 <Input
                   value={missingSections}
-                  onInput={(e) => setMissingSections(String(e.detail.value ?? ''))}
+                  onInput={(e) => {
+                    const value = String(e.detail.value ?? '')
+                    setMissingSections(value)
+                    saveDraft({ missingSections: value })
+                  }}
                   placeholder={t('postEdit.missingSectionsPlaceholder')}
                   className='h-10 w-full bg-transparent text-sm text-text'
                 />
@@ -223,7 +294,11 @@ export default function PostEditPage() {
           <View className='mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface px-3'>
             <Input
               value={contactInfo}
-              onInput={(e) => setContactInfo(String(e.detail.value ?? ''))}
+              onInput={(e) => {
+                const value = String(e.detail.value ?? '')
+                setContactInfo(value)
+                saveDraft({ contactInfo: value })
+              }}
               placeholder={t('postEdit.contactPlaceholder')}
               className='h-10 w-full bg-transparent text-sm text-text'
             />

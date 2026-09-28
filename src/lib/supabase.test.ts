@@ -1,16 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const { webCreate, request, getStorage, setStorage, removeStorage, getStorageSync, setStorageSync } =
-  vi.hoisted(() => ({
-    webCreate: vi.fn(),
-    request: vi.fn(),
-    getStorage: vi.fn(),
-    setStorage: vi.fn(),
-    removeStorage: vi.fn(),
-    // lib/diag 用它持久化安装 id
-    getStorageSync: vi.fn(() => ''),
-    setStorageSync: vi.fn(),
-  }))
+const {
+  webCreate,
+  request,
+  getStorage,
+  setStorage,
+  removeStorage,
+  getStorageSync,
+  setStorageSync,
+} = vi.hoisted(() => ({
+  webCreate: vi.fn(),
+  request: vi.fn(),
+  getStorage: vi.fn(),
+  setStorage: vi.fn(),
+  removeStorage: vi.fn(),
+  // lib/diag 用它持久化安装 id
+  getStorageSync: vi.fn(() => ''),
+  setStorageSync: vi.fn(),
+}))
 
 vi.mock('@tarojs/taro', () => ({
   default: { request, getStorage, setStorage, removeStorage, getStorageSync, setStorageSync },
@@ -264,9 +271,9 @@ describe('supabase 官方客户端适配', () => {
 
     // 网络层失败：微信只给一句光秃秃的 `request:fail`，原因往往挂在同一个对象的别的字段上
     request.mockRejectedValueOnce({ errMsg: 'request:fail', errCode: -1 })
-    await expect(
-      taroFetch('https://project.supabase.co/rest/v1/posts')
-    ).rejects.toMatchObject({ errMsg: 'request:fail' })
+    await expect(taroFetch('https://project.supabase.co/rest/v1/posts')).rejects.toMatchObject({
+      errMsg: 'request:fail',
+    })
 
     expect(reported[0].detail.diag).toMatch(/^[A-Za-z0-9._-]{1,64}$/)
     expect(reported[0].detail.ms).toBeGreaterThanOrEqual(0)
@@ -279,9 +286,7 @@ describe('supabase 官方客户端适配', () => {
     request.mockResolvedValueOnce({ statusCode: 502, header: {}, data: 'bad gateway' })
     await taroFetch('https://project.supabase.co/functions/v1/wechat-auth')
     expect(reported[1].detail.status).toBe(502)
-    expect(reported[1].detail.diag).toBe(
-      request.mock.calls[1][0].header['x-pkuso-diag'] as string
-    )
+    expect(reported[1].detail.diag).toBe(request.mock.calls[1][0].header['x-pkuso-diag'] as string)
   })
 
   it('taroFetch 兜底注入 apikey，已有 apikey 不重复注入', async () => {

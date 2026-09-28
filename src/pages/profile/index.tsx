@@ -20,6 +20,7 @@ import { getAppVersionLabel } from '@/lib/version'
 import type { NotificationCategory } from '@/types/database'
 import { dataSyncBump } from '@/lib/dataSync'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
+import { useCountdown } from '@/hooks/useCountdown'
 
 import { SkeletonCircle, SkeletonText } from '@/components/ui/Skeleton'
 import { ThemeModal } from './components/theme-modal'
@@ -106,11 +107,16 @@ export default function Profile() {
   // 验证码通用状态
   const [verifyCode, setVerifyCode] = useState('')
   const [codeSent, setCodeSent] = useState(false)
-  const [codeCountdown, setCodeCountdown] = useState(0)
   const [codeTarget, setCodeTarget] = useState<'bound' | 'new' | null>(null)
   const [codeSending, setCodeSending] = useState(false)
   const codeSendingRef = useRef(false)
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // 重发冷却：定时器、归零、卸载清理都交给 hook。原本这里手写 setInterval +
+  // countdownRef，且「重开弹窗按 codeSentAt 续算剩余秒数」那段在下面抄了两遍。
+  const {
+    countdown: codeCountdown,
+    start: startCodeCountdown,
+    stop: stopCodeCountdown,
+  } = useCountdown(60)
 
   // ---- 外观 ----
   const [isThemeOpen, setIsThemeOpen] = useState(false)
@@ -230,18 +236,7 @@ export default function Profile() {
       setCodeSent(true)
       setCodeTarget(accountTab === 'password' ? 'bound' : 'new')
       codeSentAt = Date.now()
-      setCodeCountdown(60)
-      // 启动倒计时
-      if (countdownRef.current) clearInterval(countdownRef.current)
-      countdownRef.current = setInterval(() => {
-        setCodeCountdown((prev) => {
-          if (prev <= 1) {
-            if (countdownRef.current) clearInterval(countdownRef.current)
-            return 0
-          }
-          return prev - 1
-        })
-      }, 1000)
+      startCodeCountdown()
     } catch (e) {
       logDiag('send_code_catch', { err: e instanceof Error ? e.message : String(e) })
       void Taro.showToast({ title: t('profile.account.sendFailed'), icon: 'none' })
@@ -293,7 +288,7 @@ export default function Profile() {
       setVerifyCode('')
       setCodeSent(false)
       setCodeTarget(null)
-      if (countdownRef.current) clearInterval(countdownRef.current)
+      stopCodeCountdown()
       if (!rebindSubmittingRef.current && !newEmailRef.current.trim()) {
         setIsPwdModalOpen(false)
       }
@@ -352,7 +347,7 @@ export default function Profile() {
       setVerifyCode('')
       setCodeSent(false)
       setCodeTarget(null)
-      if (countdownRef.current) clearInterval(countdownRef.current)
+      stopCodeCountdown()
       if (!pwdSubmittingRef.current && !newPwd.trim()) {
         setIsPwdModalOpen(false)
       }
@@ -381,32 +376,14 @@ export default function Profile() {
       setVerifyCode('')
       setCodeSent(false)
       setCodeTarget(null)
-      if (countdownRef.current) clearInterval(countdownRef.current)
+      stopCodeCountdown()
       const remaining = Math.max(0, 60 - Math.floor((Date.now() - codeSentAt) / 1000))
       if (remaining > 0) {
         setCodeSent(true)
-        setCodeCountdown(remaining)
-        countdownRef.current = setInterval(() => {
-          setCodeCountdown((prev) => {
-            if (prev <= 1) {
-              if (countdownRef.current) clearInterval(countdownRef.current)
-              return 0
-            }
-            return prev - 1
-          })
-        }, 1000)
-      } else {
-        setCodeCountdown(0)
+        startCodeCountdown(remaining)
       }
     }
-  }, [isPwdModalOpen])
-
-  // 倒计时清理
-  useEffect(() => {
-    return () => {
-      if (countdownRef.current) clearInterval(countdownRef.current)
-    }
-  }, [])
+  }, [isPwdModalOpen, startCodeCountdown, stopCodeCountdown])
 
   // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
   // 注意：游客模式下 CustomTabBar 会直接跳转到 login 页，不会到达此处
@@ -511,22 +488,11 @@ export default function Profile() {
                   setVerifyCode('')
                   setCodeSent(false)
                   setCodeTarget(null)
-                  if (countdownRef.current) clearInterval(countdownRef.current)
+                  stopCodeCountdown()
                   const remaining = Math.max(0, 60 - Math.floor((Date.now() - codeSentAt) / 1000))
                   if (remaining > 0) {
                     setCodeSent(true)
-                    setCodeCountdown(remaining)
-                    countdownRef.current = setInterval(() => {
-                      setCodeCountdown((prev) => {
-                        if (prev <= 1) {
-                          if (countdownRef.current) clearInterval(countdownRef.current)
-                          return 0
-                        }
-                        return prev - 1
-                      })
-                    }, 1000)
-                  } else {
-                    setCodeCountdown(0)
+                    startCodeCountdown(remaining)
                   }
                   setPwdError(null)
                   setIsPwdModalOpen(true)
