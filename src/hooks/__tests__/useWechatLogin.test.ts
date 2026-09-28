@@ -190,17 +190,14 @@ describe('useWechatLogin', () => {
 
   it('setSession 失败：记下 GoTrue 的 code 与状态码（判「被别的设备顶掉」还是「服务端 5xx」）', async () => {
     taroMock.login.mockResolvedValue({ code: 'wx-code-1' })
-    const c = mockClient(
-      { data: { access_token: 'at', refresh_token: 'rt' }, error: null },
-      {
-        error: {
-          message: 'Invalid Refresh Token',
-          name: 'AuthApiError',
-          code: 'refresh_token_not_found',
-          status: 400,
-        },
-      } as never
-    )
+    const c = mockClient({ data: { access_token: 'at', refresh_token: 'rt' }, error: null }, {
+      error: {
+        message: 'Invalid Refresh Token',
+        name: 'AuthApiError',
+        code: 'refresh_token_not_found',
+        status: 400,
+      },
+    } as never)
     const { result } = renderHook(() => useWechatLogin(c as never))
     await act(() => result.current.loginWithWechat())
 

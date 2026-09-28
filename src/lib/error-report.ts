@@ -341,4 +341,3 @@ export function __resetErrorReportState(): void {
   writeQueue([])
   lastNetworkType = null
 }
-
