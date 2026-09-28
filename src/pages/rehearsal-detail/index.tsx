@@ -86,7 +86,12 @@ export default function RehearsalDetail() {
     let cancelled = false
     setRehearsalLoading(true)
     void (async () => {
-      const { data, error } = await supabase.from('rehearsals').select('*').eq('id', id).single()
+      // maybeSingle：排练可能已被删除，0 行时返回 data:null 而不是抛 406 中断流程
+      const { data, error } = await supabase
+        .from('rehearsals')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle()
       if (cancelled) return
       if (error) {
         setRehearsal(null)
