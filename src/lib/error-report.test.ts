@@ -54,7 +54,13 @@ vi.mock('@/lib/supabase', () => ({
             statusText: 'Bad Request',
           })
         }
-        return Promise.resolve({ data: [], error: null, status: 201, count: null, statusText: 'Created' })
+        return Promise.resolve({
+          data: [],
+          error: null,
+          status: 201,
+          count: null,
+          statusText: 'Created',
+        })
       },
     }),
   },

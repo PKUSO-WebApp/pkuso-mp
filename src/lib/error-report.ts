@@ -148,7 +148,11 @@ export function describeError(err: unknown): string {
   return typeof text === 'string' && text ? text : String(err)
 }
 
-function collectContext(): { platform: string | null; page: string | null; appVersion: string | null } {
+function collectContext(): {
+  platform: string | null
+  page: string | null
+  appVersion: string | null
+} {
   let platform: string | null = null
   try {
     // platform（ios / android / devtools）从 getDeviceInfo 取。
@@ -305,4 +309,3 @@ export function __resetErrorReportState(): void {
   lastSentAt.clear()
   writeQueue([])
 }
-

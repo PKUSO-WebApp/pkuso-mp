@@ -99,7 +99,10 @@ describe('compareFiles', () => {
 
   it('只有第一个号参与比较（多号文件按最小的那个定位）', () => {
     const files = [file('圆号', [2, 3, 4]), file('圆号', [1, 9])]
-    expect([...files].sort(compareFiles).map((f) => f.sub_parts)).toEqual([[1, 9], [2, 3, 4]])
+    expect([...files].sort(compareFiles).map((f) => f.sub_parts)).toEqual([
+      [1, 9],
+      [2, 3, 4],
+    ])
   })
 
   it('乐器名为 NULL 不抛错，按空串参与比较（排最前）', () => {

@@ -1,0 +1,25 @@
+# 统一按 LF 检出（gitattributes 优先于 core.autocrlf）。
+# 本仓库 prettier 配的是 endOfLine: 'lf'，而 Windows 上 core.autocrlf=true 会把工作区
+# 检出成 CRLF ⇒ `pnpm format` 报满屏假阳性（实测 81 个文件里 72 个属于此类：把
+# `git show HEAD:<file>` 喂给 prettier 是通过的，说明仓库里的内容本身合规）。
+#
+# 与 pkuso-web/.gitattributes 保持同一套规则（那边早有这个文件，本仓库是补齐）。
+#
+# ⚠️ 对**已有克隆**，这个设置要重新检出一次才生效（新克隆自动就是 LF）：
+#     git rm --cached -r -q . && git reset --hard
+* text=auto eol=lf
+
+# 二进制/图片（text=auto 一般也能识别，这里写明以免任何转换风险）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.svg binary
+*.ico binary
+*.zip binary
+*.key binary
+*.pdf binary
+
+# 锁文件（机器生成，diff 无意义）
+pnpm-lock.yaml binary -diff

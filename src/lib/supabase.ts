@@ -76,7 +76,10 @@ function reportRequestFailure(
 ): void {
   if (!requestFailureReporter) return
   if (url.includes(ERROR_REPORT_PATH)) return
-  const path = url.replace(/^https?:\/\/[^/]+/, '').split('?')[0].slice(0, 120)
+  const path = url
+    .replace(/^https?:\/\/[^/]+/, '')
+    .split('?')[0]
+    .slice(0, 120)
   try {
     requestFailureReporter({
       event: 'request_failed',

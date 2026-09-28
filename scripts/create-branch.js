@@ -24,29 +24,17 @@ if (!DESCRIPTION) {
   process.exit(1)
 }
 
-// 读取 package.json
+// 版本号计算交给 version.js——它是这份逻辑的唯一实现（CI 的 dev/prod 部署也用它）。
+// 本文件原先自己 split('.').map(Number) 解析：遇到带预发布后缀的版本号
+// （如 0.4.26-dev.1）会得出 patch = NaN，把版本写成 0.4.NaN。而 AGENTS.md 的
+// 发布流程第 1 步恰好是 `pnpm version:dev`，照文档走就会踩到。
+// version.js 的 action 与本脚本的 VERSION_TYPE 同名（patch / minor / major），直接透传。
 const packagePath = path.join(__dirname, '..', 'package.json')
-const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
+const readVersion = () => JSON.parse(fs.readFileSync(packagePath, 'utf8')).version
 
-const [major, minor, patch] = packageJson.version.split('.').map(Number)
-
-let newVersion
-switch (VERSION_TYPE) {
-  case 'major':
-    newVersion = `${major + 1}.0.0`
-    break
-  case 'minor':
-    newVersion = `${major}.${minor + 1}.0`
-    break
-  case 'patch':
-    newVersion = `${major}.${minor}.${patch + 1}`
-    break
-}
-
-// 更新 package.json
-const oldVersion = packageJson.version
-packageJson.version = newVersion
-fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + '\n')
+const oldVersion = readVersion()
+execSync(`node "${path.join(__dirname, 'version.js')}" ${VERSION_TYPE}`, { stdio: 'inherit' })
+const newVersion = readVersion()
 
 console.log(`✓ 版本号已更新: ${oldVersion} → ${newVersion}`)
 
