@@ -52,6 +52,15 @@ const MAX_QUEUE_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 /** 队列里的一条 = client_error_logs 的一行（含「发生时刻」，不是发送时刻） */
 type QueueItem = {
+  /**
+   * 客户端生成的稳定 id，**随队列持久化、补送时复用同一个值**。
+   *
+   * 它是库端幂等的锚：这个队列是「至少一次投递」——插入其实已提交、但响应丢失或中断时
+   * 整队会被保留，下次 flush 再 INSERT 一遍。库里靠 `client_id` 上的唯一约束 +
+   * 我们 upsert 时的 ignoreDuplicates 把重复补送变成 no-op。
+   * 所以**绝不能在发送时重新生成**：那样每次补送都是新 id，等于没有去重。
+   */
+  client_id: string
   created_at: string
   level: ErrorLevel
   source: 'mp'
@@ -61,6 +70,24 @@ type QueueItem = {
   app_version: string | null
   platform: string | null
   page: string | null
+}
+
+/**
+ * 生成一个 uuid v4 形状的 id。
+ *
+ * 不用 `crypto.randomUUID()`：小程序 JSCore 没有它（仓库里没有任何地方依赖 crypto，
+ * weapp-polyfills 也没补）。而库端那一列是 **`uuid` 类型**——形状不对会被 PostgREST
+ * 直接拒，走进 flushErrorQueue 的「毒丸」分支把整批记录丢掉。所以形状必须对。
+ *
+ * 强度够用：这里只需要「不撞」，不需要密码学强度——它只在本设备自己的队列（上限 50 条）
+ * 与库里的历史记录之间去重，2^122 的取值空间远远够。真正需要不可预测的地方
+ * （如 wechat-auth 轮换的随机密码）在服务端，用的是 Deno 的 crypto，不在这儿。
+ */
+function newClientId(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+    const r = Math.floor(Math.random() * 16)
+    return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+  })
 }
 
 const lastSentAt = new Map<string, number>()
@@ -148,10 +175,37 @@ export function describeError(err: unknown): string {
   return typeof text === 'string' && text ? text : String(err)
 }
 
+// --- 网络状态（缓存值）---
+//
+// 「用户网络是不是通的」是每次排查的第一个问题，而 `getNetworkType` 只有异步版本，
+// 报错路径要的是同步可得的值 ⇒ 只能缓存。
+//
+// ⚠️ 因此它是**最近一次已知**的状态，不是失败那一刻的：字段名就叫 netLastKnown，
+// 别当成「当时就是这个网」。刷新点有三处：启动、系统网络变化回调、每次上报之后
+// （上报后刷一次，能让「连续报错」收敛到真实值）。
+// ⚠️ 开发者工具模拟离线**不会**触发 onNetworkStatusChange（模拟的是请求失败，不是
+// 系统网络状态），所以工具里这个字段会停在 wifi——那是工具的失真，不是设备的失真。
+let lastNetworkType: string | null = null
+
+/** 异步取一次当前网络类型并缓存；失败静默（它只是上下文，缺了不影响记录本身）。 */
+export function refreshNetworkType(): void {
+  try {
+    Taro.getNetworkType?.({
+      success: (res) => {
+        lastNetworkType = res?.networkType ? truncate(String(res.networkType), 16) : null
+      },
+      fail: () => {},
+    })
+  } catch {
+    // 取不到就沿用旧值
+  }
+}
+
 function collectContext(): {
   platform: string | null
   page: string | null
   appVersion: string | null
+  netLastKnown: string | null
 } {
   let platform: string | null = null
   try {
@@ -171,7 +225,7 @@ function collectContext(): {
     // 同上
   }
   const appVersion = typeof APP_VERSION !== 'undefined' ? APP_VERSION : null
-  return { platform, page, appVersion }
+  return { platform, page, appVersion, netLastKnown: lastNetworkType }
 }
 
 // --- 本地队列的读写与补送 ---
@@ -248,8 +302,27 @@ export function flushErrorQueue(): void {
   const sending = queue.slice()
   try {
     void supabase
-      .from('client_error_logs')
-      .insert(sending)
+      // ⚠️ **不要改回直写表**（insert 与 upsert 都不行），理由见下。
+      //
+      // 这个队列是「至少一次投递」：插入已提交、但响应丢失或中断时整队会被保留（见下面
+      // status 0 分支），下次 flush 把同一批再送一遍。所以写入**必须幂等**，否则同一条错误
+      // 会在库里出现多行——生产库实测过 21 组这样的重复。
+      //
+      // 而幂等没法由客户端直写实现：
+      // - `.upsert(…, { onConflict: 'client_id' })` —— **必然被 RLS 拒成 42501，整批丢弃**。
+      //   实测（同一张表 / 同一 anon key / 同一 payload，只改 Prefer 头）：无 Prefer 与
+      //   return=minimal 是 201，而 return=representation、resolution=merge-duplicates、
+      //   resolution=ignore-duplicates 全是 42501（后三者再加 return=minimal 也救不回来）。
+      //   原因是 PostgREST 生成 `INSERT … RETURNING $2`：minimal 时 $2 是常量（不读任何列），
+      //   而 **upsert 整条路径**会把它填成列清单——`INSERT … RETURNING <列>` 在 RLS 下要求
+      //   新行对 SELECT 策略可见，本表的 SELECT 策略只有 is_admin()，于是谁都过不去。
+      //   与 payload 内容无关，与登录与否无关，**改客户端绕不过去**。
+      // - `.insert()` —— 走 minimal，凑巧不读回，所以"一直能用"，但它完全不幂等。
+      //
+      // 因此写入收进库端 `log_client_errors`（SECURITY DEFINER，函数内 on conflict do nothing）：
+      // 不读回 ⇒ 不触发那条检查；幂等不变；user_id 由函数写成 auth.uid()，客户端伪造不了归属。
+      // 参数名与列名一一对应，函数的 jsonb_to_recordset 只认这 10 个键，多余键被忽略。
+      .rpc('log_client_errors', { rows: sending })
       .then(
         (res) => {
           flushing = false
@@ -287,18 +360,24 @@ export function reportClientError(input: ReportInput): void {
 
     const ctx = collectContext()
     enqueue({
+      // 每条一个，生成一次就跟着队列走——补送时复用同一个值，库端才能认出是同一条
+      client_id: newClientId(),
       // 用错误发生时刻，不是发送时刻：断网恢复后补送时，库里仍能还原真实时间线
       created_at: new Date(now).toISOString(),
       level: input.level ?? 'error',
       source: 'mp',
       event: truncate(input.event, MAX_EVENT_LEN),
       message: message || null,
-      detail: fitDetail(input.detail),
+      // netLastKnown 拼在最后：detail 超预算时按顺序截断，它是最不该挤掉别人的那个
+      // （它只是背景信息，而 diag / step / ms 是对账用的）
+      detail: fitDetail({ ...(input.detail ?? {}), netLastKnown: ctx.netLastKnown }),
       app_version: ctx.appVersion,
       platform: ctx.platform,
       page: ctx.page,
     })
     flushErrorQueue()
+    // 让「下一条」记录的网络状态更接近真实（异步、不 await）
+    refreshNetworkType()
   } catch {
     // 上报自身绝不能影响业务，也绝不能抛出（会被 onUnhandledRejection 再抓一次）
   }
@@ -308,4 +387,5 @@ export function reportClientError(input: ReportInput): void {
 export function __resetErrorReportState(): void {
   lastSentAt.clear()
   writeQueue([])
+  lastNetworkType = null
 }

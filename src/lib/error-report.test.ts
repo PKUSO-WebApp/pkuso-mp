@@ -8,9 +8,15 @@ import {
 
 // 本地 storage（队列就存在这里）
 const storage = new Map<string, string>()
-// 每次 insert 调用的报文数组
+// 每次上报调用的报文数组
 const insertCalls: Record<string, unknown>[][] = []
+// 每次 rpc 调用的函数名与参数——幂等补送全靠库端那个函数，所以要能断言（见「补送幂等」用例）
+const rpcCalls: { fn: string; args: Record<string, unknown> | undefined }[] = []
 let insertMode: 'ok' | 'reject' | 'server_error' | 'throw' | 'network' = 'ok'
+
+// 网络类型：真实 API 是异步的，而报错路径要同步可得 ⇒ 缓存。这里同步回调即可
+// 覆盖那条缓存路径。
+let networkType = 'wifi'
 
 vi.mock('@tarojs/taro', () => ({
   default: {
@@ -23,48 +29,72 @@ vi.mock('@tarojs/taro', () => ({
     },
     getDeviceInfo: () => ({ platform: 'devtools' }),
     getCurrentPages: () => [{ route: 'pages/login/index' }],
+    getNetworkType: (opts: { success?: (res: { networkType: string }) => void }) => {
+      opts.success?.({ networkType })
+    },
   },
 }))
 
-vi.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: () => ({
-      insert: (rows: unknown) => {
-        const batch = (Array.isArray(rows) ? rows : [rows]) as Record<string, unknown>[]
-        insertCalls.push(batch)
-        if (insertMode === 'throw') throw new Error('sync boom')
-        if (insertMode === 'reject') return Promise.reject(new Error('network down'))
-        // postgrest-js 在网络失败时**不 reject**，而是 resolve 一个 status:0 的响应
-        // （见 postgrest-js/dist/index.cjs 的网络错误分支）——这里照实模拟
-        if (insertMode === 'network') {
-          return Promise.resolve({
-            data: null,
-            error: { message: 'FetchError: undefined', details: '', hint: '', code: '' },
-            status: 0,
-            count: null,
-            statusText: '',
-          })
-        }
-        if (insertMode === 'server_error') {
-          return Promise.resolve({
-            data: null,
-            error: { message: 'check constraint violated', details: '', hint: '', code: '23514' },
-            status: 400,
-            count: null,
-            statusText: 'Bad Request',
-          })
-        }
-        return Promise.resolve({
-          data: [],
-          error: null,
-          status: 201,
-          count: null,
-          statusText: 'Created',
-        })
+vi.mock('@/lib/supabase', () => {
+  const respond = () => {
+    if (insertMode === 'throw') throw new Error('sync boom')
+    if (insertMode === 'reject') return Promise.reject(new Error('network down'))
+    // postgrest-js 在网络失败时**不 reject**，而是 resolve 一个 status:0 的响应
+    // （见 postgrest-js/dist/index.cjs 的网络错误分支）——这里照实模拟
+    if (insertMode === 'network') {
+      return Promise.resolve({
+        data: null,
+        error: { message: 'FetchError: undefined', details: '', hint: '', code: '' },
+        status: 0,
+        count: null,
+        statusText: '',
+      })
+    }
+    if (insertMode === 'server_error') {
+      return Promise.resolve({
+        data: null,
+        error: { message: 'check constraint violated', details: '', hint: '', code: '23514' },
+        status: 400,
+        count: null,
+        statusText: 'Bad Request',
+      })
+    }
+    return Promise.resolve({
+      data: [],
+      error: null,
+      status: 201,
+      count: null,
+      statusText: 'Created',
+    })
+  }
+  const record = (rows: unknown) => {
+    insertCalls.push((Array.isArray(rows) ? rows : [rows]) as Record<string, unknown>[])
+  }
+  return {
+    supabase: {
+      // 生产代码走 rpc('log_client_errors')：库端 SECURITY DEFINER 函数内
+      // `insert … on conflict (client_id) do nothing`。直写表做不到幂等，理由见
+      // error-report.ts 里那段注释（upsert 必被 RLS 拒成 42501）。
+      rpc: (fn: string, args?: Record<string, unknown>) => {
+        rpcCalls.push({ fn, args })
+        record(args?.rows)
+        return respond()
       },
-    }),
-  },
-}))
+      // 保留 from/insert/upsert 只是为了让「万一有人改回去」时用例报出可读的断言
+      // （rpcCalls 为空），而不是 `from is not a function`
+      from: () => ({
+        insert: (rows: unknown) => {
+          record(rows)
+          return respond()
+        },
+        upsert: (rows: unknown) => {
+          record(rows)
+          return respond()
+        },
+      }),
+    },
+  }
+})
 
 /** 让 reportClientError / flushErrorQueue 内部的 promise 链跑完 */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -75,6 +105,7 @@ describe('reportClientError', () => {
   beforeEach(() => {
     storage.clear()
     insertCalls.length = 0
+    rpcCalls.length = 0
     insertMode = 'ok'
     __resetErrorReportState()
   })
@@ -110,6 +141,41 @@ describe('reportClientError', () => {
     const t = Date.parse(sent)
     expect(Number.isFinite(t)).toBe(true)
     expect(t).toBeGreaterThanOrEqual(before)
+  })
+
+  it('detail 里带上网状态——它是「最近一次已知」的值，不是失败那一刻的', async () => {
+    networkType = 'wifi'
+    // 第一次上报：缓存还是空的（网络类型只有异步 API，报错路径同步取不到）
+    reportClientError({ event: 'app_error', message: 'first' })
+    await flush()
+    expect((insertCalls[0][0].detail as Record<string, unknown>).netLastKnown).toBeNull()
+
+    // 上一条上报结束时刷新了缓存 ⇒ 这一条就带上了。字段名刻意叫 netLastKnown：
+    // 名字里就写明它是「最近一次已知」，不该被读成「当时就是这个网」
+    networkType = '4g'
+    reportClientError({ event: 'app_error', message: 'second' })
+    await flush()
+    expect((insertCalls[1][0].detail as Record<string, unknown>).netLastKnown).toBe('wifi')
+
+    // 再下一条才收敛到 4g
+    reportClientError({ event: 'app_error', message: 'third' })
+    await flush()
+    expect((insertCalls[2][0].detail as Record<string, unknown>).netLastKnown).toBe('4g')
+  })
+
+  it('调用方自己的 detail 与网状态合并，不是二选一', async () => {
+    networkType = 'wifi'
+    reportClientError({
+      event: 'wechat_login',
+      message: 'merged',
+      detail: { step: 'invoke', diag: 'abc-1' },
+    })
+    await flush()
+
+    const detail = insertCalls[0][0].detail as Record<string, unknown>
+    expect(detail.step).toBe('invoke')
+    expect(detail.diag).toBe('abc-1')
+    expect(detail).toHaveProperty('netLastKnown')
   })
 
   // --- 本地队列：断网不丢 ---
@@ -319,5 +385,47 @@ describe('reportClientError', () => {
     await flush()
     // 关键：只有那一次尝试，没有形成「上报→失败→上报」的循环
     expect(insertCalls).toHaveLength(1)
+  })
+
+  // --- 补送幂等（库端 client_id 唯一约束 + 函数里的 on conflict do nothing） ---
+
+  it('每条都带 uuid 形状的 client_id，且走库端的 log_client_errors 函数', async () => {
+    reportClientError({ event: 'app_error', message: 'idempotent' })
+    await flush()
+
+    expect(insertCalls).toHaveLength(1)
+    // 库端那一列是 uuid 类型——形状不对会被 PostgREST 直接拒，
+    // 然后走进 flushErrorQueue 的「毒丸」分支把整批丢掉
+    expect(String(insertCalls[0][0].client_id)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    )
+    // 幂等的锚点在库端（函数内 `insert … on conflict (client_id) do nothing`），
+    // 参数名要对上签名 `log_client_errors(rows jsonb)`。
+    //
+    // ⚠️ 改回直写表（.insert 或 .upsert）这条就会红——而那不是"实现细节变了"，
+    // 是**每次上报都会被丢弃**：upsert 需要 PostgREST 读回插入的行，而本表对客户端
+    // 只有 INSERT 权限，于是必被 RLS 拒成 42501（实测，见 error-report.ts 的注释）。
+    expect(rpcCalls).toHaveLength(1)
+    expect(rpcCalls[0].fn).toBe('log_client_errors')
+    expect(rpcCalls[0].args).toHaveProperty('rows')
+  })
+
+  it('client_id 随队列持久化：补送时复用同一个值，绝不重新生成', async () => {
+    insertMode = 'reject' // 送不出去 → 留在队列
+    reportClientError({ event: 'app_error', message: 'keeps id' })
+    await flush()
+
+    const queued = readQueue()
+    expect(queued).toHaveLength(1)
+    const idInQueue = queued[0].client_id
+    expect(typeof idInQueue).toBe('string')
+
+    insertMode = 'ok'
+    flushErrorQueue()
+    await flush()
+
+    // 补送出去的那条必须还是同一个 id。若在发送时重新生成，每条补送都是新 id，
+    // 库端的唯一约束就形同虚设——这是整个去重机制唯一的失效方式
+    expect(insertCalls.at(-1)![0].client_id).toBe(idInQueue)
   })
 })

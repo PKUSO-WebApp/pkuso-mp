@@ -4,6 +4,7 @@ import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import { useT } from '@/i18n'
 import { dataSyncBump, subscribeSync } from '@/lib/dataSync'
 import { getLocalDateString, shiftDays, normalizeScheduleTime } from '@/lib/date-utils'
+import { invokeFunction } from '@/lib/functions'
 import type { RehearsalRow, ScheduleRow } from '@/types/database'
 
 type Listener = () => void
@@ -188,7 +189,7 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
       try {
         const title = typeof payload.title === 'string' ? payload.title.trim() : ''
         if (title) {
-          const textRes = await client.functions.invoke('wechat-content-check', {
+          const textRes = await invokeFunction(client, 'wechat-content-check', {
             body: { kind: 'text', content: title },
           })
           const textData = textRes.data as { result?: string; ok?: boolean } | null

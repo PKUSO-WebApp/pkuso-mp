@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ScrollView, View, Text, Picker } from '@tarojs/components'
 import { useAttendance, type AttendanceHistoryRow } from '@/hooks/useAttendance'
+import { ListState } from '@/components/ui/ListState'
 import { useT, useNavTitle } from '@/i18n'
 import type { TFn } from '@/i18n/core'
 import { formatRehearsalRange } from '@/lib/date-utils'
@@ -136,20 +137,17 @@ export default function AttendancePage() {
           )}
 
           <ScrollView scrollY className='mt-3' style={{ maxHeight: '60vh' }}>
-            {loading ? (
-              <Text className='block py-6 text-center text-xs text-text-muted'>
-                {t('common.actions.loading')}
-              </Text>
-            ) : queryFailed ? (
-              <Text className='block py-6 text-center text-sm text-text-muted'>
-                {t('profile.attendance.loadFailed')}
-              </Text>
-            ) : rows.length === 0 ? (
-              <Text className='block py-6 text-center text-sm text-text-muted'>
-                {t('profile.attendance.empty')}
-              </Text>
-            ) : (
-              rows.map((row) => {
+            {/* 切换日期区间时也走 loading 分支（loadingOnlyWhenEmpty=false）：否则会先闪一屏
+                旧区间残留的行，再被新区间替换 */}
+            <ListState
+              loading={loading}
+              loadingOnlyWhenEmpty={false}
+              error={queryFailed ? t('profile.attendance.loadFailed') : null}
+              isEmpty={rows.length === 0}
+              emptyText={t('profile.attendance.empty')}
+              onRetry={() => void fetchHistory(startDate, endDate)}
+            >
+              {rows.map((row) => {
                 const { label, className } = getAttendanceDisplay(
                   row.status,
                   row.sign_in_time,
@@ -190,8 +188,8 @@ export default function AttendancePage() {
                     </Text>
                   </View>
                 )
-              })
-            )}
+              })}
+            </ListState>
           </ScrollView>
         </View>
       </ScrollView>

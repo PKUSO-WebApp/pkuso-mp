@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow, usePullDownRefresh, useShareAppMessage } from '@tarojs/taro'
 import { useRehearsals } from '@/hooks/useRehearsals'
@@ -39,6 +39,10 @@ export default function Index() {
   const {
     data: announcements,
     loading: announcementLoading,
+    // 曾经这里没解构 error：公告加载失败时列表被清空（useAnnouncements 失败分支
+    // 会 setData([])）而界面没有任何提示——用户看到的是「暂无日程」，
+    // 与「真的没有日程」分不出来。见下面 ListState 的 error 合并。
+    error: announcementError,
     fetch: fetchAnnouncement,
   } = useAnnouncements()
   const { profile: myProfile } = useMyProfile()
@@ -50,11 +54,23 @@ export default function Index() {
   // 游客模式：未登录时显示空态提示
   const isGuest = !user
 
+  // 冷启动时 useRehearsals / useAnnouncements 的挂载 effect 已经在**同一 tick** 拉过一轮，
+  // 紧接着的首次 useDidShow 拉的是同一个端点、同一个会话——是纯重复。
+  // 实测一次冷启动发 7 个跨境请求，其中 3 个是这种重复，删掉能把 7 降到 4，
+  // 而且**不牺牲首屏速度**（删的是冗余，不是把并发改慢）。写法同 community 页。
+  const firstShowRef = useRef(true)
+
   // 每次切回首页重新拉取排练与公告，并重置全局轮询计时器。
   // 静默重取：已有数据时不翻 loading，避免切 tab 整页闪烁
   useDidShow(() => {
-    void fetchRehearsals({ silent: true })
-    void fetchAnnouncement({ silent: true })
+    // ⚠️ 只跳这两个 fetch。下面还管着转发菜单（游客/登录两分支），跳过整个回调会让
+    // 菜单状态出错；dataSyncBump 也不能跳（它只重置本地计时器，不发请求）。
+    if (firstShowRef.current) {
+      firstShowRef.current = false
+    } else {
+      void fetchRehearsals({ silent: true })
+      void fetchAnnouncement({ silent: true })
+    }
     dataSyncBump()
 
     // 根据登录状态控制右上角转发菜单
@@ -260,9 +276,17 @@ export default function Index() {
           <ListState
             loading={rehearsalsLoading}
             isEmpty={announcementList.length === 0 && rehearsalList.length === 0}
-            error={tAppError(t, rehearsalsError)}
+            // 两个来源的错误都算「这一屏加载失败」：公告那半以前没接 error，而它失败时
+            // useAnnouncements 会把列表清空——于是用户看到的是「暂无日程」，
+            // 与「真的没有日程」分不出来。两者的错误码都归一成同一条 loadFailed 文案，
+            // 所以取第一个非空的即可，不需要拼两句话。
+            error={tAppError(t, rehearsalsError) ?? tAppError(t, announcementError)}
             emptyText={t('home.emptySchedule')}
-            onRetry={() => void fetchRehearsals()}
+            // 重试要**两个都重试**：以前只重试排练，公告失败时点「重试」仍然看不到公告
+            onRetry={() => {
+              void fetchRehearsals()
+              void fetchAnnouncement()
+            }}
           >
             {announcementList.map((ann) => (
               <View key={`announcement-${ann.id}`} className='mb-3'>

@@ -1,5 +1,5 @@
-import Taro from '@tarojs/taro'
 import { supabase as defaultClient } from '@/lib/supabase'
+import { safeNavigate } from './navigate'
 import { resolveEntryRoute, type EntryProfile } from './profile-gate'
 
 // ============================================================
@@ -27,5 +27,8 @@ export async function routeAfterLogin(client: typeof defaultClient = defaultClie
     // 查询失败：profile 保持 null，走下方安全落点
   }
   const target = resolveEntryRoute(profile) ?? '/pages/pending/index'
-  await Taro.reLaunch({ url: target })
+  // 用带兜底的跳转，而不是裸的 Taro.reLaunch：后者失败会抛给调用方，被登录链路当成
+  // **登录失败**上报（会话其实已经建立好了）——用户看到「微信登录失败」，而事实只是
+  // 没跳过去。失败时 safeNavigate 上报 + 轻提示，用户留在原页面重按一次即可。
+  await safeNavigate('reLaunch', target)
 }

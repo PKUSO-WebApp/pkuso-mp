@@ -3,6 +3,7 @@ import { View, Text } from '@tarojs/components'
 import { useDidHide } from '@tarojs/taro'
 import { useNotifications } from '@/hooks/useNotifications'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
+import { ListState } from '@/components/ui/ListState'
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
@@ -73,9 +74,12 @@ export default function NotificationSystemPage() {
     [markCategoryRead]
   )
 
-  useEffect(() => {
+  // 抽成具名函数：失败态的「重试」要重跑的就是这一段（原来写死在 effect 里，失败后只能退出重进）
+  const load = useCallback(() => {
+    setLoading(true)
+    setFailed(false)
     const seq = ++seqRef.current
-    void Promise.all([fetchByCategory('system'), fetchByCategory('activity')]).then(
+    return Promise.all([fetchByCategory('system'), fetchByCategory('activity')]).then(
       ([sys, act]) => {
         if (seq !== seqRef.current) return
         setLoading(false)
@@ -90,10 +94,17 @@ export default function NotificationSystemPage() {
         setMessages(merged)
         const unreadIds = merged.filter((m) => m.read_at === null).map((m) => m.id)
         setSnapshotIds(new Set(unreadIds))
+        // 重试时 handledRef 里那批「已提交过」的 id 会被 markReadFor 自己跳过，不会重复标读
         if (unreadIds.length > 0) void markReadFor(merged)
       }
     )
   }, [fetchByCategory, markReadFor])
+
+  useEffect(() => {
+    void load()
+    // 不带卸载守卫：原代码在页面离开后仍会把拉到的未读标读（「曝光即已读」），
+    // 加了守卫等于悄悄改掉这个语义。重试的乱序由 load 里的 seq 比对兜住
+  }, [load])
 
   // 兜底提交：仅处理初始标记失败（不在 handled 中）的未读行；服务端另有 .is("read_at", null) 守卫
   const submitUnreadReads = useCallback(() => {
@@ -135,20 +146,17 @@ export default function NotificationSystemPage() {
         <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
       </View>
       <View className='px-4'>
-        {loading ? (
-          <Text className='block py-10 text-center text-xs text-text-muted'>
-            {t('common.actions.loading')}
-          </Text>
-        ) : failed ? (
-          <Text className='block py-10 text-center text-sm text-text-muted'>
-            {t('notification.list.failed')}
-          </Text>
-        ) : visible.length === 0 ? (
-          <Text className='block py-10 text-center text-sm text-text-muted'>
-            {tab === 'unread' ? t('notification.emptyUnread') : t('notification.list.empty')}
-          </Text>
-        ) : (
-          visible.map((msg) => (
+        <ListState
+          loading={loading}
+          loadingOnlyWhenEmpty={false}
+          error={failed ? t('notification.list.failed') : null}
+          isEmpty={visible.length === 0}
+          emptyText={
+            tab === 'unread' ? t('notification.emptyUnread') : t('notification.list.empty')
+          }
+          onRetry={() => void load()}
+        >
+          {visible.map((msg) => (
             <View
               key={msg.id}
               className='relative mb-2 rounded-xl border border-border bg-card p-3'
@@ -163,8 +171,8 @@ export default function NotificationSystemPage() {
                 {msg.content}
               </Text>
             </View>
-          ))
-        )}
+          ))}
+        </ListState>
       </View>
     </View>
   )

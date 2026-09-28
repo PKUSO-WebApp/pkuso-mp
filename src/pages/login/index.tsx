@@ -11,7 +11,9 @@ import { useSendLoginCode } from '@/hooks/useSendLoginCode'
 import { useT, useNavTitle } from '@/i18n'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { describeError, reportClientError } from '@/lib/error-report'
+import { DIAG_HEADER, newDiagId } from '@/lib/diag'
 import { supabase } from '@/lib/supabase'
+import { invokeFunction } from '@/lib/functions'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
 
@@ -109,14 +111,30 @@ export default function LoginPage() {
       }
 
       // 调用 login-with-code Edge Function 验证验证码并获取 session
-      const { data, error } = await supabase.functions.invoke('login-with-code', {
+      // diag：这次请求的关联 id，同时随请求头送服务端（login-with-code 的每条出口
+      // 都写日志）。这里原本**一条记录都不上报**，失败只剩界面上那句泛化文案。见 lib/diag.ts。
+      const diag = newDiagId()
+      const { data, error } = await invokeFunction(supabase, 'login-with-code', {
         body: {
           email: email.trim().toLowerCase(),
           code: code.trim(),
         },
+        headers: { [DIAG_HEADER]: diag },
       })
 
       if (error || data?.error) {
+        reportClientError({
+          event: 'code_login',
+          message: (error as { message?: string })?.message ?? String(data?.error ?? ''),
+          detail: {
+            step: 'invoke',
+            diag,
+            errorName: (error as { name?: string })?.name,
+            httpStatus: (error as { context?: { status?: number } })?.context?.status,
+            // 服务端的 error 字符串（如 'invalid or expired code' / 'token exchange failed'）
+            serverError: data?.error ?? '',
+          },
+        })
         setErrorMsg(t('login.codeInvalidOrExpired'))
         return
       }
@@ -127,14 +145,36 @@ export default function LoginPage() {
           refresh_token: data.refresh_token,
         })
         if (sessionError) {
+          reportClientError({
+            event: 'code_login',
+            message: sessionError.message,
+            detail: {
+              step: 'set_session',
+              diag,
+              errorName: sessionError.name,
+              errorCode: sessionError.code,
+              httpStatus: sessionError.status,
+            },
+          })
           setErrorMsg(t('login.loginFailed'))
           return
         }
         await routeAfterLogin(supabase)
       } else {
+        reportClientError({
+          event: 'code_login',
+          message: 'payload missing tokens',
+          detail: { step: 'invoke', diag, payloadKeys: Object.keys(data ?? {}).join(',') },
+        })
         setErrorMsg(t('login.loginFailed'))
       }
-    } catch {
+    } catch (err) {
+      // 与微信登录那条路径同理：不接住并记下来，就只剩界面上一句泛化文案
+      reportClientError({
+        event: 'code_login',
+        message: describeError(err),
+        detail: { step: 'handler_throw', errorName: (err as { name?: string })?.name },
+      })
       setErrorMsg(t('login.loginFailed'))
     } finally {
       setSubmitting(false)
@@ -272,7 +312,7 @@ export default function LoginPage() {
                 <View className='flex items-center gap-2'>
                   <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
                     <Input
-                      className='h-10 w-full bg-transparent text-sm text-text'
+                      className='h-10 w-full bg-transparent text-sm'
                       placeholder={t('login.codePlaceholder')}
                       type='number'
                       maxlength={6}
