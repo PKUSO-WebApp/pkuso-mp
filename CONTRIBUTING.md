@@ -2,6 +2,8 @@
 
 PKUSO 微信小程序（成员端）开发规范与贡献流程。
 
+> **协作规则、CI 行为、版本号与分支流程的完整说明见 [`AGENTS.md`](./AGENTS.md)**（其 §1 是「拿到任务先读」的那一节）。本文与它冲突时以 `AGENTS.md` 为准。
+
 ## 快速开始
 
 ### 环境要求
@@ -25,6 +27,10 @@ pnpm dev:weapp
 
 在微信开发者工具中导入 `dist/` 目录预览。
 
+**`pnpm dev:weapp` 不是 watch 模式**——它是一次性构建（`NODE_ENV=development taro build --type weapp`），改完代码要重新运行。
+
+> ⚠️ 反过来，`pnpm build:weapp` 读的是 `.env.production`，**构建产物连的是生产库**。在开发者工具里登录、翻数据之前先确认手上这份 `dist/` 是哪个环境构建的（详见 `AGENTS.md` §1.3）。
+
 ## 项目结构
 
 ```
@@ -41,20 +47,23 @@ src/
 
 ## 常用命令
 
-| 命令               | 说明                                       |
-| ------------------ | ------------------------------------------ |
-| `pnpm dev:weapp`   | 监听构建（配合开发者工具热重载）           |
-| `pnpm build:weapp` | 生产构建                                   |
-| `pnpm typecheck`   | TypeScript 类型检查                        |
-| `pnpm lint`        | ESLint（零警告）                           |
-| `pnpm test`        | Vitest 单测                                |
-| `pnpm format:fix`  | Prettier 格式化                            |
-| `pnpm verify`      | 完整校验：format + lint + typecheck + test |
-| `pnpm new`         | 创建新页面/组件                            |
+| 命令               | 说明                                                                     |
+| ------------------ | ------------------------------------------------------------------------ |
+| `pnpm dev:weapp`   | 开发环境构建（读 `.env.development`；**一次性构建，不是 watch 模式**）   |
+| `pnpm build:weapp` | 生产环境构建（读 `.env.production`，**指向生产库**）                     |
+| `pnpm typecheck`   | TypeScript 类型检查                                                      |
+| `pnpm lint`        | ESLint（零警告）                                                         |
+| `pnpm test`        | Vitest 单测                                                              |
+| `pnpm format:fix`  | Prettier 格式化                                                          |
+| `pnpm verify`      | format + lint + typecheck + test（本地便利命令：**不含构建，CI 也不跑 format**） |
+| `pnpm pull-types`  | 从本地 `../pkuso-backend` 复制 `database.types.ts`                       |
+| `pnpm new`         | 创建新页面/组件                                                          |
+
+> 版本号与分支脚本（`version:*` / `branch:create`）的用法与坑见 `AGENTS.md` §2。
 
 ## 交付闸门
 
-每次声明「完成」前，必须全部通过：
+每次声明「完成」前，必须依次全部通过（**这是本仓库唯一的闸门定义**，CI 与 `AGENTS.md` 一致）：
 
 ```bash
 pnpm build:weapp
@@ -64,6 +73,8 @@ pnpm test
 ```
 
 通过后在微信开发者工具中「设置 → 通用 → 清空缓存 / 重开项目」。
+
+> CI 的步骤是 `lint → typecheck → test → build`（集合相同、顺序不同），且 **CI 不跑 `pnpm format`**——`pnpm verify` 只是本地便利命令，不等于 CI。
 
 ## 代码规范
 
@@ -141,7 +152,7 @@ const { t } = useT()
 
 ### 新建页面必须有 `index.scss`
 
-即使为空也要创建，并在页面 `tsx` 中 `import './index.scss'`，否则开发者工具报 `ENOENT ... index.wxss`。
+即使为空也要创建，并在页面 `tsx` 中 `import './index.scss'`。它决定 Taro 是否给页面包裹层注入 `.page{height:100%}`——缺了这层，短内容页面会高度塌陷、露出窗口背景色（`src/app.css` 有一段全局兜底，但别依赖它去补每个新页面）。
 
 ### Input /Textarea 必须用 View 包裹
 
@@ -166,11 +177,11 @@ pnpm test
 
 ### 分支策略
 
-| 分支     | 用途                                               |
-| -------- | -------------------------------------------------- |
-| `main`   | 稳定发布，CI 自动 version:release → build → upload |
-| `dev`    | 开发测试，CI 自动 version:dev → build → upload     |
-| 功能分支 | 从 `dev` 创建，squash merge 回 `dev`               |
+| 分支     | 用途                                                                     |
+| -------- | ------------------------------------------------------------------------ |
+| `main`   | 稳定发布基线。push 后 CI 自动 version:release → build → upload（robot 2）→ 版本号回写 + 推 tag |
+| `dev`    | 开发测试基线。push 后 CI 自动 version:dev → build → upload（robot 1）     |
+| 功能分支 | 从 `dev` 创建，squash merge 回 `dev`                                     |
 
 ### 创建功能分支
 
@@ -178,13 +189,18 @@ pnpm test
 pnpm branch:create <patch|minor|major> "描述"
 ```
 
+它会建分支、改 `package.json` 版本、提交一次、建本地 tag。**两个坑见 `AGENTS.md` §2.3**（版本号带 `-dev.N` 后缀时会写出 `0.4.NaN`；那次 `package.json` 提交会跟着合进 `dev`）。
+
 ### 开发流程
 
 1. `pnpm branch:create patch 修复bug` — 创建分支
-2. `pnpm dev:weapp` — 本地开发
-3. `pnpm verify` — 本地校验
-4. squash merge 到 `dev` — `git push origin dev` 触发 CI 自动上传开发版
-5. 测试通过后 merge 到 `main` — CI 自动发布正式版
+2. `pnpm dev:weapp` — 本地开发（改完要重新构建，非 watch）
+3. `pnpm build:weapp && pnpm typecheck && pnpm lint && pnpm test` — 本地闸门
+4. squash merge 到 `dev` 并 `git push origin dev` — CI 自动构建并上传到微信**开发版本**列表（robot 1）
+5. 测试通过后 merge 到 `main` — CI 再上传一份（robot 2），版本号回写 `main` 并推 tag
+
+⚠️ **CI 只上传代码包，不发布正式版。** 上线正式版仍需人工在微信公众平台「提交审核 → 发布」。
+⚠️ **开 PR 不触发任何 CI**：workflow 只监听 `push` 到 `dev` / `main`，且有 `paths:` 白名单（改 `.md` 不触发，改 `package.json` 会触发一次真实上传）。详见 `AGENTS.md` §3。
 
 ### 环境要求（CI）
 
