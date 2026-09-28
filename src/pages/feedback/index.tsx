@@ -77,7 +77,7 @@ export default function FeedbackPage() {
               onInput={(e) => setContent(e.detail.value)}
               maxlength={2000}
               disabled={submitting}
-              className='h-32 bg-transparent px-3 py-3 text-xs leading-relaxed text-text'
+              className='h-32 w-full bg-transparent px-3 py-3 text-xs leading-relaxed text-text'
               placeholder={t('profile.feedback.placeholder')}
               placeholderStyle={placeholderStyle}
             />
