@@ -17,12 +17,33 @@ import {
 } from '@/lib/annotation'
 import { createPdfEngine, type PdfDocument, type PdfEngine } from '@vendor/wechat-miniprogram-pdf'
 import type { SheetMusicFileRow } from '@/types/database'
+// 页面内部模块：留在分包目录内，保证被打进分包 chunk（见 lib/types.ts 顶部注释）
+import type {
+  BlankRetry,
+  CanvasCtx,
+  CanvasNode,
+  Drag,
+  Job,
+  Layer,
+  Pan,
+  Pinch,
+  Stage,
+} from './lib/types'
+import { drawMark, frameInk, markKept, rasterDpr } from './lib/raster'
+import { clamp, clampPan, touchDist, touchMid } from './lib/geometry'
+import { drawPolylineOn, drawStrokeOn, styleFor } from './lib/anno-draw'
+import {
+  cachedPdfPath,
+  lastPageKey,
+  pdfCacheTag,
+  readCachedPdf,
+  writeCachedPdf,
+} from './lib/pdf-cache'
 import './index.scss'
 
 const DEFAULT_URL = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 4
-const DPR = 2
 /** 缩放合并窗口：停手满这么久才真正重渲（期间画布只换尺寸，不清屏） */
 const ZOOM_SETTLE_MS = 180
 /** 手写进行中推迟渲染的重试间隔 */
@@ -34,228 +55,10 @@ const BLANK_RETRY_MS = 400
 const BLANK_MAX_RETRY = 2
 /** 重开文档的节流窗口：同一页这段时间内只重开一次 */
 const RELOAD_COOLDOWN_MS = 15000
-/** 诊断日志保留条数（屏幕上只显示最后几条，点一下可复制全部） */
-const DBG_MAX_LINES = 100
-const DBG_SHOW_LINES = 5
-/** 位图上限：单边别超 4096、总量别超 12M 像素（约 48MB）——
- *  真机上超限的画布会分配失败/画不出来，表现就是「整页白」 */
-const MAX_RASTER_EDGE = 4096
-const MAX_RASTER_PIXELS = 12000000
 /** 备用帧停靠位置：移出视口即可（overflow:hidden 会裁掉），它仍是正常在绘制的画布 */
 const OFFSCREEN = '-99999px'
 
-type Stage = 'idle' | 'fetching' | 'parsing' | 'rendering' | 'ready' | 'error'
-type Layer = 'a' | 'b'
-
-type CanvasCtx = {
-  setTransform: (a: number, b: number, c: number, d: number, e: number, f: number) => void
-  clearRect: (x: number, y: number, w: number, h: number) => void
-  beginPath: () => void
-  moveTo: (x: number, y: number) => void
-  lineTo: (x: number, y: number) => void
-  stroke: () => void
-  fillRect: (x: number, y: number, w: number, h: number) => void
-  getImageData: (x: number, y: number, w: number, h: number) => { data: ArrayLike<number> }
-  fillStyle: string
-  strokeStyle: string
-  lineWidth: number
-  lineCap: string
-  lineJoin: string
-}
-type CanvasNode = {
-  width: number
-  height: number
-  getContext: (type: '2d') => CanvasCtx
-}
-
-/** 内容框左上角相对视口的位置（px，可为负） */
-type Pan = { x: number; y: number }
-
-/** 双指手势起始快照：缩放/位移基准 + 中点基准（相对视口左上角） */
-type Pinch = {
-  dist: number
-  zoom: number
-  pan: Pan
-  midX: number
-  midY: number
-}
-
-/** 单指拖动起始快照 */
-type Drag = { tx: number; ty: number; x: number; y: number }
-
-/** 一次渲染请求：把哪一页按哪个缩放渲出来 */
-type Job = { page: number; zoom: number }
-
-/** 白帧重试记账：同一页/同一缩放重试到第几次 */
-type BlankRetry = { page: number; zoom: number; n: number }
-
-/** 画布位图用的像素比：按上限压，超限时宁可软一点也不画不出来 */
-function rasterDpr(cssW: number, cssH: number): number {
-  if (cssW <= 0 || cssH <= 0) return DPR
-  const edge = Math.min(MAX_RASTER_EDGE / (cssW * DPR), MAX_RASTER_EDGE / (cssH * DPR))
-  const area = Math.sqrt(MAX_RASTER_PIXELS / (cssW * cssH * DPR * DPR))
-  return Math.min(1, edge, area) * DPR
-}
-
-/**
- * 渲前在画布角上点一个洋红记号。渲完记号还在 = 这次渲染**根本没碰这块画布**
- * （否则 pdf.js 的底色填充会把它盖掉）。用来区分「空渲染」和「没渲染」
- */
-function drawMark(node: CanvasNode): void {
-  try {
-    const ctx = node.getContext('2d')
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.fillStyle = '#ff00ff'
-    ctx.fillRect(0, 0, 4, 4)
-  } catch {
-    // 记号画不上不影响主流程
-  }
-}
-
-function markKept(node: CanvasNode): boolean {
-  try {
-    const d = node.getContext('2d').getImageData(1, 1, 1, 1).data
-    return d[0] > 200 && d[1] < 80 && d[2] > 200
-  } catch {
-    return false
-  }
-}
-
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-
-// ---- 本地 PDF 缓存 + 阅读位置（书签）：同一份谱子不必每次重下，回来停在上次那页 ----
-const pdfCacheKey = (fileId: string) => `score-pdf-cache:${fileId}`
-const lastPageKey = (fileId: string) => `score-last-page:${fileId}`
-const pdfCachePath = (fileId: string) => `${Taro.env.USER_DATA_PATH}/score-${fileId}.pdf`
-
-/** 缓存指纹：storage_path + 文件大小。后端没有 updated_at，但换文件必换大小 */
-const pdfCacheTag = (row: SheetMusicFileRow) => `${row.storage_path}|${row.file_size ?? 0}`
-
-/** 读本地缓存的 PDF；缺失/指纹不符/读失败一律 null，由调用方回落网络 */
-async function readCachedPdf(fileId: string, tag: string): Promise<ArrayBuffer | null> {
-  try {
-    const rec = Taro.getStorageSync(pdfCacheKey(fileId)) as { tag?: string } | ''
-    if (!rec || typeof rec !== 'object' || rec.tag !== tag) return null
-    return await new Promise<ArrayBuffer>((resolve, reject) => {
-      Taro.getFileSystemManager().readFile({
-        filePath: pdfCachePath(fileId),
-        success: (res) => resolve(res.data as ArrayBuffer),
-        fail: reject,
-      })
-    })
-  } catch {
-    return null
-  }
-}
-
-/** 把刚下载的字节落到本地（不挡首帧）；失败静默，下次重下即可 */
-function writeCachedPdf(fileId: string, tag: string, bytes: ArrayBuffer): void {
-  try {
-    Taro.getFileSystemManager().writeFile({
-      filePath: pdfCachePath(fileId),
-      data: bytes,
-      success: () => Taro.setStorageSync(pdfCacheKey(fileId), { tag }),
-      fail: () => {},
-    })
-  } catch {
-    // 缓存失败不影响阅读
-  }
-}
-
-/** 本地已缓存的文件路径（没有则 null），供「原生打开」直接复用 */
-function cachedPdfPath(fileId: string): string | null {
-  if (!fileId) return null
-  try {
-    const rec = Taro.getStorageSync(pdfCacheKey(fileId)) as { tag?: string } | ''
-    if (!rec || typeof rec !== 'object' || !rec.tag) return null
-    return pdfCachePath(fileId)
-  } catch {
-    return null
-  }
-}
-
-const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))
-
-/** 内容框位置钳制：比视口小的一轴居中，比视口大的一轴不拉出空白 */
-function clampPan(p: Pan, w: number, h: number, vw: number, vh: number): Pan {
-  if (vw <= 0 || vh <= 0) return p
-  const x = w <= vw ? (vw - w) / 2 : clamp(p.x, vw - w, 0)
-  const y = h <= vh ? (vh - h) / 2 : clamp(p.y, vh - h, 0)
-  return x === p.x && y === p.y ? p : { x, y }
-}
-
-function touchDist(touches: { clientX: number; clientY: number }[]): number {
-  const [a, b] = touches
-  if (!a || !b) return 0
-  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
-}
-
-function touchMid(touches: { clientX: number; clientY: number }[]): [number, number] {
-  const [a, b] = touches
-  if (!a || !b) return [0, 0]
-  return [(a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2]
-}
-
-function styleFor(ctx: CanvasCtx, color: string, width: number, w: number): void {
-  ctx.strokeStyle = color
-  ctx.lineWidth = Math.max(1, width * w)
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
-}
-
-/** 归一化点序列 → 画布像素折线 */
-function drawPolylineOn(
-  ctx: CanvasCtx,
-  pts: [number, number][],
-  color: string,
-  width: number,
-  w: number,
-  h: number
-): void {
-  if (pts.length === 0) return
-  styleFor(ctx, color, width, w)
-  ctx.beginPath()
-  pts.forEach(([x, y], i) => {
-    const px = x * w
-    const py = y * h
-    if (i === 0) ctx.moveTo(px, py)
-    else ctx.lineTo(px, py)
-  })
-  ctx.stroke()
-}
-
-function drawStrokeOn(ctx: CanvasCtx, stroke: AnnoStroke, w: number, h: number): void {
-  drawPolylineOn(ctx, stroke.points, stroke.color, stroke.width, w, h)
-}
-
-/**
- * 抽样看这一帧有没有墨：渲染静默失败（pdf.js resolve 了但一个操作都没落下去）
- * 时整块画布是纯白，这里能看出来。返回 -1 表示探测本身失败，不参与判定。
- */
-function frameInk(node: CanvasNode): number {
-  try {
-    const ctx = node.getContext('2d')
-    if (!ctx?.getImageData) return -1
-    const w = node.width
-    const h = node.height
-    if (!w || !h) return -1
-    // 取三条整行（比单点采样可靠得多）：某行存在非白像素就算这行有墨。
-    // 返回有几行有墨（0~3），0 表示整帧纯白 —— 就是渲染静默失败的样子
-    let inkRows = 0
-    for (const fy of [0.25, 0.5, 0.75]) {
-      const d = ctx.getImageData(0, Math.floor(fy * h), w, 1).data
-      for (let i = 0; i < d.length; i += 4) {
-        if (!(d[i] > 245 && d[i + 1] > 245 && d[i + 2] > 245)) {
-          inkRows++
-          break
-        }
-      }
-    }
-    return inkRows
-  } catch {
-    return -1
-  }
-}
 
 export default function ScoreReader() {
   const { t } = useT()
@@ -328,32 +131,15 @@ export default function ScoreReader() {
   /** 重开文档的节流：同一页短时间内只重开一次，防死循环 */
   const reloadGuardRef = useRef<{ page: number; at: number } | null>(null)
 
-  // —— 以下为真机排查「渲染内容丢失」的临时诊断，定位后应整体删除 ——
+  // —— 白帧自愈：不是临时诊断，是修复「渲染内容丢失」的常驻机制，别删 ——
+  // 真机上 pdf.js 会 resolve 却什么都没画出来（整页白），只能靠渲前记号 + 渲后抽样
+  // 探测（见 lib/raster.ts）发现，然后按情况重试渲染、或重开文档复位。
   /** 白帧重渲的记录：同一页/同一缩放重试到第几次（有上限，不会死循环） */
   const blankRetryRef = useRef<BlankRetry | null>(null)
   /** 渲出过内容的页：用来区分「坏帧」和「这页本来就空白」 */
   const inkPagesRef = useRef<Set<number>>(new Set())
   /** 指向 requestRender（doRender 的延迟探针要用，避免循环依赖） */
   const requestRef = useRef<(job: Job) => void>(() => {})
-  const dbgRef = useRef<string[]>([])
-  const [dbgLines, setDbgLines] = useState<string[]>([])
-  const logDbg = useCallback((line: string) => {
-    const next = [...dbgRef.current, line].slice(-DBG_MAX_LINES)
-    dbgRef.current = next
-    setDbgLines(next)
-  }, [])
-  const resetDbg = useCallback(() => {
-    dbgRef.current = []
-    setDbgLines([])
-  }, [])
-  /** 点一下把全部日志（最多 DBG_MAX_LINES 条）复制到剪贴板 */
-  const copyDbg = useCallback(() => {
-    const text = dbgRef.current.join('\n')
-    if (!text) return
-    void Taro.setClipboardData({ data: text }).then(() => {
-      void Taro.showToast({ title: t('scoreReader.dbgCopied'), icon: 'none' })
-    })
-  }, [t])
 
   const statusText =
     stage === 'fetching'
@@ -504,10 +290,11 @@ export default function ScoreReader() {
       const w = Math.max(1, Math.round(info.width * scale))
       const h = Math.max(1, Math.round(info.height * scale))
       const dpr = rasterDpr(w, h)
-      logDbg(`r p${target} z${job.zoom} ${layer} ${Math.round(w * dpr)}x${Math.round(h * dpr)}`)
       // 首帧：先把内容尺寸给出来，别让画布以 0 高存在
       if (firstPaint) setViewSize({ w, h })
-      const { node } = await queryCanvasNode(layer === 'a' ? '#reader-canvas-a' : '#reader-canvas-b')
+      const { node } = await queryCanvasNode(
+        layer === 'a' ? '#reader-canvas-a' : '#reader-canvas-b'
+      )
       drawMark(node as CanvasNode)
       await doc.renderPage(target, node, { scale, pixelRatio: dpr })
       const kept = markKept(node as CanvasNode)
@@ -526,18 +313,14 @@ export default function ScoreReader() {
           // 也可能第一次渲就坏了。复核一次再定，别把白页判成坏帧、也别放过坏帧
           if (attempt <= 1) {
             blankRetryRef.current = { page: target, zoom: job.zoom, n: attempt }
-            logDbg(`p${target} blank-page 复核`)
             setTimeout(() => {
               if (stillHere()) requestRef.current({ page: target, zoom: job.zoom })
             }, BLANK_RETRY_MS)
             return
           }
-          logDbg(`p${target} blank-page`) // 确认本来就空：照常换上去
+          // 确认本来就空：照常换上去
         } else {
           blankRetryRef.current = { page: target, zoom: job.zoom, n: attempt }
-          logDbg(
-            `blank p${target} #${attempt} ${Math.round(w * dpr)}x${Math.round(h * dpr)} kept=${kept ? 1 : 0}`
-          )
           // 记号还在 = 这次渲染根本没碰画布（多半是瞬时问题）→ 重试有意义。
           // 记号被盖掉 = 渲染跑了却只画了底色（pdf.js 那页的数据没了）→ 重试没用，
           // 直接重开文档复位；这一条是实测出来的（用户复现时重试次次皆白）
@@ -555,12 +338,10 @@ export default function ScoreReader() {
             (!g || g.page !== target || Date.now() - g.at > RELOAD_COOLDOWN_MS)
           ) {
             reloadGuardRef.current = { page: target, at: Date.now() }
-            logDbg(`blank p${target} reload`)
             void reloadDoc()
             return
           }
           // 连重开文档都没救回来：宁可停在上一页，也不把白帧换上去
-          logDbg(`blank p${target} give-up`)
           return
         }
       } else {
@@ -578,9 +359,8 @@ export default function ScoreReader() {
       activeLayerRef.current = layer
       setActiveLayer(layer)
       setStage('ready')
-      logDbg(`swap p${target} ${layer} ink=${ink}`)
     },
-    [containerW, logDbg, pageCount, queryCanvasNode, reloadDoc]
+    [containerW, pageCount, queryCanvasNode, reloadDoc]
   )
 
   // 串行执行：一件渲完才起下一件。并发渲同一块画布会互相清屏（pdf.js 的
@@ -593,7 +373,6 @@ export default function ScoreReader() {
           await doRender(job)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
-          logDbg(`err p${job.page} ${msg.slice(0, 40)}`)
           setStage('error')
           setMessage(msg)
         } finally {
@@ -605,7 +384,7 @@ export default function ScoreReader() {
         }
       })()
     },
-    [doRender, logDbg]
+    [doRender]
   )
   useEffect(() => {
     runJobRef.current = runJob
@@ -729,7 +508,6 @@ export default function ScoreReader() {
     async (targetUrl?: string) => {
       let finalUrl = targetUrl || ''
       let cacheTag = ''
-      resetDbg() // 换文件时日志清零
       inkPagesRef.current.clear() // 页码对应不同内容，白页判据也要重置
       setStage('fetching')
       setMessage('')
@@ -807,7 +585,7 @@ export default function ScoreReader() {
         setMessage(err instanceof Error ? err.message : String(err))
       }
     },
-    [fileId, profile?.role, resetDbg, t]
+    [fileId, profile?.role, t]
   )
 
   // 自动加载：带 file_id / url 参数进入时
@@ -1193,20 +971,6 @@ export default function ScoreReader() {
             style={{ width: `${boxW}px`, height: `${boxH}px` }}
           />
         </View>
-        {/* 临时诊断条：点一下复制全部日志（只显示最后几条，保留最近 100 条） */}
-        {dbgLines.length > 0 ? (
-          <View
-            className='absolute left-0 top-0 z-10 bg-black px-1 py-0.5 opacity-70'
-            onClick={copyDbg}
-          >
-            <Text className='block text-xs text-white'>{t('scoreReader.dbgCopyHint')}</Text>
-            {dbgLines.slice(-DBG_SHOW_LINES).map((line, i) => (
-              <Text key={i} className='block text-xs text-white'>
-                {line}
-              </Text>
-            ))}
-          </View>
-        ) : null}
         {showStatusRow ? (
           <View className='absolute left-0 right-0 top-0 py-3 text-center'>
             <Text className='text-xs text-text-muted'>{statusText}</Text>

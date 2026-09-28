@@ -21,8 +21,6 @@ export const scoreReader = {
   clear: 'Clear page',
   clearConfirm: 'Confirm?',
   openNative: 'Native',
-  dbgCopyHint: 'Tap to copy all logs',
-  dbgCopied: 'Logs copied',
   nativeNotReady: 'File not loaded yet',
   downloadFailed: 'Failed: {error}',
 }

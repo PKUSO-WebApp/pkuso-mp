@@ -21,8 +21,6 @@ export const scoreReader = {
   clear: '清空本页',
   clearConfirm: '确认？',
   openNative: '原生打开',
-  dbgCopyHint: '点这里复制全部日志',
-  dbgCopied: '日志已复制',
   nativeNotReady: '文件尚未加载完成',
   downloadFailed: '打开失败：{error}',
 }
