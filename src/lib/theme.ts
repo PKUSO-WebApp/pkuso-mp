@@ -39,6 +39,13 @@ export type ThemePalette = {
   tabDot: string
 }
 
+/** 各字段对应的 app.css 语义 token（改色时两边一起改；`theme.test.ts` 守着这层对应）：
+ *  windowBg → --color-page-bg            navBg / tabBg → --color-surface
+ *  tabBorder → --color-border            tabActive → --color-text
+ *  tabInactive → --color-text-muted      tabDot → --color-danger
+ *  navFront 是例外：原生导航栏前景固定取纯黑/纯白（不跟 --color-text 走）。
+ *  另：windowBg 还必须等于 src/theme.json 的暗/亮 backgroundColor——两者不同的话，
+ *  下拉回弹会露出色带。 */
 export const THEME_PALETTE: Record<ThemeMode, ThemePalette> = {
   light: {
     windowBg: '#f4f4f5',
@@ -51,15 +58,22 @@ export const THEME_PALETTE: Record<ThemeMode, ThemePalette> = {
     tabDot: '#dc2626',
   },
   dark: {
-    windowBg: '#1d1d1f',
+    windowBg: '#09090b',
     navFront: '#ffffff',
-    navBg: '#1d1d1f',
-    tabBg: '#1d1d1f',
-    tabBorder: '#3b3b3e',
-    tabActive: '#ffffff',
-    tabInactive: '#b5b5be',
-    tabDot: '#ff9191',
+    navBg: '#09090b',
+    tabBg: '#09090b',
+    tabBorder: '#27272a',
+    tabActive: '#f4f4f5',
+    tabInactive: '#a1a1aa',
+    tabDot: '#f87171',
   },
+}
+
+/** 原生输入框 placeholder 的文字色。原生 Input 不吃 CSS 变量，只能写死；
+ *  取值等于 app.css 的 --color-text-muted（有测试守着）。 */
+export const PLACEHOLDER_COLOR: Record<ThemeMode, string> = {
+  light: '#71717a',
+  dark: '#a1a1aa',
 }
 
 /**

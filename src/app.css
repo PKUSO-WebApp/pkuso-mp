@@ -49,47 +49,53 @@
   --color-overlay: rgb(0 0 0 / 0.4);
 }
 
-/* 暗色模式 token 覆盖（与 Web 端 tokens.css 暗色值一致）：
+/* 暗色模式 token 覆盖：与 Web 端 tokens.css 的 [data-theme="dark"] 逐值取齐
+   （zinc 阶梯）。本文件特有的 token 不在其列，各自注明：
+   --color-signin / --color-signin-foreground / --color-gantt-sidebar-text /
+   --color-schedule-other / --color-overlay。
    由 theme-context 的 useThemeClass 在页面根节点挂 .dark 类触发，
-   Tailwind 工具类引用 var(--color-*)，随祖先类切换整体换肤 */
+   Tailwind 工具类引用 var(--color-*)，随祖先类切换整体换肤。
+   ⚠️ --color-page-bg 必须与 src/theme.json 的暗色 backgroundColor 保持同值
+   （当前都是 #09090b）：前者是页面底色、后者是原生窗口底色，两者不同的话，
+   下拉回弹会露出可见色带。改这里时记得一起改。 */
 .dark {
-  --color-primary: #ffffff;
-  --color-primary-foreground: #2c2c2f;
+  --color-primary: #f4f4f5; /* zinc-100 */
+  --color-primary-foreground: #18181b; /* zinc-900 */
 
-  /* 签到蓝暗色变体：+20 调亮 */
+  /* 签到蓝暗色变体：+20 调亮（web 无此 token，保留本仓库的值） */
   --color-signin: #75acdf;
   --color-signin-foreground: #ffffff;
 
-  --color-surface: #1d1d1f;
-  --color-card: #2c2c2f;
-  --color-muted: #3b3b3e;
-  --color-page-bg: #1d1d1f;
+  --color-surface: #09090b; /* zinc-950 */
+  --color-card: #18181b; /* zinc-900 */
+  --color-muted: #27272a; /* zinc-800 */
+  --color-page-bg: #09090b; /* zinc-950 —— 与 theme.json 暗色 backgroundColor 同值 */
 
-  --color-text: #ffffff;
-  --color-text-muted: #b5b5be;
-  --color-text-subtle: #85858e;
+  --color-text: #f4f4f5; /* zinc-100 */
+  --color-text-muted: #a1a1aa; /* zinc-400 */
+  --color-text-subtle: #71717a; /* zinc-500 */
 
-  --color-border: #3b3b3e;
-  --color-border-light: #2c2c2f;
+  --color-border: #27272a; /* zinc-800 */
+  --color-border-light: #18181b; /* zinc-900 */
 
-  --color-gantt-sidebar: #205e82;
-  --color-gantt-sidebar-text: #ceefff;
+  --color-gantt-sidebar: #0c4a6e; /* sky-950 */
+  --color-gantt-sidebar-text: #ceefff; /* web 无此 token */
   --color-schedule-text: #ffffff;
-  --color-schedule-text-muted: rgba(255, 255, 255, 0.85);
-  --color-schedule-other: #53535a;
+  --color-schedule-text-muted: rgba(255, 255, 255, 0.8);
+  --color-schedule-other: #53535a; /* web 无此 token */
 
-  --color-danger: #ff9191;
-  --color-danger-bg: #332123;
+  --color-danger: #f87171; /* red-400 */
+  --color-danger-bg: #1f1315;
   --color-danger-foreground: #ffffff;
-  --color-success: #34d399;
+  --color-success: #34d399; /* emerald-400 */
   --color-success-bg: #0a1f1a;
-  --color-success-foreground: #064e3b;
-  --color-warning: #fcd34d;
-  --color-warning-bg: rgba(251, 191, 36, 0.14);
-  --color-info: #38bdf8;
+  --color-success-foreground: #064e3b; /* emerald-900 - 提高暗色模式对比度 */
+  --color-warning: #fbbf24; /* amber-400 */
+  --color-warning-bg: #1f1808;
+  --color-info: #38bdf8; /* sky-400 */
   --color-info-bg: #091a26;
 
-  --color-overlay: rgb(0 0 0 / 0.6);
+  --color-overlay: rgb(0 0 0 / 0.6); /* web 无此 token（那边用 shadow/z-index 表达） */
 }
 
 /* 页面包裹层满高兜底：Taro 会为每个页面的 wxss 注入 .page{height:100%}
