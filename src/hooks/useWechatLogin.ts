@@ -4,6 +4,7 @@ import { supabase as defaultClient } from '@/lib/supabase'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { DIAG_HEADER, newDiagId } from '@/lib/diag'
 import { routeAfterLogin } from '@/lib/post-auth-route'
+import { invokeFunction } from '@/lib/functions'
 import { useT } from '@/i18n'
 
 export type WechatLoginResult = { error: string | null }
@@ -58,7 +59,7 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
       // 也写进下面的失败记录——登录失败时客户端还没有会话（user_id 是 null），
       // 两端除了时间戳原本没有任何可对账的字段。见 lib/diag.ts。
       const diag = newDiagId()
-      const { data, error: invokeError } = await client.functions.invoke('wechat-auth', {
+      const { data, error: invokeError } = await invokeFunction(client, 'wechat-auth', {
         body: { code, mode: 'login' },
         headers: { [DIAG_HEADER]: diag },
       })

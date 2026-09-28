@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { invokeFunction } from '@/lib/functions'
 
 type MemberInfoCheckResult = {
   found: boolean
@@ -50,7 +51,7 @@ export function useSignupEmailVerify(): UseSignupEmailVerifyReturn {
     setVerifying(true)
     setErrorMsg(null)
     try {
-      const { data, error } = await supabase.functions.invoke('check-member-info', {
+      const { data, error } = await invokeFunction(supabase, 'check-member-info', {
         body: { full_name: fullName.trim() },
       })
 

@@ -52,6 +52,15 @@ const MAX_QUEUE_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 /** 队列里的一条 = client_error_logs 的一行（含「发生时刻」，不是发送时刻） */
 type QueueItem = {
+  /**
+   * 客户端生成的稳定 id，**随队列持久化、补送时复用同一个值**。
+   *
+   * 它是库端幂等的锚：这个队列是「至少一次投递」——插入其实已提交、但响应丢失或中断时
+   * 整队会被保留，下次 flush 再 INSERT 一遍。库里靠 `client_id` 上的唯一约束 +
+   * 我们 upsert 时的 ignoreDuplicates 把重复补送变成 no-op。
+   * 所以**绝不能在发送时重新生成**：那样每次补送都是新 id，等于没有去重。
+   */
+  client_id: string
   created_at: string
   level: ErrorLevel
   source: 'mp'
@@ -61,6 +70,24 @@ type QueueItem = {
   app_version: string | null
   platform: string | null
   page: string | null
+}
+
+/**
+ * 生成一个 uuid v4 形状的 id。
+ *
+ * 不用 `crypto.randomUUID()`：小程序 JSCore 没有它（仓库里没有任何地方依赖 crypto，
+ * weapp-polyfills 也没补）。而库端那一列是 **`uuid` 类型**——形状不对会被 PostgREST
+ * 直接拒，走进 flushErrorQueue 的「毒丸」分支把整批记录丢掉。所以形状必须对。
+ *
+ * 强度够用：这里只需要「不撞」，不需要密码学强度——它只在本设备自己的队列（上限 50 条）
+ * 与库里的历史记录之间去重，2^122 的取值空间远远够。真正需要不可预测的地方
+ * （如 wechat-auth 轮换的随机密码）在服务端，用的是 Deno 的 crypto，不在这儿。
+ */
+function newClientId(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+    const r = Math.floor(Math.random() * 16)
+    return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+  })
 }
 
 const lastSentAt = new Map<string, number>()
@@ -276,7 +303,14 @@ export function flushErrorQueue(): void {
   try {
     void supabase
       .from('client_error_logs')
-      .insert(sending)
+      // ⚠️ **不要改回 insert**。这个队列是「至少一次投递」：插入已提交但响应丢失/中断时
+      // 整队会被保留（见下面 status 0 分支），下次 flush 会把同一批再送一遍——用 insert
+      // 就是再插一行。生产库实测出现过 21 组这样的重复（同一错误两行，一行未登录一行已登录）。
+      //
+      // 改成 upsert + ignoreDuplicates：库端 `client_id` 上有唯一约束，重复补送变成 no-op。
+      // 用 ignoreDuplicates（等价 ON CONFLICT DO NOTHING）而**不是**默认的 merge
+      // （DO UPDATE）：本表对客户端没有 SELECT 权限，而 DO UPDATE 需要读到冲突行。
+      .upsert(sending, { onConflict: 'client_id', ignoreDuplicates: true })
       .then(
         (res) => {
           flushing = false
@@ -314,6 +348,8 @@ export function reportClientError(input: ReportInput): void {
 
     const ctx = collectContext()
     enqueue({
+      // 每条一个，生成一次就跟着队列走——补送时复用同一个值，库端才能认出是同一条
+      client_id: newClientId(),
       // 用错误发生时刻，不是发送时刻：断网恢复后补送时，库里仍能还原真实时间线
       created_at: new Date(now).toISOString(),
       level: input.level ?? 'error',

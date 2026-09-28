@@ -105,6 +105,7 @@ export type Database = {
       client_error_logs: {
         Row: {
           app_version: string | null
+          client_id: string
           created_at: string
           detail: Json | null
           event: string
@@ -113,11 +114,13 @@ export type Database = {
           message: string | null
           page: string | null
           platform: string | null
+          received_at: string
           source: string
           user_id: string | null
         }
         Insert: {
           app_version?: string | null
+          client_id?: string
           created_at?: string
           detail?: Json | null
           event: string
@@ -126,11 +129,13 @@ export type Database = {
           message?: string | null
           page?: string | null
           platform?: string | null
+          received_at?: string
           source: string
           user_id?: string | null
         }
         Update: {
           app_version?: string | null
+          client_id?: string
           created_at?: string
           detail?: Json | null
           event?: string
@@ -139,6 +144,7 @@ export type Database = {
           message?: string | null
           page?: string | null
           platform?: string | null
+          received_at?: string
           source?: string
           user_id?: string | null
         }

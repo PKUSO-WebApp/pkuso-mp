@@ -45,6 +45,9 @@ export const common = {
   errors: {
     loadFailed: '数据加载失败，请重试',
     saveFailed: '操作失败，请重试',
+    // 断网时跳转会超时失败（issue #7）。跳转失败与「页面崩了」是两回事——用户还在
+    // 原来那一屏、应用也是好的，所以给轻提示让他重试，而不是把他扔到整页错误屏。
+    navigateFailed: '页面打开失败，请重试',
   },
   agreement: {
     checkbox: '我已阅读并同意',

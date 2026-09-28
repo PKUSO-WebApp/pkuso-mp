@@ -8,8 +8,10 @@ import {
 
 // 本地 storage（队列就存在这里）
 const storage = new Map<string, string>()
-// 每次 insert 调用的报文数组
+// 每次上报调用的报文数组
 const insertCalls: Record<string, unknown>[][] = []
+// 每次 upsert 带的选项——幂等补送全靠它，所以要能断言（见下面「补送幂等」用例）
+const upsertOptions: unknown[] = []
 let insertMode: 'ok' | 'reject' | 'server_error' | 'throw' | 'network' = 'ok'
 
 // 网络类型：真实 API 是异步的，而报错路径要同步可得 ⇒ 缓存。这里同步回调即可
@@ -33,45 +35,59 @@ vi.mock('@tarojs/taro', () => ({
   },
 }))
 
-vi.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: () => ({
-      insert: (rows: unknown) => {
-        const batch = (Array.isArray(rows) ? rows : [rows]) as Record<string, unknown>[]
-        insertCalls.push(batch)
-        if (insertMode === 'throw') throw new Error('sync boom')
-        if (insertMode === 'reject') return Promise.reject(new Error('network down'))
-        // postgrest-js 在网络失败时**不 reject**，而是 resolve 一个 status:0 的响应
-        // （见 postgrest-js/dist/index.cjs 的网络错误分支）——这里照实模拟
-        if (insertMode === 'network') {
-          return Promise.resolve({
-            data: null,
-            error: { message: 'FetchError: undefined', details: '', hint: '', code: '' },
-            status: 0,
-            count: null,
-            statusText: '',
-          })
-        }
-        if (insertMode === 'server_error') {
-          return Promise.resolve({
-            data: null,
-            error: { message: 'check constraint violated', details: '', hint: '', code: '23514' },
-            status: 400,
-            count: null,
-            statusText: 'Bad Request',
-          })
-        }
-        return Promise.resolve({
-          data: [],
-          error: null,
-          status: 201,
-          count: null,
-          statusText: 'Created',
-        })
-      },
-    }),
-  },
-}))
+vi.mock('@/lib/supabase', () => {
+  const respond = () => {
+    if (insertMode === 'throw') throw new Error('sync boom')
+    if (insertMode === 'reject') return Promise.reject(new Error('network down'))
+    // postgrest-js 在网络失败时**不 reject**，而是 resolve 一个 status:0 的响应
+    // （见 postgrest-js/dist/index.cjs 的网络错误分支）——这里照实模拟
+    if (insertMode === 'network') {
+      return Promise.resolve({
+        data: null,
+        error: { message: 'FetchError: undefined', details: '', hint: '', code: '' },
+        status: 0,
+        count: null,
+        statusText: '',
+      })
+    }
+    if (insertMode === 'server_error') {
+      return Promise.resolve({
+        data: null,
+        error: { message: 'check constraint violated', details: '', hint: '', code: '23514' },
+        status: 400,
+        count: null,
+        statusText: 'Bad Request',
+      })
+    }
+    return Promise.resolve({
+      data: [],
+      error: null,
+      status: 201,
+      count: null,
+      statusText: 'Created',
+    })
+  }
+  const record = (rows: unknown) => {
+    insertCalls.push((Array.isArray(rows) ? rows : [rows]) as Record<string, unknown>[])
+  }
+  return {
+    supabase: {
+      from: () => ({
+        // 生产代码走 upsert（幂等补送）。保留 insert 是为了「万一有人改回去」时
+        // 用例仍报出可读的断言失败，而不是 `upsert is not a function`
+        insert: (rows: unknown) => {
+          record(rows)
+          return respond()
+        },
+        upsert: (rows: unknown, opts?: unknown) => {
+          record(rows)
+          upsertOptions.push(opts)
+          return respond()
+        },
+      }),
+    },
+  }
+})
 
 /** 让 reportClientError / flushErrorQueue 内部的 promise 链跑完 */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -82,6 +98,7 @@ describe('reportClientError', () => {
   beforeEach(() => {
     storage.clear()
     insertCalls.length = 0
+    upsertOptions.length = 0
     insertMode = 'ok'
     __resetErrorReportState()
   })
@@ -361,5 +378,41 @@ describe('reportClientError', () => {
     await flush()
     // 关键：只有那一次尝试，没有形成「上报→失败→上报」的循环
     expect(insertCalls).toHaveLength(1)
+  })
+
+  // --- 补送幂等（库端 client_id 唯一约束 + 这里的 upsert 参数，两者缺一不可） ---
+
+  it('每条都带 uuid 形状的 client_id，且走的是幂等 upsert', async () => {
+    reportClientError({ event: 'app_error', message: 'idempotent' })
+    await flush()
+
+    expect(insertCalls).toHaveLength(1)
+    // 库端那一列是 uuid 类型——形状不对会被 PostgREST 直接拒，
+    // 然后走进 flushErrorQueue 的「毒丸」分支把整批丢掉
+    expect(String(insertCalls[0][0].client_id)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    )
+    // 幂等全靠这两个参数。改回 insert（或去掉 ignoreDuplicates）都会让生产库
+    // 重新出现成对的重复行——而那些重复正是这次改动要消掉的东西
+    expect(upsertOptions[0]).toEqual({ onConflict: 'client_id', ignoreDuplicates: true })
+  })
+
+  it('client_id 随队列持久化：补送时复用同一个值，绝不重新生成', async () => {
+    insertMode = 'reject' // 送不出去 → 留在队列
+    reportClientError({ event: 'app_error', message: 'keeps id' })
+    await flush()
+
+    const queued = readQueue()
+    expect(queued).toHaveLength(1)
+    const idInQueue = queued[0].client_id
+    expect(typeof idInQueue).toBe('string')
+
+    insertMode = 'ok'
+    flushErrorQueue()
+    await flush()
+
+    // 补送出去的那条必须还是同一个 id。若在发送时重新生成，每条补送都是新 id，
+    // 库端的唯一约束就形同虚设——这是整个去重机制唯一的失效方式
+    expect(insertCalls.at(-1)![0].client_id).toBe(idInQueue)
   })
 })

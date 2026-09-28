@@ -1,4 +1,12 @@
 export default defineAppConfig({
+  // 兜底口径：`taroFetch` 每次都显式传 timeout（API 8s / Storage 60s，见 lib/supabase.ts），
+  // 所以这里只影响「没走 taroFetch 的请求」——即目前为零，属于防止将来有人直接调
+  // Taro.request 而拿回 60s 平台默认值的保险。
+  // ⚠️ 8s 是按 API 请求定的：**若是字节搬运（大文件下载/上传），必须自己显式传更长的 timeout**，
+  // 否则慢网下会被这个默认值判死。
+  networkTimeout: {
+    request: 8000,
+  },
   pages: [
     // 首位为启动页：游客模式下直接进入首页，未登录用户可体验基本功能
     // 已登录用户启动时按 profile 状态路由（资料补全 → 等待审核 → 审核未通过 → 首页 tab）

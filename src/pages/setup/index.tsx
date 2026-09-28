@@ -14,6 +14,7 @@ import { useCountdown } from '@/hooks/useCountdown'
 import { isSyntheticEmail } from '@/lib/profile-gate'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { supabase } from '@/lib/supabase'
+import { invokeFunction } from '@/lib/functions'
 import { isValidEmail } from '@/lib/validation'
 import { useT, useNavTitle } from '@/i18n'
 import './index.scss'
@@ -123,7 +124,7 @@ export default function SetupPage() {
     setCodeSending(true)
     setModalErrorMsg(null)
     try {
-      const { data, error } = await supabase.functions.invoke('send-verification-code', {
+      const { data, error } = await invokeFunction(supabase, 'send-verification-code', {
         body: { purpose: 'email_change', new_email: newEmail },
       })
       if (error || data?.error) {
@@ -149,7 +150,7 @@ export default function SetupPage() {
     setCodeVerifying(true)
     setModalErrorMsg(null)
     try {
-      const { data, error } = await supabase.functions.invoke('verify-and-update', {
+      const { data, error } = await invokeFunction(supabase, 'verify-and-update', {
         body: { purpose: 'email_change', code: verifyCode.trim(), new_email: newEmail },
       })
       if (error || data?.error) {
