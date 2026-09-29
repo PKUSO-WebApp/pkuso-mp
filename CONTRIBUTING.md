@@ -63,18 +63,17 @@ src/
 
 ## 交付闸门
 
-每次声明「完成」前，必须依次全部通过（**这是本仓库唯一的闸门定义**，CI 与 `AGENTS.md` 一致）：
+每次声明「完成」前必须通过：
 
 ```bash
-pnpm build:weapp
-pnpm typecheck
-pnpm lint
-pnpm test
+pnpm gate
 ```
 
-通过后在微信开发者工具中「设置 → 通用 → 清空缓存 / 重开项目」。
+**闸门的唯一定义在 `scripts/gate.mjs`**，CI 与人都调它（详见 `AGENTS.md` §1.2）。它会跑完检查与生产构建后，**自动再出一份连开发库的 `dist/`** 并核对，然后打印验收指引——所以在开发者工具里打开的永远是开发库版本。
 
-> CI 的步骤是 `lint → typecheck → test → build`（集合相同、顺序不同），且 **CI 不跑 `pnpm format`**——`pnpm verify` 只是本地便利命令，不等于 CI。
+通过后在微信开发者工具中「设置 → 通用 → 清空缓存 / 重开项目」（脚本会提醒）。
+
+> **CI 不跑 `pnpm format`**——`pnpm verify` 只是本地便利命令，不等于 CI。
 
 ## 代码规范
 
