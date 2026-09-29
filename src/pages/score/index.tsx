@@ -4,10 +4,13 @@ import Taro from '@tarojs/taro'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { useUser } from '@/context/user-context'
+import { useMyProfile } from '@/hooks/useMyProfile'
 import { useSheetMusic, type SheetMusicWithParts } from '@/hooks/useSheetMusic'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { ListState } from '@/components/ui/ListState'
+import { StaffBlockedPage } from '@/components/staff-blocked-page'
 import { translateInstrument } from '@/lib/instrument-i18n'
+import { isOrchestraMember } from '@/lib/role-gate'
 import './index.scss'
 
 type TabKey = 'all' | 'mine'
@@ -17,6 +20,7 @@ export default function Score() {
   useNavTitle('score.navTitle')
   const darkClass = useThemeClass()
   const { user } = useUser()
+  const { profile: myProfile } = useMyProfile()
   const [tab, setTab] = useState<TabKey>('all')
   const { items, myPartsBySheet, loading, error, fetch } = useSheetMusic()
 
@@ -44,6 +48,13 @@ export default function Score() {
         </View>
       </View>
     )
+  }
+
+  // 非团员账号（admin / score_manager 等专职账号）一律阻断：谱务是给**成员**用的文件阅览器，
+  // 专职账号在网页端办公。判据与其余 tab 页同一条（isOrchestraMember），别改回黑名单式。
+  // ⚠️ 必须排在游客分支**之后**：useMyProfile 在无 user 时会误查全表，拿到的可能是别人的行。
+  if (!isOrchestraMember(myProfile?.role)) {
+    return <StaffBlockedPage role={myProfile?.role} />
   }
 
   const openDetail = (id: string) => {

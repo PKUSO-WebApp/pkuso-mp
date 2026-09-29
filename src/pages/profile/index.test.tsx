@@ -98,7 +98,7 @@ vi.mock('@/hooks/useNotifications', () => ({
     markCategoryRead: vi.fn(),
   }),
 }))
-vi.mock('@/components/admin-blocked-page', () => ({ AdminBlockedPage: () => null }))
+vi.mock('@/components/staff-blocked-page', () => ({ StaffBlockedPage: () => null }))
 vi.mock('@/components/ui/Modal', () => ({
   Modal: ({ open, children }: any) => (open ? React.createElement('div', null, children) : null),
 }))

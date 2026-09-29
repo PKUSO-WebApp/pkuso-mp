@@ -12,7 +12,8 @@ import { isSyntheticEmail } from '@/lib/profile-gate'
 import { useNotifications } from '@/hooks/useNotifications'
 import { supabase } from '@/lib/supabase'
 import { logDiag } from '@/lib/session-diag'
-import { AdminBlockedPage } from '@/components/admin-blocked-page'
+import { StaffBlockedPage } from '@/components/staff-blocked-page'
+import { isOrchestraMember } from '@/lib/role-gate'
 import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
 import { isValidEmail } from '@/lib/validation'
@@ -386,10 +387,11 @@ export default function Profile() {
     }
   }, [isPwdModalOpen, startCodeCountdown, stopCodeCountdown])
 
-  // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
+  // 非团员账号（admin / score_manager 等专职账号）一律阻断：小程序只服务乐团成员。
+  // 判据走共用的 isOrchestraMember —— 黑名单式每加一个角色都要回来改 6 处，漏改即静默放行。
   // 注意：游客模式下 CustomTabBar 会直接跳转到 login 页，不会到达此处
-  if (myProfile?.role === 'admin') {
-    return <AdminBlockedPage />
+  if (!isOrchestraMember(myProfile?.role)) {
+    return <StaffBlockedPage role={myProfile?.role} />
   }
 
   return (

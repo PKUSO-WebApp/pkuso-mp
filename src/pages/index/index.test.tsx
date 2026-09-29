@@ -48,7 +48,7 @@ vi.mock('@/hooks/useAnnouncements', () => ({
   useAnnouncements: () => ({ data: null, loading: false, error: null, fetch: vi.fn() }),
 }))
 vi.mock('@/lib/dataSync', () => ({ dataSyncBump: vi.fn() }))
-vi.mock('@/components/admin-blocked-page', () => ({ AdminBlockedPage: () => null }))
+vi.mock('@/components/staff-blocked-page', () => ({ StaffBlockedPage: () => null }))
 vi.mock('@/components/ui/Card', () => ({
   Card: ({ children, ...rest }: any) => React.createElement('div', rest, children),
 }))

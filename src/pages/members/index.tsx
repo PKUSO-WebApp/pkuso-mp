@@ -7,7 +7,8 @@ import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useMyProfile } from '@/hooks/useMyProfile'
-import { AdminBlockedPage } from '@/components/admin-blocked-page'
+import { StaffBlockedPage } from '@/components/staff-blocked-page'
+import { isOrchestraMember } from '@/lib/role-gate'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 
 import { ListState } from '@/components/ui/ListState'
@@ -56,11 +57,14 @@ export default function Members() {
   // 详情弹窗：点击花名册成员打开（只读）
   const [selectedUser, setSelectedUser] = useState<ProfileRow | null>(null)
 
-  // 花名册不含管理端账号和测试账号（姓名以 test 开头，不区分大小写）
+  // 花名册只列团员：判据是「**是** member」（不是「不是 admin」）—— admin 与谱务账号都
+  // 不是团员，将来新增角色也不必回来改这里。role 列可空，空值按**列默认值** member 算，
+  // 别写 `?? ''`：那会让 role 为空的老账号从花名册里静默消失。
+  // 另排除测试账号（姓名以 test 开头，不区分大小写）
   const rosterRows = useMemo(
     () =>
       (allProfiles ?? []).filter((r) => {
-        if ((r.role ?? '') === 'admin') return false
+        if (!isOrchestraMember(r.role)) return false
         const name = (r.full_name ?? '').trim().toLowerCase()
         if (name.startsWith('test')) return false
         return true
@@ -94,9 +98,10 @@ export default function Members() {
     )
   }
 
-  // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
-  if (myProfile?.role === 'admin') {
-    return <AdminBlockedPage />
+  // 非团员账号（admin / score_manager 等专职账号）一律阻断：小程序只服务乐团成员。
+  // 判据走共用的 isOrchestraMember —— 黑名单式每加一个角色都要回来改 6 处，漏改即静默放行。
+  if (!isOrchestraMember(myProfile?.role)) {
+    return <StaffBlockedPage role={myProfile?.role} />
   }
 
   return (
