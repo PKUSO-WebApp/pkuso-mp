@@ -8,6 +8,15 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
 import { logDiag } from './session-diag'
 import { DIAG_HEADER, newDiagId } from './diag'
+import {
+  activeEntry,
+  directBase,
+  otherEntry,
+  rewriteTo,
+  rewriteToActive,
+  switchTo,
+  type EntryName,
+} from './supabase-entry'
 
 const supabaseUrl = process.env.TARO_APP_SUPABASE_URL
 const supabaseAnonKey = process.env.TARO_APP_SUPABASE_ANON_KEY
@@ -262,26 +271,53 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
   // 否则 Storage 那一档会把「正常的 20 秒大文件传输」误标成超时，进而喂错重试逻辑。
   const timeoutMs = url.includes('/storage/v1/') ? STORAGE_TIMEOUT_MS : REQUEST_TIMEOUT_MS
   const canRetry = isRetryable(method, url)
+
+  // --- 走哪个入口（定义见 lib/supabase-entry）---
+  //
+  // Storage 固定走直连，**不重写**：谱务文件是「字节搬运」，过云函数既吃它的 body 上限
+  // 又多一跳，而这类请求的失败表现是「谱子打不开」而不是「登不上」——不值得为它引入
+  // 第二条到达路径。基址本来就是直连，所以这里什么都不用做。
+  const isStorageUrl = url.includes('/storage/v1/')
+  let currentEntry: EntryName = isStorageUrl ? 'direct' : activeEntry()
+  let requestUrl = isStorageUrl ? url : rewriteToActive(url)
+  /** 本次请求是否已经换过入口。换过就不再换第二次——一次请求里两个域名各撞一遍已经够了 */
+  let switchedEntry = false
+
   const totalStartedAtMs = Date.now()
   let attempt = 0
 
   for (;;) {
     attempt += 1
     const attemptStartedAtMs = Date.now()
+    // 换入口那一次是**最后一次机会**，超时压到剩余预算内：8 秒挂死之后再给另一个入口
+    // 完整的 8 秒，首屏就被拖到十几秒了——而 RETRY_BUDGET_MS 存在的意义正是守住这条线。
+    const attemptTimeoutMs = switchedEntry
+      ? Math.max(2000, RETRY_BUDGET_MS - (attemptStartedAtMs - totalStartedAtMs))
+      : timeoutMs
     try {
       const response = await Taro.request({
-        url,
+        url: requestUrl,
         method: method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
         header: headers,
         data: body,
         responseType: 'arraybuffer',
         // 没有它，挂起的请求会一直挂着（实测：一次登录点击等了 8 分 44 秒才发出请求）；
         // 超时后微信给的是 `request:fail timeout`，与 DNS 失败同形，故在失败分支自标 timedOut
-        timeout: timeoutMs,
+        timeout: attemptTimeoutMs,
       })
       const ms = Date.now() - attemptStartedAtMs
-      if (isAuthUrl || isSessionRpc || response.statusCode >= 400) {
-        logDiag('http', { path: shortUrl, status: response.statusCode, ms })
+      if (isAuthUrl || isSessionRpc || response.statusCode >= 400 || response.statusCode === 0) {
+        logDiag('http', { path: shortUrl, status: response.statusCode, ms, entry: currentEntry })
+      }
+      // ⚠️ **网络层失败不一定 reject**。微信在连接被重置 / 建连失败这类情形下会 resolve
+      // 一个 statusCode 为 0 的响应（既没有 HTTP 状态，也不是 fail 回调）。在此之前这种
+      // 响应既不进失败分支、不上报、不重试，也永远不会触发换入口——而它恰恰是「那一跳
+      // 不通」最常见的样子。转成异常，让它和 reject 走同一条路（postgrest 最终给上层看到的
+      // 仍是 `status: 0`，与今天一致）。
+      if (response.statusCode === 0) {
+        const zero = new Error('request:fail (statusCode=0)') as Error & { statusZero?: boolean }
+        zero.statusZero = true
+        throw zero
       }
       // 可重试的服务端瞬时故障：520（Cloudflare 报源站异常）与 503（PostgREST schema
       // cache 未加载）。**这两个码是从 postgrest 手里接过来的**——它原本在 db.retry
@@ -320,6 +356,23 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
           attempts: attempt,
         })
       }
+      // 换过去的那个入口**把这次请求办成了** —— 这是唯一足以翻转偏好的证据。
+      // 只凭「失败」翻转的话，设备真的没网时两个入口会来回弹（两边都失败）；
+      // 而「另一个域名刚刚成功过一次」是伪造不来的。4xx/5xx 也算成功：那至少证明链路可达，
+      // 与「拿到了响应就说明网是通的」同一条判据（见下面的 success hook）。
+      if (switchedEntry) {
+        const record = switchTo(currentEntry)
+        if (record) {
+          reportRequestFailure(
+            'entry_switched',
+            url,
+            String(method),
+            `入口 ${record.from} → ${record.to}`,
+            'warn',
+            { diag, ms, attempts: attempt, status: response.statusCode }
+          )
+        }
+      }
       const responseData =
         typeof response.data === 'string' ||
         (typeof ArrayBuffer !== 'undefined' && response.data instanceof ArrayBuffer) ||
@@ -346,14 +399,35 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
           ? err.message
           : ((err as { errMsg?: string } | null)?.errMsg ?? String(err))
       const ms = Date.now() - attemptStartedAtMs
-      logDiag('http_error', { path: shortUrl, ms, err: errMsg })
+      const statusZero = (err as { statusZero?: boolean } | null)?.statusZero === true
+      logDiag('http_error', { path: shortUrl, ms, err: errMsg, entry: currentEntry })
       // 网络层失败：DNS 解析不了（ERR_NAME_NOT_RESOLVED）/ 连接超时 / 网络切换……
       // 这正是「点了没反应」的真身，也是服务端永远看不到的那一半。
       // ms 尤其关键：它把「卡了 55s 才失败」和「立刻失败」分开——前者是挂起，
       // 后者是链路不通，而用户看到的都是同一句文案；这里它还决定**要不要重试**。
       const withinBudget = Date.now() - totalStartedAtMs < RETRY_BUDGET_MS
-      if (canRetry && ms < RETRY_SLOW_MS && withinBudget && attempt < RETRY_MAX_ATTEMPTS) {
+
+      // 换入口**占用的是最后一次尝试**（所以同入口重试的上限要减一，总尝试次数不变）。
+      // 它排在「同入口再试一次」之后：单次失败可能只是一次丢包，而换过去意味着用户
+      // 回到跨境链路上——那正是这次改造要摆脱的东西，值得多要一次证据。
+      //
+      // ⚠️ 「另一个入口存在」必须并进这个判断：漏了它，没配反代时上限也会被削掉一次，
+      // 单入口的行为就悄悄变了（守门用例抓过一次）。
+      const alt = canRetry && !isStorageUrl && !switchedEntry ? otherEntry(currentEntry) : null
+      const canFailover = alt !== null && withinBudget
+      const sameEntryCap = canFailover ? RETRY_MAX_ATTEMPTS - 1 : RETRY_MAX_ATTEMPTS
+      if (canRetry && ms < RETRY_SLOW_MS && withinBudget && attempt < sameEntryCap) {
         await sleep(backoffMs(attempt))
+        continue
+      }
+      if (canFailover && alt) {
+        switchedEntry = true
+        currentEntry = alt
+        requestUrl = rewriteTo(url, alt)
+        // **不退避**：换的是域名，不是「等一会儿再试」。
+        // 也**不看 RETRY_SLOW_MS**：那条规则防的是「在弱网上把请求数放大」，而这里
+        // 改的是走哪条路，不是再撞一次同一堵墙——挂到超时（8 秒无响应）恰恰是
+        // 「抽到坏落点」最典型的样子，它比快速失败更该换。代价由剩余预算封顶（见上）。
         continue
       }
       // 重试次数用完（或本来就不该重试）：**只在这里上报一次**。中途每次失败都报的话，
@@ -366,7 +440,13 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
         // 微信对「超时」和「DNS 解析失败」给的是同一句 `request:fail`（都不带原因），
         // 事后判读分不出是「链路不通」还是「挂到超时」——而两者该做的事相反
         // （前者重试有意义，后者重试只会再等一个超时）。按耗时自标一个字段。
-        timedOut: ms >= timeoutMs - 500,
+        // ⚠️ 阈值必须用**这一次实际用的**超时：换入口那次是压过的，拿原值比会误判。
+        timedOut: ms >= attemptTimeoutMs - 500,
+        // statusCode 为 0 的那一类（resolve 而非 reject）单独标出来：它与
+        // `errRaw` 里能看出 DNS/TCP 细节的 reject 不是一回事，判读时要分开算
+        statusZero,
+        // 失败发生在哪个入口上——「反代挂了」和「直连抽到坏落点」的处置完全不同
+        entry: currentEntry,
         // errRaw 留在最后：detail 超预算时按顺序截断（见 error-report 的 fitDetail），
         // 它最长，放前面会把上面的短字段挤掉
         errRaw: stringifyErr(err),
@@ -482,7 +562,10 @@ class UnsupportedWebSocketTransport {
 }
 
 export const supabase: SupabaseClient<Database> = createClient<Database>(
-  supabaseUrl,
+  // 基址固定为**直连**，谁真正生效由 lib/supabase-entry 决定、在 taroFetch 出口处重写。
+  // 不直接给它反代的理由见 supabase-entry 里 `directBase` 的注释（storage 的派生 URL
+  // 绕过 taroFetch，基址一旦是反代，大文件就会从后门走回云函数）。
+  directBase,
   supabaseAnonKey,
   {
     db: {

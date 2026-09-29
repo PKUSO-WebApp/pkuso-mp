@@ -409,4 +409,160 @@ describe('supabase 官方客户端适配', () => {
       '/rest/v1/rpc/get_my_session',
     ])
   })
+
+  describe('双入口与自动回退', () => {
+    const PROXY = 'https://proxy.example.com'
+    const DIRECT = 'https://project.supabase.co'
+    const OK = { statusCode: 200, header: {}, data: '[]' }
+
+    const reported: { event: string; detail: Record<string, unknown> }[] = []
+
+    function stubDualEntry() {
+      vi.stubEnv('TARO_ENV', 'weapp')
+      vi.stubEnv('TARO_APP_SUPABASE_URL', DIRECT)
+      vi.stubEnv('TARO_APP_SUPABASE_PROXY_URL', PROXY)
+      vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+      vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+    }
+
+    /** 注入上报口，并把这次用例收到的记录清空（上报是「回退发生过」的唯一外部证据） */
+    async function loadWithReporter() {
+      const mod = await loadSupabase()
+      reported.length = 0
+      setStorageSync.mockReset()
+      mod.setRequestFailureReporter((input) => {
+        reported.push({ event: input.event, detail: input.detail })
+      })
+      return mod
+    }
+
+    const urlsOf = () => request.mock.calls.map((call) => call[0].url as string)
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('反代连续两次失败后，最后一次尝试换到直连', async () => {
+      stubDualEntry()
+      request.mockRejectedValue(new Error('boom'))
+      const { taroFetch } = await loadWithReporter()
+
+      // ⚠️ 入参是**直连**地址：那正是 supabase-js 拼出来的形状（基址固定为直连，
+      // 谁生效在出口处重写）。用反代地址当入参会把这条用例变成自证——重写那一步被绕过了
+      await expect(taroFetch(`${DIRECT}/rest/v1/rehearsals`)).rejects.toThrow()
+
+      // 不是「一直重试同一个域名」：前两次走反代（重写生效），第 3 次换成直连。
+      // 总尝试次数仍是 3（预算是硬的）
+      expect(urlsOf()).toEqual([
+        `${PROXY}/rest/v1/rehearsals`,
+        `${PROXY}/rest/v1/rehearsals`,
+        `${DIRECT}/rest/v1/rehearsals`,
+      ])
+    })
+
+    it('statusCode 为 0（resolve 而非 reject）也算网络层失败——它正是「那一跳不通」最常见的样子', async () => {
+      stubDualEntry()
+      request
+        .mockResolvedValueOnce({ statusCode: 0, header: {}, data: '' })
+        .mockResolvedValueOnce({ statusCode: 0, header: {}, data: '' })
+        .mockResolvedValueOnce(OK)
+      const { taroFetch } = await loadWithReporter()
+
+      await taroFetch(`${DIRECT}/rest/v1/rehearsals`)
+
+      expect(urlsOf()[2]).toBe(`${DIRECT}/rest/v1/rehearsals`)
+      expect(request.mock.calls[0][0].timeout).toBe(8000)
+    })
+
+    it('换过去成功了 ⇒ 记住这个选择，并上报 entry_switched', async () => {
+      stubDualEntry()
+      request
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce(OK)
+      const { taroFetch } = await loadWithReporter()
+
+      await taroFetch(`${DIRECT}/rest/v1/rehearsals`)
+
+      expect(setStorageSync).toHaveBeenCalledWith('pkuso_supabase_entry', 'direct')
+      expect(reported.filter((r) => r.event === 'entry_switched')).toHaveLength(1)
+    })
+
+    it('换过去也失败 ⇒ **不**翻转偏好：只凭失败翻转会让两个入口在没网时来回弹', async () => {
+      stubDualEntry()
+      request.mockRejectedValue(new Error('boom'))
+      const { taroFetch } = await loadWithReporter()
+
+      await expect(taroFetch(`${DIRECT}/rest/v1/rehearsals`)).rejects.toThrow()
+
+      expect(setStorageSync).not.toHaveBeenCalledWith('pkuso_supabase_entry', 'direct')
+      expect(reported.filter((r) => r.event === 'entry_switched')).toHaveLength(0)
+      expect(reported.filter((r) => r.event === 'request_failed')).toHaveLength(1)
+    })
+
+    it('不可重试的写请求一次都不换入口——白名单是「重复执行没有副作用」的唯一定义', async () => {
+      stubDualEntry()
+      request.mockRejectedValue(new Error('boom'))
+      const { taroFetch } = await loadWithReporter()
+
+      await expect(
+        taroFetch(`${DIRECT}/rest/v1/leave_requests`, { method: 'POST' })
+      ).rejects.toThrow()
+
+      // 写请求仍然被重写到当前入口（反代），只是不因失败再换一次
+      expect(urlsOf()).toEqual([`${PROXY}/rest/v1/leave_requests`])
+    })
+
+    it('storage 固定走直连，且不参与换入口（它不该被引到第二条到达路径上）', async () => {
+      stubDualEntry()
+      request.mockRejectedValue(new Error('boom'))
+      const { taroFetch } = await loadWithReporter()
+
+      await expect(taroFetch(`${DIRECT}/storage/v1/object/public/scores/a.pdf`)).rejects.toThrow()
+
+      // 重试照旧，但三次都在直连上；一次都不该打到反代
+      expect(request).toHaveBeenCalledTimes(3)
+      expect(urlsOf().every((u) => u.startsWith(DIRECT))).toBe(true)
+    })
+
+    it('挂到超时（慢失败）也换入口，且换过去那次的超时被压到剩余预算内', async () => {
+      stubDualEntry()
+      // 真实等 8 秒来制造「慢失败」会让这条用例跑得没法忍受，所以只把 Date.now 加一个偏移，
+      // 让 taroFetch 量出来的耗时是 5 秒——而它比较的正是自己量出来的那个数
+      const realNow = Date.now.bind(Date)
+      let clockOffset = 0
+      vi.spyOn(Date, 'now').mockImplementation(() => realNow() + clockOffset)
+      request.mockImplementationOnce(() => {
+        clockOffset = 5000
+        return Promise.reject(new Error('request:fail timeout'))
+      })
+      request.mockResolvedValueOnce(OK)
+      const { taroFetch } = await loadWithReporter()
+
+      await taroFetch(`${DIRECT}/rest/v1/rehearsals`)
+
+      // 慢失败**不**在同入口上重试（那条规则防的是在弱网下放大请求数），但**要换入口**：
+      // 挂到 8 秒无响应恰恰是「抽到坏落点」最典型的样子，它比快速失败更该换
+      expect(urlsOf()).toEqual([`${PROXY}/rest/v1/rehearsals`, `${DIRECT}/rest/v1/rehearsals`])
+      expect(request.mock.calls[0][0].timeout).toBe(8000)
+      // 换过去那次不能拿满额超时，否则 8 秒 + 8 秒就把首屏拖到 RETRY_BUDGET_MS 之外了
+      expect(request.mock.calls[1][0].timeout).toBeLessThan(8000)
+      expect(request.mock.calls[1][0].timeout).toBeGreaterThanOrEqual(2000)
+    })
+
+    it('没配反代 ⇒ 全程都打同一个地址，一次都不换（新逻辑必须短路）', async () => {
+      vi.stubEnv('TARO_ENV', 'weapp')
+      vi.stubEnv('TARO_APP_SUPABASE_URL', DIRECT)
+      vi.stubEnv('TARO_APP_SUPABASE_PROXY_URL', '')
+      vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+      vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+      request.mockRejectedValue(new Error('boom'))
+      const { taroFetch } = await loadSupabase()
+
+      await expect(taroFetch(`${DIRECT}/rest/v1/rehearsals`)).rejects.toThrow()
+
+      expect(request).toHaveBeenCalledTimes(3)
+      expect(new Set(urlsOf())).toEqual(new Set([`${DIRECT}/rest/v1/rehearsals`]))
+    })
+  })
 })
