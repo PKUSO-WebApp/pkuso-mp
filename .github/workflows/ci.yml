@@ -1,0 +1,63 @@
+name: CI
+
+# 为什么需要这个文件：**mp 此前没有任何 PR 阶段的 CI。**
+#
+# 两个 workflow 都只挂在 `push` 上（`deploy-dev.yml` → dev、`deploy-prod.yml` → main），
+# 于是 PR 上「no checks reported」—— 评审看不到任何信号，分支保护也无从要求检查。
+# 这与另外两个仓库相反：web 有 `ci.yml` + 规则集里的 `required_status_checks: verify`。
+#
+# 闸门的唯一定义在 `scripts/gate.mjs`。`--ci` 是它给 CI 用的模式
+# （不产出给人验收的 dev 包，只跑 lint → typecheck → test → build:weapp）。
+#
+# ⚠️ 已知的不一致，**本文件不解决**，单独一轮做：
+#   `deploy-dev.yml` / `deploy-prod.yml` 的 `verify` job **把闸门的四步内联了**，
+#   并没有调 `gate:ci` —— 而 `AGENTS.md` 写的是「闸门的唯一定义在 scripts/gate.mjs，
+#   CI 与人都调它」。也就是说 `gate:ci` 在此之前**零调用**。
+#   改那两个文件会直接影响发版，值得单独一次改动 + 一次真发版验证。
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 闸门会跑 `build:weapp`（NODE_ENV=production），它读 `.env.production`；
+      # 而 `.env.*` 是 gitignored 的 ⇒ CI 上必须自己写出来。
+      #
+      # ⚠️ Dependabot 触发的运行**拿不到仓库 secrets**（GitHub 按 `github.actor` 扣留），
+      # 所以这里必须有降级值，否则依赖更新 PR 会卡在一个永远满足不了的必需检查上。
+      # 占位值能过构建：实测（2026-09-30）用 `https://placeholder.supabase.co` +
+      # `placeholder-key` 跑 `pnpm gate:ci` → 退出码 0、`✓ 闸门全过`。
+      # 这次构建的产物**不发布**（发布在 deploy-*.yml 里），所以占位值不会外流。
+      - name: Write .env.production
+        env:
+          SUPA_URL: ${{ secrets.PROD_SUPABASE_URL }}
+          SUPA_KEY: ${{ secrets.PROD_SUPABASE_ANON_KEY }}
+        run: |
+          echo "TARO_APP_SUPABASE_URL=${SUPA_URL:-https://placeholder.supabase.co}" > .env.production
+          echo "TARO_APP_SUPABASE_ANON_KEY=${SUPA_KEY:-placeholder-key}" >> .env.production
+
+      - name: 闸门
+        run: pnpm gate:ci
