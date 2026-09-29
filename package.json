@@ -87,7 +87,7 @@
     "@tarojs/webpack5-runner": "4.2.1",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.2",
-    "@types/minimatch": "^5",
+    "@types/minimatch": "^6",
     "@types/node": "^18",
     "@types/react": "^18.0.0",
     "@types/webpack-env": "^1.13.6",
