@@ -212,6 +212,18 @@ function urlPath(url: string): string {
   return url.replace(/^https?:\/\/[^/]+/, '').split('?')[0]
 }
 
+/**
+ * 请求实际打到的域名。
+ *
+ * 为什么要单独记：`entry` 只说「走的是反代还是直连」，说不出那个入口**解析成了什么域名**。
+ * 而「配错了一个域名」的症状与「网络不通」在库里长得一模一样——两个字段一起看才分得开。
+ * 只取 host、丢掉路径：路径已经在 urlPath 里了。
+ */
+function urlHost(url: string): string {
+  const matched = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]+)/i.exec(url)
+  return matched ? matched[1].slice(0, 80) : ''
+}
+
 function isRetryable(method: string, url: string): boolean {
   const upper = method.toUpperCase()
   if (upper === 'GET' || upper === 'HEAD' || upper === 'OPTIONS') return true
@@ -282,6 +294,22 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
   let requestUrl = isStorageUrl ? url : rewriteToActive(url)
   /** 本次请求是否已经换过入口。换过就不再换第二次——一次请求里两个域名各撞一遍已经够了 */
   let switchedEntry = false
+
+  /**
+   * 首次网络层失败的原样记录。
+   *
+   * **只有它能在事后回答「上一个入口为什么不行」**：换过去成功之后走的是成功分支，
+   * `request_failed` 那条根本不会写；而 `entry` 只说了是哪个入口，说不出它解析成了什么
+   * 域名、报的是什么错。真机上踩过一次「切了、但不知道为什么」，只能靠反向排除绕出来。
+   */
+  let firstFailure: {
+    entry: EntryName
+    host: string
+    ms: number
+    statusZero: boolean
+    errMsg: string
+    errRaw: string
+  } | null = null
 
   const totalStartedAtMs = Date.now()
   let attempt = 0
@@ -369,7 +397,23 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
             String(method),
             `入口 ${record.from} → ${record.to}`,
             'warn',
-            { diag, ms, attempts: attempt, status: response.statusCode }
+            {
+              diag,
+              ms,
+              attempts: attempt,
+              status: response.statusCode,
+              // 方向进字段（不只进 message）：按 from/to 聚合才不用解析文本
+              from: record.from,
+              to: record.to,
+              // ↓ **上一个入口究竟怎么失败的**。请求最终成功了，`request_failed` 不会写，
+              // 不带上这几条的话，库里只剩「切了」、没有「为什么」——真机上就是这么卡的。
+              fromHost: firstFailure?.host ?? null,
+              fromMs: firstFailure?.ms ?? null,
+              fromStatusZero: firstFailure?.statusZero ?? null,
+              fromErr: firstFailure?.errMsg ?? null,
+              // 最长，放最后：detail 超预算时按顺序截断（见 error-report 的 fitDetail）
+              fromErrRaw: firstFailure?.errRaw ?? null,
+            }
           )
         }
       }
@@ -400,6 +444,18 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
           : ((err as { errMsg?: string } | null)?.errMsg ?? String(err))
       const ms = Date.now() - attemptStartedAtMs
       const statusZero = (err as { statusZero?: boolean } | null)?.statusZero === true
+      // 首次失败留证（见 firstFailure 的声明处）。**只记第一次**：后面几次尝试的失败
+      // 多半是同一个原因，记多了反而把 detail 预算吃光、挤掉真正要看的字段
+      if (!firstFailure) {
+        firstFailure = {
+          entry: currentEntry,
+          host: urlHost(requestUrl),
+          ms,
+          statusZero,
+          errMsg,
+          errRaw: stringifyErr(err),
+        }
+      }
       logDiag('http_error', { path: shortUrl, ms, err: errMsg, entry: currentEntry })
       // 网络层失败：DNS 解析不了（ERR_NAME_NOT_RESOLVED）/ 连接超时 / 网络切换……
       // 这正是「点了没反应」的真身，也是服务端永远看不到的那一半。
@@ -447,6 +503,13 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
         statusZero,
         // 失败发生在哪个入口上——「反代挂了」和「直连抽到坏落点」的处置完全不同
         entry: currentEntry,
+        // 那个入口**实际解析到的域名**。只记 entry 的话，「配错了一个域名」与「网不通」
+        // 在库里长得一模一样
+        host: urlHost(requestUrl),
+        // 换过入口才带：没换过的话 firstFailure 就是这一次失败本身，带上只是重复一遍
+        ...(switchedEntry && firstFailure
+          ? { prevHost: firstFailure.host, prevErr: firstFailure.errMsg }
+          : {}),
         // errRaw 留在最后：detail 超预算时按顺序截断（见 error-report 的 fitDetail），
         // 它最长，放前面会把上面的短字段挤掉
         errRaw: stringifyErr(err),
