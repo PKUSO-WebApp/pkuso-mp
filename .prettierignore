@@ -3,6 +3,10 @@ dist
 pnpm-lock.yaml
 .husky
 vendor
+# 云函数：由微信开发者工具「上传并部署」推到云开发，不参与小程序构建（miniprogramRoot 是 dist/）。
+# 让它跟着仓库的格式化规则走，只会造成「改了格式就得重新部署一次」。
+# 但 supabase-proxy-dev/ 是 scripts/sync-cloudfunctions.mjs 的生成物，它的格式由生成器负责。
+cloudfunctions
 # 由 pkuso-backend 的 CI 生成后直接 push 过来（chore: sync database types），
 # 本地格式化它只会被下一次同步覆盖——要它合规得改生成侧，不是改这里
 src/types/database.types.ts

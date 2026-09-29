@@ -1,5 +1,6 @@
 {
   "miniprogramRoot": "dist/",
+  "cloudfunctionRoot": "cloudfunctions/",
   "projectname": "pkuso-miniprogram",
   "description": "PKUSO wechat miniprogram (member end)",
   "appid": "wx4813b0549427f8c3",

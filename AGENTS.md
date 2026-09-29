@@ -78,6 +78,10 @@ pnpm gate
 grep -rl "$(grep -m1 TARO_APP_SUPABASE_URL .env.development | cut -d= -f2)" dist   # 有命中 = 当前是开发库
 ```
 
+**还有第二条路：境内反代**（可选，见 `cloudfunctions/README.md`）。`TARO_APP_SUPABASE_PROXY_URL` 有值时，`rest` / `auth` / `functions` 三条腿走它、网络层失败会自动换回直连重试，而 `storage` 与一切由它派生的文件 URL 恒走直连。**留空 = 与从前完全一致**（单入口，新逻辑全部短路）；想确认某个包走的是哪条路，`grep -rl <反代域名> dist/` 即可。
+
+> ⚠️ 它是**构建期**烧进包里的（和 URL 一样），而 request 合法域名是静态的 ⇒ **启用与回滚都要走审核**。所以「启用它」必须与「自动回退」同批发布，别单独切。
+
 ### 1.4 提交规范
 
 - **Conventional Commits**，由 husky + commitlint 强制（`.husky/commit-msg`）：`<type>: <描述>`。

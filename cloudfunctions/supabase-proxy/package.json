@@ -1,0 +1,7 @@
+{
+  "name": "supabase-proxy",
+  "version": "1.0.0",
+  "description": "境内入口：把小程序对 Supabase 的请求经云开发转发（HTTP 访问服务路由 `/`），同时兼作链路探针",
+  "main": "index.js",
+  "private": true
+}

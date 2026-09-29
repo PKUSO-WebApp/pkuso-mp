@@ -76,6 +76,8 @@ jobs:
         run: |
           echo "TARO_APP_SUPABASE_URL=${{ secrets.PROD_SUPABASE_URL }}" > .env.production
           echo "TARO_APP_SUPABASE_ANON_KEY=${{ secrets.PROD_SUPABASE_ANON_KEY }}" >> .env.production
+          # 境内反代入口（可选）：secret 没配就是空值 ⇒ 单入口，行为与从前一致
+          echo "TARO_APP_SUPABASE_PROXY_URL=${{ secrets.PROD_SUPABASE_PROXY_URL }}" >> .env.production
 
       - name: Set release version
         run: pnpm version:release
