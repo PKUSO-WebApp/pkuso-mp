@@ -21,6 +21,18 @@ updates:
       minor-and-patch:
         applies-to: version-updates
         update-types: ["minor", "patch"]
+    ignore:
+      # webpack 是**精确锁定**的直接依赖，而 Taro 的进度插件与 5.111 的 schema 不兼容：
+      #   ValidationError: Progress Plugin ... unknown property 'name' / 'color' / 'reporters'
+      # 结果是小程序构建直接挂 —— 实测 2026-09-29，且因为本仓库 CI 不跑 PR，
+      # 它一路合进了 main 才在 `Deploy to WeChat Prod` 上暴露。
+      #
+      # 只挡 minor 与 major：patch 仍然收（风险低），等 Taro 侧跟上了再解除。
+      # 解除前请先本地跑 `pnpm gate` 确认构建能过。
+      - dependency-name: "webpack"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
 
   - package-ecosystem: "github-actions"
     directory: "/"
