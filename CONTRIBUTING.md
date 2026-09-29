@@ -194,12 +194,12 @@ pnpm branch:create <patch|minor|major> "描述"
 
 1. `pnpm branch:create patch 修复bug` — 创建分支
 2. `pnpm dev:weapp` — 本地开发（改完要重新构建，非 watch）
-3. `pnpm build:weapp && pnpm typecheck && pnpm lint && pnpm test` — 本地闸门
+3. `pnpm gate` — 交付闸门（唯一定义在 `scripts/gate.mjs`，CI 调的是同一条命令）
 4. squash merge 到 `dev` 并 `git push origin dev` — CI 自动构建并上传到微信**开发版本**列表（robot 1）
 5. 测试通过后 merge 到 `main` — CI 再上传一份（robot 2），版本号回写 `main` 并推 tag
 
 ⚠️ **CI 只上传代码包，不发布正式版。** 上线正式版仍需人工在微信公众平台「提交审核 → 发布」。
-⚠️ **开 PR 不触发任何 CI**：workflow 只监听 `push` 到 `dev` / `main`，且有 `paths:` 白名单（改 `.md` 不触发，改 `package.json` 会触发一次真实上传）。详见 `AGENTS.md` §3。
+⚠️ **PR 阶段只跑闸门，不部署任何东西**：`pull_request` 上由 `ci.yml` 跑闸门（**没有** `paths:` 白名单，改任何文件都会跑）；发版 workflow 只挂在 `push` 到 `dev` / `main` 上，且带 `paths:` 白名单（改 `.md` 不触发上传，改 `package.json` 会触发一次真实上传）。详见 `AGENTS.md` §3。
 
 ### 环境要求（CI）
 
