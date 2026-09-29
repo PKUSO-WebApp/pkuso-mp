@@ -22,16 +22,44 @@ updates:
         applies-to: version-updates
         update-types: ["minor", "patch"]
     ignore:
-      # webpack 是**精确锁定**的直接依赖，而 Taro 的进度插件与 5.111 的 schema 不兼容：
-      #   ValidationError: Progress Plugin ... unknown property 'name' / 'color' / 'reporters'
-      # 结果是小程序构建直接挂 —— 实测 2026-09-29，且因为本仓库 CI 不跑 PR，
-      # 它一路合进了 main 才在 `Deploy to WeChat Prod` 上暴露。
+      # 下面三条都是**有意留在低版本**的。写在这里而不是靠人每周拒绝一次 ——
+      # 靠人记着拒绝，迟早会漏，而漏一次的代价是构建/类型直接坏。
       #
-      # 只挡 minor 与 major：patch 仍然收（风险低），等 Taro 侧跟上了再解除。
-      # 解除前请先本地跑 `pnpm gate` 确认构建能过。
+      # 判据统一是 `pnpm check-dependabot`（scripts/check-dependabot.mjs）：
+      # 它拿每个 PR 的分支建 worktree、真跑一遍闸门。解除任何一条之前先跑它。
+      #
+      # ── webpack ──────────────────────────────────────────────
+      # 精确锁定的直接依赖。5.111 与 Taro 的进度插件不兼容：
+      #   ValidationError: Progress Plugin ... unknown property 'name' / 'color' / 'reporters'
+      # 小程序构建直接挂。实测 2026-09-29，且因为本仓库 CI 不跑 PR，它一路合进 main
+      # 才在 `Deploy to WeChat Prod` 上暴露（已钉回 5.91.0）。
       - dependency-name: "webpack"
         update-types:
           - "version-update:semver-minor"
+          - "version-update:semver-major"
+
+      # ── typescript ───────────────────────────────────────────
+      # 5.4.5 → 7.0.2 在 lint 阶段就挂（typescript-eslint 生态尚未跟上 TS 7）。
+      # 本仓库只在 `tsc --noEmit` 里用 TS，实际转译交给 Taro/webpack，
+      # 所以停在 5.x 没有任何代价。
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
+
+      # ── @types/node ──────────────────────────────────────────
+      # 18 → 26 后 typecheck 报：
+      #   src/lib/error-report.test.ts(429,24): error TS2550: Property 'at' does not
+      #   exist on type 'Record<string, unknown>[][]'. Do you need to change your
+      #   target library?
+      #
+      # 根因**不在 @types/node**：`tsconfig.json` 是 `"target": "es2017"` 且没有 `lib`，
+      # 而 `.at()` 属于 ES2022 —— 现在能用，是因为 @types/node 18 自带了那层声明；
+      # 26 不再补，于是这个早就存在的配置问题暴露出来。
+      #
+      # 更干净的修法是把 tsconfig 的 `lib` 抬到 `["ES2022"]`（emit 由 Taro 负责，
+      # 所以只影响类型检查），然后这条就能解除。**待定，先钉住。**
+      - dependency-name: "@types/node"
+        update-types:
           - "version-update:semver-major"
 
   - package-ecosystem: "github-actions"
