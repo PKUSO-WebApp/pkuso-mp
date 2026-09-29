@@ -87,7 +87,7 @@
     "@tarojs/webpack5-runner": "4.2.1",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.2",
-    "@types/node": "^18",
+    "@types/node": "^26",
     "@types/react": "^18.0.0",
     "@types/webpack-env": "^1.13.6",
     "babel-preset-taro": "4.2.1",
