@@ -6,7 +6,8 @@ import { useMyProfile } from '@/hooks/useMyProfile'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { useEditDraft } from '@/hooks/useEditDraft'
-import { AdminBlockedPage } from '@/components/admin-blocked-page'
+import { StaffBlockedPage } from '@/components/staff-blocked-page'
+import { isOrchestraMember } from '@/lib/role-gate'
 import { Toggle } from '@/components/ui/Toggle'
 import type { PostType } from '@/types/database'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
@@ -74,9 +75,10 @@ export default function PostCreatePage() {
     }
   })
 
-  // 管理端登录：小程序不提供管理端，阻断（规划 §1：admin 留在 Web）
-  if (myProfile?.role === 'admin') {
-    return <AdminBlockedPage />
+  // 非团员账号（admin / score_manager 等专职账号）一律阻断：小程序只服务乐团成员。
+  // 判据走共用的 isOrchestraMember —— 黑名单式每加一个角色都要回来改 6 处，漏改即静默放行。
+  if (!isOrchestraMember(myProfile?.role)) {
+    return <StaffBlockedPage role={myProfile?.role} />
   }
 
   const handleChooseImage = () => {
