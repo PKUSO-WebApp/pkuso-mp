@@ -37,6 +37,8 @@
     "format:fix": "prettier --write .",
     "test": "vitest run",
     "verify": "pnpm format && pnpm lint && pnpm typecheck && pnpm test",
+    "gate": "node scripts/gate.mjs",
+    "gate:ci": "node scripts/gate.mjs --ci",
     "version:dev": "node scripts/version.js dev",
     "version:rc": "node scripts/version.js rc",
     "version:release": "node scripts/version.js release",

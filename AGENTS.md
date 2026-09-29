@@ -35,23 +35,29 @@
 
 ### 1.2 交付闸门（Delivery Gate）
 
-声明「完成 / 交付」前必须依次执行且全绿。**这是本仓库唯一的闸门定义**，`README.md` / `CONTRIBUTING.md` 与 CI 都以此为准：
+声明「完成 / 交付」前必须执行且全绿：
 
 ```bash
-pnpm build:weapp     # 1. 构建必须过
-pnpm typecheck       # 2. tsc --noEmit
-pnpm lint            # 3. eslint --max-warnings 0
-pnpm test            # 4. vitest run
+pnpm gate
 ```
 
-交付后请提醒用户在开发者工具中点一次「设置 → 通用 → 清空缓存 / 重开项目」。
+**闸门的唯一定义在 `scripts/gate.mjs`** —— CI 与人都调它，本节不再复述命令清单（复述就会漂移：这里以前按 `build → typecheck → lint → test` 列，CI 实际是 `lint → typecheck → test → build`）。
 
-两处容易记混的地方：
+它做三件事，第 3 件是重点：
 
-- **CI 不跑 `pnpm format`。** `pnpm verify`（= `format && lint && typecheck && test`）只是本地便利命令，**不等于 CI**；格式化请自己跑 `pnpm format:fix`。
-- **CI 的顺序是 install → lint → typecheck → test → build**：集合与上表相同，但顺序不同（CI 把构建放最后）。
+1. 依次跑 `lint` → `typecheck` → `test` → `build:weapp`（最后一步与 CI 相同 = 生产环境构建）
+2. 因为第 1 步留下的是一个**连生产库的 `dist/`**（原因见 §1.3），脚本**会自动再跑一次 `dev:weapp`**，产出一份可供验收的开发库包
+3. 用 `dist/` 里是否含开发库地址**核对**这份包确实连的是开发库，然后打印验收指引
 
-> `pnpm dev:weapp` 与 `pnpm build:weapp` **都不是 watch 模式**，两者都是一次性构建，区别只在注入的环境变量（见 §1.3）。闸门与 CI 统一用 `build:weapp`。
+> 也就是说：**「跑完闸门」＝「手上已经有一份可以给人验收的包」**，不用再记得补一次构建。
+> 只想快速跑检查、不要构建：`pnpm gate --skip-build`；CI 用 `pnpm gate:ci`（不产出 dev 包）。
+
+两处仍然容易记混的地方：
+
+- **CI 不跑 `pnpm format`。** `pnpm verify`（= `format && lint && typecheck && test`）只是本地便利命令；格式化请自己跑 `pnpm format:fix`。
+- `pnpm dev:weapp` 与 `pnpm build:weapp` **都不是 watch 模式**，两者都是一次性构建，区别只在注入的环境变量（见 §1.3）。
+
+交付后请提醒用户在开发者工具中点一次「设置 → 通用 → 清空缓存 / 重开项目」（脚本也会打印这句）。
 
 ### 1.3 ⚠️ 本地构建默认连的是**生产库**
 

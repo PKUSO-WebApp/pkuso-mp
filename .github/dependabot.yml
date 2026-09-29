@@ -1,0 +1,30 @@
+# Dependabot 配置
+#
+# 背景（2026-09-29 审计）：三个仓库此前都没有这个文件。mp 的症状是**锁文件滞后** ——
+# `pnpm-lock.yaml` 已 22 天未动，而同期代码提交了 193 次。没有自动提醒，依赖只会在
+# 真出问题时才被发现。
+#
+# ⚠️ 本仓库 CI **不监听 pull_request**（只监听 push 到 dev/main），所以 Dependabot 开的 PR
+#    **不会跑任何检查**。合之前请自己先在本地跑 `pnpm gate`。
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      # 本仓库由 husky + commitlint 强制 Conventional Commits
+      prefix: "chore(deps)"
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci(deps)"
