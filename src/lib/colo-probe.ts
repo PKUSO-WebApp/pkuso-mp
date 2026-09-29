@@ -105,6 +105,12 @@ type ProbeOutcome = {
   /** 首字节耗时。拿不到就是 null，此时用 ms 顶着并标 ttfbApprox */
   ttfbMs: number | null
   ms: number
+  /** 这一次实际请求的基址。**记它才能看出「配的那个地址对不对」**——只记 entry 看不出来 */
+  base: string
+  /** 拿到了响应时的状态码（用来区分「403 被挡」和「网络层根本没通」） */
+  httpStatus: number | null
+  /** 没拿到响应时的原始错误文本（Taro 拒的是一个 `{errMsg}` 对象） */
+  errMsg: string | null
 }
 
 /**
@@ -117,7 +123,17 @@ type ProbeOutcome = {
 async function probeOne(entry: EntryName, reason: ColoProbeReason): Promise<ProbeOutcome> {
   const base = baseFor(entry)
   const startedAtMs = Date.now()
-  const out: ProbeOutcome = { entry, colo: null, loc: null, reachable: false, ttfbMs: null, ms: 0 }
+  const out: ProbeOutcome = {
+    entry,
+    colo: null,
+    loc: null,
+    reachable: false,
+    ttfbMs: null,
+    ms: 0,
+    base,
+    httpStatus: null,
+    errMsg: null,
+  }
   if (!base) return out
   try {
     const task = Taro.request({
@@ -137,14 +153,20 @@ async function probeOne(entry: EntryName, reason: ColoProbeReason): Promise<Prob
     const res = await task
     out.ms = Date.now() - startedAtMs
     out.reachable = true
+    out.httpStatus = typeof res.statusCode === 'number' ? res.statusCode : null
     if (res.statusCode !== 200 || typeof res.data !== 'string') return out
     const { colo, loc } = parseColoTrace(res.data)
     out.colo = colo
     out.loc = loc
     logDiag('colo_probe', { entry, colo, loc, reason, ttfb: out.ttfbMs, ms: out.ms })
     return out
-  } catch {
+  } catch (err) {
     out.ms = Date.now() - startedAtMs
+    // 微信拒的是 `{ errMsg }` 对象、不是 Error 实例（实测踩过，直接 String() 会得到 [object Object]）
+    out.errMsg =
+      err instanceof Error
+        ? err.message
+        : ((err as { errMsg?: string } | null)?.errMsg ?? String(err))
     return out
   }
 }
@@ -225,6 +247,13 @@ export async function probeColo(reason: ColoProbeReason): Promise<void> {
             // 把两边的可达性一起记下来：只看结论的话，事后无法判断这次切换是不是误判
             activeReachable: activeOutcome?.reachable ?? null,
             otherReachable: otherOutcome?.reachable ?? null,
+            // ↓ **上一个入口究竟怎么失败的**。约束 2 说「探针失败本身不上报」，那是不让它
+            // 混进 request_failed 的样本里；但「这次切换被什么触发」是切换记录的一部分，
+            // 不记就只能靠反向排除——真机上出现过一次「切了、但不知道为什么」，绕了很久。
+            fromBase: activeOutcome?.base ?? null,
+            fromMs: activeOutcome?.ms ?? null,
+            fromStatus: activeOutcome?.httpStatus ?? null,
+            fromErr: activeOutcome?.errMsg ?? null,
           },
         })
       }

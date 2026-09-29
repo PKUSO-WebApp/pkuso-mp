@@ -485,7 +485,36 @@ describe('supabase 官方客户端适配', () => {
       await taroFetch(`${DIRECT}/rest/v1/rehearsals`)
 
       expect(setStorageSync).toHaveBeenCalledWith('pkuso_supabase_entry', 'direct')
-      expect(reported.filter((r) => r.event === 'entry_switched')).toHaveLength(1)
+      const switched = reported.filter((r) => r.event === 'entry_switched')
+      expect(switched).toHaveLength(1)
+      // 库里只写「切了」是不够的：请求最终成功 ⇒ `request_failed` 不会写，于是
+      // 「上一个入口为什么不行」就永远没人记。这两条就是那句话。
+      expect(switched[0].detail).toMatchObject({
+        from: 'proxy',
+        to: 'direct',
+        fromHost: 'proxy.example.com',
+        fromStatusZero: false,
+        fromErr: 'boom',
+        fromErrRaw: 'Error: boom',
+      })
+    })
+
+    it('彻底失败时也记下「实际打到的域名」——配错域名与网不通在库里长得一模一样', async () => {
+      stubDualEntry()
+      request.mockRejectedValue(new Error('boom'))
+      const { taroFetch } = await loadWithReporter()
+
+      await expect(taroFetch(`${DIRECT}/rest/v1/rehearsals`)).rejects.toThrow()
+
+      const failed = reported.filter((r) => r.event === 'request_failed')
+      expect(failed).toHaveLength(1)
+      expect(failed[0].detail).toMatchObject({
+        // 最终停在哪个入口、它解析成了什么域名
+        entry: 'direct',
+        host: 'project.supabase.co',
+        // 以及上一个入口是哪个域名（换过才带）
+        prevHost: 'proxy.example.com',
+      })
     })
 
     it('换过去也失败 ⇒ **不**翻转偏好：只凭失败翻转会让两个入口在没网时来回弹', async () => {

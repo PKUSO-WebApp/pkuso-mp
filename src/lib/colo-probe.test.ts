@@ -214,6 +214,14 @@ describe('Cloudflare PoP 探针', () => {
 
       expect(setStorageSyncMock).toHaveBeenCalledWith('pkuso_supabase_entry', 'direct')
       expect(reportsOf('entry_switched')).toHaveLength(1)
+      // 切换记录里必须带上**上一个入口实际打的那个基址和它报的错**。
+      // 「地址配错了」与「网络不通」在库里长得一样，只有这一条分得开——真机上卡过一次。
+      expect(reportsOf('entry_switched')[0].detail).toMatchObject({
+        from: 'proxy',
+        to: 'direct',
+        fromBase: PROXY,
+        fromErr: 'request:fail',
+      })
       // 探针**失败**那条仍然不上报（约束 2）：只有成功的那条进 colo_probe
       expect(reportsOf('colo_probe')).toHaveLength(1)
       expect(reportsOf('colo_probe')[0].detail.entry).toBe('direct')
