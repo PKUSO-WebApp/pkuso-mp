@@ -22,12 +22,12 @@
 | -------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `dev`    | 日常开发与测试基线        | 触发 `Deploy to WeChat Dev`：verify → 构建 → **上传到微信「开发版本」列表（robot 1 槽位）**                                 |
 | `main`   | 稳定发布基线              | 触发 `Deploy to WeChat Prod`：verify → 构建 → **上传到微信「开发版本」列表（robot 2 槽位）** → 版本号提交回 `main` + 推 tag |
-| 功能分支 | 从 `dev`（或 `main`）拉出 | **不触发任何 CI**                                                                                                           |
+| 功能分支 | 从 `dev`（或 `main`）拉出 | push **不触发任何 CI**；开 PR 才会（`ci.yml`，只跑闸门）                                                                    |
 | `master` | 历史遗留，别用            | ——                                                                                                                          |
 
 ⚠️ 三条必须知道的事实：
 
-1. **CI 只监听 `push` 到 `dev` / `main`，`pull_request` 不触发任何 workflow。** 开 PR 不会跑检查；想过闸门只能先推上去，失败后再补修复提交。所以本地闸门（§1.2）尽量一次跑干净。
+1. **CI 分两处，闸门是同一条命令**（2026-09-30 起）：`pull_request` → `ci.yml`；`push` 到 `dev` / `main` → 对应的 `deploy-*.yml` 里的 `verify` job（它 `needs` 着发版 job）。**PR 阶段只跑检查，不部署任何东西。** 两边调的都是 `pnpm gate:ci`（= `scripts/gate.mjs`，§1.2），所以「本地过闸门」与「CI 过」是同一件事——但仍要一次跑干净：CI 上撞的是 20 分钟的墙，不是即时反馈。
 2. **CI 有 `paths:` 白名单**（清单见 §3.2）。改 `AGENTS.md` / `README.md` / `docs/**` / `.env*` **不触发 CI**；改 `package.json` / `src/**` / `scripts/**` **会触发一次真实构建与上传**——所以「顺手改一下 `version`」不是无副作用操作。
 3. **`main` 的现状并不等于「只接受从 dev 合并」**：历史里既有从 `dev` 合入，也有直接推 `main`、以及功能分支直接 merge 到 `main`。规范意图是 dev 先行，但别拿这句话去推断历史或断言别人做错了。
 
@@ -195,14 +195,15 @@ pnpm branch:create <patch|minor|major> <描述>
 
 ## 3. CI/CD：Deploy to WeChat 到底做了什么
 
-两个 workflow：`.github/workflows/deploy-dev.yml`（`dev`）、`deploy-prod.yml`（`main`）。环境：pnpm 11、Node 22、`pnpm install --frozen-lockfile`。
+三个 workflow：`.github/workflows/ci.yml`（`pull_request`，只跑闸门）、`deploy-dev.yml`（push `dev`）、`deploy-prod.yml`（push `main`）。环境：pnpm 11、Node 22、`pnpm install --frozen-lockfile`。
 
 ### 3.1 步骤对照
 
 |                                  | `dev`                                                                      | `main`                                                                  |
 | -------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| verify job（两个 workflow 相同） | `pnpm lint` → `pnpm typecheck` → `pnpm test` → 构建                        | 同左                                                                    |
-| 构建前写 env                     | `.env.development`（secrets `DEV_SUPABASE_URL` / `DEV_SUPABASE_ANON_KEY`） | `.env.production`（`PROD_SUPABASE_URL` / `PROD_SUPABASE_ANON_KEY`）     |
+| verify job（两个 workflow 相同） | `pnpm gate:ci`（= `scripts/gate.mjs`，闸门的唯一定义）                     | 同左                                                                    |
+| verify 里的 env                  | 写一份 `.env.production`（只为让闸门的构建不因缺 env 而失败，产物不发布）  | 同左                                                                    |
+| 发布 job 写 env                  | `.env.development`（secrets `DEV_SUPABASE_URL` / `DEV_SUPABASE_ANON_KEY`） | `.env.production`（`PROD_SUPABASE_URL` / `PROD_SUPABASE_ANON_KEY`）     |
 | 版本号                           | `DEV_VERSION_NUM=<run_number> pnpm version:dev`                            | `pnpm version:release`                                                  |
 | 构建命令                         | `NODE_ENV=development pnpm build:weapp`                                    | `pnpm build:weapp`                                                      |
 | 上传                             | `node scripts/upload.js`，**robot 1**                                      | 同左，**robot 2**                                                       |
@@ -236,14 +237,14 @@ on:
       - .github/**
 ```
 
-- **只有 `push`，没有 `pull_request`。**
+- **`deploy-*.yml` 只有 `push`。** PR 上的检查来自 `ci.yml`（它挂 `pull_request`，**没有** `paths:` 白名单——任何改动都跑闸门；`deploy-*.yml` 则要命中白名单才跑）。
 - 白名单里的 `app.css` / `app.scss` 是**无效条目**：仓库根没有 `app.css`，根的 `app.scss` 是空文件；真文件是 `src/app.css`，已被 `src/**` 覆盖。
-- 不在名单里的改动（`AGENTS.md`、`README.md`、`CONTRIBUTING.md`、`docs/**`、`.env*`、`types/**`）**不触发 CI**。
+- 不在名单里的改动（`AGENTS.md`、`README.md`、`CONTRIBUTING.md`、`docs/**`、`.env*`、`types/**`）**不触发发版 workflow**（但会触发 PR 上的 `ci.yml`）。
 - 提交信息里带 `[skip ci]` 时 workflow 会跳过（prod 的版本号回写提交就靠这个避免自触发）。
 
 ### 3.3 ⚠️ 必须监控 CI
 
-**所有触发 CI 的操作（push / merge / workflow_dispatch），必须用 `gh run watch <run-id> --exit-status` 监控直到 CI 完成，不得提前返回。** 因为 PR 阶段没有预检，失败只能在 push 之后才发现。
+**所有触发 CI 的操作（push / merge / workflow_dispatch），必须用 `gh run watch <run-id> --exit-status` 监控直到 CI 完成，不得提前返回。** 因为「闸门过了」只是本地的一次判断，而发版 job 里还有构建、上传、版本号回写这些只在 CI 上发生的事（例如 `version:release` 之后的 tag 推送）。
 
 ### 3.4 本地手动上传（不走 CI）
 
