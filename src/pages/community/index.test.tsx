@@ -65,8 +65,8 @@ vi.mock('@/context/theme-context', () => ({
   useThemeClass: () => '',
 }))
 
-vi.mock('@/components/admin-blocked-page', () => ({
-  AdminBlockedPage: () => null,
+vi.mock('@/components/staff-blocked-page', () => ({
+  StaffBlockedPage: () => null,
 }))
 
 vi.mock('@/i18n', async () => {

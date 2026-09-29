@@ -5,6 +5,12 @@ export const ui = {
     logout: 'Log Out',
     loggingOut: 'Logging out…',
   },
+  staffBlocked: {
+    title: 'This account cannot use the mini program. Please use the web app.',
+    desc: 'The mini program is for orchestra members only; staff accounts such as score managers work on the web app.',
+    logout: 'Log Out',
+    loggingOut: 'Logging out…',
+  },
   forceOffline: {
     title: 'Your account signed in on another device',
     line1:
