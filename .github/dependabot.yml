@@ -62,6 +62,17 @@ updates:
         update-types:
           - "version-update:semver-major"
 
+      # ── vitest ───────────────────────────────────────────────
+      # ⚠️ 这一条与上面三条**不同**：它 `pnpm check-dependabot` 是**过的**（4.1.11 → 5.0.2
+      # 能过 lint/typecheck/test/build）。留低版本是**有意的保守**，不是因为它坏。
+      #
+      # 理由：闸门只能验「跑得通」，验不了「测出来的东西还对」。测试框架跨大版本恰恰是
+      # 那一类 —— 断言可能变得更宽松、或默认行为变化而测试照绿，**这种退化闸门看不见**。
+      # 要升的时候请单独做一轮，并确认关键用例仍然会在该红的时候红。
+      - dependency-name: "vitest"
+        update-types:
+          - "version-update:semver-major"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
