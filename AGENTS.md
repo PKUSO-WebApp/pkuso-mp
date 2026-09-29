@@ -35,23 +35,29 @@
 
 ### 1.2 交付闸门（Delivery Gate）
 
-声明「完成 / 交付」前必须依次执行且全绿。**这是本仓库唯一的闸门定义**，`README.md` / `CONTRIBUTING.md` 与 CI 都以此为准：
+声明「完成 / 交付」前必须执行且全绿：
 
 ```bash
-pnpm build:weapp     # 1. 构建必须过
-pnpm typecheck       # 2. tsc --noEmit
-pnpm lint            # 3. eslint --max-warnings 0
-pnpm test            # 4. vitest run
+pnpm gate
 ```
 
-交付后请提醒用户在开发者工具中点一次「设置 → 通用 → 清空缓存 / 重开项目」。
+**闸门的唯一定义在 `scripts/gate.mjs`** —— CI 与人都调它，本节不再复述命令清单（复述就会漂移：这里以前按 `build → typecheck → lint → test` 列，CI 实际是 `lint → typecheck → test → build`）。
 
-两处容易记混的地方：
+它做三件事，第 3 件是重点：
 
-- **CI 不跑 `pnpm format`。** `pnpm verify`（= `format && lint && typecheck && test`）只是本地便利命令，**不等于 CI**；格式化请自己跑 `pnpm format:fix`。
-- **CI 的顺序是 install → lint → typecheck → test → build**：集合与上表相同，但顺序不同（CI 把构建放最后）。
+1. 依次跑 `lint` → `typecheck` → `test` → `build:weapp`（最后一步与 CI 相同 = 生产环境构建）
+2. 因为第 1 步留下的是一个**连生产库的 `dist/`**（原因见 §1.3），脚本**会自动再跑一次 `dev:weapp`**，产出一份可供验收的开发库包
+3. 用 `dist/` 里是否含开发库地址**核对**这份包确实连的是开发库，然后打印验收指引
 
-> `pnpm dev:weapp` 与 `pnpm build:weapp` **都不是 watch 模式**，两者都是一次性构建，区别只在注入的环境变量（见 §1.3）。闸门与 CI 统一用 `build:weapp`。
+> 也就是说：**「跑完闸门」＝「手上已经有一份可以给人验收的包」**，不用再记得补一次构建。
+> 只想快速跑检查、不要构建：`pnpm gate --skip-build`；CI 用 `pnpm gate:ci`（不产出 dev 包）。
+
+两处仍然容易记混的地方：
+
+- **CI 不跑 `pnpm format`。** `pnpm verify`（= `format && lint && typecheck && test`）只是本地便利命令；格式化请自己跑 `pnpm format:fix`。
+- `pnpm dev:weapp` 与 `pnpm build:weapp` **都不是 watch 模式**，两者都是一次性构建，区别只在注入的环境变量（见 §1.3）。
+
+交付后请提醒用户在开发者工具中点一次「设置 → 通用 → 清空缓存 / 重开项目」（脚本也会打印这句）。
 
 ### 1.3 ⚠️ 本地构建默认连的是**生产库**
 
@@ -91,6 +97,25 @@ grep -rl "$(grep -m1 TARO_APP_SUPABASE_URL .env.development | cut -d= -f2)" dist
 ⚠️ `dev` **不等于「谱务分支」**——它是「未发布功能的集成分支」，谱务只是**当前**占用它的那件事（上一个占用者是客户端错误收集）。占用者会换，下面这些规矩不变，所以别把规矩写成「谱务专属」。
 
 **版本号不标记线**：`dev` 上未发布的功能合进 `main` 之后，`main` 的版本号会跟着上去（`0.4.x` → `0.5.x`），两条线同档是正常状态。所以**别拿版本号判断一条改动属于哪条线——看分支**。
+
+#### 动手前先定 base（默认分支是 `main`，但**多数改动要从 `dev` 拉**）
+
+仓库的默认分支是 `main`。这意味着 `git clone`、`git checkout -b <名字>`（不带起点）、以及网页上开 PR 的默认 base **全是 `main`** —— 而下面这些情况里，`main` 恰恰是错的起点。**别用默认值，先判断：**
+
+```bash
+# 这次要改的每个路径，在 main 上存在吗？
+git cat-file -e origin/main:<路径>     # 报错 = main 上没有 = 属于「尚未发布的功能」
+```
+
+| 判断结果                | base       | 之后合到哪                                            |
+| ----------------------- | ---------- | ----------------------------------------------------- |
+| 有路径在 `main` 上不存在 | **`dev`**  | `dev`（这就是开发线改动）                             |
+| 全部路径 `main` 上都有   | **`main`** | 先合 `dev` 拿真机验收，再 cherry-pick 到 `main` 发版  |
+| 拿不准                  | **`dev`**  | 按开发线处理——代价小；反过来的代价是把未发布功能带上正式线 |
+
+**日常不一定需要开分支**：本仓库实际是「`dev` 当主干」的开发方式（实测 dev 上 92% 的提交是直接提交）。小改动直接提交到 `dev` 就行；**开分支的价值在于**「风险大 / 周期长 / 想留一条可回顾的线」。开了分支就按上表选 base。
+
+Claude Code 用户：这条规则有配套的 skill（`.claude/skills/base-branch`），它会在你打算 `git checkout -b` 时把上面的判断走一遍。
 
 **规矩**：
 
