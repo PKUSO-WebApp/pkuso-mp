@@ -38,6 +38,7 @@
     "verify": "pnpm format && pnpm lint && pnpm typecheck && pnpm test",
     "gate": "node scripts/gate.mjs",
     "gate:ci": "node scripts/gate.mjs --ci",
+    "check-dependabot": "node scripts/check-dependabot.mjs",
     "version:dev": "node scripts/version.js dev",
     "version:rc": "node scripts/version.js rc",
     "version:release": "node scripts/version.js release",
