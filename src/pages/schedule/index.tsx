@@ -9,7 +9,8 @@ import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { useOverlayOpen } from '@/lib/overlayStore'
-import { AdminBlockedPage } from '@/components/admin-blocked-page'
+import { StaffBlockedPage } from '@/components/staff-blocked-page'
+import { isOrchestraMember } from '@/lib/role-gate'
 
 import { ListState } from '@/components/ui/ListState'
 import { getLocalDateString, formatDisplayDate } from '@/lib/date-utils'
@@ -99,10 +100,11 @@ export default function Schedule() {
   // 当前日期的预约：走 hook 内存切片（含跨天）
   const filteredSchedules = getByDate(selectedDate)
 
-  // 管理端登录：不提供小程序管理端，显示阻断页（规划 §1：admin 留在 Web）
-  // 游客模式下跳过此检查（useMyProfile 在无 user 时会误查全表）
-  if (user && myProfile?.role === 'admin') {
-    return <AdminBlockedPage />
+  // 非团员账号（admin / score_manager 等专职账号）一律阻断：小程序只服务乐团成员。
+  // 判据走共用的 isOrchestraMember —— 黑名单式每加一个角色都要回来改 6 处，漏改即静默放行。
+  // ⚠️ `user &&` 不能省：游客模式下 useMyProfile 会误查全表，拿到的可能是别人的行
+  if (user && !isOrchestraMember(myProfile?.role)) {
+    return <StaffBlockedPage role={myProfile?.role} />
   }
 
   return (

@@ -5,6 +5,12 @@ export const ui = {
     logout: '退出登录',
     loggingOut: '退出中…',
   },
+  staffBlocked: {
+    title: '本账号不提供小程序端，请使用网页端',
+    desc: '小程序仅面向乐团成员；谱务等专职账号的功能在网页端。',
+    logout: '退出登录',
+    loggingOut: '退出中…',
+  },
   forceOffline: {
     title: '账号已在其他设备登录',
     line1: '另一设备于 {when} 登录你的账号，当前设备已经下线。',
