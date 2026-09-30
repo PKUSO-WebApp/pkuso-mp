@@ -9,16 +9,16 @@ name: CI
 # 闸门的唯一定义在 `scripts/gate.mjs`。`--ci` 是它给 CI 用的模式
 # （不产出给人验收的 dev 包，只跑 lint → typecheck → test → build:weapp）。
 #
-# ⚠️ 已知的不一致，**本文件不解决**，单独一轮做：
-#   `deploy-dev.yml` / `deploy-prod.yml` 的 `verify` job **把闸门的四步内联了**，
-#   并没有调 `gate:ci` —— 而 `AGENTS.md` 写的是「闸门的唯一定义在 scripts/gate.mjs，
-#   CI 与人都调它」。也就是说 `gate:ci` 在此之前**零调用**。
-#   改那两个文件会直接影响发版，值得单独一次改动 + 一次真发版验证。
+# ## 为什么只挂 `pull_request`
+#
+# 推送到 `dev` / `main` 由 `deploy-dev.yml` / `deploy-prod.yml` 的 `verify`
+# job 负责，它们（2026-09-30 起）也调**同一条** `pnpm gate:ci`。
+# 如果这里再挂 `push`，同一次推送会跑两遍闸门，而且两个 workflow 的 job 同名
+# （都叫 `verify`）⇒ 同一个 commit 上出现两个同名检查，分支保护按名字匹配时
+# 是自找麻烦。分工是：**PR → 本文件；推 dev/main → deploy-*.yml**。
 
 on:
   pull_request:
-  push:
-    branches: [dev, main]
 
 jobs:
   verify:

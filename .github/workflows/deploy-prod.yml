@@ -37,17 +37,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint
+      # 闸门的唯一定义在 `scripts/gate.mjs`（AGENTS.md §1.2）。这里原先把四步**内联**，
+      # 于是「改闸门」与「改 CI」是两件事，而文档写的是「CI 与人都调它」。
+      # 现在 CI 与人调的是同一条命令。
+      #
+      # ⚠️ 闸门最后一步 `build:weapp`（NODE_ENV=production）读 `.env.production`，
+      # 而 `.env.*` 是 gitignored 的 ⇒ CI 上必须自己写出来，否则构建拿不到 env。
+      # **这次构建的产物不发布**（发布在下面的 release job，它会重写这份文件），
+      # 所以占位值不会外流；有 secret 时用 secret，只是让这一步尽量贴近真实构建。
+      - name: Write .env.production
+        env:
+          SUPA_URL: ${{ secrets.PROD_SUPABASE_URL }}
+          SUPA_KEY: ${{ secrets.PROD_SUPABASE_ANON_KEY }}
+        run: |
+          echo "TARO_APP_SUPABASE_URL=${SUPA_URL:-https://placeholder.supabase.co}" > .env.production
+          echo "TARO_APP_SUPABASE_ANON_KEY=${SUPA_KEY:-placeholder-key}" >> .env.production
 
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test
-        run: pnpm test
-
-      - name: Build (weapp)
-        run: pnpm build:weapp
+      - name: 闸门（定义在 scripts/gate.mjs）
+        run: pnpm gate:ci
 
   release:
     needs: verify
