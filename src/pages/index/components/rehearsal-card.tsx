@@ -6,11 +6,8 @@ import { formatRehearsalCardParts } from '@/lib/date-utils'
 import { getUpdatedFields } from '@/lib/rehearsal-sort'
 import { useT } from '@/i18n'
 import { getSectionGroupLabel } from '@/constants/instruments'
+import { normalizeTargets } from '@/lib/rehearsal-utils'
 import type { RehearsalRow } from '@/types/database'
-
-function normalizeTargets(target: unknown): string[] {
-  return Array.isArray(target) ? target : target ? [target] : []
-}
 
 type Props = {
   item: RehearsalRow

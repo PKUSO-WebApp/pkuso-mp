@@ -16,11 +16,8 @@ import type { RehearsalRow } from '@/types/database'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { getSectionGroupLabel } from '@/constants/instruments'
+import { normalizeTargets } from '@/lib/rehearsal-utils'
 import './index.scss'
-
-function normalizeTargets(target: unknown): string[] {
-  return Array.isArray(target) ? target : target ? [target] : []
-}
 
 const mapSignInError = (
   tf: (key: string, params?: Record<string, unknown>) => string,
