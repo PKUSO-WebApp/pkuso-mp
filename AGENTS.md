@@ -125,18 +125,33 @@ Claude Code 用户：这条规则有配套的 skill（`.claude/skills/base-branc
 
 1. **稳定化改动先合 `dev`**（拿开发版真机验收）→ 验完再 **cherry-pick 到 `main`** 发版。
    不直接 `dev → main` 的原因：`dev` 上压着尚未发布的功能，直接合会把它们一起带上正式线。
-2. **稳定化改动不得触碰「尚未发布功能」的文件**。碰了就无法干净 cherry-pick——实测过一次：一个「测试布局统一」的顺手改动搬了 `src/lib/__tests__/annotation.test.ts`，而 `annotation.ts` 属于当时未发布的谱务，导致该提交挑到 `main` 时冲突。
+2. **稳定化改动不得触碰「尚未发布功能」的文件**。碰了就无法干净 cherry-pick——实测过一次：一个「测试布局统一」的顺手改动搬了 `src/lib/annotation.test.ts`，而 `annotation.ts` 属于当时未发布的谱务，导致该提交挑到 `main` 时冲突。（这条引的路径以前写成 `src/lib/__tests__/annotation.test.ts` —— 那个目录不存在；注意 `annotation.test.ts` 自己也在这份「别碰」的名单里。）
 3. **稳定化改动保持单提交**（squash merge 天然满足），cherry-pick 才是一条命令的事。
 4. **发版前把 `main` 的 `package.json` 版本 bump 一档**：CI 的 `version:release` 只去预发布后缀、**不自动 +1**，而 `v<version>` 的 tag 已存在时会跳过推 tag——不 bump 就会用同一个版本号再传一次。
 5. 两条线并行维护，同一批改动可能在两边各有一份提交（例如 error-report）。挑过去时用 `git cherry-pick -x` 记录来源，便于日后对账。
 
-**哪些文件属于「尚未发布的功能」**——不必背清单，一条命令：
+**哪些文件属于「尚未发布的功能」**——**跑命令，别背清单**：
 
 ```bash
-git cat-file -e origin/main:<路径>   # 报错 = main 上没有 = 属于未发布功能，稳定化改动别碰
+node scripts/unpublished.mjs        # 默认比 origin/main ← origin/dev
 ```
 
-当前（2026-09）`dev` 上未发布的是谱务，所以**这些**文件暂时不能碰：`src/pages/score-*`、`src/pages/score-reader/**`（独立分包）、`src/hooks/useSheetMusic.ts`、`src/lib/sheet-music-sort.ts`、`src/lib/annotation.ts`、`src/components/score/**`、`vendor/**`、`scripts/build-pdf-runtime.mjs`、`src/i18n/messages/*/score*.ts`。
+它输出两段，**两段都不能碰**：
+
+1. **只在 `dev` 上存在的路径** —— 经典的那一类（谱务的页面、hooks、i18n 文案、图标…）。
+2. **两条线上都有、但内容不同的路径** —— ⚠️ **这一类旧判据完全看不见**，而它同样会毁掉 cherry-pick：
+   它们过得了「`main` 上存在吗」，但已经在 `dev` 上带着谱务接线了（`src/app.config.ts` 多了谱务 tab、
+   `src/lib/tabBarConfig.ts` 多了它的路径、`src/components/CustomTabBar.tsx` 多了三个图标 import、
+   `src/i18n/messages/<locale>/index.ts` 多了四个聚合项）。整份拷过去 = **静默把谱务带上正式线**。
+
+⚠️ **不要再用以前那条 `git cat-file -e origin/main:<路径>`**：它要**逐个**传路径，而以 `.` 开头的首段会被
+Git Bash（MSYS）改写成 `origin\main;<路径>`，于是 `.gitignore`、`.github/**` 这类文件**一律报「对象名无效」**——
+按当时的判读规则（「报错 = main 上没有」）就会被**误判成未发布功能**。真要单独查一个路径，
+用 `git ls-tree -r origin/main --name-only | grep -x <路径>`，或在 Git Bash 里先 `export MSYS_NO_PATHCONV=1`。
+
+> 这份清单以前是**手写**的，已经错过一次：实测漏 13 条，其中包括 `src/pages/score/index.tsx`
+> —— **谱务 tab 页本身**（`src/pages/score-*` 匹配不到 `score/` 这个没有连字符的目录名）。
+> 清单会腐烂，命令不会。
 
 > 将来若把某个未发布功能挪到自己的分支：**必须同时改 CI**（`.github/workflows/deploy-dev.yml` 的 `branches:`），否则那条分支拿不到开发版构建。
 
@@ -182,7 +197,7 @@ pnpm branch:create <patch|minor|major> <描述>
 
 它依次做四件事：按 `<type>/<描述>` 建分支 → 改 `package.json` 版本 → 提交 `chore: bump version to X` → 建**本地** tag `vX`（不推送）。
 
-1. **版本号带预发布后缀时它算错。** `scripts/create-branch.js` 用 `version.split('.').map(Number)`，遇到 `0.4.26-dev.1` 会得到 `patch = NaN`，把版本写成 **`0.4.NaN`**（`scripts/version.js` 能正确处理，两者行为不一致）。**所以别在 `pnpm version:dev` 之后跑 `branch:create`**；单纯要升版本用 `pnpm version:bump`。
+1. ~~版本号带预发布后缀时它算错~~ **已修**（2026-09-28 前后）：`scripts/create-branch.js` 现在把版本计算整个委托给 `scripts/version.js`（那份逻辑的唯一实现，CI 的 dev/prod 部署也用它），实测 `0.4.26-dev.1` → `0.4.27`。**这条以前写的是「别在 `pnpm version:dev` 之后跑 `branch:create`，否则会写出 `0.4.NaN`」** —— 那个 bug 真实存在过，但代码早已修好，照旧文档走等于绕着一个已经拆掉的雷区。
 2. **它会自己提交一次 `package.json`**，这个提交会跟着你合进 `dev` / `main`，并因此命中 CI 的 `paths:` 白名单。
 
 ### 2.4 tag
@@ -304,7 +319,22 @@ pnpm upload 0.4.27 "测试上传"   # 指定版本号与描述
   否则滚动内容末行会被永久遮挡、滚不到底。
   **关键坑：Taro 会把样式表（`.wxss`、Tailwind 工具类、`@utility`、`pb-[50px]` 等）里的 `px` 自动编译成 `rpx`**（`config/index.ts` 的 `designWidth: 750` + `pxtransform.enable`；`50px`→`50rpx`≈25px），而 tabBar 高度用的是**内联** `px`（不被转换）。所以写在 `app.css` / `className` 里的 `50px` 只留一半高度、照样遮挡——**只能在内联 `style` 里写真实 `px`**。
   关于 `pb-safe`：它是**有效**的纯安全区工具类（`src/app.css` 的 `@utility pb-safe`），但只覆盖安全区，**不足以替代 tabBar 的 50px 预留**，也不得用在 tab 页根容器上；`pb-8` / `pb-[50px]` 同理（后者还会被转 rpx）。
-  **现役 tab 清单不要照抄本文档**——以 `src/app.config.ts` 的 `tabBar.list` 为准（`main` 与 `dev` 的 tab 集合可能不同），改动时逐个核对。
+  **现役 tab 清单不要照抄本文档**——它在**三处**各有一份，改一处必须同时改另两处（`main` 与 `dev` 的 tab 集合也可能不同）：
+
+  | 位置 | 作用 |
+  | --- | --- |
+  | `src/app.config.ts` 的 `tabBar.list` | 框架用：决定哪些页面是 tab 页 |
+  | `src/components/CustomTabBar.tsx` 的 `LIST` | 自绘底边栏：图标三色 + i18n key |
+  | `src/lib/tabBarConfig.ts` 的 `TAB_PAGE_PATHS` | 把当前路由换算成选中索引 |
+
+  三份**互指**（每份的注释都说「与另一份保持同步」），没有哪一份是权威。核对命令：
+
+  ```bash
+  grep -n "pagePath\|'/pages/" src/app.config.ts src/components/CustomTabBar.tsx src/lib/tabBarConfig.ts
+  ```
+
+  ⚠️ `CustomTabBar` 里还有**硬编码的下标**（`idx === 4` 判「我的」、`idx === 0` 判首页的未读红点）——
+  增删 tab 时它们**不会报错，只会指错页**。（三份清单该合并成一份，尚未做。）
 
 - **新建页面必须有 `index.scss` 并 `import`**：建 `src/pages/<page>/index.scss`（可放一条占位规则）并在页面 `tsx` 顶部 `import './index.scss'`。实测（`src/pages/index`）**空的 `index.scss` 也会生成 0 字节的 `index.wxss`**，所以后果不是"文件不存在"；真正的坑是 Taro 会跳过给包裹层注入 `.page { height: 100% }`，短内容页面因此高度塌陷、露出窗口背景色——由 `src/app.css` 的全局兜底接住。规则照旧：新页面别漏这个文件。
 - **Modal 通过 `useLayoutEffect` 在绘制前隐藏 tabBar**（`src/components/ui/Modal.tsx`）。
@@ -329,11 +359,14 @@ pnpm upload 0.4.27 "测试上传"   # 指定版本号与描述
 | `usePageRestore<T>(paramName)` | 缓存 `router.params` 中的关键参数 | `src/hooks/usePageRestore.ts` |
 | `useEditDraft<T>(defaultData)` | 缓存编辑态表单数据                | `src/hooks/useEditDraft.ts`   |
 
-`usePageRestore` 的两个已知瑕疵（**别照抄它的 JSDoc 示例**）：
+`usePageRestore` 的注意事项：
 
-- JSDoc 称"参数丢失时调用 `onRestore` 回调"，但函数签名并没有这个参数。
-- 示例写 `usePageRestore<number>('id')`，而 `router.params` 实际是字符串（返回原样 cast）。正确用法见 `src/pages/rehearsal-detail/index.tsx`：`usePageRestore<string>` 之后再 `Number()`。
-- 同文件的 `usePageRestoreMany` **是死代码**（零调用点），不要新增使用。
+- **`router.params` 的值是字符串**，而 hook 按 `T` 原样 cast。所以取数字要写
+  `usePageRestore<string>('id')` 再 `Number()`（见 `src/pages/rehearsal-detail/index.tsx`），
+  别写 `usePageRestore<number>` 自欺。
+  （这一条以前被写成「JSDoc 的两个已知瑕疵：`onRestore` 回调 / `usePageRestore<number>` 示例」——
+  JSDoc 里这两个问题**都已经不存在了**：签名从来没有 `onRestore`，示例现在就是 `<string>` + `Number()`。）
+- 同文件的 `usePageRestoreMany` **不存在** —— 它曾在 `usePageRestore.ts` 里，2026-09-28 的 `b3ce592` 已连定义一起删除，全仓（含测试）零命中。**别 import 它**（编译不过）。这条以前写的是「是死代码（零调用点），不要新增使用」，读起来像「有个能用的 API 只是没人用」。
 
 ### 使用指南
 
@@ -363,17 +396,23 @@ useEffect(() => {
 grep -rn "chooseMedia\|chooseAvatar\|getLocation" src --include=*.tsx --include=*.ts
 ```
 
-截至 2026-09-28（`main`）的核对结果：
+⚠️ **下表是一次核对的快照，不是权威**（2026-09-30 复核时发现其中三行已经过期 —— 详见「这一版修掉了什么」）。
+权威只有你自己跑上面那条 `grep` 得到的调用点，逐页去读。
 
 | 页面               | API          | 现状                                                                                                                                                            |
 | ------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rehearsal-detail` | getLocation  | ✅ `usePageRestore<string>('id')`                                                                                                                               |
-| `post-edit`        | chooseMedia  | ✅ `usePageRestore<string>('id')`，但**不恢复未保存内容**（重新 `fetchOne` 会用服务端旧值覆盖用户已敲的标题/正文）                                              |
+| `post-edit`        | chooseMedia  | ✅ `usePageRestore<string>('id')` + `useEditDraft`。**未保存内容会恢复**：`:108` 有 `if (editDraft.hasDraft()) return` 挡在「用服务端旧值回填表单」前面（此前这里写的是「不恢复未保存内容」，已过期） |
 | `post-create`      | chooseMedia  | ✅ `useEditDraft` + `useDidShow`（标准范例）；`router.params.type` 未单独缓存，目前靠草稿掩盖                                                                   |
 | `profile-info`     | chooseAvatar | ✅ `useEditDraft` + `useDidShow`                                                                                                                                |
-| `leave-request`    | chooseMedia  | ⚠️ **只缓存了路由参数**（手写 `initialParamsRef`，没复用 `usePageRestore`），`reason` / 附件仍是裸 `useState`——**选图会导致用户填的内容全丢**（已知缺口，未修） |
+| `leave-request`    | chooseMedia  | ✅ `usePageRestore`（三个参数）+ `useEditDraft` + `useDidShow`，`reason`/附件都是带草稿初值的 `useState`。**选图不会丢内容**（此前这里标的是「只缓存路由参数、选图内容全丢、未修」—— 那是 `b3ce592` 修掉之前的状况） |
 
 其余仍在裸读 `router.params` 的页面（`error` / `login` / `post-detail` / `register`）当前都不调用那三个 API，属潜在雷；`dev` 上另有谱务相关页面（`score-*`，`main` 还没有）。**核验请按上面的命令跑一遍，以你所在分支的实际情况为准。**
+
+> **这一版修掉了什么**（2026-09-30 逐条核验）：上一版这节里有三条会指挥人做错事 ——
+> `usePageRestoreMany`（**函数根本不存在**，2026-09-28 已随 `b3ce592` 删除）、
+> `leave-request` 的「选图丢数据」（**同一天就修好了**，而文档把修复日写成了核对日）、
+> `post-edit` 的「不恢复未保存内容」（同样已修）。三条都是**「未修」在修复落地的同一天写下的**。
 
 ### 测试 Mock
 
