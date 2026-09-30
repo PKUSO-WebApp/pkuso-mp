@@ -27,7 +27,7 @@
 
 ⚠️ 三条必须知道的事实：
 
-1. **CI 分两处，闸门是同一条命令**（2026-09-30 起）：`pull_request` → `ci.yml`；`push` 到 `dev` / `main` → 对应的 `deploy-*.yml` 里的 `verify` job（它 `needs` 着发版 job）。**PR 阶段只跑检查，不部署任何东西。** 两边调的都是 `pnpm gate:ci`（= `scripts/gate.mjs`，§1.2），所以「本地过闸门」与「CI 过」是同一件事——但仍要一次跑干净：CI 上撞的是 20 分钟的墙，不是即时反馈。
+1. **CI 分两处，闸门是同一条命令**（2026-09-30 起）：`pull_request` → `ci.yml`；`push` 到 `dev` / `main` → 对应的 `deploy-*.yml` 里的 `verify` job（**是发版 job 反过来 `needs` 它** —— 闸门不过就不会发版）。**PR 阶段只跑检查，不部署任何东西。** 两边调的都是 `pnpm gate:ci`（= `scripts/gate.mjs`，§1.2），所以「本地过闸门」与「CI 过」是同一件事——但仍要一次跑干净：CI 上撞的是 20 分钟的墙，不是即时反馈。
 2. **CI 有 `paths:` 白名单**（清单见 §3.2）。改 `AGENTS.md` / `README.md` / `docs/**` / `.env*` **不触发 CI**；改 `package.json` / `src/**` / `scripts/**` **会触发一次真实构建与上传**——所以「顺手改一下 `version`」不是无副作用操作。
 3. **`main` 的现状并不等于「只接受从 dev 合并」**：历史里既有从 `dev` 合入，也有直接推 `main`、以及功能分支直接 merge 到 `main`。规范意图是 dev 先行，但别拿这句话去推断历史或断言别人做错了。
 
