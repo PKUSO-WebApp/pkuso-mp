@@ -47,6 +47,13 @@
   --color-info-bg: #f0f9ff;
 
   --color-overlay: rgb(0 0 0 / 0.4);
+
+  /* 字号 —— 与 pkuso-web 的 tokens.css 取同值。
+     ⚠️ `--text-label` 是**补回来的**：此前 mp 的 @theme 里一个 `--text-*` 都没有，
+     而 src 下有 8 处在用 `text-label`（从 web 抄过来的类名，在那边有效）。
+     没有这个定义时它**不产生任何 CSS** —— 不报错、不警告，文字按继承字号渲染，
+     只有对着构建产物数一遍才看得出来。 */
+  --text-label: 0.6875rem; /* 11px，同 pkuso-web */
 }
 
 /* 暗色模式 token 覆盖：与 Web 端 tokens.css 的 [data-theme="dark"] 逐值取齐

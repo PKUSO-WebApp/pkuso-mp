@@ -98,7 +98,7 @@ config/index.ts    Taro 构建配置（defineConstants 注入 APP_VERSION）
 | ------------- | -------------------------------------------------------------------------------- |
 | `dev`         | verify（lint → typecheck → test → build）→ 上传到微信**开发版本**列表（robot 1） |
 | `main`        | 同上（robot 2）→ 版本号回写 `main` + 推 tag `v<version>`                         |
-| 其他分支 / PR | **不触发任何 CI**（workflow 只监听 push 到 dev/main，且有 `paths:` 白名单）      |
+| 其他分支 / PR | push **不触发任何 CI**；**开 PR 会跑闸门**（`ci.yml`，只跑检查、不部署）          |
 
 **CI 只上传代码包，不发布正式版**——「提交审核 → 发布」必须人工在微信公众平台操作。完整机制见 `AGENTS.md` §3。
 
