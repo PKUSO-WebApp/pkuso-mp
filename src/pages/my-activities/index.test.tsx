@@ -81,9 +81,6 @@ vi.mock('@tarojs/taro', () => ({ default: mocks.taro, useDidShow: mocks.taro.use
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 vi.mock('@/hooks/useMyProfile', () => ({ useMyProfile: () => ({ profile: { role: 'member' } }) }))
-vi.mock('@/components/page-header', () => ({
-  PageHeader: ({ title }: any) => React.createElement('div', null, title),
-}))
 vi.mock('@/components/ui/Card', () => ({
   Card: ({ children, onClick }: any) => React.createElement('div', { onClick }, children),
 }))
