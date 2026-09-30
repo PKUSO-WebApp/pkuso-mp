@@ -68,4 +68,4 @@ git checkout -b <type>/<简述> origin/main
 - 稳定线改动**保持单提交**（squash merge 天然满足），cherry-pick 才是一条命令的事
 - 交付闸门是 `pnpm gate`（见 `AGENTS.md` §1.2）——它会跑完检查并**顺手产出一份连开发库的
   `dist/`** 供真机验收
-- 推送后 CI 会自动上传开发版（见 §3），**PR 阶段不跑任何检查**
+- 推送后 CI 会自动上传开发版（见 §3）；**PR 阶段会跑闸门，但不部署任何东西**

@@ -4,8 +4,11 @@
 # `pnpm-lock.yaml` 已 22 天未动，而同期代码提交了 193 次。没有自动提醒，依赖只会在
 # 真出问题时才被发现。
 #
-# ⚠️ 本仓库 CI **不监听 pull_request**（只监听 push 到 dev/main），所以 Dependabot 开的 PR
-#    **不会跑任何检查**。合之前请自己先在本地跑 `pnpm gate`。
+# ⚠️ 2026-09-30 起本仓库**在 `pull_request` 上也跑闸门**（`.github/workflows/ci.yml`），
+#    所以 Dependabot 开的 PR 是**有检查的**（此前的注释说"不会跑任何检查"，已不成立）。
+#    Dependabot 的运行拿不到仓库 secrets（GitHub 按 `github.actor` 扣留），`ci.yml` 为此
+#    写了占位值降级 —— 否则依赖升级 PR 会卡在一个永远满足不了的必需检查上。
+#    合并前仍建议本地跑一次 `pnpm gate`：CI 只保证机器可判定的那部分。
 version: 2
 updates:
   - package-ecosystem: "npm"
