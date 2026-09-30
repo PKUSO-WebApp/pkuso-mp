@@ -72,9 +72,6 @@ vi.mock('@tarojs/taro', () => ({
 }))
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
-vi.mock('@/components/page-header', () => ({
-  PageHeader: ({ title }: any) => React.createElement('div', null, title),
-}))
 vi.mock('@/hooks/usePosts', () => ({
   usePosts: () => ({
     fetchOne: mocks.fetchOne,

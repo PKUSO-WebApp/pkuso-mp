@@ -37,7 +37,13 @@ import { subscribeLocale, translateCurrent } from '@/i18n'
 // 必须用普通 View（非 CoverView）：CoverView 是原生顶层，opacity:0 仍会拦截底部触摸，
 // 导致 Modal 底部按钮点不到；改用 View + display:none 既能真正移除（不拦截触摸），
 // 又不会像 CoverView 那样在 display 切换时重建原生节点而闪烁。
-const LIST = [
+/**
+ * 底边栏的 tab 清单。**导出是为了让 `tab-bar-sync.test.ts` 能核对三份清单的一致性** ——
+ * 本仓的 tab 定义散在三处（这里、`app.config.ts` 的 `tabBar.list`、`lib/tabBarConfig.ts`
+ * 的 `TAB_PAGE_PATHS`），三份互指、谁也不是权威，所以用一条测试把它们钉在一起。
+ * 运行时没有任何人 import 它，导出不改变行为。
+ */
+export const LIST = [
   {
     pagePath: '/pages/index/index',
     key: 'ui.tabBar.home',
