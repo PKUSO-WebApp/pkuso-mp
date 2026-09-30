@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, Picker, Text, View } from '@tarojs/components'
 import Taro, { useShareAppMessage } from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
+import { PageLoading } from '@/components/ui/PageLoading'
 import { TextField } from '@/components/ui/FormFields'
 import { LanguageToggle } from '@/components/ui/LanguageToggle'
 import { useUser } from '@/context/user-context'
@@ -184,11 +185,7 @@ export default function RegisterPage() {
   }
 
   if (!ready) {
-    return (
-      <View className={`${darkClass} flex min-h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
-      </View>
-    )
+    return <PageLoading darkClass={darkClass} />
   }
 
   return (
