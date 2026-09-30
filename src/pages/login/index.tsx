@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
+import { PageLoading } from '@/components/ui/PageLoading'
 import { TextField } from '@/components/ui/FormFields'
 import { ForceOfflineModal } from '@/components/force-offline-modal'
 import { useUser } from '@/context/user-context'
@@ -253,9 +254,7 @@ export default function LoginPage() {
 
   const content =
     !ready || redirecting ? (
-      <View className={`${darkClass} flex min-h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
-      </View>
+      <PageLoading darkClass={darkClass} />
     ) : (
       <View
         className={`${darkClass} flex min-h-full flex-col items-center justify-center bg-page-bg px-5`}

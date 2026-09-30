@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
+import { PageLoading } from '@/components/ui/PageLoading'
 import Taro from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
 import { ActionBar } from '@/components/ui/ActionBar'
@@ -245,11 +246,7 @@ export default function SetupPage() {
   }
 
   if (!ready || !user) {
-    return (
-      <View className={`${darkClass} flex min-h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
-      </View>
-    )
+    return <PageLoading darkClass={darkClass} />
   }
 
   return (
