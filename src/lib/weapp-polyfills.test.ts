@@ -78,7 +78,13 @@ describe('weapp-polyfills', () => {
         if (base === undefined && !VALID.test(url)) {
           throw new TypeError("Failed to construct 'URL': Invalid URL")
         }
-        this.protocolValue = /^(https?:|wss?:)/i.exec(url)?.[1].toLowerCase() + ':' ?? ''
+        // ⚠️ 这里原来写的是
+        //   `/^(https?:|wss?:)/i.exec(url)?.[1].toLowerCase() + ':' ?? ''`
+        // `+ ':'` 让左边永远不是 nullish ⇒ `?? ''` 是死代码，而匹配不上时会得到
+        // 字符串 `"undefined:"`（TS 5.9 的 TS2869 把这条抓了出来）。
+        // 构造器只对「无 base 且不是 http(s)」抛错，所以匹配不上那条路只在带 base 时到得了。
+        const scheme = /^(https?:|wss?:)/i.exec(url)
+        this.protocolValue = scheme ? scheme[1].toLowerCase() + ':' : ''
       }
       get protocol() {
         return this.protocolValue

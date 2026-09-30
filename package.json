@@ -116,7 +116,7 @@
     "stylelint-config-standard": "^38.0.0",
     "tailwindcss": "^4.3.3",
     "tsconfig-paths-webpack-plugin": "^4.1.0",
-    "typescript": "^5.4.5",
+    "typescript": "^5.9.3",
     "vite": "^8.2.1",
     "vitest": "^4.1.11",
     "weapp-tailwindcss": "^5.3.1",

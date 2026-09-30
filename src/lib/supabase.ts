@@ -529,7 +529,14 @@ async function toTaroBody(body: BodyInit | null | undefined): Promise<TaroBody |
   // 否则会被判为「不支持该请求体类型」
   if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(body)) {
     const view = body as ArrayBufferView
-    return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength)
+    // ⚠️ `view.buffer` 的类型是 `ArrayBufferLike`（= ArrayBuffer | SharedArrayBuffer），
+    // 而 `TaroBody` 只接受 ArrayBuffer。SharedArrayBuffer 不可能来自微信的 readFile
+    //（它是跨线程共享内存，小程序里没有这条路径）；真遇到就落到下面那条
+    // 「暂不支持该请求体类型」的报错上 —— **不要用 `as ArrayBuffer` 把它蒙过去**，
+    // 那会让一个类型上说不通的值真的交给 Taro。
+    if (view.buffer instanceof ArrayBuffer) {
+      return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength)
+    }
   }
   if (typeof Blob !== 'undefined' && body instanceof Blob) return body.arrayBuffer()
   if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
