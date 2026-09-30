@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { formatLocalISO } from './date-utils'
-import { isRehearsalWithinNextWeek } from './rehearsal-utils'
+import { isRehearsalWithinNextWeek, normalizeTargets } from './rehearsal-utils'
 
 // 固定"今天"为 2026-08-14 10:30（本地时区），便于边界断言
 const NOW = new Date(2026, 7, 14, 10, 30, 0)
@@ -87,6 +87,27 @@ describe('rehearsal-utils', () => {
       expect(isRehearsalWithinNextWeek('2028-03-03T23:59:59', febNow)).toBe(true)
       // 3月4日 00:00:00 已超过一周，隐藏
       expect(isRehearsalWithinNextWeek('2028-03-04T00:00:00', febNow)).toBe(false)
+    })
+  })
+  describe('normalizeTargets', () => {
+    it('数组原样（只留字符串）', () => {
+      expect(normalizeTargets(['弦乐', '管乐'])).toEqual(['弦乐', '管乐'])
+    })
+
+    it('**历史标量**包成单项数组（这一列迁移前是字符串）', () => {
+      expect(normalizeTargets('弦乐')).toEqual(['弦乐'])
+    })
+
+    it('空值/空串 ⇒ 空数组（不能变成单元素空串、也不能变成字符串 null）', () => {
+      expect(normalizeTargets(null)).toEqual([])
+      expect(normalizeTargets(undefined)).toEqual([])
+      expect(normalizeTargets('')).toEqual([])
+    })
+
+    it('脏值一律丢掉 —— 返回声明是 string[]，塞非字符串就是类型在说谎', () => {
+      expect(normalizeTargets(5)).toEqual([])
+      expect(normalizeTargets(['弦乐', 5, null, { a: 1 }])).toEqual(['弦乐'])
+      expect(normalizeTargets({ a: 1 })).toEqual([])
     })
   })
 })
