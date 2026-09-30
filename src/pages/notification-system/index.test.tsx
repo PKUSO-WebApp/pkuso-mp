@@ -38,11 +38,12 @@ const activityRows = [
 const { taroMock, fetchMock, markCategoryMock, notifyMock, hideHolder } = vi.hoisted(() => ({
   taroMock: { showToast: vi.fn() },
   // 显式标注返回类型：否则被推断成 error: null，后面模拟失败态就赋不进 'loadFailed'
-  fetchMock: vi.fn((category?: string): Promise<{ rows: any[]; error: string | null }> =>
-    Promise.resolve({
-      rows: category === 'activity' ? (activityRows as any[]) : (rows as any[]),
-      error: null,
-    })
+  fetchMock: vi.fn(
+    (category?: string): Promise<{ rows: any[]; error: string | null }> =>
+      Promise.resolve({
+        rows: category === 'activity' ? (activityRows as any[]) : (rows as any[]),
+        error: null,
+      })
   ),
   markCategoryMock: vi.fn(() => Promise.resolve(true)),
   notifyMock: vi.fn(),
@@ -146,7 +147,9 @@ describe('系统通知页', () => {
   })
 
   it('两类都失败时给重试入口；重试会重新取数并恢复内容', async () => {
-    fetchMock.mockImplementation(() => Promise.resolve({ rows: [], error: 'loadFailed' as const }))
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({ rows: [], error: 'loadFailed' as const })
+    )
     const callsAfterFirstLoad = fetchMock.mock.calls.length
     render(<NotificationSystemPage />)
     // 失败文案与重试按钮都得出现——光有文案没有入口就是「只能退出重进」
