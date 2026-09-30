@@ -593,5 +593,36 @@ describe('supabase 官方客户端适配', () => {
       expect(request).toHaveBeenCalledTimes(3)
       expect(new Set(urlsOf())).toEqual(new Set([`${DIRECT}/rest/v1/rehearsals`]))
     })
+
+    it('上报端点自身的失败不再自我上报——**两条路径都要认**', async () => {
+      stubDualEntry()
+      request.mockResolvedValue({ statusCode: 400, header: {}, data: '{"message":"boom"}' })
+      const { taroFetch } = await loadWithReporter()
+
+      await taroFetch(`${DIRECT}/rest/v1/rpc/log_client_errors`, { method: 'POST' })
+      await taroFetch(`${DIRECT}/rest/v1/client_error_logs`, { method: 'POST' })
+
+      // 守卫以前只认 `/rest/v1/client_error_logs`（0.4.26/0.4.27 的直写表路径），而客户端
+      // 早就改成走 RPC 了 ⇒ 它一直失效，上报自己的失败被当成业务失败混进样本。现在由
+      // error-report 的 handleRejectedBatch 显式记「被拒 + 服务端的原话」，这里必须安静。
+      expect(reported).toHaveLength(0)
+    })
+
+    it('HTTP 层失败也带上 entry/host——与网络失败那条路保持同样的可判读性', async () => {
+      stubDualEntry()
+      request.mockResolvedValue({ statusCode: 400, header: {}, data: '{}' })
+      const { taroFetch } = await loadWithReporter()
+
+      await taroFetch(`${DIRECT}/rest/v1/attendances`)
+
+      const failed = reported.filter((r) => r.event === 'request_failed')
+      expect(failed).toHaveLength(1)
+      // 少了这两个字段，一条 `HTTP 400 @ …` 就只能靠反推它打在哪个入口、哪个域名上
+      expect(failed[0].detail).toMatchObject({
+        status: 400,
+        entry: 'proxy',
+        host: 'proxy.example.com',
+      })
+    })
   })
 })

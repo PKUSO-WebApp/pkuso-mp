@@ -65,8 +65,23 @@ export function setRequestFailureReporter(fn: RequestFailureReporter): void {
   requestFailureReporter = fn
 }
 
-// 上报端点自身绝不再上报：网络故障时若连上报请求都失败，会形成 上报→失败→上报 的循环
-const ERROR_REPORT_PATH = '/rest/v1/client_error_logs'
+/**
+ * 上报端点自身绝不再上报：网络故障时若连上报请求都失败，会形成 上报→失败→上报 的循环。
+ *
+ * ⚠️ **两条路径都要认**。`/rest/v1/client_error_logs` 是 0.4.26/0.4.27 那两版的直写表路径
+ * （老客户端还在线上），现在走的是 RPC `/rest/v1/rpc/log_client_errors`。
+ *
+ * 只认前者是一个**存在了很久的 bug**：常量没跟着改造一起改，于是这条守卫一直是**失效**的
+ * ——上报请求自己的失败被当成普通请求失败上报了。副作用有两面：坏的一面是它把「上报失败」
+ * 混进了业务失败的样本；好的一面是，正因为失效，我们才在库里看见过一条 `HTTP 400 @
+ * /rest/v1/rpc/log_client_errors`。现在改由 error-report 的 `handleRejectedBatch` **显式**
+ * 上报「被拒 + 服务端的原话」，所以把守卫改对不再等于把观测一起关掉。
+ */
+const ERROR_REPORT_PATHS = ['/rest/v1/client_error_logs', '/rest/v1/rpc/log_client_errors']
+
+function isErrorReportUrl(url: string): boolean {
+  return ERROR_REPORT_PATHS.some((path) => url.includes(path))
+}
 
 // 请求成功 = 网络确实可用。这是「断网恢复」最可靠的信号：onNetworkStatusChange 在
 // 开发者工具模拟离线时未必触发（工具模拟的是请求失败，不一定改系统网络状态），
@@ -87,7 +102,7 @@ function reportRequestFailure(
   extra: Record<string, unknown> = {}
 ): void {
   if (!requestFailureReporter) return
-  if (url.includes(ERROR_REPORT_PATH)) return
+  if (isErrorReportUrl(url)) return
   const path = urlPath(url).slice(0, 120)
   try {
     requestFailureReporter({
@@ -372,7 +387,16 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
           response.statusCode >= 500 ? 'error' : 'warn',
           // 状态码同时进 message（指纹粒度）和字段（可聚合）。ms 是「卡了多久」的唯一来源：
           // 502 在 30s 后出现和 0.2s 后出现，指向完全不同的病因。
-          { diag, ms, status: response.statusCode, attempts: attempt }
+          {
+            diag,
+            ms,
+            status: response.statusCode,
+            attempts: attempt,
+            // 与网络失败那条路保持一致：HTTP 层失败同样要能看出「打在哪个入口、哪个域名」。
+            // 少了它，一条 `HTTP 400 @ /rest/v1/rpc/log_client_errors` 就只能靠反推。
+            entry: currentEntry,
+            host: urlHost(requestUrl),
+          }
         )
       } else if (attempt > 1) {
         // 重试后成功也留一条（warn 级）。没有它，「弱网到底有多普遍」「这次改造有没有用」
@@ -426,7 +450,7 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
       // 拿到了响应就说明网是通的（4xx/5xx 也算——那至少证明链路可达），
       // 顺带把积压的错误队列送出去。排除上报端点自身，否则 flush 成功会再触发 flush。
       // 位置在**最后一次尝试之后**：中途某次拿到 5xx 就白触发一轮 flush 是没意义的。
-      if (!url.includes(ERROR_REPORT_PATH)) {
+      if (!isErrorReportUrl(url)) {
         try {
           requestSuccessHook?.()
         } catch {

@@ -40,6 +40,13 @@ const MAX_EVENT_LEN = 64
 const MAX_PAGE_LEN = 128
 const MAX_PLATFORM_LEN = 64
 const MAX_DETAIL_BYTES = 4096
+/**
+ * detail 的实际预算 = 库端上限减一点余量。
+ *
+ * 余量依据（实测，2026-09-30）：jsonb 的二进制占用比它的 JSON 文本恒定多 8 字节
+ * （2 键 / 8 键 / 20 键三种形状都是 8）。留 128 覆盖没测到的嵌套形状。
+ */
+const DETAIL_BUDGET_BYTES = MAX_DETAIL_BYTES - 128
 // detail 内单字段的字符上限（栈往往最长）
 const MAX_DETAIL_STRING_LEN = 800
 
@@ -113,6 +120,35 @@ function truncate(value: string, max: number): string {
   return value.length <= max ? value : value.slice(0, max)
 }
 
+/**
+ * 一段文本在库端的占用字节数（UTF-8）。
+ *
+ * ⚠️ **detail 的预算不能用 `String.length` 算**：那是 UTF-16 码元数——一个汉字算 1，
+ * 而库端的 `pg_column_size(detail)` 按 UTF-8 字节算、汉字占 3，中间是**近 3 倍的盲区**。
+ * 这条不是理论风险：`client_error_logs_detail_size_check` 是**表级**约束，而
+ * `log_client_errors` 把整批作为**一条 INSERT** ⇒ 一行超限就是**整批 400**，
+ * 客户端还会把整批静默丢掉（生产库 2026-09-30 出现过一次）。
+ *
+ * 实测（纯 SELECT 验的）：两个 800 字的汉字字段，`.length` 只算 1627、按字节算是 4835
+ * —— 前者放行、后者才拦得住，而库端上限是 4096。
+ *
+ * 自己数而不用 TextEncoder：JSCore 上不保证有它（weapp-polyfills 也没补），
+ * 而这里只计数、不分配内存。
+ */
+export function utf8Bytes(text: string): number {
+  let bytes = 0
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i)
+    if (code < 0x80) bytes += 1
+    else if (code < 0x800) bytes += 2
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      bytes += 4 // 代理对：一个码点 4 字节，且吃掉两个码元
+      i += 1
+    } else bytes += 3
+  }
+  return bytes
+}
+
 function normalizeValue(value: unknown): Json {
   if (typeof value === 'string') return truncate(value, MAX_DETAIL_STRING_LEN)
   // NaN / Infinity 不是合法 JSON，落成 null
@@ -131,8 +167,11 @@ function normalizeValue(value: unknown): Json {
 }
 
 /**
- * 把 detail 削到库端上限以内。jsonb 的实际占用由 pg_column_size 判定，这里用 JSON
- * 文本长度近似（留出结构开销余量）。
+ * 把 detail 削到库端上限以内。
+ *
+ * ⚠️ **计量单位必须是 UTF-8 字节**（`utf8Bytes`），不是 `String.length`：库端的判据是
+ * `pg_column_size(detail) <= 4096`，按字节算；用码元数算会因为汉字差近 3 倍而放行
+ * 超限的 payload，后果是**整批 400 + 整批被静默丢弃**。详见 `utf8Bytes` 的注释。
  *
  * 顺序：先把每个字段各自截断（normalizeValue），再按原顺序逐字段累加、放不下就停。
  * 「宁可只留前面的几个字段，也不要整块丢成一句 keys」——调用方按重要性排列字段
@@ -141,21 +180,21 @@ function normalizeValue(value: unknown): Json {
 function fitDetail(detail: Record<string, unknown> | undefined): Json | null {
   if (!detail) return null
   const normalized = normalizeValue(detail) as Record<string, Json>
-  if (JSON.stringify(normalized).length <= MAX_DETAIL_BYTES) return normalized
+  if (utf8Bytes(JSON.stringify(normalized)) <= DETAIL_BUDGET_BYTES) return normalized
 
   const kept: Record<string, Json> = {}
   let size = 2 // 外层花括号
   for (const [key, value] of Object.entries(normalized)) {
-    const piece = JSON.stringify({ [key]: value }).length
-    // 留 32 字符给尾部的截断标记
-    if (size + piece > MAX_DETAIL_BYTES - 32) break
+    const piece = utf8Bytes(JSON.stringify({ [key]: value }))
+    // 留 64 字节给尾部的截断标记
+    if (size + piece > DETAIL_BUDGET_BYTES - 64) break
     kept[key] = value
     size += piece
   }
   kept.detail_truncated = true
 
   // 兜底：极端情况下连一个字段都放不下（理论上不会——单字段已限 800 字符）
-  if (JSON.stringify(kept).length > MAX_DETAIL_BYTES) {
+  if (utf8Bytes(JSON.stringify(kept)) > DETAIL_BUDGET_BYTES) {
     return { detail_too_large: true, keys: Object.keys(detail).slice(0, 20).join(',') }
   }
   return kept
@@ -330,7 +369,9 @@ export function flushErrorQueue(): void {
           if (res?.status === 0) return
           if (res?.error) {
             // eslint-disable-next-line no-console
-            console.error('[error-report] 队列被服务端拒绝，已丢弃：', res.error.message)
+            console.error('[error-report] 队列被服务端拒绝：', res.error.message)
+            handleRejectedBatch(sending, String(res.error.message ?? ''))
+            return
           }
           removeSent(sending)
         },
@@ -343,6 +384,97 @@ export function flushErrorQueue(): void {
     // 构造请求时就同步抛错：保留队列，且必须复位守卫——否则后面所有 flush 都会被跳过
     flushing = false
   }
+}
+
+/**
+ * 队列里 detail 最大的那条。
+ *
+ * 已知唯一能让整批 400 的成因就是某一条的 detail 超出字节上限（见 fitDetail），
+ * 所以「最大」就是嫌疑最大的。它不是拍脑袋的启发式——第二次发送的结果会**证实或推翻**它。
+ */
+function largestDetail(items: QueueItem[]): QueueItem {
+  let worst = items[0]
+  let worstSize = -1
+  for (const item of items) {
+    const size = item.detail ? utf8Bytes(JSON.stringify(item.detail)) : 0
+    if (size > worstSize) {
+      worstSize = size
+      worst = item
+    }
+  }
+  return worst
+}
+
+/**
+ * 把「上报被拒、丢了什么、服务端说了什么」记一条。
+ *
+ * ⚠️ **不走 reportClientError**：那个会立刻再 flush 一次，而这里正处在「上报失败」的
+ * 回调里——那就是「上报 → 失败 → 再上报」那条环的起点。只入队，跟着下一次正常 flush 走
+ * （队列持久，不会丢）。去重沿用同一套指纹窗口，免得被拒期间刷屏。
+ */
+function enqueueRejection(dropped: QueueItem[], serverMessage: string, retriedOk: boolean): void {
+  if (!dropped.length) return
+  const summary = dropped
+    .map((x) => `${x.event}(${x.detail ? utf8Bytes(JSON.stringify(x.detail)) : 0}B)`)
+    .join(', ')
+  const message = `上报被拒 ${dropped.length} 条：${serverMessage}`
+  if (!shouldSend(fingerprint('error_report_rejected', message), Date.now())) return
+  const ctx = collectContext()
+  enqueue({
+    client_id: newClientId(),
+    created_at: new Date().toISOString(),
+    level: 'error',
+    source: 'mp',
+    event: 'error_report_rejected',
+    message: truncate(message, MAX_MESSAGE_LEN),
+    detail: fitDetail({
+      serverMsg: truncate(serverMessage, 300),
+      dropped: truncate(summary, 400),
+      // true ⇒ 摘掉那条最大的之后其余都进去了，罪魁就是它
+      retriedWithoutLargest: retriedOk,
+      netLastKnown: ctx.netLastKnown,
+    }),
+    app_version: ctx.appVersion,
+    platform: ctx.platform,
+    page: ctx.page,
+  })
+}
+
+/**
+ * 服务端拒绝了这一批（4xx）。
+ *
+ * **绝不静默整批丢。** 整批是一条 INSERT，一行不合规就全灭，而其余那些本该进得去 ——
+ * 生产库实测过一次：一条坏记录带走整批，而客户端只往控制台打一行，用户和库里都看不见。
+ *
+ * 处置：把 detail 最大的那条摘出来，**剩下的再送一次**（至多两次请求，不递归、不风暴）：
+ *   - 第二次成功 ⇒ 罪魁就是它：只丢它一条，其余照常入库，并记一条带服务端原话的记录
+ *   - 第二次仍失败 ⇒ 不是它：整批丢弃，如实上报（附第二次的服务端原话）
+ *
+ * 有意不碰 `flushing`：期间若有别的 flush 挤进来，最坏是同一批发两遍，
+ * 而库端 `log_client_errors` 按 `client_id` 去重，重复是 no-op。
+ */
+function handleRejectedBatch(sent: QueueItem[], serverMessage: string): void {
+  // 只有一条（或空）时没有「摘掉一条再试」的余地：直接判定丢弃并留档
+  const culprit = sent.length > 1 ? largestDetail(sent) : null
+  if (!culprit) {
+    removeSent(sent)
+    enqueueRejection(sent, serverMessage, false)
+    return
+  }
+  const rest = sent.filter((item) => item !== culprit)
+  void supabase.rpc('log_client_errors', { rows: rest }).then(
+    (res) => {
+      // 网络层又断了：整批留在队列里，下次重来（这次不算数）
+      if (res?.status === 0) return
+      const restLanded = !res?.error
+      // 两种情况下这一批都不该再重发：成功则都已入库（坏的那条除外），失败则已判定丢弃
+      removeSent(sent)
+      enqueueRejection(restLanded ? [culprit] : sent, serverMessage, restLanded)
+    },
+    () => {
+      // 网络失败：整批留在队列，等下次
+    }
+  )
 }
 
 /**

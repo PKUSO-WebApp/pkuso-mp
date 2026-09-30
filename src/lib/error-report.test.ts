@@ -4,6 +4,7 @@ import {
   describeError,
   flushErrorQueue,
   reportClientError,
+  utf8Bytes,
 } from './error-report'
 
 // 本地 storage（队列就存在这里）
@@ -12,7 +13,13 @@ const storage = new Map<string, string>()
 const insertCalls: Record<string, unknown>[][] = []
 // 每次 rpc 调用的函数名与参数——幂等补送全靠库端那个函数，所以要能断言（见「补送幂等」用例）
 const rpcCalls: { fn: string; args: Record<string, unknown> | undefined }[] = []
-let insertMode: 'ok' | 'reject' | 'server_error' | 'throw' | 'network' = 'ok'
+let insertMode:
+  | 'ok'
+  | 'reject'
+  | 'server_error'
+  | 'server_error_once'
+  | 'throw'
+  | 'network' = 'ok'
 
 // 网络类型：真实 API 是异步的，而报错路径要同步可得 ⇒ 缓存。这里同步回调即可
 // 覆盖那条缓存路径。
@@ -48,6 +55,17 @@ vi.mock('@/lib/supabase', () => {
         status: 0,
         count: null,
         statusText: '',
+      })
+    }
+    if (insertMode === 'server_error_once') {
+      // 第一次拒、第二次放行：用来验「摘掉 detail 最大那条再送」这一步真的起作用
+      insertMode = 'ok'
+      return Promise.resolve({
+        data: null,
+        error: { message: 'check constraint violated', details: '', hint: '', code: '23514' },
+        status: 400,
+        count: null,
+        statusText: 'Bad Request',
       })
     }
     if (insertMode === 'server_error') {
@@ -246,7 +264,87 @@ describe('reportClientError', () => {
     reportClientError({ event: 'app_error', message: 'poison' })
     await flush()
 
-    expect(readQueue()).toHaveLength(0)
+    const queue = readQueue()
+    // 毒丸本身必须离开队列（它进不去，留着只会永久堵住后面所有的记录）……
+    expect(queue.some((x) => x.event === 'app_error')).toBe(false)
+    // ……但「它被丢了」这件事要留下来。以前是**静默**丢掉：用户看不见、库里也查不到，
+    // 一条坏记录连带整批 50 条一起消失，事后连丢了什么都不知道。
+    expect(queue).toHaveLength(1)
+    expect(queue[0]).toMatchObject({ event: 'error_report_rejected', level: 'error' })
+    expect(JSON.stringify(queue[0].detail)).toContain('check constraint violated')
+  })
+
+  it('detail 的预算按 **UTF-8 字节** 算，不是码元数（汉字差 3 倍，会撑爆库端的 4096）', async () => {
+    // 两个 800 字汉字字段：按 .length 算是 1627（看着远低于 4096），按字节是 4835（超限）。
+    // 这条 payload 正是生产库里那次「整批 400」的形状。
+    reportClientError({
+      event: 'cjk',
+      message: 'm',
+      detail: { a: '中'.repeat(800), b: '中'.repeat(800) },
+    })
+    await flush()
+
+    const sent = insertCalls[0][0] as { detail: unknown }
+    const text = JSON.stringify(sent.detail)
+    // 库端判据是 pg_column_size(detail) <= 4096，实测它比 JSON 文本恒定多 8 字节
+    expect(utf8Bytes(text) + 8).toBeLessThanOrEqual(4096)
+    expect((sent.detail as { detail_truncated?: boolean }).detail_truncated).toBe(true)
+  })
+
+  it('utf8Bytes 数的是 UTF-8 字节', () => {
+    expect(utf8Bytes('')).toBe(0)
+    expect(utf8Bytes('abc')).toBe(3)
+    expect(utf8Bytes('中')).toBe(3)
+    expect(utf8Bytes('é')).toBe(2)
+    expect(utf8Bytes('😀')).toBe(4) // 代理对：JS 里 .length 是 2，UTF-8 是 4 字节
+  })
+
+  it('一批被拒时先把 detail 最大那条摘出来重试：其余照常入库，只丢毒丸', async () => {
+    // 先攒两条（网络不通 ⇒ 都留在队列里）
+    insertMode = 'reject'
+    reportClientError({ event: 'small', message: 'a' })
+    reportClientError({ event: 'big', message: 'b', detail: { blob: 'x'.repeat(800) } })
+    await flush()
+    expect(readQueue()).toHaveLength(2)
+
+    insertMode = 'server_error_once'
+    rpcCalls.length = 0
+    flushErrorQueue()
+    await flush()
+    await flush()
+
+    // 第二次发送只带小的那条——一次整批被拒，不该连带丢掉另外那些合法的记录
+    expect(rpcCalls).toHaveLength(2)
+    const secondRows = rpcCalls[1].args?.rows as { event: string }[]
+    expect(secondRows.map((r) => r.event)).toEqual(['small'])
+
+    // 队列里只剩那一条「被拒」的记录：small 已入库、big 已判定为丢
+    const queue = readQueue()
+    expect(queue).toHaveLength(1)
+    expect(queue[0].event).toBe('error_report_rejected')
+    expect(queue[0].detail).toMatchObject({ retriedWithoutLargest: true })
+  })
+
+  it('摘掉最大的之后仍被拒 ⇒ 整批丢弃并如实上报（不无限重试）', async () => {
+    insertMode = 'reject'
+    reportClientError({ event: 'small', message: 'a' })
+    reportClientError({ event: 'big', message: 'b', detail: { blob: 'x'.repeat(800) } })
+    await flush()
+
+    insertMode = 'server_error' // 两次都拒
+    rpcCalls.length = 0
+    flushErrorQueue()
+    await flush()
+    await flush()
+
+    // 至多两次请求：不为了找出毒丸把一批拆成几十条慢慢试
+    expect(rpcCalls).toHaveLength(2)
+    const queue = readQueue()
+    expect(queue).toHaveLength(1)
+    expect(queue[0].event).toBe('error_report_rejected')
+    expect(queue[0].detail).toMatchObject({ retriedWithoutLargest: false })
+    // 丢了什么也要写下来：两条都在 detail 的摘要里
+    expect(String((queue[0].detail as { dropped: string }).dropped)).toContain('small')
   })
 
   it('describeError 能取出微信 errMsg 对象里的文本（而非 [object Object]）', () => {
