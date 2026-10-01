@@ -22,7 +22,6 @@ import { flushErrorQueue, refreshNetworkType, reportClientError } from './lib/er
 import { setRequestFailureReporter, setRequestSuccessHook } from './lib/supabase'
 import { dataSyncResync } from './lib/dataSync'
 import { isNavigationError, showNavigateFailedToast } from './lib/navigate'
-import { probeColo } from './lib/colo-probe'
 
 import './app.css'
 import './app.scss'
@@ -38,10 +37,6 @@ function App({ children }: PropsWithChildren<any>) {
     // 都不会再上报。
     setRequestFailureReporter((input) => {
       reportClientError(input)
-      // 网络失败时顺带探一次落点（节流在 probeColo 内部）。这是把「这一次失败」与
-      // 「当时落在哪个 PoP」对上的唯一机会，而「落 LAX 与报 RESET 是不是同一批人」
-      // 正是境内反代（#6）要的答案。探针自身失败不上报，不会反过来喂这条路径。
-      if (input.event === 'request_failed') void probeColo('failure')
     })
     // 任何一次成功的请求都意味着网通了——这是「断网恢复」最可靠的补送信号
     // （onNetworkStatusChange 在开发者工具模拟离线时未必触发）。队列为空时
@@ -50,9 +45,6 @@ function App({ children }: PropsWithChildren<any>) {
     installSessionDiagFileSink()
     startSessionDiag()
     logDiag('app_launch', { env: process.env.TARO_ENV })
-    // 冷启动采一次落点：只在失败时采会得到有偏样本（也不知道「顺利的人落在哪」），
-    // 而「落 LAX 的比例」需要全天分布才算得出来
-    void probeColo('launch')
     const extractError = (err: unknown): { message: string; stack: string } => {
       if (typeof err === 'string') {
         return { message: err, stack: '' }

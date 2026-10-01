@@ -61,7 +61,7 @@ export const hasProxy = PROXY_BASE !== '' && DIRECT_BASE !== ''
  * storage 与一切由它派生的文件 URL 天然留在直连上。**
  *
  * 基址固定、把「谁生效」留给重写，还有第二个理由：supabase-js 在 createClient 时就把基址
- * 闭包进去了，而入口可能在之后的任何时刻变化（启动探针、请求级回退）。
+ * 闭包进去了，而入口可能在之后的任何时刻变化（请求级回退）。
  */
 export const directBase = DIRECT_BASE
 
@@ -122,7 +122,11 @@ export type SwitchRecord = { from: EntryName; to: EntryName }
  * 切到另一个入口并持久化。返回发生了切换才返回记录，否则 null。
  *
  * 持久化是有意的：一次断流可能只持续几秒，但「当前入口不可用」这件事在分钟级上仍然成立，
- * 不该让每个请求都先撞一次墙。回到另一个入口由启动探针负责（见 colo-probe）。
+ * 不该让每个请求都先撞一次墙。
+ *
+ * ⚠️ 偏好**不会自己回到**另一个入口：只有「当前入口失败、另一个成功」时才会改（请求级回退，
+ * 见 supabase.ts）。2026-10-01 之前另有启动探针（`colo-probe.ts`）负责主动回切，那个探针
+ * 已随落点调查结束一并删除 —— 所以「停在直连之后又想要反代」现在要等一次真实失败。
  */
 export function switchTo(entry: EntryName, opts: { persist?: boolean } = {}): SwitchRecord | null {
   if (!hasProxy || entry === active) return null
