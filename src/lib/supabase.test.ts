@@ -383,6 +383,10 @@ describe('supabase 官方客户端适配', () => {
     // 写请求：一次都不重试。漏掉任何一条的代价都是**重复副作用**，不是变慢：
     // touch_session 会轮换 session_token → 乱序的两次响应会让本地存到非最新值 →
     // verifySession 判「被挤下线」→ 弹窗并清会话
+    //
+    // ⚠️ 本用例是**单入口**（没配反代），所以「1 次」是这两件事之和：不重发 + 无处可换。
+    // 配了反代时，后两条（登录类的一次性凭据）会**换到另一条路再发一次**——那是换入口、
+    // 不是同入口重发，用例在「双入口与自动回退」里，别把这里的 1 次读成「永远只发一次」。
     const NEVER_RETRY = [
       '/rest/v1/rpc/touch_session',
       '/rest/v1/leave_requests',
@@ -407,6 +411,23 @@ describe('supabase 官方客户端适配', () => {
       '/rest/v1/rpc/check_data_versions',
       '/rest/v1/rpc/get_my_profile_entry',
       '/rest/v1/rpc/get_my_session',
+    ])
+  })
+
+  it('只换路名单与用例保持同步：往 FAILOVER_ONLY_POSTS 加路径必须同时加断言', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+
+    const { FAILOVER_ONLY_POSTS } = await loadSupabase()
+    // 这张表比上面那张更危险：它判的是「发第二遍会不会做错事」。加一条之前，
+    // 先回答「第一遍其实到了服务端时，第二遍会发生什么」（见 supabase.ts 的注释）。
+    expect([...FAILOVER_ONLY_POSTS].sort()).toEqual([
+      '/auth/v1/token',
+      '/functions/v1/login-with-code',
+      '/functions/v1/register-with-wechat',
+      '/functions/v1/wechat-auth',
     ])
   })
 
@@ -540,6 +561,86 @@ describe('supabase 官方客户端适配', () => {
 
       // 写请求仍然被重写到当前入口（反代），只是不因失败再换一次
       expect(urlsOf()).toEqual([`${PROXY}/rest/v1/leave_requests`])
+    })
+
+    it('登录类 POST 也换入口，但**不在同一入口重发**：凭据一次性，第二条路才是补救', async () => {
+      stubDualEntry()
+      request.mockRejectedValue(new Error('boom'))
+      const { taroFetch } = await loadWithReporter()
+
+      await expect(
+        taroFetch(`${DIRECT}/functions/v1/wechat-auth`, { method: 'POST' })
+      ).rejects.toThrow()
+
+      // 恰好两次：当前入口一次 + 另一条路一次。**不是三次**——同入口重发对一次性凭据没有意义
+      // （第一遍若到了服务端，凭据已作废），而 prod 的实证是「第二条路从没被尝试过」：
+      // attempts=1、无 prevHost，用户拿到的却是一句网络错误。
+      expect(urlsOf()).toEqual([
+        `${PROXY}/functions/v1/wechat-auth`,
+        `${DIRECT}/functions/v1/wechat-auth`,
+      ])
+    })
+
+    it('只换路的名单是精确的：写请求与未列出的端点，一次都不换', async () => {
+      stubDualEntry()
+      request.mockRejectedValue(new Error('boom'))
+      const { taroFetch } = await loadWithReporter()
+
+      // touch_session 会轮换 session_token（重发 ⇒ 本地存到旧值 ⇒ 判为被挤下线）；
+      // leave_requests 是 insert（无幂等键）；send-login-code 真发信且有 60 秒冷却
+      // （第二遍会变成一条误导性的报错）。三条都必须停在 1 次。
+      const NEVER_FAILOVER = [
+        ['/rest/v1/rpc/touch_session', 'POST'],
+        ['/rest/v1/leave_requests', 'POST'],
+        ['/functions/v1/send-login-code', 'POST'],
+      ] as const
+      for (const [path, method] of NEVER_FAILOVER) {
+        request.mockClear()
+        await expect(taroFetch(`${DIRECT}${path}`, { method })).rejects.toThrow()
+        expect(urlsOf()).toEqual([`${PROXY}${path}`])
+      }
+    })
+
+    it('反代回 502（上游没接住）也换入口——它正是「请求没在上游执行过」的信号', async () => {
+      stubDualEntry()
+      request
+        .mockResolvedValueOnce({
+          statusCode: 502,
+          header: { 'x-pkuso-proxy': 'upstream-failed' },
+          data: '{"error":"proxy_upstream_failed"}',
+        })
+        .mockResolvedValueOnce(OK)
+      const { taroFetch } = await loadWithReporter()
+
+      await taroFetch(`${DIRECT}/functions/v1/wechat-auth`, { method: 'POST' })
+
+      expect(urlsOf()).toEqual([
+        `${PROXY}/functions/v1/wechat-auth`,
+        `${DIRECT}/functions/v1/wechat-auth`,
+      ])
+      // 换过去成功了 ⇒ request_failed 不写，那么「上一个入口为什么不行」只能落在 entry_switched 里
+      expect(reported.filter((r) => r.event === 'request_failed')).toHaveLength(0)
+      expect(reported.find((r) => r.event === 'entry_switched')?.detail).toMatchObject({
+        from: 'proxy',
+        to: 'direct',
+        fromErr: 'HTTP 502',
+      })
+    })
+
+    it('502 **不**让 insert 换路：那也可能是「上游已执行、只是回包挂了」', async () => {
+      stubDualEntry()
+      request.mockResolvedValue({
+        statusCode: 502,
+        header: { 'x-pkuso-proxy': 'upstream-failed' },
+        data: '{}',
+      })
+      const { taroFetch } = await loadWithReporter()
+
+      const res = await taroFetch(`${DIRECT}/rest/v1/leave_requests`, { method: 'POST' })
+
+      expect(res.status).toBe(502)
+      expect(urlsOf()).toEqual([`${PROXY}/rest/v1/leave_requests`])
+      expect(reported.filter((r) => r.event === 'request_failed')).toHaveLength(1)
     })
 
     it('storage 固定走直连，且不参与换入口（它不该被引到第二条到达路径上）', async () => {

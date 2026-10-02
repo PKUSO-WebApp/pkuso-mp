@@ -367,6 +367,14 @@ export function flushErrorQueue(): void {
           flushing = false
           // status 0 = 网络层失败/中断（postgrest 的网络分支恒填 0）→ 保留队列等重试
           if (res?.status === 0) return
+          // 5xx = 服务端/网关故障（含反代上游没接住时回的 502）→ 同样是**环境**的问题，
+          // 不是这批记录本身有问题 ⇒ 保留队列，别当毒丸丢掉。
+          //
+          // ⚠️ 这条与 taroFetch 的 502 换入口是配套的：代理的上游超时压到客户端预算之内以后，
+          // 这类 502 会**在客户端 8 秒超时之前**到达，于是「被拒」这条分支第一次真的会被走到。
+          // 少了这一行，网络最糟的时刻恰好会丢掉最该留下的那批记录——而那正是当年
+          // 「按 error 非空即拒绝」踩过的同一个坑（见上面那段注释）。
+          if ((res?.status ?? 0) >= 500) return
           if (res?.error) {
             // eslint-disable-next-line no-console
             console.error('[error-report] 队列被服务端拒绝：', res.error.message)

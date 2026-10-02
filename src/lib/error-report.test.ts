@@ -14,12 +14,8 @@ const insertCalls: Record<string, unknown>[][] = []
 // 每次 rpc 调用的函数名与参数——幂等补送全靠库端那个函数，所以要能断言（见「补送幂等」用例）
 const rpcCalls: { fn: string; args: Record<string, unknown> | undefined }[] = []
 let insertMode:
-  | 'ok'
-  | 'reject'
-  | 'server_error'
-  | 'server_error_once'
-  | 'throw'
-  | 'network' = 'ok'
+  'ok' | 'reject' | 'server_error' | 'server_error_once' | 'throw' | 'network' | 'gateway_error' =
+  'ok'
 
 // 网络类型：真实 API 是异步的，而报错路径要同步可得 ⇒ 缓存。这里同步回调即可
 // 覆盖那条缓存路径。
@@ -75,6 +71,16 @@ vi.mock('@/lib/supabase', () => {
         status: 400,
         count: null,
         statusText: 'Bad Request',
+      })
+    }
+    // 反代连不上上游时回的形状：502 + x-pkuso-proxy: upstream-failed
+    if (insertMode === 'gateway_error') {
+      return Promise.resolve({
+        data: null,
+        error: { message: 'proxy_upstream_failed', details: '', hint: '', code: '' },
+        status: 502,
+        count: null,
+        statusText: 'Bad Gateway',
       })
     }
     return Promise.resolve({
@@ -257,6 +263,23 @@ describe('reportClientError', () => {
     await flush()
     expect(readQueue()).toHaveLength(0)
     expect(insertCalls[insertCalls.length - 1][0].message).toBe('net down A')
+  })
+
+  it('网关故障（502，如反代连不上上游）同样保留队列——它也不是这批记录的错', async () => {
+    // 与 taroFetch 的 502 换入口是配套的：代理的上游超时压到客户端预算之内以后，
+    // 这类 502 会在客户端 8 秒超时**之前**到达，「被拒」这条分支第一次真的会被走到。
+    // 若按毒丸处理，网络最糟的时刻恰好会丢掉最该留下的那批记录。
+    insertMode = 'gateway_error'
+    reportClientError({ event: 'request_failed', message: 'proxy down A' })
+    await flush()
+
+    expect(readQueue()).toHaveLength(1)
+
+    insertMode = 'ok'
+    flushErrorQueue()
+    await flush()
+    expect(readQueue()).toHaveLength(0)
+    expect(insertCalls[insertCalls.length - 1][0].message).toBe('proxy down A')
   })
 
   it('服务端拒绝（带真实 HTTP 码）时整批丢弃——毒丸不能永久堵住队列', async () => {
