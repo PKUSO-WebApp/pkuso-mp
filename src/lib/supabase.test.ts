@@ -415,7 +415,6 @@ describe('supabase 官方客户端适配', () => {
   })
 
   it('全局 Response 被残缺垫片污染时，仍返回带 text/json/headers 的完整响应（PDF 运行时回归）', async () => {
-  it('只换路名单与用例保持同步：往 FAILOVER_ONLY_POSTS 加路径必须同时加断言', async () => {
     vi.stubEnv('TARO_ENV', 'weapp')
     vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
     vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
@@ -453,6 +452,13 @@ describe('supabase 官方客户端适配', () => {
     expect(res.headers.get('content-type')).toBe('application/json')
     expect(res.status).toBe(200)
     expect(res.ok).toBe(true)
+  })
+
+  it('只换路名单与用例保持同步：往 FAILOVER_ONLY_POSTS 加路径必须同时加断言', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
 
     const { FAILOVER_ONLY_POSTS } = await loadSupabase()
     // 这张表比上面那张更危险：它判的是「发第二遍会不会做错事」。加一条之前，
