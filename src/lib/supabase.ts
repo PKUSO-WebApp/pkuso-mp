@@ -430,7 +430,8 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
       /**
        * 502 / 504：**上游没接住**。它在这条链路上有一个很具体的来源——反代连不上 Supabase 时
        * 回的就是 502（带 `x-pkuso-proxy: upstream-failed`），cloudbase 网关与 CF 也会回这两个码。
-       * 关键性质是「请求没有在上游执行过」，所以换一条路重发**不会**产生重复副作用。
+       * 它通常意味着「请求没在上游执行过」（实测那几条例连 TCP 都没建起来），所以换一条路
+       * 重发一般不产生重复副作用——但这不是保证，见下面那条 ⚠️。
        *
        * 为什么必须单独写这一条：换入口的代码原本只在 catch（网络层失败）分支里，于是
        * **HTTP 层的失败一次都不换路**——prod 实测过一次：代理 20 秒后明确回了 502，
@@ -438,6 +439,11 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
        *
        * ⚠️ 只对 failoverEligible 的请求生效。`POST /rest/v1/<表>` 这类 insert 不在名单里：
        * 502 也可能是「上游已经执行、只是回包时挂了」，那时重发就是重复请假单。
+       *
+       * ⚠️ **反代的 20 秒上游超时比客户端的 8 秒长**，所以反代自己产出的 502 通常晚于客户端
+       * 的超时——这条分支多数时候接住的是更早的 502（CF / cloudbase 网关层）与「超时没生效」
+       * 的情形（实测 devtools 那次等了 20.6 秒才拿到 502）。把反代超时压到 8 秒之下来「喂饱」
+       * 这条分支是个陷阱：登录类请求会被切断，而一次性凭据已消费、换路救不回来。
        */
       const upstreamFailed = response.statusCode === 502 || response.statusCode === 504
       if (
