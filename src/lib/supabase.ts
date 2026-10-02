@@ -65,8 +65,23 @@ export function setRequestFailureReporter(fn: RequestFailureReporter): void {
   requestFailureReporter = fn
 }
 
-// 上报端点自身绝不再上报：网络故障时若连上报请求都失败，会形成 上报→失败→上报 的循环
-const ERROR_REPORT_PATH = '/rest/v1/client_error_logs'
+/**
+ * 上报端点自身绝不再上报：网络故障时若连上报请求都失败，会形成 上报→失败→上报 的循环。
+ *
+ * ⚠️ **两条路径都要认**。`/rest/v1/client_error_logs` 是 0.4.26/0.4.27 那两版的直写表路径
+ * （老客户端还在线上），现在走的是 RPC `/rest/v1/rpc/log_client_errors`。
+ *
+ * 只认前者是一个**存在了很久的 bug**：常量没跟着改造一起改，于是这条守卫一直是**失效**的
+ * ——上报请求自己的失败被当成普通请求失败上报了。副作用有两面：坏的一面是它把「上报失败」
+ * 混进了业务失败的样本；好的一面是，正因为失效，我们才在库里看见过一条 `HTTP 400 @
+ * /rest/v1/rpc/log_client_errors`。现在改由 error-report 的 `handleRejectedBatch` **显式**
+ * 上报「被拒 + 服务端的原话」，所以把守卫改对不再等于把观测一起关掉。
+ */
+const ERROR_REPORT_PATHS = ['/rest/v1/client_error_logs', '/rest/v1/rpc/log_client_errors']
+
+function isErrorReportUrl(url: string): boolean {
+  return ERROR_REPORT_PATHS.some((path) => url.includes(path))
+}
 
 // 请求成功 = 网络确实可用。这是「断网恢复」最可靠的信号：onNetworkStatusChange 在
 // 开发者工具模拟离线时未必触发（工具模拟的是请求失败，不一定改系统网络状态），
@@ -87,7 +102,7 @@ function reportRequestFailure(
   extra: Record<string, unknown> = {}
 ): void {
   if (!requestFailureReporter) return
-  if (url.includes(ERROR_REPORT_PATH)) return
+  if (isErrorReportUrl(url)) return
   const path = urlPath(url).slice(0, 120)
   try {
     requestFailureReporter({
@@ -207,6 +222,41 @@ export const RETRYABLE_READ_POSTS = [
   '/rest/v1/rpc/get_my_profile_entry',
 ]
 
+/**
+ * 「**可以换入口**、但**不在同一入口重发**」的 POST 白名单。
+ *
+ * 为什么要与上面那张表分开：这两件事的代价不同。
+ * - 同入口重发 = 把同一个请求再发给同一个上游，只有在「这次失败是偶发」时才划算；
+ * - 换入口 = 换一条**物理到达路径**再发一遍。
+ * 而登录链路上的病，恰恰是「生效的那条路不通」——prod 实测（2026-10-01）客户端在
+ * `/functions/v1/wechat-auth` 上超时 8 秒、`attempts=1`、**没有 prevHost**：
+ * 它不是「两条路都不通」，是**第二条路从没被尝试过**（POST 不在上面那张表里，
+ * 于是 `otherEntry()` 一次都没被调用）。
+ *
+ * 为什么这些路径上「发第二遍」是安全的——**凭据都是一次性的**：
+ * 第一遍若到了服务端，凭据就作废了，第二遍会在 code2session / 验证码校验那一步被拒，
+ * 返回业务错误而不产生第二次副作用（不会建第二个账号、不会签第二个会话）；
+ * 第一遍若没到（连接层失败、挂到超时），凭据还在，第二遍正是唯一的补救。
+ * 换句话说，**最坏情况是白跑一趟，不是做错事**——这就是它与 `touch_session`
+ * （轮换 session_token，重发会让本地存到旧值 ⇒ 判为被踢）、`POST /rest/v1/<表>`
+ * （insert 无幂等键）的根本区别。
+ *
+ * `/auth/v1/token` 单列一条理由：它是**轮转凭据**，可 auth-js 自己已经在同一条路上重发
+ * （见上面 RETRYABLE_READ_POSTS 的注释），所以换条路重发不比它已经做的事更危险；
+ * 而「刷新失败」正是把用户踢回登录页的那条路——prod 三天里它出现 6 次，是登录类失败里最多的一条。
+ *
+ * ⚠️ **不要加进来**的：`send-login-code` / `send-verification-code`（真发信，重复发送有成本，
+ * 服务端 60 秒冷却会把第二遍变成一条误导性的报错）、`verify-and-update`（改邮箱/改密码，
+ * 第二遍会显示「验证码已使用」，而用户其实已经改成功了）。
+ * 名单是**精确匹配**（见 isFailoverOnly）：加一条就得能单独说清理由。
+ */
+export const FAILOVER_ONLY_POSTS = [
+  '/functions/v1/wechat-auth',
+  '/functions/v1/register-with-wechat',
+  '/functions/v1/login-with-code',
+  '/auth/v1/token',
+]
+
 /** 请求路径（去掉 origin 与 query，与失败指纹同口径） */
 function urlPath(url: string): string {
   return url.replace(/^https?:\/\/[^/]+/, '').split('?')[0]
@@ -229,6 +279,17 @@ function isRetryable(method: string, url: string): boolean {
   if (upper === 'GET' || upper === 'HEAD' || upper === 'OPTIONS') return true
   if (upper !== 'POST') return false
   return RETRYABLE_READ_POSTS.includes(urlPath(url))
+}
+
+/**
+ * 只换入口、不在同入口重发（名单与理由见 FAILOVER_ONLY_POSTS）。
+ *
+ * 用**精确相等**而不是前缀：`urlPath` 已经去掉了 query（`/auth/v1/token?grant_type=…` 归一成
+ * `/auth/v1/token`），而前缀匹配会把将来新增的相邻端点（如 `/auth/v1/token/xxx`）静默捎带进来
+ * ——名单里的每一条都要能单独说清「为什么发第二遍是安全的」。
+ */
+function isFailoverOnly(method: string, url: string): boolean {
+  return method.toUpperCase() === 'POST' && FAILOVER_ONLY_POSTS.includes(urlPath(url))
 }
 
 /** 第 n 次尝试失败后的等待：指数退避 + 全抖动（避免同刻失败的请求同时回来） */
@@ -283,6 +344,11 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
   // 否则 Storage 那一档会把「正常的 20 秒大文件传输」误标成超时，进而喂错重试逻辑。
   const timeoutMs = url.includes('/storage/v1/') ? STORAGE_TIMEOUT_MS : REQUEST_TIMEOUT_MS
   const canRetry = isRetryable(method, url)
+  /**
+   * 允不允许**换入口**。与 canRetry 分开：一次性凭据的登录类 POST 可以换路（见
+   * FAILOVER_ONLY_POSTS），但不该在同一条路上重发。
+   */
+  const failoverEligible = canRetry || isFailoverOnly(method, url)
 
   // --- 走哪个入口（定义见 lib/supabase-entry）---
   //
@@ -361,6 +427,46 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
         await sleep(backoffMs(attempt))
         continue
       }
+      /**
+       * 502 / 504：**上游没接住**。它在这条链路上有一个很具体的来源——反代连不上 Supabase 时
+       * 回的就是 502（带 `x-pkuso-proxy: upstream-failed`），cloudbase 网关与 CF 也会回这两个码。
+       * 关键性质是「请求没有在上游执行过」，所以换一条路重发**不会**产生重复副作用。
+       *
+       * 为什么必须单独写这一条：换入口的代码原本只在 catch（网络层失败）分支里，于是
+       * **HTTP 层的失败一次都不换路**——prod 实测过一次：代理 20 秒后明确回了 502，
+       * 客户端拿到后直接失败，直连那条路连碰都没碰。
+       *
+       * ⚠️ 只对 failoverEligible 的请求生效。`POST /rest/v1/<表>` 这类 insert 不在名单里：
+       * 502 也可能是「上游已经执行、只是回包时挂了」，那时重发就是重复请假单。
+       */
+      const upstreamFailed = response.statusCode === 502 || response.statusCode === 504
+      if (
+        upstreamFailed &&
+        failoverEligible &&
+        !isStorageUrl &&
+        !switchedEntry &&
+        Date.now() - totalStartedAtMs < RETRY_BUDGET_MS
+      ) {
+        const alt = otherEntry(currentEntry)
+        if (alt) {
+          // 与 catch 那条路同款留证：换过去成功时 request_failed 不会写，`entry_switched`
+          // 若不带上这句，库里就只剩「切了」、没有「为什么」（真机上就是这么卡的）
+          if (!firstFailure) {
+            firstFailure = {
+              entry: currentEntry,
+              host: urlHost(requestUrl),
+              ms,
+              statusZero: false,
+              errMsg: `HTTP ${response.statusCode}`,
+              errRaw: '',
+            }
+          }
+          switchedEntry = true
+          currentEntry = alt
+          requestUrl = rewriteTo(url, alt)
+          continue
+        }
+      }
       if (response.statusCode >= 400) {
         // HTTP 层失败：5xx 算故障；4xx 降为 warn——那多半是鉴权/参数问题（如未登录查表返回
         // 401），跟断网不是一回事，混在同一等级会让真正的故障淹掉
@@ -372,7 +478,16 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
           response.statusCode >= 500 ? 'error' : 'warn',
           // 状态码同时进 message（指纹粒度）和字段（可聚合）。ms 是「卡了多久」的唯一来源：
           // 502 在 30s 后出现和 0.2s 后出现，指向完全不同的病因。
-          { diag, ms, status: response.statusCode, attempts: attempt }
+          {
+            diag,
+            ms,
+            status: response.statusCode,
+            attempts: attempt,
+            // 与网络失败那条路保持一致：HTTP 层失败同样要能看出「打在哪个入口、哪个域名」。
+            // 少了它，一条 `HTTP 400 @ /rest/v1/rpc/log_client_errors` 就只能靠反推。
+            entry: currentEntry,
+            host: urlHost(requestUrl),
+          }
         )
       } else if (attempt > 1) {
         // 重试后成功也留一条（warn 级）。没有它，「弱网到底有多普遍」「这次改造有没有用」
@@ -426,7 +541,7 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
       // 拿到了响应就说明网是通的（4xx/5xx 也算——那至少证明链路可达），
       // 顺带把积压的错误队列送出去。排除上报端点自身，否则 flush 成功会再触发 flush。
       // 位置在**最后一次尝试之后**：中途某次拿到 5xx 就白触发一轮 flush 是没意义的。
-      if (!url.includes(ERROR_REPORT_PATH)) {
+      if (!isErrorReportUrl(url)) {
         try {
           requestSuccessHook?.()
         } catch {
@@ -469,7 +584,12 @@ export const taroFetch: typeof fetch = async (input, init = {}) => {
       //
       // ⚠️ 「另一个入口存在」必须并进这个判断：漏了它，没配反代时上限也会被削掉一次，
       // 单入口的行为就悄悄变了（守门用例抓过一次）。
-      const alt = canRetry && !isStorageUrl && !switchedEntry ? otherEntry(currentEntry) : null
+      //
+      // 判据是 failoverEligible（不是 canRetry）：登录类的一次性凭据 POST 也允许换路，
+      // 只是它们进不到同入口重发那一步——上面那条 `if` 仍要 canRetry 才进得去，
+      // 所以名单里这些路径的尝试次数恰好是 2（当前入口 + 另一条路），不是 3。
+      const alt =
+        failoverEligible && !isStorageUrl && !switchedEntry ? otherEntry(currentEntry) : null
       const canFailover = alt !== null && withinBudget
       const sameEntryCap = canFailover ? RETRY_MAX_ATTEMPTS - 1 : RETRY_MAX_ATTEMPTS
       if (canRetry && ms < RETRY_SLOW_MS && withinBudget && attempt < sameEntryCap) {

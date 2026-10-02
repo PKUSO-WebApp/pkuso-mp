@@ -14,3 +14,11 @@ vendor/*.js
 # 云函数：只有 supabase-proxy/ 是源码；-dev 那个由 scripts/sync-cloudfunctions.mjs
 # 生成（两者必须字节相同，差异只在云开发控制台的环境变量），生成物不入库。
 cloudfunctions/supabase-proxy-dev/
+# 云函数：只有 supabase-proxy/ 是源码；-dev 那个由 scripts/sync-cloudfunctions.mjs
+# 生成（两者必须字节相同，差异只在云开发控制台的环境变量），生成物不入库。
+cloudfunctions/supabase-proxy-dev/
+
+# 谱务 PDF 运行时的构建产物（`scripts/build-pdf-runtime.mjs` 生成；那条脚本与这些文件
+# 都只在 dev 线上）。main 上也忽略它们，否则在同一个工作区里切过分支之后，
+# 一句 `git add -A` 就会把 4 万行生成代码提交进来。
+vendor/*.js

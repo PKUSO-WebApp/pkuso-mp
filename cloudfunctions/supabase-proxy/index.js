@@ -38,7 +38,23 @@ const UPSTREAM = (process.env.SUPABASE_URL || 'https://xkrszbmmdaorivkatvwh.supa
 const UPSTREAM_HOST = new URL(UPSTREAM).hostname
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || ''
 const PROBE_TIMEOUT_MS = Number(process.env.PROBE_TIMEOUT_MS || 10000)
-const PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS || 20000)
+/**
+ * 反代转发时的上游超时。
+ *
+ * ⚠️ **必须排在客户端的单次超时（8 秒）之前**，否则这个值等于不存在：客户端到点就走人，
+ * 我们 20 秒后才产出的那个「上游没接住」的结论（502 + `x-pkuso-proxy: upstream-failed`）
+ * 永远送不到——而它恰恰是客户端**唯一能据以换到直连**的信号（见 supabase.ts 的 502 分支）。
+ * prod 实测过一次：代理 20 秒后才回 502，客户端 8 秒就放弃了，于是那次登录失败被记成
+ * 「客户端超时」，没人知道是代理到上游那一跳挂了。
+ *
+ * 取值与客户端 `RETRY_SLOW_MS`（4 秒）同口径——那边也是「4 秒以上算挂起，不算慢」。
+ * 探针实测上游 TTFB 0.4–1.1 秒，所以 4 秒留了约 4 倍余量；
+ * 超过 4 秒还没首字节的请求，与其让用户干等，不如让客户端换一条路再试。
+ *
+ * 注意**重试仍可能把这个值翻倍**（幂等路径最多 2 次尝试，见 runProxy 的 maxAttempts），
+ * 那是 8 秒级、仍在客户端单次预算的边缘——所以换入口那条路（客户端侧）才是主要保障。
+ */
+const PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS || 4000)
 const WRITE_TIMEOUT_MS = Number(process.env.WRITE_TIMEOUT_MS || 8000)
 const WRITE_BACKOFF_MS = [1000, 3000]
 const TAG = process.env.PROBE_TAG || 'cloudbase-v1'
