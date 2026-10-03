@@ -109,4 +109,4 @@ https://<app-id>-<url-id>.ap-shanghai.tencentscf.com
 
 **2026-10-04（dev，事件函数）**：echo 形状 = `{body, headers, httpMethod, path, queryString}` 五键（query 是对象、值可为数组；无 `queryStringParameters`/`isBase64Encoded`）；关注头全透传（apikey / prefer / range / x-pkuso-diag）；echo 冷 240ms / 温 158ms；probe 四目标全 ok（auth 514ms / rest 846ms / 国内对照 127ms，DNS 144ms），写库 204（`scf-dev-v1` 已入 dev 库）；**响应 base64 不解析**——决定性缺陷，详见 §5。
 
-**2026-10-04（dev，Web 函数）**：待填。
+**2026-10-04（dev，Web 函数，启动命令 `node app.js`）**：全绿——echo 冷 238ms / 温 166ms；**页图 733,518 B + `ff d8 ff`（JPEG 魔数，原字节）**；**PDF `Range: bytes=0-999999` → 206 + 恰好 1,000,000 B**；query 判别器 → `400/42703`（query 未被丢弃）；probe 四目标全绿 + 写库 204（auth 455ms / rest 899ms / 国内对照 203ms）。两处注意：① 首传时包内缺 `core.js`（只传了 app.js）→ `Cannot find module './core.js'`，整包重传即好；② **`MP_APPID` 漏配** → Referer 门形同虚设（无 Referer 也放行、返回 200 而非 403），补配后复测；③ 附带发现：Web 函数会给请求加 `x-cube-*` 头，核心的网关头过滤（`GATEWAY_HEADER_PREFIXES`）没有它 → 会透传给上游（无害；下次改核心时顺手加 `'x-cube-'`）。
