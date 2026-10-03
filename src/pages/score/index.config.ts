@@ -1,3 +1,3 @@
 export default definePageConfig({
-  navigationBarTitleText: '谱务',
+  navigationBarTitleText: '乐谱',
 })

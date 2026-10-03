@@ -1,6 +1,6 @@
 export const scoreDetail = {
   navTitle: '曲目详情',
-  rootCrumb: '谱务',
+  rootCrumb: '乐谱',
   loadFailed: '加载失败：{error}',
   notFound: '曲目不存在或已被删除',
   emptyParts: '该曲目暂无声部',
