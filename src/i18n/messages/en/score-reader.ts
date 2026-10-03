@@ -9,6 +9,7 @@ export const scoreReader = {
   zoomReset: 'Fit',
   inputPlaceholder: 'PDF URL',
   load: 'Load & render',
+  retry: 'Retry',
   fetching: 'Downloading…',
   parsing: 'Parsing…',
   rendering: 'Rendering…',

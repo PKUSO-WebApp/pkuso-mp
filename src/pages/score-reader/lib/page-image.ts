@@ -18,6 +18,18 @@ export { pageImageUrl }
  * ⚠️ 路径规则与 web 端 `sheetMusicPagePath` 必须一致（`{storage_path 去 .pdf}/p{n}.jpg`）。
  */
 
+/**
+ * 页图加载超时（毫秒）。
+ *
+ * 弱网下 500KB 的图确实可能要几十秒，但**不能无限等**：实测有用户在 iOS 上卡了
+ * 150 秒（服务端日志显示那次请求根本没到达 —— 卡在客户端网络栈）。超时后走错误态
+ *（带重试），比无声等待强。
+ *
+ * ⚠️ 超时只是**放弃等待**，微信那边的加载还在跑（`createImage` 没有取消接口）——
+ * 成功也不会再被采用，属可接受的浪费。
+ */
+const PAGE_IMAGE_TIMEOUT_MS = 30000
+
 /** 一页已加载的页图（尺寸在 onload 之后才有） */
 export type LoadedPageImage = { img: CanvasImage; width: number; height: number }
 
@@ -32,8 +44,15 @@ export async function loadPageImage(node: CanvasNode, url: string): Promise<Load
   }
   const img = node.createImage()
   await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve()
-    img.onerror = () => reject(new Error('页图加载失败'))
+    const timer = setTimeout(() => reject(new Error('页图加载超时')), PAGE_IMAGE_TIMEOUT_MS)
+    img.onload = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    img.onerror = () => {
+      clearTimeout(timer)
+      reject(new Error('页图加载失败'))
+    }
     // onload/onerror 挂好之后再赋 src —— 反过来会漏掉同步完成的加载
     img.src = url
   })

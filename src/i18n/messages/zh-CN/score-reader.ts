@@ -9,6 +9,7 @@ export const scoreReader = {
   zoomReset: '适配',
   inputPlaceholder: 'PDF 地址',
   load: '加载并渲染',
+  retry: '重试',
   fetching: '下载中…',
   parsing: '解析中…',
   rendering: '渲染中…',

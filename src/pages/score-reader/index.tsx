@@ -1120,8 +1120,11 @@ export default function ScoreReader() {
 
   const showUrlInput = !fileId
   const currentStrokes = annos[String(page)] ?? []
-  const showStatusRow =
-    viewSize.w <= 0 && (stage === 'fetching' || stage === 'parsing' || stage === 'rendering')
+  // 「还没画出一帧」就一直显示 —— 判据是**首帧真的换帧**（stage 到 ready），而不是
+  // 「画布尺寸有没有值」：图片模式下 `setViewSize` 发生在绘制**之前**，按尺寸判会让
+  // 提示在画面出来之前就消失（真机反馈：第一次「进度走完但没渲染出来」、第二次
+  // 干脆不显示 —— 同一个成因）
+  const showStatusRow = stage !== 'ready' && stage !== 'error'
   const boxW = viewSize.w || containerW || 0
   const boxH = viewSize.h || 0
 
@@ -1154,8 +1157,13 @@ export default function ScoreReader() {
       </View>
 
       {stage === 'error' && message ? (
-        <View className='px-4 py-2'>
-          <Text className='text-xs text-danger'>{message}</Text>
+        <View className='flex flex-row items-center justify-between px-4 py-2'>
+          <Text className='flex-1 text-xs text-danger'>{message}</Text>
+          {/* 弱网下页图可能加载超时（实测有卡 150 秒的）——给一个显式重试，
+              否则用户只能退出重进 */}
+          <Text className='ml-3 shrink-0 text-xs text-primary' onClick={() => void load()}>
+            {t('scoreReader.retry')}
+          </Text>
         </View>
       ) : null}
 
