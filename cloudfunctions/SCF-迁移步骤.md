@@ -11,7 +11,7 @@
 ### 1. 新建函数
 
 - 函数服务 → 新建：地域 **上海**、类型 **事件函数**（不是 Web 函数）、运行环境 Node.js 18/20
-- 代码：在线编辑粘贴或上传单文件 `cloudfunctions/supabase-proxy/index.js`，执行方法 `index.main`
+- 代码：在线编辑粘贴或上传单文件 `cloudfunctions/supabase-proxy/index.js`，执行方法 `index.main`。**保持零依赖、模块顶层不做 I/O**——冷启动成本和部署简单性都靠它
 - 基础配置：**内存 256MB**、**超时 60s**
   （默认 3s 兜不住：上游单跳预算 20s + 登录链路本身 2–3s）
 - 环境变量（**先建开发库那份**，值抄 `.env.development`）：
@@ -37,8 +37,9 @@ https://<app-id>-<url-id>.ap-shanghai.tencentscf.com
 ### 4. 验证清单（把 URL 交给 agent 执行；全部只读）
 
 1. `GET /pkuso-echo` —— 比对 event 形状：path 带不带前缀、query 格式、`apikey` / `authorization` / `prefer` / `range` 头是否透传
-2. `GET /pkuso-probe` —— 四目标探测（`supabase_auth` / `supabase_rest` + 两个对照组），结果写回开发库 `client_error_logs`（`source='probe'`）。**对照组失败 = 本次实验无效**
+2. `GET /pkuso-probe` —— 四目标探测（`supabase_auth` / `supabase_rest` + 两个对照组），响应里直接返回 JSON（同时写回开发库 `client_error_logs`，`source='probe'`）。**对照组失败 = 本次实验无效**
 3. 真请求三连：带 apikey 的 rest 查询、**一张页图**（验 base64 响应路径）、一个 4MB PDF 的 `Range`（验头透传与大响应）
+4. **冷/热两发**：同一请求连打两发——第一发含冷启动，第二发才是稳态；判读 TTFB 时分开看（这一步顺带把冷启动也量了）
 
 ### 5. 代码适配（方向已预判，以 echo 实测为准）
 
