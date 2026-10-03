@@ -86,7 +86,7 @@ node scripts/sync-cloudfunctions.mjs --check   # 只校验是否已同步
 ## 已知边界
 
 - **`/storage/v1/` 不走这里**：谱务文件最大上兆，而云函数有 body 上限。小程序端在 `taroFetch` 里把 storage 固定分流到直连。
-- **响应体上限 6MB**（base64 后约 4.5MB 原始）。**2026-10-04 实测（dev 反代）**：4,095,174 B 的 PDF（函数返回包体 base64 后约 5.46MB）200 全量、逐字节一致（6.5s），733,518 B 的页图同样全量；31,443,634 B 的 PDF 被网关拒绝 —— `400 FUNCTIONS_INVOCATION_FAILED`「The size of HTTP response body exceeds the upper limit (6MB)」，3.6s 快速失败、无截断。⇒ 文档里另一档「小程序链路 1 MB」（`error_code_EXCEED_MAX_RESPONSE_SIZE`）**不适用于 HTTP 网关这条路径**；页图（现最大 ~716KB、base64 ~978KB）走反代余量约 6 倍。大文件仍按路径分流（超限是干净的 400 快速失败，不会静默截断）。
+- **响应体上限 6 MiB**（6,291,456 B；量的是函数返回包体 = base64 正文 + ~1 KB 信封开销）。**2026-10-04 二分实测（dev 反代，`Range` 切字节，边界两轮复测稳定）**：原始 **4,717,779 B 通过 / 4,717,780 B 被拒**（base64 6,290,372 / 6,290,376，即 6 MiB 下方约 1 KB）⇒ 实用口径 **原始 ≤ 4.5 MiB 稳过**。失败形态干净：30 MB 样本拿到 `400 FUNCTIONS_INVOCATION_FAILED`「The size of HTTP response body exceeds the upper limit (6MB)」，3.6s、无截断。另测得：4,095,174 B 的 PDF 与 733,518 B 的页图均 200 全量、逐字节一致（`Range` 透传亦可用）。⇒ 文档里「小程序链路 1 MB」那档（`error_code_EXCEED_MAX_RESPONSE_SIZE`）**不适用于 HTTP 网关这条路径**；页图（现最大 ~716KB、base64 ~978KB）余量约 6.7 倍。大文件仍按路径分流。
 - **上游仍跨境**。上海出口实测固定落 `SIN`（新加坡），TTFB 1.0–1.4s；也就是从「手机跨境」变成「机房跨境」——可控、可重试、看得见，但不是零成本。
 - **反代的上游超时故意取宽：`PROXY_TIMEOUT_MS` = 20s。** 登录链路本来就慢（`wechat-auth` 服务端常态 2.2–3.3 秒、冷启动 7.07 秒，经代理再加那一跳），而**切早了的代价不是「慢一点」而是「必失败」**：切断上游连接时函数仍在跑，`code2session` 已把一次性 wx code 消费掉，客户端拿作废的 code 换直连重试只会得到「code 无效」。
   2026-10-03 曾压到 4 秒（动机是让 502 落在客户端 8 秒预算之内、好触发换路），实测据此回退。**要做「读切得早、登录别切」的分档，必须同时把客户端预算也按路径分开**，只改这一半会把登录切死。
