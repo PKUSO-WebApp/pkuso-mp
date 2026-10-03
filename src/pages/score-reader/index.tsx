@@ -15,6 +15,7 @@ import {
   type AnnoStroke,
 } from '@/lib/annotation'
 import { describeError, reportClientError } from '@/lib/error-report'
+import { pageImageUrls } from '@/lib/score-page-image'
 import { createPdfEngine, type PdfDocument, type PdfEngine } from '@vendor/wechat-miniprogram-pdf'
 import type { SheetMusicFileRow } from '@/types/database'
 // 页面内部模块：留在分包目录内，保证被打进分包 chunk（见 lib/types.ts 顶部注释）
@@ -42,7 +43,6 @@ import {
 import {
   loadPageImage,
   paintPageImage,
-  pageImageUrl,
   prefetchPageImage,
   type LoadedPageImage,
 } from './lib/page-image'
@@ -411,14 +411,14 @@ export default function ScoreReader() {
       if (imageMode) {
         // 图片模式：加载页图（**走小程序图片层，微信自带缓存**；不要换成
         // downloadFile —— 那个不走 HTTP 缓存，每次都是真下载）。尺寸直接取自图片对象
-        pageImg = await loadPageImage(node as CanvasNode, pageImageUrl(fileUrlRef.current, target))
+        pageImg = await loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target))
         info = { width: pageImg.width, height: pageImg.height }
         // 预取**后面几页**（不只下一页）：一次网络来回不便宜，只备一页时连续翻页会
         // 追上；多备几页让「一直往下翻」全程命中缓存。同一页只发起一次
         for (let n = target + 1; n <= Math.min(target + PREFETCH_AHEAD, pageCount); n++) {
           if (prefetchedRef.current.has(n)) continue
           prefetchedRef.current.add(n)
-          prefetchPageImage(pageImageUrl(fileUrlRef.current, n))
+          prefetchPageImage(pageImageUrls(fileUrlRef.current, n)[0])
         }
       } else {
         info = await doc!.getPageInfo(target)

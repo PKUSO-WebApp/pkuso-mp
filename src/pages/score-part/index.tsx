@@ -8,7 +8,7 @@ import { ListState } from '@/components/ui/ListState'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { compareFiles } from '@/lib/sheet-music-sort'
 import { formatFileSize } from '@/lib/format'
-import { pageImageUrl } from '@/lib/score-page-image'
+import { pageImageUrls } from '@/lib/score-page-image'
 import type { SheetMusicFileRow, SheetMusicPartRow } from '@/types/database'
 import './index.scss'
 
@@ -68,7 +68,8 @@ export default function ScorePart() {
     if (f.page_count && f.page_count > 0) {
       const pdfUrl = supabase.storage.from('sheet-music').getPublicUrl(f.storage_path).data
         .publicUrl
-      void Taro.getImageInfo({ src: pageImageUrl(pdfUrl, 1) }).catch(() => {})
+      // 预取只试第一个候选（当前生效入口优先）——失败无所谓，真进阅读器还会再拉
+      void Taro.getImageInfo({ src: pageImageUrls(pdfUrl, 1)[0] }).catch(() => {})
     }
     // 元数据随参数带给阅读器，省掉一次走反代到境外库的查询（实测 ~600ms）；
     // 缺参数时阅读器回退查库（分享链接等旧入口不受影响）

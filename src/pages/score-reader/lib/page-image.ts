@@ -1,8 +1,5 @@
 import Taro from '@tarojs/taro'
-import { pageImageUrl } from '@/lib/score-page-image'
 import type { CanvasImage, CanvasNode } from './types'
-
-export { pageImageUrl }
 
 /**
  * 页图（上传时预渲染的整页 JPEG）的加载与绘制。
@@ -38,16 +35,18 @@ export type LoadedPageImage = { img: CanvasImage; width: number; height: number 
  *
  * 尺寸直接取自图片对象 —— 不需要额外的 `getImageInfo`（少一次文件/网络往返）。
  */
-export async function loadPageImage(node: CanvasNode, url: string): Promise<LoadedPageImage> {
-  if (typeof node.createImage !== 'function') {
-    throw new Error('canvas node 不支持 createImage（无法显示页图）')
-  }
-  const img = node.createImage()
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('页图加载超时')), PAGE_IMAGE_TIMEOUT_MS)
+/** 单个 URL 的加载（onload 才算完成） */
+function loadOnePageImage(
+  node: CanvasNode,
+  url: string,
+  timeoutMs: number
+): Promise<LoadedPageImage> {
+  const img = node.createImage!()
+  return new Promise<LoadedPageImage>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('页图加载超时')), timeoutMs)
     img.onload = () => {
       clearTimeout(timer)
-      resolve()
+      resolve({ img, width: img.width ?? 0, height: img.height ?? 0 })
     }
     img.onerror = () => {
       clearTimeout(timer)
@@ -56,7 +55,27 @@ export async function loadPageImage(node: CanvasNode, url: string): Promise<Load
     // onload/onerror 挂好之后再赋 src —— 反过来会漏掉同步完成的加载
     img.src = url
   })
-  return { img, width: img.width ?? 0, height: img.height ?? 0 }
+}
+
+/**
+ * 加载一页页图，**依次尝试候选 URL**（见 `pageImageUrls`：反代优先、直连兜底）。
+ *
+ * 第一个（反代）用较短超时——它该快，慢了说明这条腿不通，没必要占着用户等待；
+ * 后面的（直连）给足 30 秒，弱网下 500KB 确实可能要几十秒。
+ */
+export async function loadPageImage(node: CanvasNode, urls: string[]): Promise<LoadedPageImage> {
+  if (typeof node.createImage !== 'function') {
+    throw new Error('canvas node 不支持 createImage（无法显示页图）')
+  }
+  let lastErr: unknown
+  for (let i = 0; i < urls.length; i += 1) {
+    try {
+      return await loadOnePageImage(node, urls[i], i === 0 ? 15000 : PAGE_IMAGE_TIMEOUT_MS)
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('页图加载失败')
 }
 
 /**
