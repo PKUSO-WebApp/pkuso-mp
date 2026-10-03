@@ -1,4 +1,3 @@
-import Taro from '@tarojs/taro'
 import type { CanvasImage, CanvasNode } from './types'
 
 /**
@@ -98,7 +97,4 @@ export function paintPageImage(
   ctx.drawImage(img, 0, 0, bitmapW, bitmapH)
 }
 
-/** 预取一页（下载进微信的图片缓存）。失败无所谓 —— 真翻到那页时会再拉一次。 */
-export function prefetchPageImage(url: string): void {
-  void Taro.getImageInfo({ src: url }).catch(() => {})
-}
+/** 预取/预热统一走 `lib/prefetch-pump.ts`（串行泵 + 优先带；此前的单页预取已由它取代）。 */

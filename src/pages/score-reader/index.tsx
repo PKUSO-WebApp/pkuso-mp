@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import Taro, { useRouter } from '@tarojs/taro'
+import Taro, { useRouter, useUnload } from '@tarojs/taro'
 import { View, Canvas, Input, Button, Text } from '@tarojs/components'
 import type { ITouchEvent } from '@tarojs/components'
 import { supabase } from '@/lib/supabase'
@@ -40,18 +40,12 @@ import {
   readCachedPdf,
   writeCachedPdf,
 } from './lib/pdf-cache'
-import {
-  loadPageImage,
-  paintPageImage,
-  prefetchPageImage,
-  type LoadedPageImage,
-} from './lib/page-image'
+import { loadPageImage, paintPageImage, type LoadedPageImage } from './lib/page-image'
+import { createPrefetchPump, type PrefetchPump } from './lib/prefetch-pump'
 import './index.scss'
 
 const DEFAULT_URL = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
 const ZOOM_MIN = 0.5
-/** 页图预取：当前页之后预取几页（一次网络来回不便宜，只备一页会被连续翻页追上） */
-const PREFETCH_AHEAD = 3
 const ZOOM_MAX = 4
 /** 缩放合并窗口：停手满这么久才真正重渲（期间画布只换尺寸，不清屏） */
 const ZOOM_SETTLE_MS = 180
@@ -173,8 +167,12 @@ export default function ScoreReader() {
    * 纯 JS 解码路径）。NULL = 老文件或页图渲染失败 ⇒ 走 pdf.js 回退，功能完整但慢。
    */
   const imageModeRef = useRef(false)
-  /** 已触发过预取的页码（同一页不重复发起；换文件时清空） */
-  const prefetchedRef = useRef<Set<number>>(new Set())
+  /** 页图预热泵：整册的「优先带 + 顺序补全」后台预热（见 lib/prefetch-pump.ts） */
+  const prefetchPumpRef = useRef<PrefetchPump | null>(null)
+  // 退出页面即停泵——后台抓取不该在页面销毁后继续
+  useUnload(() => {
+    prefetchPumpRef.current?.stop()
+  })
   /** 已落到画布上的 zoom；与 zoom 不等时说明还在等合并渲染 */
   const renderedZoomRef = useRef(1)
   /** 当前页高宽比：缩放时先按它换算内容尺寸，免去一次 getPageInfo */
@@ -413,13 +411,9 @@ export default function ScoreReader() {
         // downloadFile —— 那个不走 HTTP 缓存，每次都是真下载）。尺寸直接取自图片对象
         pageImg = await loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target))
         info = { width: pageImg.width, height: pageImg.height }
-        // 预取**后面几页**（不只下一页）：一次网络来回不便宜，只备一页时连续翻页会
-        // 追上；多备几页让「一直往下翻」全程命中缓存。同一页只发起一次
-        for (let n = target + 1; n <= Math.min(target + PREFETCH_AHEAD, pageCount); n++) {
-          if (prefetchedRef.current.has(n)) continue
-          prefetchedRef.current.add(n)
-          prefetchPageImage(pageImageUrls(fileUrlRef.current, n)[0])
-        }
+        // 翻页：把预热泵的优先带挪到这一页（泵自己负责「先保后面 3 页、再顺序补全
+        // 整册」，串行抓取、不与当前页抢带宽——见 lib/prefetch-pump.ts）
+        prefetchPumpRef.current?.setCurrent(target)
       } else {
         info = await doc!.getPageInfo(target)
       }
@@ -721,7 +715,8 @@ export default function ScoreReader() {
       // 每次 load 都重置：ref 跨调用保留，上一次的图片模式不能让这一次（比如无
       // file_id 的 url 直开）误走图片路径
       imageModeRef.current = false
-      prefetchedRef.current.clear()
+      prefetchPumpRef.current?.stop()
+      prefetchPumpRef.current = null
       inkPagesRef.current.clear() // 页码对应不同内容，白页判据也要重置
       const tStart = Date.now()
       timingRef.current = { startedAt: tStart }
@@ -775,6 +770,12 @@ export default function ScoreReader() {
           setPan({ x: 0, y: 0 })
           renderedZoomRef.current = 1
           aspectRef.current = 0
+          // 页图预热泵：总页数已知就建。首帧仍走前台路径；泵由 doRender 的首个
+          // setCurrent 启动——不与首帧抢带宽
+          prefetchPumpRef.current = createPrefetchPump({
+            total: imagePageTotal,
+            urlsFor: (n) => pageImageUrls(fileUrlRef.current, n),
+          })
           setDocTick((tick) => tick + 1)
           return
         }
