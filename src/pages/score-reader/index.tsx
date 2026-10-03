@@ -462,13 +462,15 @@ export default function ScoreReader() {
         // 分阶段耗时：PC/工具端能在 console 里直接看到（「打开慢」靠它定位）
         // eslint-disable-next-line no-console
         console.log('[score-reader] first frame', { page: target, ink, kept, ...timing })
-        if (ink === 0) {
-          // 首帧全白仍被换上去 = 渲染静默失败——正是 iOS 真机「打开全白」的表现
-          // （顶栏有页码、画布什么都没有、pdf.js 不抛错）。这里是唯一能主动留痕的落点；
+        if (ink <= 0) {
+          // ink=0：首帧全白仍被换上去 = 渲染静默失败——正是 iOS 真机「打开全白」的表现
+          // （顶栏有页码、画布什么都没有、pdf.js 不抛错）。
+          // ink=-1：墨迹探测本身失败（getImageData 不可用/抛错，raster.ts 会吞成 -1），
+          // 此时白帧判定整条链都失效，同样只在屏幕上可见。两种情况都只有这里能留痕；
           // 把 pdf.js 的 console 尾部与环境能力一起回传，免得依赖真机调试
           reportClientError({
             event: 'score_reader_blank_frame',
-            message: '首帧全白',
+            message: `首帧未出墨 ink=${ink}`,
             detail: {
               fileId,
               page: target,
