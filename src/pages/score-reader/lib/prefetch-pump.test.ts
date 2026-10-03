@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createPrefetchPump } from './prefetch-pump'
+import { createPrefetchPump, parallelForNetwork } from './prefetch-pump'
 
 /** 把泵的循环排空（注入的 prefetchOne 只 resolve 微任务，无计时器） */
 const flush = async (rounds = 80) => {
@@ -100,5 +100,55 @@ describe('createPrefetchPump', () => {
     await flush()
     expect(calls).toEqual([4, 5, 6, 1, 2])
     expect(calls).not.toContain(3)
+  })
+
+  it('并发档位：maxParallel=3 时优先带整批同时发、最多 3 个在途', async () => {
+    const started: number[] = []
+    const gates: Array<() => void> = []
+    const pump = createPrefetchPump({
+      total: 10,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: (url) =>
+        new Promise<void>((resolve) => {
+          started.push(Number(url))
+          gates.push(resolve)
+        }),
+      maxParallel: 3,
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(started).toEqual([2, 3, 4]) // 优先带三个同时发
+    gates[0]() // 完成一个 → 补一个
+    await flush()
+    expect(started).toEqual([2, 3, 4, 5])
+  })
+
+  it('setParallel 运行中调高：下一轮补足到新的并发', async () => {
+    const started: number[] = []
+    const gates: Array<() => void> = []
+    const pump = createPrefetchPump({
+      total: 10,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: (url) =>
+        new Promise<void>((resolve) => {
+          started.push(Number(url))
+          gates.push(resolve)
+        }),
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(started).toEqual([2]) // 默认串行
+    pump.setParallel(3)
+    gates[0]()
+    await flush()
+    expect(started).toEqual([2, 3, 4, 5]) // 补足到 3 个在途
+  })
+
+  it('网络档位 → 并发数', () => {
+    expect(parallelForNetwork('wifi')).toBe(4)
+    expect(parallelForNetwork('5g')).toBe(4)
+    expect(parallelForNetwork('4g')).toBe(3)
+    expect(parallelForNetwork('3g')).toBe(1)
+    expect(parallelForNetwork('unknown')).toBe(1)
   })
 })

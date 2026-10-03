@@ -41,7 +41,11 @@ import {
   writeCachedPdf,
 } from './lib/pdf-cache'
 import { loadPageImage, paintPageImage, type LoadedPageImage } from './lib/page-image'
-import { createPrefetchPump, type PrefetchPump } from './lib/prefetch-pump'
+import {
+  createPrefetchPump,
+  parallelForNetwork,
+  type PrefetchPump,
+} from './lib/prefetch-pump'
 import './index.scss'
 
 const DEFAULT_URL = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
@@ -412,7 +416,7 @@ export default function ScoreReader() {
         pageImg = await loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target))
         info = { width: pageImg.width, height: pageImg.height }
         // 翻页：把预热泵的优先带挪到这一页（泵自己负责「先保后面 3 页、再顺序补全
-        // 整册」，串行抓取、不与当前页抢带宽——见 lib/prefetch-pump.ts）
+        // 整册」，并发按网络档位有界——见 lib/prefetch-pump.ts）
         prefetchPumpRef.current?.setCurrent(target)
       } else {
         info = await doc!.getPageInfo(target)
@@ -772,10 +776,15 @@ export default function ScoreReader() {
           aspectRef.current = 0
           // 页图预热泵：总页数已知就建。首帧仍走前台路径；泵由 doRender 的首个
           // setCurrent 启动——不与首帧抢带宽
-          prefetchPumpRef.current = createPrefetchPump({
+          const pump = createPrefetchPump({
             total: imagePageTotal,
             urlsFor: (n) => pageImageUrls(fileUrlRef.current, n),
           })
+          prefetchPumpRef.current = pump
+          // 按网络档位放开并发（弱网保持串行：并发会和正在看的那一页抢带宽）
+          void Taro.getNetworkType()
+            .then(({ networkType }) => pump.setParallel(parallelForNetwork(networkType)))
+            .catch(() => {})
           setDocTick((tick) => tick + 1)
           return
         }
