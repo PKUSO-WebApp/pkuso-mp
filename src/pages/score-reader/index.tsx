@@ -61,6 +61,47 @@ const OFFSCREEN = '-99999px'
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+/**
+ * 探测 pdf 渲染依赖的环境能力（诊断用；一次调用开销可忽略）。
+ *
+ * 为什么需要：iOS 真机上 pdf.js 会「静默不画」——resolve、无异常，只有 console.warn。
+ * 把环境事实随上报一起带回来，才能判断是缺 API（OffscreenCanvas / createImageBitmap）
+ * 还是别的原因，而不用让测试者做真机调试。
+ */
+function probePdfEnv(): Record<string, string> {
+  const out: Record<string, string> = {}
+  try {
+    out.offscreenCtor = typeof (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas
+  } catch {
+    out.offscreenCtor = 'err'
+  }
+  try {
+    const wxAny = Taro as unknown as {
+      createOffscreenCanvas?: (o: { type: string; width: number; height: number }) => {
+        getContext?: (t: string) => unknown
+      } | null
+    }
+    const c = wxAny.createOffscreenCanvas?.({ type: '2d', width: 4, height: 4 })
+    if (!c) out.wxOffscreen = 'null'
+    else if (typeof c.getContext !== 'function') out.wxOffscreen = 'noGetContext'
+    else {
+      try {
+        out.wxOffscreen = c.getContext('2d') ? 'ok' : 'nullCtx'
+      } catch {
+        out.wxOffscreen = 'ctxThrow'
+      }
+    }
+  } catch {
+    out.wxOffscreen = 'throw'
+  }
+  try {
+    out.createImageBitmap = typeof (globalThis as { createImageBitmap?: unknown }).createImageBitmap
+  } catch {
+    out.createImageBitmap = 'err'
+  }
+  return out
+}
+
 export default function ScoreReader() {
   const { t } = useT()
   const darkClass = useThemeClass()
@@ -141,6 +182,10 @@ export default function ScoreReader() {
   const inkPagesRef = useRef<Set<number>>(new Set())
   /** 指向 requestRender（doRender 的延迟探针要用，避免循环依赖） */
   const requestRef = useRef<(job: Job) => void>(() => {})
+  // —— 诊断探针（定位 iOS 真机「打开全白」与「加载慢」）——
+  // 白屏时页面逻辑是活的（顶栏能显示「1 / 34」），所以这些数据能随上报回传
+  const consoleTailRef = useRef<string[]>([])
+  const timingRef = useRef<Record<string, number | string | boolean>>({})
 
   const statusText =
     stage === 'fetching'
@@ -158,6 +203,48 @@ export default function ScoreReader() {
   useEffect(() => {
     viewSizeRef.current = viewSize
   }, [viewSize])
+
+  // 采集 console 尾部：pdf.js 的失败只走 console.warn（不抛错），真机上没人看得到它，
+  // 只保留最近若干条，随「首帧全白」的上报一起回传
+  useEffect(() => {
+    const tail: string[] = []
+    consoleTailRef.current = tail
+    const origWarn = console.warn
+    const origError = console.error
+    const push = (tag: string, args: unknown[]) => {
+      try {
+        const line =
+          tag +
+          args
+            .map((a) => {
+              if (typeof a === 'string') return a
+              try {
+                return JSON.stringify(a)
+              } catch {
+                return String(a)
+              }
+            })
+            .join(' ')
+            .slice(0, 240)
+        tail.push(line)
+        if (tail.length > 12) tail.shift()
+      } catch {
+        // 探针绝不能反过来影响业务
+      }
+    }
+    console.warn = (...args: unknown[]) => {
+      push('W|', args)
+      origWarn(...(args as never[]))
+    }
+    console.error = (...args: unknown[]) => {
+      push('E|', args)
+      origError(...(args as never[]))
+    }
+    return () => {
+      console.warn = origWarn
+      console.error = origError
+    }
+  }, [])
   // 异步渲完后要判「这页还是不是当前页」，故用 ref 读最新值
   useEffect(() => {
     pageRef.current = page
@@ -366,9 +453,36 @@ export default function ScoreReader() {
       // 它靠这个 ref 挑「反面那块」——晚一步（等 effect）它就会渲到正在显示的画布上
       activeLayerRef.current = layer
       setActiveLayer(layer)
+      if (firstPaint) {
+        const startedAt = Number(timingRef.current.startedAt ?? 0)
+        const timing = {
+          ...timingRef.current,
+          firstMs: startedAt ? Date.now() - startedAt : -1,
+        }
+        // 分阶段耗时：PC/工具端能在 console 里直接看到（「打开慢」靠它定位）
+        // eslint-disable-next-line no-console
+        console.log('[score-reader] first frame', { page: target, ink, kept, ...timing })
+        if (ink === 0) {
+          // 首帧全白仍被换上去 = 渲染静默失败——正是 iOS 真机「打开全白」的表现
+          // （顶栏有页码、画布什么都没有、pdf.js 不抛错）。这里是唯一能主动留痕的落点；
+          // 把 pdf.js 的 console 尾部与环境能力一起回传，免得依赖真机调试
+          reportClientError({
+            event: 'score_reader_blank_frame',
+            message: '首帧全白',
+            detail: {
+              fileId,
+              page: target,
+              kept,
+              ...timing,
+              env: probePdfEnv(),
+              consoleTail: consoleTailRef.current.slice(-8),
+            },
+          })
+        }
+      }
       setStage('ready')
     },
-    [containerW, pageCount, queryCanvasNode, reloadDoc]
+    [containerW, fileId, pageCount, queryCanvasNode, reloadDoc]
   )
 
   // 串行执行：一件渲完才起下一件。并发渲同一块画布会互相清屏（pdf.js 的
@@ -517,6 +631,8 @@ export default function ScoreReader() {
       let finalUrl = targetUrl || ''
       let cacheTag = ''
       inkPagesRef.current.clear() // 页码对应不同内容，白页判据也要重置
+      const tStart = Date.now()
+      timingRef.current = { startedAt: tStart }
       setStage('fetching')
       setMessage('')
       try {
@@ -534,11 +650,14 @@ export default function ScoreReader() {
           cacheTag = pdfCacheTag(fileMeta)
           void Taro.setNavigationBarTitle({ title: fileMeta.file_name })
         }
+        timingRef.current.metaMs = Date.now() - tStart
         if (!finalUrl) throw new Error(t('scoreReader.loadFailed', { error: 'no url' }))
         fileUrlRef.current = finalUrl
 
         // 本地缓存优先：同一份谱子第二次打开不再走网络
+        const tBytes = Date.now()
         let bytes = fileId && cacheTag ? await readCachedPdf(fileId, cacheTag) : null
+        timingRef.current.cached = Boolean(bytes)
         if (!bytes) {
           bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
             Taro.request({
@@ -556,13 +675,17 @@ export default function ScoreReader() {
           // 落盘不挡首帧；失败也无所谓
           if (fileId && cacheTag) writeCachedPdf(fileId, cacheTag, bytes)
         }
+        timingRef.current.bytesMs = Date.now() - tBytes
+        timingRef.current.size = bytes.byteLength
         bytesRef.current = bytes
 
         setStage('parsing')
+        const tOpen = Date.now()
         const engine = createPdfEngine()
         engineRef.current?.destroy()
         engineRef.current = engine
         const doc = await engine.open(bytes)
+        timingRef.current.openMs = Date.now() - tOpen
         docRef.current?.destroy()
         docRef.current = doc
         const total = doc.pageCount
