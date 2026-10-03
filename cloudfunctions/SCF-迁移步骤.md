@@ -14,6 +14,13 @@
 - 代码：在线编辑粘贴或上传单文件 `cloudfunctions/supabase-proxy/index.js`，执行方法 `index.main`。**保持零依赖、模块顶层不做 I/O**——冷启动成本和部署简单性都靠它
 - 基础配置：**内存 256MB**、**超时 60s**
   （默认 3s 兜不住：上游单跳预算 20s + 登录链路本身 2–3s）
+- 网络与开关（建函数页）：
+  - **公网访问：启用**（函数必须能出网到 supabase.co）
+  - **固定公网出口IP：关闭**（不需要固定出口；开启后平台无法横向扩展，有容量风险）
+  - **私有网络 / 固定内网出口IP：都不勾**（不访问 VPC 资源）
+  - **文件系统：不添加；异步执行：不启用**（纯同步请求-响应）
+  - 日志：默认（不启用 CLS 投递就无需指定投递主题）
+  - **DNS 缓存：启用**（我们每请求都解析 supabase.co；探针里 dns_ms 常 145–245ms——开缓存后对比探针的 dns_ms 可量化收益）
 - 环境变量（**先建开发库那份**，值抄 `.env.development`）：
   - `SUPABASE_URL`、`SUPABASE_ANON_KEY`
   - `MP_APPID=wx4813b0549427f8c3`
@@ -46,6 +53,13 @@ https://<app-id>-<url-id>.ap-shanghai.tencentscf.com
 - **必须改**：SCF 的 query 字段叫 `queryString`（对象），微信云开发叫 `queryStringParameters`——不改会**静默出错结果**（过滤失效，`.eq(id)` 变全表查询）
 - 请求侧无 `isBase64Encoded` 字段：我们的 POST 都是 JSON 文本，天然正确
 - **待实测**：响应侧 `isBase64Encoded: true` 是否被函数 URL 尊重（页图一打便知）；若不支持 → 改走 **Web 函数**（原生 HTTP server，加 ~50 行适配层）
+
+### 6. 定时触发器（探针）
+
+- 函数详情 → 触发管理 → 创建触发器 → **定时触发**，cron（7 段含秒）：`0 */15 * * * * *`
+- 定时事件没有 `httpMethod` ⇒ 自动走 `runProbe()` 分支（现成逻辑，无需改码；prod 现状就是这么跑的）
+- **成本 ≈0.3–0.6 元/月**（≈2,900 次/月；主项是执行时长 × 256MB 的 GBs 计费，调用次数只贡献几厘）
+- 写库规则：**函数配哪个 `SUPABASE_URL` 就写哪个库**——dev 函数写 dev（阶段一验证用）；切 prod 时建 `PROBE_TAG=scf-prod-v1` 那份，与现有 `cloudbase-v1` 序列**并行跑一两天对比**，数据对上了再切 mp 域名
 
 ## 阶段二：dev 真机验收（1 天）
 
