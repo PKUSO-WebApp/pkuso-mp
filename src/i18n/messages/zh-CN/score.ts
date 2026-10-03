@@ -1,5 +1,5 @@
 export const score = {
-  navTitle: '谱务',
+  navTitle: '乐谱',
   tabs: {
     all: '全部',
     mine: '分发给我的',

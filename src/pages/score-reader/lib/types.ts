@@ -19,6 +19,8 @@ export type CanvasCtx = {
   stroke: () => void
   fillRect: (x: number, y: number, w: number, h: number) => void
   getImageData: (x: number, y: number, w: number, h: number) => { data: ArrayLike<number> }
+  /** 图片模式（页图）用它把整页 JPEG 画上去；pdf.js 路径不经过它 */
+  drawImage: (img: unknown, x: number, y: number, w: number, h: number) => void
   fillStyle: string
   strokeStyle: string
   lineWidth: number
@@ -29,6 +31,17 @@ export type CanvasNode = {
   width: number
   height: number
   getContext: (type: '2d') => CanvasCtx
+  /** 小程序 canvas node 的原生图片对象（图片模式用它解码 JPEG，毫秒级） */
+  createImage?: () => CanvasImage
+}
+
+/** 小程序 `canvas.createImage()` 返回的对象（只有我们用到的最小子集） */
+export type CanvasImage = {
+  src: string
+  width?: number
+  height?: number
+  onload: (() => void) | null
+  onerror: ((err: unknown) => void) | null
 }
 
 /** 内容框左上角相对视口的位置（px，可为负） */

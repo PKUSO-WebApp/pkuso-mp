@@ -28,7 +28,7 @@ export const ui = {
     home: '首页',
     community: '社区',
     schedule: 'B108',
-    score: '谱务',
+    score: '乐谱',
     members: '成员',
     profile: '我的',
   },

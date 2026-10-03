@@ -79,7 +79,7 @@ export default defineAppConfig({
       },
       {
         pagePath: 'pages/score/index',
-        text: '谱务',
+        text: '乐谱',
         iconPath: 'assets/icons/score.png',
         selectedIconPath: 'assets/icons/score-active.png',
       },

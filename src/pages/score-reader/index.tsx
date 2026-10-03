@@ -5,7 +5,6 @@ import type { ITouchEvent } from '@tarojs/components'
 import { supabase } from '@/lib/supabase'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
-import { useMyProfile } from '@/hooks/useMyProfile'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
 import {
   PEN_COLORS,
@@ -40,6 +39,7 @@ import {
   readCachedPdf,
   writeCachedPdf,
 } from './lib/pdf-cache'
+import { drawPageImage, ensurePageImage, pageImageUrl } from './lib/page-image'
 import './index.scss'
 
 const DEFAULT_URL = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
@@ -107,8 +107,6 @@ export default function ScoreReader() {
   const darkClass = useThemeClass()
   useNavTitle('scoreReader.navTitle')
   const router = useRouter()
-  const { profile } = useMyProfile()
-
   const fileId = router.params.file_id ? decodeURIComponent(router.params.file_id) : ''
   const presetUrl = router.params.url ? decodeURIComponent(router.params.url) : ''
 
@@ -156,6 +154,12 @@ export default function ScoreReader() {
   const overlayCtxRef = useRef<CanvasCtx | null>(null)
   const overlayRectRef = useRef<{ left: number; top: number } | null>(null)
   const fileUrlRef = useRef('')
+  /**
+   * 图片模式：`page_count` 有值 = web 端上传时已预渲染页图（pkuso-web #378/#379）⇒
+   * 逐页下载图片显示（原生解码，几十毫秒/页），不再下载/解析 PDF（那是 6 秒/页的
+   * 纯 JS 解码路径）。NULL = 老文件或页图渲染失败 ⇒ 走 pdf.js 回退，功能完整但慢。
+   */
+  const imageModeRef = useRef(false)
   /** 已落到画布上的 zoom；与 zoom 不等时说明还在等合并渲染 */
   const renderedZoomRef = useRef(1)
   /** 当前页高宽比：缩放时先按它换算内容尺寸，免去一次 getPageInfo */
@@ -370,8 +374,10 @@ export default function ScoreReader() {
   // 渲一页到备用块（绝不碰显示中的那块）。渲完先确认这一帧不是白的，再换帧
   const doRender = useCallback(
     async (job: Job) => {
+      const imageMode = imageModeRef.current
       const doc = docRef.current
-      if (!doc || containerW <= 0 || pageCount <= 0) return
+      // 图片模式没有 doc（刻意不打开 PDF）；pdf 模式下没有 doc 就没法渲染
+      if ((!doc && !imageMode) || containerW <= 0 || pageCount <= 0) return
       const target = clamp(job.page, 1, pageCount)
       const layer: Layer = activeLayerRef.current === 'a' ? 'b' : 'a'
       renderLayerRef.current = layer
@@ -379,7 +385,20 @@ export default function ScoreReader() {
       // 只在还没有任何一帧时进 rendering：后续重渲不动状态，避免提示条反复显隐
       if (firstPaint) setStage('rendering')
       const tStep = Date.now()
-      const info = await doc.getPageInfo(target)
+      // 图片模式：页图（本地缓存优先）→ 用它自己的像素尺寸当 info（整页图，比例同 PDF 页）
+      let pageImageLocal = ''
+      let info: { width: number; height: number }
+      if (imageMode) {
+        pageImageLocal = await ensurePageImage(
+          fileId,
+          pageImageUrl(fileUrlRef.current, target),
+          target
+        )
+        const meta = await Taro.getImageInfo({ src: pageImageLocal })
+        info = { width: meta.width, height: meta.height }
+      } else {
+        info = await doc!.getPageInfo(target)
+      }
       const aspect = info.height / info.width
       const fit = containerW / info.width
       const scale = fit * job.zoom
@@ -396,7 +415,25 @@ export default function ScoreReader() {
       const nodeMs = Date.now() - tNode
       drawMark(node as CanvasNode)
       const tRender = Date.now()
-      await doc.renderPage(target, node, { scale, pixelRatio: dpr })
+      if (imageMode) {
+        // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
+        await drawPageImage(
+          node as CanvasNode,
+          pageImageLocal,
+          Math.round(w * dpr),
+          Math.round(h * dpr)
+        )
+        // 预取下一页：翻页时多半已在本地；后台失败无所谓（翻到时还会再拉）
+        if (target < pageCount) {
+          void ensurePageImage(
+            fileId,
+            pageImageUrl(fileUrlRef.current, target + 1),
+            target + 1
+          ).catch(() => {})
+        }
+      } else {
+        await doc!.renderPage(target, node, { scale, pixelRatio: dpr })
+      }
       const renderMs = Date.now() - tRender
       const tProbe = Date.now()
       const kept = markKept(node as CanvasNode)
@@ -451,8 +488,24 @@ export default function ScoreReader() {
             }, BLANK_RETRY_MS * attempt)
             return
           }
+          // 图片模式没有「文档」可重开：白帧只可能是页图本身/缓存坏了 —— 删掉本地
+          // 缓存让下一轮重下一份，比 pdf 模式的 reloadDoc 更对症
+          if (imageMode && stillHere()) {
+            const gi = reloadGuardRef.current
+            if (!gi || gi.page !== target || Date.now() - gi.at > RELOAD_COOLDOWN_MS) {
+              reloadGuardRef.current = { page: target, at: Date.now() }
+              try {
+                Taro.getFileSystemManager().unlink({ filePath: pageImageLocal, fail: () => {} })
+              } catch {
+                // 删不掉不致命：下次下载会覆盖它
+              }
+              requestRef.current({ page: target, zoom: job.zoom })
+              return
+            }
+          }
           const g = reloadGuardRef.current
           if (
+            !imageMode &&
             stillHere() &&
             bytesRef.current &&
             (!g || g.page !== target || Date.now() - g.at > RELOAD_COOLDOWN_MS)
@@ -657,6 +710,10 @@ export default function ScoreReader() {
     async (targetUrl?: string) => {
       let finalUrl = targetUrl || ''
       let cacheTag = ''
+      let imagePageTotal = 0
+      // 每次 load 都重置：ref 跨调用保留，上一次的图片模式不能让这一次（比如无
+      // file_id 的 url 直开）误走图片路径
+      imageModeRef.current = false
       inkPagesRef.current.clear() // 页码对应不同内容，白页判据也要重置
       const tStart = Date.now()
       timingRef.current = { startedAt: tStart }
@@ -674,12 +731,38 @@ export default function ScoreReader() {
           const fileMeta = data as SheetMusicFileRow
           finalUrl = supabase.storage.from('sheet-music').getPublicUrl(fileMeta.storage_path)
             .data.publicUrl
-          cacheTag = pdfCacheTag(fileMeta)
+          // 图片模式（pkuso-web #378/#379）：page_count 有值 = 上传时已预渲染页图 ⇒
+          // 不下载 PDF、不解析，逐页下载图片显示（原生解码，几十毫秒/页）
+          if (fileMeta.page_count && fileMeta.page_count > 0) {
+            imageModeRef.current = true
+            imagePageTotal = fileMeta.page_count
+          } else {
+            // 老文件 / 页图渲染失败的 ⇒ pdf.js 回退路径
+            cacheTag = pdfCacheTag(fileMeta)
+          }
           void Taro.setNavigationBarTitle({ title: fileMeta.file_name })
         }
         timingRef.current.metaMs = Date.now() - tStart
         if (!finalUrl) throw new Error(t('scoreReader.loadFailed', { error: 'no url' }))
         fileUrlRef.current = finalUrl
+
+        if (imageModeRef.current) {
+          // 图片模式：PDF 不下载、不解析——总页数来自库（page_count），首帧由 doRender 拉
+          timingRef.current.cached = true
+          setPageCount(imagePageTotal)
+          const savedImg = fileId ? Number(Taro.getStorageSync(lastPageKey(fileId))) : NaN
+          setPage(
+            Number.isFinite(savedImg) && savedImg >= 1
+              ? clamp(Math.round(savedImg), 1, imagePageTotal)
+              : 1
+          )
+          setZoom(1)
+          setPan({ x: 0, y: 0 })
+          renderedZoomRef.current = 1
+          aspectRef.current = 0
+          setDocTick((tick) => tick + 1)
+          return
+        }
 
         // 本地缓存优先：同一份谱子第二次打开不再走网络
         const tBytes = Date.now()
@@ -726,18 +809,10 @@ export default function ScoreReader() {
         aspectRef.current = 0
         setDocTick((tick) => tick + 1)
 
-        // page_count 回填：仅 admin / score_manager（成员无 UPDATE 权限，RLS 会拒）
-        if (
-          fileId &&
-          total > 0 &&
-          (profile?.role === 'admin' || profile?.role === 'score_manager')
-        ) {
-          void supabase
-            .from('sheet_music_files')
-            .update({ page_count: total })
-            .eq('id', fileId)
-            .is('page_count', null)
-        }
+        // ⚠️ 这里曾回填 page_count（admin/score_manager 打开时写总页数）——**已删**。
+        // 新语义下 page_count 是「页图就绪」的开关（pkuso-web #378）：回填会把没有
+        // 页图的老文件标成「有页图」，阅读器进图片模式却找不到页图。总页数由 web 端
+        // 在上传时（预渲染页图的那一次）写入——跨仓约定，别再回填。
       } catch (err) {
         setStage('error')
         setMessage(describeError(err))
@@ -750,7 +825,7 @@ export default function ScoreReader() {
         })
       }
     },
-    [fileId, profile?.role, t]
+    [fileId, t]
   )
 
   // 自动加载：带 file_id / url 参数进入时

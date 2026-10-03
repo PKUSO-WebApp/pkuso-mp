@@ -32,6 +32,7 @@ function fakeCtx(getImageData?: CanvasCtx['getImageData']): {
     moveTo: () => {},
     lineTo: () => {},
     stroke: () => {},
+    drawImage: () => {},
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 0,
