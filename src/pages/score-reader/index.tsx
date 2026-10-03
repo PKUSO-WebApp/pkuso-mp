@@ -378,6 +378,7 @@ export default function ScoreReader() {
       const firstPaint = viewSizeRef.current.w <= 0
       // 只在还没有任何一帧时进 rendering：后续重渲不动状态，避免提示条反复显隐
       if (firstPaint) setStage('rendering')
+      const tStep = Date.now()
       const info = await doc.getPageInfo(target)
       const aspect = info.height / info.width
       const fit = containerW / info.width
@@ -387,17 +388,41 @@ export default function ScoreReader() {
       const dpr = rasterDpr(w, h)
       // 首帧：先把内容尺寸给出来，别让画布以 0 高存在
       if (firstPaint) setViewSize({ w, h })
+      const infoMs = Date.now() - tStep
+      const tNode = Date.now()
       const { node } = await queryCanvasNode(
         layer === 'a' ? '#reader-canvas-a' : '#reader-canvas-b'
       )
+      const nodeMs = Date.now() - tNode
       drawMark(node as CanvasNode)
+      const tRender = Date.now()
       await doc.renderPage(target, node, { scale, pixelRatio: dpr })
+      const renderMs = Date.now() - tRender
+      const tProbe = Date.now()
       const kept = markKept(node as CanvasNode)
       // 白帧判定：绘图指令是异步落到原生侧的，第一次读到白要再等一拍复核
       let ink = frameInk(node as CanvasNode)
       if (ink === 0) {
         await sleep(PROBE_RECHECK_MS)
         ink = frameInk(node as CanvasNode)
+      }
+      const probeMs = Date.now() - tProbe
+      if (firstPaint) {
+        // 首帧渲染分段耗时 + 实际渲染分辨率（PC 上「打开慢」靠它定位到具体一段）
+        // eslint-disable-next-line no-console
+        console.log('[score-reader] render timings', {
+          infoMs,
+          nodeMs,
+          renderMs,
+          probeMs,
+          ink,
+          kept,
+          containerW,
+          scale: Number(scale.toFixed(3)),
+          dpr,
+          bitmapW: w * dpr,
+          bitmapH: h * dpr,
+        })
       }
       if (ink === 0) {
         const prev = blankRetryRef.current
