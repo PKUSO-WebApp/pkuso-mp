@@ -15,6 +15,7 @@
   1. 打包：`python cloudfunctions/scf-web/pack.py <输出.zip>`（把核心现拷为 core.js）
   2. 包内三个文件：`app.js`（适配层）+ `core.js`（= `cloudfunctions/supabase-proxy/index.js` 原样）+ `scf_bootstrap`（启动文件，0755）
   3. **保持零依赖、模块顶层不做 I/O**——冷启动成本和部署简单性都靠它
+  4. 若控制台只提供「**启动命令**」字段（没有启动文件选项）：填 **`node app.js`**，**别留空**（留空走平台默认，多半是 `node index.js`——我们包里没有这个文件，会起不来）；日志报 `command not found` 就改全路径 `/var/lang/node18/bin/node app.js`
 - 基础配置：**内存 256MB**、**超时 60s**
   （默认 3s 兜不住：上游单跳预算 20s + 登录链路本身 2–3s）
 - 网络与开关（建函数页）：
@@ -23,7 +24,7 @@
   - **私有网络 / 固定内网出口IP：都不勾**（不访问 VPC 资源）
   - **文件系统：不添加；异步执行：不启用**（纯同步请求-响应）
   - 日志：默认（不启用 CLS 投递就无需指定投递主题）
-  - **DNS 缓存：启用**（我们每请求都解析 supabase.co；探针里 dns_ms 常 145–245ms——开缓存后对比探针的 dns_ms 可量化收益）
+  - **DNS 缓存：启用**（我们每请求都解析 supabase.co；探针里 dns_ms 常 145–245ms——开缓存后对比探针的 dns_ms 可量化收益）。**Web 函数没有这个勾选项**：官方路径是在 `scf_bootstrap` 里起 nscd（已内置，失败不阻塞）；若控制台走「启动命令」流则先没有——它是可选优化，不挡迁移
 - 环境变量（**先建开发库那份**，值抄 `.env.development`）：
   - `SUPABASE_URL`、`SUPABASE_ANON_KEY`
   - `MP_APPID=wx4813b0549427f8c3`

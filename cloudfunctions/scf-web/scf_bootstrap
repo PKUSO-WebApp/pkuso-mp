@@ -1,7 +1,17 @@
 #!/bin/bash
 # SCF Web 函数启动文件：监听端口固定 9000（平台约定）。
 # ⚠️ 部署时必须保有可执行权限（0755）——用 pack.py 打包会自动写入。
+#
+# 注意：新版控制台用「启动命令」字段（填 `node app.js`），不一定执行本文件；
+# 本文件是「启动文件」流程的兜底。两处都指向同一个 app.js，不冲突。
 cd "$(dirname "$0")" || exit 1
+
+# DNS 缓存（官方 Web 函数做法，等效于事件函数那边的勾选项）：
+# 起 nscd 后 glibc 的 getaddrinfo 会走它的缓存——我们请求的 socket lookup 正是这条路。
+# 后台起 + 失败不阻塞：nscd 起不来也绝不能影响 node 启动。
+if [ -x /var/lang/bin/nscd ]; then
+  /var/lang/bin/nscd -f /var/lang/conf/nscd.conf >/dev/null 2>&1 &
+fi
 
 if command -v node >/dev/null 2>&1; then
   exec node app.js
