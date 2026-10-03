@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pageImageUrl } from './page-image'
+import { pageImageUrl } from './score-page-image'
 
 /**
  * 跨仓契约：页图路径规则必须与 web 端的 `sheetMusicPagePath`

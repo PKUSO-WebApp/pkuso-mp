@@ -117,6 +117,11 @@ export default function ScoreReader() {
   const router = useRouter()
   const fileId = router.params.file_id ? decodeURIComponent(router.params.file_id) : ''
   const presetUrl = router.params.url ? decodeURIComponent(router.params.url) : ''
+  // 列表页（pages/score-part）带过来的元数据：省掉一次走反代到境外库的查询
+  //（实测 ~600ms）。缺了就回退查库——分享链接等旧入口不受影响。
+  const presetStoragePath = router.params.sp ? decodeURIComponent(router.params.sp) : ''
+  const presetPageCount = Number(router.params.pc) || 0
+  const presetFileName = router.params.fn ? decodeURIComponent(router.params.fn) : ''
 
   const [url, setUrl] = useState(presetUrl || DEFAULT_URL)
   const [stage, setStage] = useState<Stage>('idle')
@@ -437,16 +442,22 @@ export default function ScoreReader() {
       }
       const renderMs = Date.now() - tRender
       const tProbe = Date.now()
-      const kept = markKept(node as CanvasNode)
-      // 白帧判定：绘图指令是异步落到原生侧的，第一次读到白要再等一拍复核
-      let ink = frameInk(node as CanvasNode)
-      if (ink === 0) {
-        await sleep(PROBE_RECHECK_MS)
+      // 图片模式**不做**白帧探测：那套（渲前记号 + 渲后采样）是为 pdf.js 的**静默
+      // 失败**设计的；页图是上传时预渲染的权威结果，不存在「渲染失败」。直接当有墨
+      let kept = false
+      let ink = 3
+      if (!imageMode) {
+        kept = markKept(node as CanvasNode)
+        // 白帧判定：绘图指令是异步落到原生侧的，第一次读到白要再等一拍复核
         ink = frameInk(node as CanvasNode)
+        if (ink === 0) {
+          await sleep(PROBE_RECHECK_MS)
+          ink = frameInk(node as CanvasNode)
+        }
       }
       const probeMs = Date.now() - tProbe
-      if (firstPaint) {
-        // 首帧渲染分段耗时 + 实际渲染分辨率（PC 上「打开慢」靠它定位到具体一段）
+      // 首帧必打；之后只在「这一页渲染/取图偏慢」时打——只打首帧的话翻页永远看不到
+      if (firstPaint || infoMs + renderMs > 300) {
         // eslint-disable-next-line no-console
         console.log('[score-reader] render timings', {
           infoMs,
@@ -717,7 +728,14 @@ export default function ScoreReader() {
       setStage('fetching')
       setMessage('')
       try {
-        if (fileId && !finalUrl) {
+        if (fileId && !finalUrl && presetStoragePath && presetPageCount > 0) {
+          // 快速路径：列表页已把元数据带来 —— 省掉整次查询（那是首帧最大的一项）
+          finalUrl = supabase.storage.from('sheet-music').getPublicUrl(presetStoragePath).data
+            .publicUrl
+          imageModeRef.current = true
+          imagePageTotal = presetPageCount
+          if (presetFileName) void Taro.setNavigationBarTitle({ title: presetFileName })
+        } else if (fileId && !finalUrl) {
           const { data, error } = await supabase
             .from('sheet_music_files')
             .select('*')
@@ -822,7 +840,7 @@ export default function ScoreReader() {
         })
       }
     },
-    [fileId, t]
+    [fileId, presetFileName, presetPageCount, presetStoragePath, t]
   )
 
   // 自动加载：带 file_id / url 参数进入时

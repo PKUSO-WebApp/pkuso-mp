@@ -1,5 +1,8 @@
 import Taro from '@tarojs/taro'
+import { pageImageUrl } from '@/lib/score-page-image'
 import type { CanvasImage, CanvasNode } from './types'
+
+export { pageImageUrl }
 
 /**
  * 页图（上传时预渲染的整页 JPEG）的加载与绘制。
@@ -14,11 +17,6 @@ import type { CanvasImage, CanvasNode } from './types'
  *
  * ⚠️ 路径规则与 web 端 `sheetMusicPagePath` 必须一致（`{storage_path 去 .pdf}/p{n}.jpg`）。
  */
-
-/** 第 n 页页图的公开 URL（PDF 的 publicUrl 去 `.pdf` + `/p{n}.jpg`，与 web 端同规则） */
-export function pageImageUrl(pdfPublicUrl: string, pageNo: number): string {
-  return `${pdfPublicUrl.replace(/\.pdf$/, '')}/p${pageNo}.jpg`
-}
 
 /** 一页已加载的页图（尺寸在 onload 之后才有） */
 export type LoadedPageImage = { img: CanvasImage; width: number; height: number }

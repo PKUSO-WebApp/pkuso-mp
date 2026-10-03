@@ -8,6 +8,7 @@ import { ListState } from '@/components/ui/ListState'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { compareFiles } from '@/lib/sheet-music-sort'
 import { formatFileSize } from '@/lib/format'
+import { pageImageUrl } from '@/lib/score-page-image'
 import type { SheetMusicFileRow, SheetMusicPartRow } from '@/types/database'
 import './index.scss'
 
@@ -54,15 +55,32 @@ export default function ScorePart() {
     void fetch()
   }, [fetch])
 
-  // 从阅读器返回时刷新（阅读器会回填 page_count）
+  // 从阅读器返回时刷新（阅读器可能改了页标题等；页图与 page_count 由 web 端在上传
+  // 时写入，不经过这里 —— 这里曾写着「阅读器会回填 page_count」，那个回填写在
+  // pkuso-web#378 的跨仓约定里已被删除）
   useDidShow(() => {
     void fetch()
   })
 
   const openFile = (f: SheetMusicFileRow) => {
-    void Taro.navigateTo({
-      url: `/pages/score-reader/index?file_id=${encodeURIComponent(f.id)}`,
-    })
+    // 预取第一页：跳转动画 + 页面初始化期间图就在下载（缓存由小程序图片层负责）。
+    // 失败静默 —— 真进到阅读器时还会再拉一次。
+    if (f.page_count && f.page_count > 0) {
+      const pdfUrl = supabase.storage.from('sheet-music').getPublicUrl(f.storage_path).data
+        .publicUrl
+      void Taro.getImageInfo({ src: pageImageUrl(pdfUrl, 1) }).catch(() => {})
+    }
+    // 元数据随参数带给阅读器，省掉一次走反代到境外库的查询（实测 ~600ms）；
+    // 缺参数时阅读器回退查库（分享链接等旧入口不受影响）
+    const q = [
+      `file_id=${encodeURIComponent(f.id)}`,
+      `sp=${encodeURIComponent(f.storage_path)}`,
+      f.page_count ? `pc=${f.page_count}` : '',
+      `fn=${encodeURIComponent(f.file_name)}`,
+    ]
+      .filter(Boolean)
+      .join('&')
+    void Taro.navigateTo({ url: `/pages/score-reader/index?${q}` })
   }
 
   const sectionLabel = part ? translateInstrument(part.section, t) : ''
