@@ -39,11 +39,19 @@ import {
   readCachedPdf,
   writeCachedPdf,
 } from './lib/pdf-cache'
-import { drawPageImage, ensurePageImage, pageImageUrl } from './lib/page-image'
+import {
+  loadPageImage,
+  paintPageImage,
+  pageImageUrl,
+  prefetchPageImage,
+  type LoadedPageImage,
+} from './lib/page-image'
 import './index.scss'
 
 const DEFAULT_URL = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
 const ZOOM_MIN = 0.5
+/** 页图预取：当前页之后预取几页（一次网络来回不便宜，只备一页会被连续翻页追上） */
+const PREFETCH_AHEAD = 3
 const ZOOM_MAX = 4
 /** 缩放合并窗口：停手满这么久才真正重渲（期间画布只换尺寸，不清屏） */
 const ZOOM_SETTLE_MS = 180
@@ -160,6 +168,8 @@ export default function ScoreReader() {
    * 纯 JS 解码路径）。NULL = 老文件或页图渲染失败 ⇒ 走 pdf.js 回退，功能完整但慢。
    */
   const imageModeRef = useRef(false)
+  /** 已触发过预取的页码（同一页不重复发起；换文件时清空） */
+  const prefetchedRef = useRef<Set<number>>(new Set())
   /** 已落到画布上的 zoom；与 zoom 不等时说明还在等合并渲染 */
   const renderedZoomRef = useRef(1)
   /** 当前页高宽比：缩放时先按它换算内容尺寸，免去一次 getPageInfo */
@@ -385,17 +395,26 @@ export default function ScoreReader() {
       // 只在还没有任何一帧时进 rendering：后续重渲不动状态，避免提示条反复显隐
       if (firstPaint) setStage('rendering')
       const tStep = Date.now()
-      // 图片模式：页图（本地缓存优先）→ 用它自己的像素尺寸当 info（整页图，比例同 PDF 页）
-      let pageImageLocal = ''
+      // 两种模式都要画布节点（图片模式的 createImage 挂在它上面），提前取
+      const { node } = await queryCanvasNode(
+        layer === 'a' ? '#reader-canvas-a' : '#reader-canvas-b'
+      )
+      const nodeMs = Date.now() - tStep
+
+      let pageImg: LoadedPageImage | null = null
       let info: { width: number; height: number }
       if (imageMode) {
-        pageImageLocal = await ensurePageImage(
-          fileId,
-          pageImageUrl(fileUrlRef.current, target),
-          target
-        )
-        const meta = await Taro.getImageInfo({ src: pageImageLocal })
-        info = { width: meta.width, height: meta.height }
+        // 图片模式：加载页图（**走小程序图片层，微信自带缓存**；不要换成
+        // downloadFile —— 那个不走 HTTP 缓存，每次都是真下载）。尺寸直接取自图片对象
+        pageImg = await loadPageImage(node as CanvasNode, pageImageUrl(fileUrlRef.current, target))
+        info = { width: pageImg.width, height: pageImg.height }
+        // 预取**后面几页**（不只下一页）：一次网络来回不便宜，只备一页时连续翻页会
+        // 追上；多备几页让「一直往下翻」全程命中缓存。同一页只发起一次
+        for (let n = target + 1; n <= Math.min(target + PREFETCH_AHEAD, pageCount); n++) {
+          if (prefetchedRef.current.has(n)) continue
+          prefetchedRef.current.add(n)
+          prefetchPageImage(pageImageUrl(fileUrlRef.current, n))
+        }
       } else {
         info = await doc!.getPageInfo(target)
       }
@@ -407,30 +426,12 @@ export default function ScoreReader() {
       const dpr = rasterDpr(w, h)
       // 首帧：先把内容尺寸给出来，别让画布以 0 高存在
       if (firstPaint) setViewSize({ w, h })
-      const infoMs = Date.now() - tStep
-      const tNode = Date.now()
-      const { node } = await queryCanvasNode(
-        layer === 'a' ? '#reader-canvas-a' : '#reader-canvas-b'
-      )
-      const nodeMs = Date.now() - tNode
+      const infoMs = Date.now() - tStep - nodeMs
       drawMark(node as CanvasNode)
       const tRender = Date.now()
-      if (imageMode) {
+      if (imageMode && pageImg) {
         // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
-        await drawPageImage(
-          node as CanvasNode,
-          pageImageLocal,
-          Math.round(w * dpr),
-          Math.round(h * dpr)
-        )
-        // 预取下一页：翻页时多半已在本地；后台失败无所谓（翻到时还会再拉）
-        if (target < pageCount) {
-          void ensurePageImage(
-            fileId,
-            pageImageUrl(fileUrlRef.current, target + 1),
-            target + 1
-          ).catch(() => {})
-        }
+        paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
       } else {
         await doc!.renderPage(target, node, { scale, pixelRatio: dpr })
       }
@@ -488,17 +489,12 @@ export default function ScoreReader() {
             }, BLANK_RETRY_MS * attempt)
             return
           }
-          // 图片模式没有「文档」可重开：白帧只可能是页图本身/缓存坏了 —— 删掉本地
-          // 缓存让下一轮重下一份，比 pdf 模式的 reloadDoc 更对症
+          // 图片模式没有「文档」可重开、也没有本地缓存可清：重试一次即可
+          //（微信图片层会重拉那张图）
           if (imageMode && stillHere()) {
             const gi = reloadGuardRef.current
             if (!gi || gi.page !== target || Date.now() - gi.at > RELOAD_COOLDOWN_MS) {
               reloadGuardRef.current = { page: target, at: Date.now() }
-              try {
-                Taro.getFileSystemManager().unlink({ filePath: pageImageLocal, fail: () => {} })
-              } catch {
-                // 删不掉不致命：下次下载会覆盖它
-              }
               requestRef.current({ page: target, zoom: job.zoom })
               return
             }
@@ -714,6 +710,7 @@ export default function ScoreReader() {
       // 每次 load 都重置：ref 跨调用保留，上一次的图片模式不能让这一次（比如无
       // file_id 的 url 直开）误走图片路径
       imageModeRef.current = false
+      prefetchedRef.current.clear()
       inkPagesRef.current.clear() // 页码对应不同内容，白页判据也要重置
       const tStart = Date.now()
       timingRef.current = { startedAt: tStart }
