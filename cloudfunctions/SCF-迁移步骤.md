@@ -10,8 +10,11 @@
 
 ### 1. 新建函数
 
-- 函数服务 → 新建：地域 **上海**、类型 **事件函数**（不是 Web 函数）、运行环境 Node.js 18/20
-- 代码：在线编辑粘贴或上传单文件 `cloudfunctions/supabase-proxy/index.js`，执行方法 `index.main`。**保持零依赖、模块顶层不做 I/O**——冷启动成本和部署简单性都靠它
+- 函数服务 → 新建：地域 **上海**、类型 **Web 函数**（⚠️ **不是事件函数**——2026-10-04 实测：事件函数 + 函数 URL **不解析响应侧 base64**，页图回来 978,024 B 的 base64 文本、PDF Range 回来 1,333,336 B 文本，二进制走不了；Web 函数是真透传 HTTP）、运行环境 Node.js 18/20
+- 代码：上传 **部署包 zip**（Windows 上别用右键压缩——启动文件需要可执行位）：
+  1. 打包：`python cloudfunctions/scf-web/pack.py <输出.zip>`（把核心现拷为 core.js）
+  2. 包内三个文件：`app.js`（适配层）+ `core.js`（= `cloudfunctions/supabase-proxy/index.js` 原样）+ `scf_bootstrap`（启动文件，0755）
+  3. **保持零依赖、模块顶层不做 I/O**——冷启动成本和部署简单性都靠它
 - 基础配置：**内存 256MB**、**超时 60s**
   （默认 3s 兜不住：上游单跳预算 20s + 登录链路本身 2–3s）
 - 网络与开关（建函数页）：
@@ -58,14 +61,18 @@ https://<app-id>-<url-id>.ap-shanghai.tencentscf.com
 
 1. `GET /pkuso-echo` —— 比对 event 形状：path 带不带前缀、query 格式、`apikey` / `authorization` / `prefer` / `range` 头是否透传
 2. `GET /pkuso-probe` —— 四目标探测（`supabase_auth` / `supabase_rest` + 两个对照组），响应里直接返回 JSON（同时写回开发库 `client_error_logs`，`source='probe'`）。**对照组失败 = 本次实验无效**
-3. 真请求三连：带 apikey 的 rest 查询、**一张页图**（验 base64 响应路径）、一个 4MB PDF 的 `Range`（验头透传与大响应）
+3. 真请求三连（**判读要用「原字节」口径**）：
+   - 带 apikey 的 rest 查询（含 `?select=...` 之类 query——验证 query 透传；丢 query 会静默查错）
+   - **一张页图**：应回 **733,518 B** 且前 3 字节是 `ff d8 ff`（JPEG 魔数）——若是 978,024 B、开头 `/9j/`，说明又在 base64 文本里（事件函数就是这样，Web 函数不该）
+   - 一个 4MB PDF 的 `Range: bytes=0-999999`：应回 **206 + 恰好 1,000,000 B**（不是 1,333,336）
 4. **冷/热两发**：同一请求连打两发——第一发含冷启动，第二发才是稳态；判读 TTFB 时分开看（这一步顺带把冷启动也量了）
 
-### 5. 代码适配（方向已预判，以 echo 实测为准）
+### 5. 代码适配（2026-10-04 实测后定稿）
 
-- **必须改**：SCF 的 query 字段叫 `queryString`（对象），微信云开发叫 `queryStringParameters`——不改会**静默出错结果**（过滤失效，`.eq(id)` 变全表查询）
-- 请求侧无 `isBase64Encoded` 字段：我们的 POST 都是 JSON 文本，天然正确
-- **待实测**：响应侧 `isBase64Encoded: true` 是否被函数 URL 尊重（页图一打便知）；若不支持 → 改走 **Web 函数**（原生 HTTP server，加 ~50 行适配层）
+- ✅ **query 双形态已修**：`toPathAndQuery` 现在同时吃 `queryStringParameters`（微信云开发）与对象形态的 `queryString`（SCF）；Web 适配层更直接——把原始 `req.url` 塞进 `path`，query 原样透传、不重新编码
+- ✅ **二进制结论（实测）**：事件函数 + 函数 URL **不解析**响应侧 `isBase64Encoded`（页图回 978,024 B base64 文本、PDF Range 回 1,333,336 B 文本，都是原文 4/3，一字不差）→ **这就是改走 Web 函数的原因**
+- 请求侧事件里没有 `isBase64Encoded` 字段：适配层自己按 base64 传 body，核心解回 Buffer（字节级保真）
+- 说明：核心这次改动对**微信云开发是惰性的**（那边 `queryString` 恒为 null，新分支不触发），不需要为它重新部署云开发函数
 
 ### 6. 定时触发器（探针）
 
@@ -96,3 +103,9 @@ https://<app-id>-<url-id>.ap-shanghai.tencentscf.com
 - 上游跨境那一跳**不变**（上海出口落 SIN 量级，TTFB 1.0–1.4s 量级）——这是「机房跨境」方案的固有前提
 - 出口 IP 不固定：对 Supabase 无影响（anon key + RLS，没有 IP 白名单）
 - 成本：调用 0.0133 元/万次 + 资源 0.00011108 元/GBs + 外网 0.8 元/GB ⇒ 现用量 ≈0.5 元/月
+
+## 实测记录
+
+**2026-10-04（dev，事件函数）**：echo 形状 = `{body, headers, httpMethod, path, queryString}` 五键（query 是对象、值可为数组；无 `queryStringParameters`/`isBase64Encoded`）；关注头全透传（apikey / prefer / range / x-pkuso-diag）；echo 冷 240ms / 温 158ms；probe 四目标全 ok（auth 514ms / rest 846ms / 国内对照 127ms，DNS 144ms），写库 204（`scf-dev-v1` 已入 dev 库）；**响应 base64 不解析**——决定性缺陷，详见 §5。
+
+**2026-10-04（dev，Web 函数）**：待填。

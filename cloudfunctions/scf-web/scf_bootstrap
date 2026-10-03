@@ -1,0 +1,16 @@
+#!/bin/bash
+# SCF Web 函数启动文件：监听端口固定 9000（平台约定）。
+# ⚠️ 部署时必须保有可执行权限（0755）——用 pack.py 打包会自动写入。
+cd "$(dirname "$0")" || exit 1
+
+if command -v node >/dev/null 2>&1; then
+  exec node app.js
+fi
+for p in /var/lang/node18/bin/node /var/lang/nodejs/bin/node /usr/local/bin/node /usr/bin/node; do
+  if [ -x "$p" ]; then
+    exec "$p" app.js
+  fi
+done
+
+echo "scf_bootstrap: node not found" >&2
+exit 1
