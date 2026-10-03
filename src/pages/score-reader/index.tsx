@@ -42,10 +42,14 @@ import {
 } from './lib/pdf-cache'
 import { loadPageImage, paintPageImage, type LoadedPageImage } from './lib/page-image'
 import {
-  createPrefetchPump,
-  parallelForNetwork,
-  type PrefetchPump,
-} from './lib/prefetch-pump'
+  createPageTurn,
+  turnDirFor,
+  TURN_EASING,
+  TURN_MS,
+  type PageTurn,
+  type TurnFrame,
+} from './lib/page-turn'
+import { createPrefetchPump, parallelForNetwork, type PrefetchPump } from './lib/prefetch-pump'
 import './index.scss'
 
 const DEFAULT_URL = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
@@ -135,6 +139,8 @@ export default function ScoreReader() {
   const [pan, setPan] = useState<Pan>({ x: 0, y: 0 })
   // 双缓冲：显示帧在 a 或 b，渲染永远渲到另一块，渲完换帧
   const [activeLayer, setActiveLayer] = useState<Layer>('a')
+  // 正在滑出的那一块（翻页动画）；null = 没动画
+  const [turn, setTurn] = useState<TurnFrame | null>(null)
   // 页码输入框：编辑期间用本地文本，不被 page 的 clamp 回写打断
   const [pageInput, setPageInput] = useState('1')
   const [pageEditing, setPageEditing] = useState(false)
@@ -173,9 +179,16 @@ export default function ScoreReader() {
   const imageModeRef = useRef(false)
   /** 页图预热泵：整册的「优先带 + 顺序补全」后台预热（见 lib/prefetch-pump.ts） */
   const prefetchPumpRef = useRef<PrefetchPump | null>(null)
-  // 退出页面即停泵——后台抓取不该在页面销毁后继续
+  /** 翻页动画的状态机（见 lib/page-turn.ts）。onChange 就是 setTurn，故只在首次渲染建 */
+  const turnRef = useRef<PageTurn | null>(null)
+  if (!turnRef.current) turnRef.current = createPageTurn({ onChange: setTurn })
+  /** 显示中的那一页：换帧时更新。用来判断这一帧到底「换没换页」——同一页的重渲
+      （缩放、转屏、白帧自愈）不该滑出去再滑回来 */
+  const displayedPageRef = useRef(0)
+  // 退出页面即停泵、停动画——后台抓取/计时器不该在页面销毁后继续
   useUnload(() => {
     prefetchPumpRef.current?.stop()
+    turnRef.current?.stop()
   })
   /** 已落到画布上的 zoom；与 zoom 不等时说明还在等合并渲染 */
   const renderedZoomRef = useRef(1)
@@ -430,6 +443,13 @@ export default function ScoreReader() {
       // 首帧：先把内容尺寸给出来，别让画布以 0 高存在
       if (firstPaint) setViewSize({ w, h })
       const infoMs = Date.now() - tStep - nodeMs
+      // 目标块可能还在滑（上一次翻页的动画没走完）：等它停靠再动它。串行队列的下一件
+      // 必然写「刚退役的那一块」，而清屏（pdf.js 的 canvas.width = …）落在滑行半路
+      // 会当场露白。放在这里而不是开头，是为了让取图/解析与动画尾巴并行
+      const pageTurn = turnRef.current
+      while (pageTurn && pageTurn.frame()?.layer === layer) {
+        await pageTurn.settle(layer)
+      }
       drawMark(node as CanvasNode)
       const tRender = Date.now()
       if (imageMode && pageImg) {
@@ -532,10 +552,17 @@ export default function ScoreReader() {
       // 尺寸等渲完再落地，旧帧不被提前拉伸
       setViewSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
       renderedZoomRef.current = job.zoom
+      // 退役的那一块 = 刚才还在显示的那块（本次渲染进的是反面那块）
+      const retiring: Layer = layer === 'a' ? 'b' : 'a'
+      const shown = displayedPageRef.current
+      displayedPageRef.current = target
       // 必须同步写 ref：串行队列里下一件是在这次换帧的同一个同步块里启动的，
       // 它靠这个 ref 挑「反面那块」——晚一步（等 effect）它就会渲到正在显示的画布上
       activeLayerRef.current = layer
       setActiveLayer(layer)
+      // 翻页动画：方向跟着翻页方向走（往回翻就向右滑），该不该滑见 turnDirFor
+      const dir = turnDirFor({ firstPaint, shown, target })
+      if (dir !== null) turnRef.current?.begin(retiring, dir)
       if (firstPaint) {
         const startedAt = Number(timingRef.current.startedAt ?? 0)
         const timing = {
@@ -722,6 +749,9 @@ export default function ScoreReader() {
       prefetchPumpRef.current?.stop()
       prefetchPumpRef.current = null
       inkPagesRef.current.clear() // 页码对应不同内容，白页判据也要重置
+      // 「显示中的页」作废：换册后的首帧不滑（换册前后页码可能撞上，靠它区分）。
+      // 上一册那一段滑出不用管——它自己 200ms 内会停靠
+      displayedPageRef.current = 0
       const tStart = Date.now()
       timingRef.current = { startedAt: tStart }
       setStage('fetching')
@@ -729,8 +759,8 @@ export default function ScoreReader() {
       try {
         if (fileId && !finalUrl && presetStoragePath && presetPageCount > 0) {
           // 快速路径：列表页已把元数据带来 —— 省掉整次查询（那是首帧最大的一项）
-          finalUrl = supabase.storage.from('sheet-music').getPublicUrl(presetStoragePath).data
-            .publicUrl
+          finalUrl = supabase.storage.from('sheet-music').getPublicUrl(presetStoragePath)
+            .data.publicUrl
           imageModeRef.current = true
           imagePageTotal = presetPageCount
           if (presetFileName) void Taro.setNavigationBarTitle({ title: presetFileName })
@@ -1138,6 +1168,25 @@ export default function ScoreReader() {
   const boxW = viewSize.w || containerW || 0
   const boxH = viewSize.h || 0
 
+  // 双缓冲两块的样式。活跃块在 0 位；**滑出中的那块**压在最上层向左/向右移出，
+  // 新页在下面被露出来（换帧时新页早已渲好，不违反「宁停上一页也不上白帧」）。
+  // 移出距离取「内容框宽 / 视口宽」里的较大者：缩小后内容比视口窄且居中，只移
+  // 自己一个宽度会在左边留一条没盖住的旧页。transform 恒给具体值（不用 none）：
+  // 「none → 具体值」的插值在部分 WebView 上不稳，会直接跳到终点
+  const layerStyle = (l: Layer) => {
+    const sliding = turn && turn.layer === l ? turn : null
+    return {
+      left: activeLayer === l || sliding ? '0px' : OFFSCREEN,
+      width: `${boxW}px`,
+      height: `${boxH}px`,
+      zIndex: sliding ? 3 : 1,
+      transform: sliding
+        ? `translateX(${sliding.dir * Math.max(boxW, containerW)}px)`
+        : 'translateX(0px)',
+      transition: sliding ? `transform ${TURN_MS}ms ${TURN_EASING}` : 'none',
+    }
+  }
+
   return (
     <View className={`${darkClass} score-reader-page flex h-full min-h-0 flex-col bg-page-bg`}>
       {/* 状态栏：页码 / 缩放 / 批注开关 */}
@@ -1221,36 +1270,32 @@ export default function ScoreReader() {
           }}
         >
           {/* 双缓冲：显示的那块在 0 位，另一块停在视口外（仍是正常绘制的画布节点）。
-              渲染永远进备用块，渲完再换帧，pdf.js 清屏那一下就不会露白 */}
+              渲染永远进备用块，渲完再换帧，pdf.js 清屏那一下就不会露白。
+              换帧时退役的那块被动画移到滑出位（见 lib/page-turn.ts） */}
           <Canvas
             type='2d'
             id='reader-canvas-a'
             className='absolute top-0 block bg-page-bg'
-            style={{
-              left: activeLayer === 'a' ? '0px' : OFFSCREEN,
-              width: `${boxW}px`,
-              height: `${boxH}px`,
-            }}
+            style={layerStyle('a')}
           />
           <Canvas
             type='2d'
             id='reader-canvas-b'
             className='absolute top-0 block bg-page-bg'
-            style={{
-              left: activeLayer === 'b' ? '0px' : OFFSCREEN,
-              width: `${boxW}px`,
-              height: `${boxH}px`,
-            }}
+            style={layerStyle('b')}
           />
+          {/* 批注层：压在静态页之上、滑出的旧页之下（旧页滑走时把这一页的笔迹一起露出来）。
+              不靠 DOM 顺序——滑出的那块要盖过它，只能靠 z-index */}
           <Canvas
             type='2d'
             id='reader-overlay'
             className='absolute left-0 top-0 block'
-            style={{ width: `${boxW}px`, height: `${boxH}px` }}
+            style={{ width: `${boxW}px`, height: `${boxH}px`, zIndex: 2 }}
           />
         </View>
         {showStatusRow ? (
-          <View className='absolute left-0 right-0 top-0 py-3 text-center'>
+          // 画布带了 z-index（见 layerStyle），这条提示得压过它们才看得见
+          <View className='absolute left-0 right-0 top-0 py-3 text-center' style={{ zIndex: 9 }}>
             <Text className='text-xs text-text-muted'>{statusText}</Text>
           </View>
         ) : null}
