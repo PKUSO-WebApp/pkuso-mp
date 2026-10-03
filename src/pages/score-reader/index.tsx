@@ -15,6 +15,7 @@ import {
   type AnnoDoc,
   type AnnoStroke,
 } from '@/lib/annotation'
+import { describeError, reportClientError } from '@/lib/error-report'
 import { createPdfEngine, type PdfDocument, type PdfEngine } from '@vendor/wechat-miniprogram-pdf'
 import type { SheetMusicFileRow } from '@/types/database'
 // 页面内部模块：留在分包目录内，保证被打进分包 chunk（见 lib/types.ts 顶部注释）
@@ -268,9 +269,16 @@ export default function ScoreReader() {
       setDocTick((tick) => tick + 1)
     } catch (err) {
       setStage('error')
-      setMessage(err instanceof Error ? err.message : String(err))
+      setMessage(describeError(err))
+      // 这条自愈路径的重取字节走裸 Taro.request（绕过 taroFetch），失败只在屏幕上。
+      // 白帧自愈多发生在弱网/大文件，正是最需要事后回溯的场景
+      reportClientError({
+        event: 'score_reader_reload_failed',
+        message: describeError(err),
+        detail: { fileId },
+      })
     }
-  }, [])
+  }, [fileId])
 
   // 渲一页到备用块（绝不碰显示中的那块）。渲完先确认这一帧不是白的，再换帧
   const doRender = useCallback(
@@ -582,7 +590,14 @@ export default function ScoreReader() {
         }
       } catch (err) {
         setStage('error')
-        setMessage(err instanceof Error ? err.message : String(err))
+        setMessage(describeError(err))
+        // 这条链路上有两类失败没有其它通道上报：下载字节走裸 Taro.request（绕过
+        // taroFetch），pdf.js 解析/引擎错误则不经网络层——都只在用户屏幕上
+        reportClientError({
+          event: 'score_reader_load_failed',
+          message: describeError(err),
+          detail: { fileId },
+        })
       }
     },
     [fileId, profile?.role, t]
@@ -847,10 +862,15 @@ export default function ScoreReader() {
       if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}`)
       await Taro.openDocument({ filePath: res.tempFilePath, showMenu: true })
     } catch (err) {
+      const msg = describeError(err)
+      // 下载走裸 Taro.downloadFile（绕过 taroFetch）：失败只在 toast 里闪一下，库里没有
+      reportClientError({
+        event: 'score_reader_native_open_failed',
+        message: msg,
+        detail: { fileId },
+      })
       void Taro.showToast({
-        title: t('scoreReader.downloadFailed', {
-          error: err instanceof Error ? err.message : String(err),
-        }),
+        title: t('scoreReader.downloadFailed', { error: msg }),
         icon: 'none',
       })
     } finally {
