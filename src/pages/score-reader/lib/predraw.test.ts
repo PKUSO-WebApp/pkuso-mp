@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
-  pickPredrawTarget,
+  frameForPage,
+  missingNeighbor,
+  neighborFrames,
   predrawFallback,
   predrawGo,
-  predrawMatches,
+  spareLayer,
+  NEIGHBOR_MAX_ZOOM,
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
   PREDRAW_WARM_GRACE_MS,
+  type LayerMetas,
   type PredrawFrame,
 } from './predraw'
+import type { Layer } from './types'
 
 const frame = (o: Partial<PredrawFrame> = {}): PredrawFrame => ({
   page: 5,
@@ -22,40 +27,72 @@ const frame = (o: Partial<PredrawFrame> = {}): PredrawFrame => ({
   ...o,
 })
 
-describe('predrawMatches', () => {
-  const want = { page: 5, zoom: 1, containerW: 390, layer: 'b' as const }
+const metas = (o: Partial<LayerMetas> = {}): LayerMetas => ({ a: null, b: null, c: null, ...o })
 
-  it('四项全等才命中', () => {
-    expect(predrawMatches(frame(), want)).toBe(true)
+describe('neighborFrames', () => {
+  it('排除显示中的那块；缩放/视口宽对不上的不算', () => {
+    const m = metas({
+      a: frame({ layer: 'a', page: 4 }),
+      b: frame({ layer: 'b', page: 6 }),
+      c: frame({ layer: 'c', page: 7 }),
+    })
+    expect(
+      neighborFrames(m, 'b', { zoom: 1, containerW: 390 })
+        .map((f) => f.page)
+        .sort()
+    ).toEqual([4, 7])
+    expect(neighborFrames(m, 'b', { zoom: 1.25, containerW: 390 })).toEqual([])
+    expect(neighborFrames(m, 'b', { zoom: 1, containerW: 400 })).toEqual([])
   })
 
-  it('没有帧 / 任何一项不同都不命中', () => {
-    expect(predrawMatches(null, want)).toBe(false)
-    expect(predrawMatches(frame({ page: 6 }), want)).toBe(false)
-    expect(predrawMatches(frame({ zoom: 1.25 }), want)).toBe(false)
-    expect(predrawMatches(frame({ containerW: 391 }), want)).toBe(false)
-    // 层不同最关键：那块早被别的渲染写过了，用它会直接上错页
-    expect(predrawMatches(frame({ layer: 'a' }), want)).toBe(false)
-  })
-
-  it('尺寸/高宽比/时刻不参与命中判定（它们只是命中后要用的值）', () => {
-    expect(predrawMatches(frame({ cssW: 999, cssH: 999, aspect: 9, at: 0 }), want)).toBe(true)
+  it('没记账的层不算帧', () => {
+    expect(neighborFrames(metas(), 'a', { zoom: 1, containerW: 390 })).toEqual([])
   })
 })
 
-describe('pickPredrawTarget', () => {
-  it('备下一页', () => {
-    expect(pickPredrawTarget(3, 10)).toBe(4)
+describe('frameForPage', () => {
+  it('找得到就是它，找不到给 null', () => {
+    const fs = [frame({ page: 4, layer: 'a' }), frame({ page: 6, layer: 'c' })]
+    expect(frameForPage(fs, 6)?.layer).toBe('c')
+    expect(frameForPage(fs, 5)).toBeNull()
+  })
+})
+
+describe('missingNeighbor（预绘制的目标）', () => {
+  it('先补下一页、再补上一页；两个都在就 null（什么都不用做）', () => {
+    expect(missingNeighbor(5, 10, [])).toBe(6)
+    expect(missingNeighbor(5, 10, [frame({ page: 6 })])).toBe(4)
+    expect(missingNeighbor(5, 10, [frame({ page: 6 }), frame({ page: 4 })])).toBeNull()
   })
 
-  it('末页备上一页（末页往回翻永远是冷的）', () => {
-    expect(pickPredrawTarget(10, 10)).toBe(9)
-    expect(pickPredrawTarget(2, 2)).toBe(1)
+  it('边界：第一页没有上一页、末页没有下一页、单页册子什么都不缺', () => {
+    expect(missingNeighbor(1, 10, [])).toBe(2)
+    expect(missingNeighbor(10, 10, [])).toBe(9)
+    expect(missingNeighbor(1, 1, [])).toBeNull()
+  })
+})
+
+describe('spareLayer（该写哪块）', () => {
+  const all: Layer[] = ['a', 'b', 'c']
+
+  it('绝不写显示中的那块；优先写没记账的', () => {
+    expect(spareLayer(all, 'a', metas({ a: frame({ layer: 'a', page: 4 }) }), 5)).toBe('b')
   })
 
-  it('单页册子不备', () => {
-    expect(pickPredrawTarget(1, 1)).toBeNull()
-    expect(pickPredrawTarget(1, 0)).toBeNull()
+  it('两块都有记账时：先弃远的、保近的', () => {
+    const m = metas({
+      b: frame({ layer: 'b', page: 40 }), // 很远
+      c: frame({ layer: 'c', page: 6 }),
+    })
+    expect(spareLayer(all, 'a', m, 5)).toBe('b')
+  })
+
+  it('同样近时弃「上一页」、保「下一页」', () => {
+    const m = metas({
+      b: frame({ layer: 'b', page: 4 }), // 上一页
+      c: frame({ layer: 'c', page: 6 }), // 下一页
+    })
+    expect(spareLayer(all, 'a', m, 5)).toBe('b')
   })
 })
 
@@ -96,6 +133,7 @@ describe('predrawGo', () => {
   const base = {
     imageMode: true,
     zoom: 1,
+    pinching: false,
     animating: false,
     queueBusy: false,
     target: 4,
@@ -107,13 +145,20 @@ describe('predrawGo', () => {
     expect(predrawGo(base)).toBe('start')
   })
 
-  it('非图片模式 / 没有目标页 / 放大状态 都不做', () => {
+  it('非图片模式 / 没有目标页 都不做', () => {
     expect(predrawGo({ ...base, imageMode: false })).toBe('skip')
     expect(predrawGo({ ...base, target: null })).toBe('skip')
-    expect(predrawGo({ ...base, zoom: 1.25 })).toBe('skip')
   })
 
-  it('动画中 / 队列忙 都不做（让位给交互任务）', () => {
+  it('放大后**照做**（放大读谱也会翻页）；只有超过 NEIGHBOR_MAX_ZOOM 才退避', () => {
+    expect(predrawGo({ ...base, zoom: 1.5 })).toBe('start')
+    expect(predrawGo({ ...base, zoom: NEIGHBOR_MAX_ZOOM })).toBe('start')
+    // 再大：三块画布的位图随 zoom² 涨（单块可到 ~48MB），不值得为它冒内存风险
+    expect(predrawGo({ ...base, zoom: NEIGHBOR_MAX_ZOOM + 0.01 })).toBe('skip')
+  })
+
+  it('捏合中 / 动画中 / 队列忙 都不做（让位给交互）', () => {
+    expect(predrawGo({ ...base, pinching: true })).toBe('skip')
     expect(predrawGo({ ...base, animating: true })).toBe('skip')
     expect(predrawGo({ ...base, queueBusy: true })).toBe('skip')
   })

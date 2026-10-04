@@ -8,7 +8,11 @@
  */
 
 export type Stage = 'idle' | 'fetching' | 'parsing' | 'rendering' | 'ready' | 'error'
-export type Layer = 'a' | 'b'
+/**
+ * 画布块。**三块**：一块显示中、一块放着「下一页」（预绘制）、一块放着「上一页」
+ * （换帧后退役的那块，内容是刚离开的那页 ⇒ 免费）。见 lib/predraw.ts 的模型说明。
+ */
+export type Layer = 'a' | 'b' | 'c'
 
 export type CanvasCtx = {
   setTransform: (a: number, b: number, c: number, d: number, e: number, f: number) => void

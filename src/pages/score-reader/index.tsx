@@ -59,12 +59,16 @@ import {
 } from './lib/page-turn'
 import { createPrefetchPump, parallelForNetwork, type PrefetchPump } from './lib/prefetch-pump'
 import {
-  pickPredrawTarget,
+  ALL_LAYERS,
+  frameForPage,
+  missingNeighbor,
+  neighborFrames,
   predrawFallback,
   predrawGo,
-  predrawMatches,
+  spareLayer,
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
+  type LayerMetas,
   type PredrawFrame,
 } from './lib/predraw'
 import { hasSeenReaderTutorial, markReaderTutorialSeen } from './lib/tutorial-seen'
@@ -86,6 +90,13 @@ const BLANK_MAX_RETRY = 2
 const RELOAD_COOLDOWN_MS = 15000
 /** 备用帧停靠位置：移出视口即可（overflow:hidden 会裁掉），它仍是正常在绘制的画布 */
 const OFFSCREEN = '-99999px'
+
+/** 三块画布的节点 id（与 lib/types.ts 的 Layer 一一对应） */
+const CANVAS_SEL: Record<Layer, string> = {
+  a: '#reader-canvas-a',
+  b: '#reader-canvas-b',
+  c: '#reader-canvas-c',
+}
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
@@ -226,29 +237,35 @@ export default function ScoreReader() {
    * 纯 JS 解码路径）。NULL = 老文件或页图渲染失败 ⇒ 走 pdf.js 回退，功能完整但慢。
    */
   const imageModeRef = useRef(false)
-  /** 页图预热泵：整册的「优先带 + 顺序补全」后台预热（见 lib/prefetch-pump.ts） */
+  /** 页图预热泵：以当前页为中心的窗口预热（见 lib/prefetch-pump.ts） */
   const prefetchPumpRef = useRef<PrefetchPump | null>(null)
-  // —— 预绘制（见 lib/predraw.ts、doPredraw / promoteReady）——
-  /** 已经画进备用块、可直接换帧的那一帧 */
-  const readyRef = useRef<PredrawFrame | null>(null)
+  // —— 邻居帧 / 预绘制（见 lib/predraw.ts、doPredraw / promoteFrame）——
+  /**
+   * 每块画布「现在放着哪一页」的记账。**铁律**：决定要写某块位图的那一刻就把这一笔清掉，
+   * 只有画成功（含白帧校验）才写回——留着过期的记账就是上错页。
+   */
+  const layerMetaRef = useRef<LayerMetas>({ a: null, b: null, c: null })
   /** 失效世代：每个 await 之后都要复核，变了就丢掉这次预绘制 */
   const predrawEpochRef = useRef(0)
   const predrawTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 在飞的后台预绘制（交互任务靠它让位 / 采纳） */
   const bgRef = useRef<BgCtl | null>(null)
-  /** `containerW` 的同步镜像：预绘制有效性判据不能等 effect（晚一拍会把旧尺寸的帧当有效帧） */
+  /** `containerW` 的同步镜像：帧的判据不能等 effect（晚一拍会把旧尺寸的帧当有效帧） */
   const containerWRef = useRef(0)
-  /** 排下一次预绘制（doRender 尾段与 promoteReady 都要调，用 ref 断开循环依赖） */
+  /** 排下一次预绘制（doRender 尾段与 promoteFrame 都要调，用 ref 断开循环依赖） */
   const schedulePredrawRef = useRef<() => void>(() => {})
 
   /**
-   * 让预绘制作废（世代 +1，并打断在飞的那次）。触发点：视口宽变化、缩放、换册、
-   * 白帧重开文档、页面销毁、回到前台——凡是「从画完到上屏之间可能让备用块失效」的事。
+   * 让所有邻居帧作废（世代 +1，并打断在飞的那次）。触发点：视口宽变化、缩放、换册、
+   * 白帧重开文档、页面销毁、回到前台——凡是「已经画好的帧尺寸对不上/内容来路不明」的事。
    */
   const invalidatePredraw = useCallback((why: string) => {
-    if (!readyRef.current && !bgRef.current && !predrawTimerRef.current) return
+    const hasFrames = Boolean(
+      layerMetaRef.current.a || layerMetaRef.current.b || layerMetaRef.current.c
+    )
+    if (!hasFrames && !bgRef.current && !predrawTimerRef.current) return
     predrawEpochRef.current += 1
-    readyRef.current = null
+    layerMetaRef.current = { a: null, b: null, c: null }
     const ctl = bgRef.current
     if (ctl) {
       ctl.cancelled = true
@@ -273,7 +290,7 @@ export default function ScoreReader() {
     turnRef.current?.stop()
     if (predrawTimerRef.current) clearTimeout(predrawTimerRef.current)
     predrawTimerRef.current = null
-    readyRef.current = null
+    layerMetaRef.current = { a: null, b: null, c: null }
     const ctl = bgRef.current
     if (ctl) {
       ctl.cancelled = true
@@ -543,19 +560,18 @@ export default function ScoreReader() {
       // 图片模式没有 doc（刻意不打开 PDF）；pdf 模式下没有 doc 就没法渲染
       if ((!doc && !imageMode) || containerW <= 0 || pageCount <= 0) return
       const target = clamp(job.page, 1, pageCount)
-      const layer: Layer = activeLayerRef.current === 'a' ? 'b' : 'a'
+      // 写哪块：不是显示中的那块，且是「最该被写掉」的那块（远的先弃、同远时弃上一页保下一页）
+      const layer = spareLayer(ALL_LAYERS, activeLayerRef.current, layerMetaRef.current, target)
       renderLayerRef.current = layer
       // 铁律：马上要写这块位图了（paintPageImage / pdf.js 都会先清屏重设位图），
-      // 预绘制的记账必须当场作废——留着它就是**直接上错页**，比白页更坏
-      if (readyRef.current?.layer === layer) readyRef.current = null
+      // 这块画布的记账必须当场作废——留着它就是**直接上错页**，比白页更坏
+      layerMetaRef.current[layer] = null
       const firstPaint = viewSizeRef.current.w <= 0
       // 只在还没有任何一帧时进 rendering：后续重渲不动状态，避免提示条反复显隐
       if (firstPaint) setStage('rendering')
       const tStep = Date.now()
       // 两种模式都要画布节点（图片模式的 createImage 挂在它上面），提前取
-      const { node } = await queryCanvasNode(
-        layer === 'a' ? '#reader-canvas-a' : '#reader-canvas-b'
-      )
+      const { node } = await queryCanvasNode(CANVAS_SEL[layer])
       const nodeMs = Date.now() - tStep
 
       let pageImg: LoadedPageImage | null = null
@@ -568,8 +584,8 @@ export default function ScoreReader() {
         // downloadFile —— 那个不走 HTTP 缓存，每次都是真下载）。尺寸直接取自图片对象
         pageImg = await loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target))
         info = { width: pageImg.width, height: pageImg.height }
-        // 翻页：把预热泵的优先带挪到这一页（泵自己负责「先保后面 3 页、再顺序补全
-        // 整册」，并发按网络档位有界——见 lib/prefetch-pump.ts）
+        // 翻页：把预热泵的窗口挪到这一页（泵自己负责「前 3 后 3 优先、再填 ±窗口」，
+        // 并发按网络档位有界——见 lib/prefetch-pump.ts）
         prefetchPumpRef.current?.setCurrent(target)
       } else {
         info = await doc!.getPageInfo(target)
@@ -699,14 +715,29 @@ export default function ScoreReader() {
       // 尺寸等渲完再落地，旧帧不被提前拉伸
       setViewSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
       renderedZoomRef.current = job.zoom
-      // 退役的那一块 = 刚才还在显示的那块（本次渲染进的是反面那块）
-      const retiring: Layer = layer === 'a' ? 'b' : 'a'
+      // 退役的那一块 = 刚才还在显示的那块。**必须在改写 activeLayerRef 之前取**，
+      // 且它的记账不用动——记的就是「刚离开的这一页」，正好成为反方向的邻居帧
+      const retiring: Layer = activeLayerRef.current
       const shown = displayedPageRef.current
       displayedPageRef.current = target
       // 必须同步写 ref：串行队列里下一件是在这次换帧的同一个同步块里启动的，
-      // 它靠这个 ref 挑「反面那块」——晚一步（等 effect）它就会渲到正在显示的画布上
+      // 它靠这个 ref 挑「该写哪块」——晚一步（等 effect）它就会渲到正在显示的画布上
       activeLayerRef.current = layer
       setActiveLayer(layer)
+      // 记账：这块现在放着 target。**只有图片模式才记**——pdf.js 的帧可能是静默白帧，
+      // 而白帧自愈只跑在前台路径上，存下来的帧没有兜底
+      layerMetaRef.current[layer] = imageMode
+        ? {
+            page: target,
+            zoom: job.zoom,
+            containerW,
+            layer,
+            cssW: w,
+            cssH: h,
+            aspect,
+            at: Date.now(),
+          }
+        : null
       // 翻页动画：方向跟着翻页方向走（往回翻就向右滑），该不该滑见 turnDirFor
       const dir = turnDirFor({ firstPaint, shown, target })
       if (dir !== null) turnRef.current?.begin(retiring, dir)
@@ -747,24 +778,26 @@ export default function ScoreReader() {
   )
 
   /**
-   * 用预绘制好的那一帧换帧。**逐行照抄 doRender 尾段的顺序**（尺寸落地 → 换帧 → 动画），
-   * 一处都不能改。
+   * 用邻居帧换帧（两个方向都能用）。**逐行照抄 doRender 尾段的顺序**
+   * （尺寸落地 → 换帧 → 动画），一处都不能改。
    *
    * 为什么不进串行队列：`doRender` 要先拿到 `inflightRef` 那把锁才会被调用，队列里若压着
    * 别的东西，换帧就排到后面去了——而这里追求的就是「换帧不等队列」。它不写位图、
    * 不碰 settle，本来就不需要那把锁。
    */
-  const promoteReady = useCallback((f: PredrawFrame): boolean => {
+  const promoteFrame = useCallback((f: PredrawFrame): boolean => {
     if (pageRef.current !== f.page || zoomRef.current !== f.zoom) return false
-    // 防御：这一帧只可能画在「当前显示块的反面」，对不上说明中途有渲染写过那块
-    if (f.layer !== (activeLayerRef.current === 'a' ? 'b' : 'a')) return false
+    if (f.containerW !== containerWRef.current) return false
+    // 显示中的那块不算「帧」（同页重渲该走常规路径）
+    if (f.layer === activeLayerRef.current) return false
     aspectRef.current = f.aspect
     setViewSize((prev) =>
       prev.w === f.cssW && prev.h === f.cssH ? prev : { w: f.cssW, h: f.cssH }
     )
     renderedZoomRef.current = f.zoom
-    // 退役的那一块 = 刚才还在显示的那块（预绘制的帧在反面，换上后不动）
-    const retiring: Layer = f.layer === 'a' ? 'b' : 'a'
+    // 退役的那一块 = 刚才还在显示的那块。**它的记账不用动**：记的就是「刚离开的这一页」，
+    // 正好成为反方向的邻居帧（这正是"两个方向都能 0ms"的来源）
+    const retiring: Layer = activeLayerRef.current
     const shown = displayedPageRef.current
     displayedPageRef.current = f.page
     activeLayerRef.current = f.layer
@@ -784,8 +817,8 @@ export default function ScoreReader() {
   }, [])
 
   /**
-   * 后台预绘制：把目标页取图并画进**备用块**（当前显示块的反面），全程不进关键路径。
-   * 用户真翻到它时由 `requestRender` 直接换帧（promoteReady），等待 ≈ 0。
+   * 后台预绘制：把「缺的那个邻居」取图并画进备用块，全程不进关键路径。
+   * 用户真翻到它时由 `requestRender` 直接换帧（promoteFrame），等待 ≈ 0。
    *
    * 只对图片模式生效：pdf.js 的单页成本是 JS 主线程解码，后台跑会把**正在读的那一页**
    * 一起冻住；而且它的白帧自愈要求「记号 + 探测 + 重开文档」整套走全才敢上屏。
@@ -794,7 +827,7 @@ export default function ScoreReader() {
     async (job: Job, ctl: BgCtl) => {
       const t0 = Date.now()
       const target = clamp(job.page, 1, pageCount)
-      const layer: Layer = activeLayerRef.current === 'a' ? 'b' : 'a'
+      const layer = spareLayer(ALL_LAYERS, activeLayerRef.current, layerMetaRef.current, target)
       const epoch = predrawEpochRef.current
       const stale = () => ctl.cancelled || epoch !== predrawEpochRef.current
       /**
@@ -816,9 +849,7 @@ export default function ScoreReader() {
         // 与取图一样要能被打断——否则交互任务会被它拖住（见 BgCtl）
         await Promise.race([turnRef.current?.settle(layer) ?? Promise.resolve(), ctl.wait])
         if (stale()) return fallback()
-        const { node } = await queryCanvasNode(
-          layer === 'a' ? '#reader-canvas-a' : '#reader-canvas-b'
-        )
+        const { node } = await queryCanvasNode(CANVAS_SEL[layer])
         if (stale()) return fallback()
         const img = await Promise.race([
           loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target)),
@@ -831,9 +862,9 @@ export default function ScoreReader() {
         const w = Math.max(1, Math.round(img.width * scale))
         const h = Math.max(1, Math.round(img.height * scale))
         const dpr = rasterDpr(w, h)
-        // 与 doRender 同一条铁律：马上要写这块位图，任何指向这块的记账当场作废
+        // 与 doRender 同一条铁律：马上要写这块位图，这块的记账当场作废
         // （否则这一笔若没画成 / 被判白帧，旧的记账会继续冒充「有效帧」）
-        if (readyRef.current?.layer === layer) readyRef.current = null
+        layerMetaRef.current[layer] = null
         paintPageImage(node as CanvasNode, img.img, Math.round(w * dpr), Math.round(h * dpr))
         // 有墨校验：帧从画完到上屏之间隔着不确定时间（位图可能被系统回收），而图片模式
         // 没有白帧自愈 —— 只丢弃、不重试（误丢的代价只是这一页走常规路径 ~50ms）
@@ -843,7 +874,7 @@ export default function ScoreReader() {
           console.warn('[score-reader] predraw dropped: blank frame', { page: target })
           return fallback()
         }
-        readyRef.current = {
+        const frame: PredrawFrame = {
           page: target,
           zoom: job.zoom,
           containerW: cw,
@@ -853,14 +884,25 @@ export default function ScoreReader() {
           aspect,
           at: Date.now(),
         }
+        layerMetaRef.current[layer] = frame
         const readyMs = Date.now() - t0
         if (readyMs > 300) {
           // eslint-disable-next-line no-console
           console.log('[score-reader] predraw ready', { page: target, readyMs, ink })
         }
+        // 另一个邻居还缺着就接着排一次（至多两页，天然收敛；失败路径不会走到这里）
+        const still = missingNeighbor(
+          pageRef.current,
+          pageCount,
+          neighborFrames(layerMetaRef.current, activeLayerRef.current, {
+            zoom: zoomRef.current,
+            containerW: containerWRef.current,
+          })
+        )
+        if (still !== null) schedulePredrawRef.current()
         // 用户已经翻到这一页了（requestRender 里标了 adopt）：顺手把帧换上；
         // 换不上（守卫拦了）就交回常规路径
-        if (ctl.adopt && !promoteReady(readyRef.current)) fallback()
+        if (ctl.adopt && !promoteFrame(frame)) fallback()
       } catch (err) {
         // 后台任务无权改用户界面：只留一行日志，不 setStage、不 reportClientError
         // eslint-disable-next-line no-console
@@ -868,7 +910,7 @@ export default function ScoreReader() {
         return fallback()
       }
     },
-    [pageCount, promoteReady, queryCanvasNode]
+    [pageCount, promoteFrame, queryCanvasNode]
   )
 
   /**
@@ -880,10 +922,19 @@ export default function ScoreReader() {
     const startedAt = Date.now()
     const tick = () => {
       predrawTimerRef.current = null
-      const target = pickPredrawTarget(pageRef.current, pageCount)
+      // 目标 = 当前页缺的那个邻居（两个都备好了就什么都不用做）
+      const target = missingNeighbor(
+        pageRef.current,
+        pageCount,
+        neighborFrames(layerMetaRef.current, activeLayerRef.current, {
+          zoom: zoomRef.current,
+          containerW: containerWRef.current,
+        })
+      )
       const go = predrawGo({
         imageMode: imageModeRef.current,
         zoom: zoomRef.current,
+        pinching: Boolean(pinchRef.current),
         animating: Boolean(turnRef.current?.frame()),
         queueBusy: Boolean(inflightRef.current || queuedRef.current),
         target,
@@ -967,20 +1018,16 @@ export default function ScoreReader() {
         queuedRef.current = job
         return
       }
-      const r = readyRef.current
-      if (
-        r &&
-        predrawMatches(r, {
-          page: job.page,
-          zoom: job.zoom,
-          containerW: containerWRef.current,
-          layer: activeLayerRef.current === 'a' ? 'b' : 'a',
-        })
-      ) {
-        readyRef.current = null
+      // 邻居帧里正好有这一页 ⇒ 直接换帧（向前、向后都一样，0 等待）
+      const frames = neighborFrames(layerMetaRef.current, activeLayerRef.current, {
+        zoom: job.zoom,
+        containerW: containerWRef.current,
+      })
+      const hit = frameForPage(frames, job.page)
+      if (hit) {
         predrawEpochRef.current += 1 // 顺手掐掉可能在飞的另一次预绘制
-        // 没吃下（守卫拦了，例如页码/层已经变了）：帧已作废，退回常规路径，别让用户停在上一页
-        if (promoteReady(r)) return
+        // 没吃下（守卫拦了，例如页码/层已经变了）：退回常规路径，别让用户停在上一页
+        if (promoteFrame(hit)) return
       }
       if (!f) {
         runJob(job)
@@ -992,7 +1039,7 @@ export default function ScoreReader() {
       }
       queuedRef.current = job
     },
-    [promoteReady, runJob]
+    [promoteFrame, runJob]
   )
   useEffect(() => {
     requestRef.current = requestRender
@@ -1698,8 +1745,9 @@ export default function ScoreReader() {
               height: `${boxH}px`,
             }}
           >
-            {/* 双缓冲：显示的那块在 0 位，另一块停在视口外（仍是正常绘制的画布节点）。
-                渲染永远进备用块，渲完再换帧，pdf.js 清屏那一下就不会露白。
+            {/* 三块画布：一块显示中、一块放着「下一页」（预绘制）、一块放着「上一页」
+                （换帧后退役的那块，内容是刚离开的那页——免费）。渲染永远进「该写的那块」，
+                渲完再换帧，pdf.js 清屏那一下就不会露白（见 lib/predraw.ts 与 layerStyle）。
                 换帧时退役的那块被动画移到滑出位（见 lib/page-turn.ts） */}
             <Canvas
               type='2d'
@@ -1712,6 +1760,12 @@ export default function ScoreReader() {
               id='reader-canvas-b'
               className='absolute top-0 block bg-page-bg'
               style={layerStyle('b')}
+            />
+            <Canvas
+              type='2d'
+              id='reader-canvas-c'
+              className='absolute top-0 block bg-page-bg'
+              style={layerStyle('c')}
             />
             {/* 批注层：压在静态页之上、滑出的旧页之下（旧页滑走时把这一页的笔迹一起露出来）。
                 不靠 DOM 顺序——滑出的那块要盖过它，只能靠 z-index */}
