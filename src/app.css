@@ -48,6 +48,13 @@
 
   --color-overlay: rgb(0 0 0 / 0.4);
 
+  /* 阅读器专用（web 无此 token）：
+     - toolbar-translucent：悬浮工具条打开时的半透明底（谱面透出，示意菜单已打开）
+     - menu-band：菜单隐藏时压在谱面上下沿的灰色遮罩（示意这里藏着菜单）
+     数值以真机观感为准，只在这两处调。 */
+  --color-toolbar-translucent: rgb(255 255 255 / 0.78);
+  --color-menu-band: rgb(0 0 0 / 0.2);
+
   /* 字号 —— 与 pkuso-web 的 tokens.css 取同值。
      ⚠️ `--text-label` 是**补回来的**：此前 mp 的 @theme 里一个 `--text-*` 都没有，
      而 src 下有 8 处在用 `text-label`（从 web 抄过来的类名，在那边有效）。
@@ -59,7 +66,7 @@
 /* 暗色模式 token 覆盖：与 Web 端 tokens.css 的 [data-theme="dark"] 逐值取齐
    （zinc 阶梯）。本文件特有的 token 不在其列，各自注明：
    --color-signin / --color-signin-foreground / --color-gantt-sidebar-text /
-   --color-schedule-other / --color-overlay。
+   --color-schedule-other / --color-overlay / --color-toolbar-translucent / --color-menu-band。
    由 theme-context 的 useThemeClass 在页面根节点挂 .dark 类触发，
    Tailwind 工具类引用 var(--color-*)，随祖先类切换整体换肤。
    ⚠️ --color-page-bg 必须与 src/theme.json 的暗色 backgroundColor 保持同值
@@ -103,6 +110,10 @@
   --color-info-bg: #091a26;
 
   --color-overlay: rgb(0 0 0 / 0.6); /* web 无此 token（那边用 shadow/z-index 表达） */
+
+  /* 阅读器专用：暗色下工具条用近黑半透明，灰带加深（谱面始终是亮纸，深遮罩才看得见） */
+  --color-toolbar-translucent: rgb(24 24 27 / 0.82);
+  --color-menu-band: rgb(0 0 0 / 0.4);
 }
 
 /* 页面包裹层满高兜底：Taro 会为每个页面的 wxss 注入 .page{height:100%}

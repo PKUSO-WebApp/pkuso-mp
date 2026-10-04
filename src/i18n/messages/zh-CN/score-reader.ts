@@ -24,4 +24,12 @@ export const scoreReader = {
   openNative: '原生打开',
   nativeNotReady: '文件尚未加载完成',
   downloadFailed: '打开失败：{error}',
+  tutorialPrev: '上一页',
+  tutorialNext: '下一页',
+  tutorialMenuZone: '菜单',
+  tutorialSwipeHint: '左滑 = 下一页，右滑 = 上一页；上下拖动可滚动谱面',
+  tutorialZoomHint: '放大后：滑动只移动谱面，不翻页',
+  tutorialPenHint: '批注时：滑动与点击都不翻页',
+  tutorialDismiss: '知道了',
+  tutorialOpen: '使用说明',
 }

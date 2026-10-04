@@ -24,4 +24,12 @@ export const scoreReader = {
   openNative: 'Native',
   nativeNotReady: 'File not loaded yet',
   downloadFailed: 'Failed: {error}',
+  tutorialPrev: 'Previous',
+  tutorialNext: 'Next',
+  tutorialMenuZone: 'Controls',
+  tutorialSwipeHint: 'Swipe left / right to turn pages; drag up / down to scroll',
+  tutorialZoomHint: 'When zoomed in, dragging only moves the page',
+  tutorialPenHint: 'While annotating, gestures never turn pages',
+  tutorialDismiss: 'Got it',
+  tutorialOpen: 'How to use',
 }

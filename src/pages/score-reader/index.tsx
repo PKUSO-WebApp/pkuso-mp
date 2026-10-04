@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import Taro, { useRouter, useUnload } from '@tarojs/taro'
+import Taro, { useDidShow, useRouter, useUnload } from '@tarojs/taro'
 import { View, Canvas, Input, Button, Text } from '@tarojs/components'
 import type { ITouchEvent } from '@tarojs/components'
 import { supabase } from '@/lib/supabase'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
+import { ReaderTutorial } from '@/components/score/ReaderTutorial'
 import {
   PEN_COLORS,
   PEN_WIDTHS,
@@ -32,6 +33,8 @@ import type {
 } from './lib/types'
 import { drawMark, frameInk, markKept, rasterDpr } from './lib/raster'
 import { clamp, clampPan, touchDist, touchMid } from './lib/geometry'
+import { bandAt, penBarBottom, zoneFor, Z_BAND, Z_STATUS, Z_TOOLBAR } from './lib/layout'
+import { blockedByEdgeGuard, isTap, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawPolylineOn, drawStrokeOn, styleFor } from './lib/anno-draw'
 import {
   cachedPdfPath,
@@ -50,6 +53,16 @@ import {
   type TurnFrame,
 } from './lib/page-turn'
 import { createPrefetchPump, parallelForNetwork, type PrefetchPump } from './lib/prefetch-pump'
+import {
+  pickPredrawTarget,
+  predrawFallback,
+  predrawGo,
+  predrawMatches,
+  PREDRAW_IDLE_MS,
+  PREDRAW_WAIT_MS,
+  type PredrawFrame,
+} from './lib/predraw'
+import { hasSeenReaderTutorial, markReaderTutorialSeen } from './lib/tutorial-seen'
 import './index.scss'
 
 const DEFAULT_URL = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
@@ -70,6 +83,19 @@ const RELOAD_COOLDOWN_MS = 15000
 const OFFSCREEN = '-99999px'
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/**
+ * 在飞的后台预绘制的控制块（见 `doPredraw`）：
+ * - `cancelled` / `wait` + `fire`：交互任务一声令下就打断它（取图与等停靠都要能被打断，
+ *   否则「冷页取图最长 30s」会把用户等着的那次翻页一起拖住）；
+ * - `adopt`：用户正好翻到它正在准备的那一页 ⇒ 不取消，让它跑完直接换帧。
+ */
+type BgCtl = {
+  cancelled: boolean
+  adopt: boolean
+  wait: Promise<void>
+  fire: () => void
+}
 
 /**
  * 探测 pdf 渲染依赖的环境能力（诊断用；一次调用开销可忽略）。
@@ -146,6 +172,14 @@ export default function ScoreReader() {
   const [pageEditing, setPageEditing] = useState(false)
   // 双指手势结束计数：手势中批注层不重画，结束时补一次
   const [gestureTick, setGestureTick] = useState(0)
+  // 控制菜单（顶栏 / 底栏 / 批注条）默认隐藏：沉浸式阅读，点谱面中间唤出
+  const [menuOn, setMenuOn] = useState(false)
+  // 工具条**实测**高度：灰带的高度与灰带的点击命中都取它。
+  // 不写死常量——微信的系统字体大小会改工具条高度，写死就会让灰带与工具条错位。
+  const [barH, setBarH] = useState({ top: 0, bottom: 0 })
+  // 首次使用教程（蒙层）：从未看过的人第一次进来自动展示，顶栏「?」可随时再唤
+  const [tutorialOn, setTutorialOn] = useState(false)
+  const tutorialShownRef = useRef(false)
 
   // 批注：画笔开关、颜色、线宽、当前文件全部页笔迹
   const [penOn, setPenOn] = useState(false)
@@ -162,8 +196,17 @@ export default function ScoreReader() {
   const runJobRef = useRef<(job: Job) => void>(() => {})
   const pageRef = useRef(1)
   const zoomRef = useRef(1)
+  /** 页码变化时刻：turnMs（页码变化 → 换帧）的诊断基准 */
+  const pageChangeAtRef = useRef(0)
   const pinchRef = useRef<Pinch | null>(null)
   const dragRef = useRef<Drag | null>(null)
+  /**
+   * 本段手势期间出现过 ≥2 指 ⇒ 作废 tap/swipe。
+   * 必须有：双指进入时只是把 dragRef 清掉，若不立这个旗标，双指抬起最后一指
+   * （touches 归零、changedTouches 是它）会被分类成一次**误翻页的点击**。
+   * 只在 touches 归零时复位。
+   */
+  const multiTouchRef = useRef(false)
   const drawingRef = useRef(false)
   const strokePtsRef = useRef<[number, number][]>([])
   /** 起笔待落点：touchstart 记下原始触点，rect 取到当次值后才成笔 */
@@ -179,16 +222,57 @@ export default function ScoreReader() {
   const imageModeRef = useRef(false)
   /** 页图预热泵：整册的「优先带 + 顺序补全」后台预热（见 lib/prefetch-pump.ts） */
   const prefetchPumpRef = useRef<PrefetchPump | null>(null)
+  // —— 预绘制（见 lib/predraw.ts、doPredraw / promoteReady）——
+  /** 已经画进备用块、可直接换帧的那一帧 */
+  const readyRef = useRef<PredrawFrame | null>(null)
+  /** 失效世代：每个 await 之后都要复核，变了就丢掉这次预绘制 */
+  const predrawEpochRef = useRef(0)
+  const predrawTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 在飞的后台预绘制（交互任务靠它让位 / 采纳） */
+  const bgRef = useRef<BgCtl | null>(null)
+  /** `containerW` 的同步镜像：预绘制有效性判据不能等 effect（晚一拍会把旧尺寸的帧当有效帧） */
+  const containerWRef = useRef(0)
+  /** 排下一次预绘制（doRender 尾段与 promoteReady 都要调，用 ref 断开循环依赖） */
+  const schedulePredrawRef = useRef<() => void>(() => {})
+
+  /**
+   * 让预绘制作废（世代 +1，并打断在飞的那次）。触发点：视口宽变化、缩放、换册、
+   * 白帧重开文档、页面销毁、回到前台——凡是「从画完到上屏之间可能让备用块失效」的事。
+   */
+  const invalidatePredraw = useCallback((why: string) => {
+    if (!readyRef.current && !bgRef.current && !predrawTimerRef.current) return
+    predrawEpochRef.current += 1
+    readyRef.current = null
+    const ctl = bgRef.current
+    if (ctl) {
+      ctl.cancelled = true
+      ctl.fire()
+    }
+    if (predrawTimerRef.current) {
+      clearTimeout(predrawTimerRef.current)
+      predrawTimerRef.current = null
+    }
+    // eslint-disable-next-line no-console
+    console.log('[score-reader] predraw invalidated', why)
+  }, [])
   /** 翻页动画的状态机（见 lib/page-turn.ts）。onChange 就是 setTurn，故只在首次渲染建 */
   const turnRef = useRef<PageTurn | null>(null)
   if (!turnRef.current) turnRef.current = createPageTurn({ onChange: setTurn })
   /** 显示中的那一页：换帧时更新。用来判断这一帧到底「换没换页」——同一页的重渲
       （缩放、转屏、白帧自愈）不该滑出去再滑回来 */
   const displayedPageRef = useRef(0)
-  // 退出页面即停泵、停动画——后台抓取/计时器不该在页面销毁后继续
+  // 退出页面即停泵、停动画、停预绘制——后台抓取/计时器不该在页面销毁后继续
   useUnload(() => {
     prefetchPumpRef.current?.stop()
     turnRef.current?.stop()
+    if (predrawTimerRef.current) clearTimeout(predrawTimerRef.current)
+    predrawTimerRef.current = null
+    readyRef.current = null
+    const ctl = bgRef.current
+    if (ctl) {
+      ctl.cancelled = true
+      ctl.fire()
+    }
   })
   /** 已落到画布上的 zoom；与 zoom 不等时说明还在等合并渲染 */
   const renderedZoomRef = useRef(1)
@@ -287,6 +371,15 @@ export default function ScoreReader() {
     zoomRef.current = zoom
   }, [zoom])
 
+  /**
+   * 写 zoom 的唯一入口。ref 必须**同步**写：effect 要晚一拍，而手势判定（「未放大」）
+   * 与预绘制有效性判据都吃这个精度——「刚捏合完立刻单指滑动」否则会被判反。
+   */
+  const applyZoom = useCallback((v: number) => {
+    zoomRef.current = v
+    setZoom(v)
+  }, [])
+
   // 卸载销毁引擎与文档
   useEffect(() => {
     return () => {
@@ -302,31 +395,64 @@ export default function ScoreReader() {
     if (fileId) setAnnos(loadAnnoDoc(fileId))
   }, [fileId])
 
-  // 视口尺寸与屏幕位置（批注工具条/报错条显隐都会改视口高度，故跟着重量）
+  // 首次教程：等**首帧出来**再展示（一进页面就盖住加载过程，用户看不到自己在等什么），
+  // 此时菜单保持默认隐藏，教程讲的正是「点中间唤出菜单」
+  useEffect(() => {
+    if (stage !== 'ready' || tutorialShownRef.current) return
+    tutorialShownRef.current = true
+    if (!hasSeenReaderTutorial()) setTutorialOn(true)
+  }, [stage])
+
+  /** 关闭教程才写「已看过」：展示时就写死的话，被强杀的用户下次就再也见不到了 */
+  const dismissTutorial = () => {
+    markReaderTutorialSeen()
+    setTutorialOn(false)
+  }
+
+  /**
+   * 量视口、屏幕位置与工具条高度（报错条显隐会改视口高度，故跟着重量）。
+   *
+   * 工具条**始终挂载**（菜单关着时 `visibility: hidden`——布局盒子还在，量得到高度），
+   * 所以灰带的视觉高度与点击命中永远等于真实工具条高度，系统字体调大也不会错位。
+   */
   const measureStage = useCallback(() => {
+    type Rect = { left?: number; top?: number; width?: number; height?: number } | null
     Taro.createSelectorQuery()
       .select('#reader-stage')
-      .boundingClientRect((rect) => {
-        const r = rect as unknown as {
-          left?: number
-          top?: number
-          width?: number
-          height?: number
-        } | null
-        if (!r) return
-        if (r.left !== undefined && r.top !== undefined) {
-          stageRectRef.current = { left: r.left, top: r.top }
+      .boundingClientRect()
+      .select('#reader-topbar')
+      .boundingClientRect()
+      .select('#reader-bottombar')
+      .boundingClientRect()
+      .exec((res) => {
+        const [stageRect, topBar, bottomBar] = (res ?? []) as Rect[]
+        if (stageRect) {
+          if (stageRect.left !== undefined && stageRect.top !== undefined) {
+            stageRectRef.current = { left: stageRect.left, top: stageRect.top }
+          }
+          if (stageRect.width && stageRect.width > 0) setContainerW(stageRect.width)
+          if (stageRect.height && stageRect.height > 0) setContainerH(stageRect.height)
         }
-        if (r.width && r.width > 0) setContainerW(r.width)
-        if (r.height && r.height > 0) setContainerH(r.height)
+        const top = Math.round(topBar?.height ?? 0)
+        const bottom = Math.round(bottomBar?.height ?? 0)
+        if (top > 0 && bottom > 0) {
+          setBarH((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }))
+        }
       })
-      .exec()
   }, [])
 
+  // 转屏 / 分屏后重量（也顺带让预绘制的 containerW 失效，见 lib/predraw.ts）
+  useEffect(() => {
+    Taro.onWindowResize(measureStage)
+    return () => Taro.offWindowResize(measureStage)
+  }, [measureStage])
+
+  // ⚠️ 依赖里**没有** penOn：批注工具条已改成悬浮层，不再改 #reader-stage 的 rect。
+  // 留着它只会在每次切换批注时白跑一次量测，并因此多触发一次重渲。
   useEffect(() => {
     const timer = setTimeout(measureStage, 0)
     return () => clearTimeout(timer)
-  }, [measureStage, penOn, stage])
+  }, [measureStage, stage])
 
   const queryCanvasNode = useCallback(
     (id: string): Promise<{ node: unknown; left: number; top: number }> =>
@@ -355,6 +481,8 @@ export default function ScoreReader() {
    * 单页复位接口，重开文档是唯一能确定复位的手段。
    */
   const reloadDoc = useCallback(async () => {
+    // 防御：文档都重开了，备用块上那一帧的来历也就不作数了
+    invalidatePredraw('reloadDoc')
     try {
       let bytes = bytesRef.current
       // 原字节可能已被 pdf.js 转移走（detach 后 byteLength 为 0）：重新取一份
@@ -399,7 +527,7 @@ export default function ScoreReader() {
         detail: { fileId },
       })
     }
-  }, [fileId])
+  }, [fileId, invalidatePredraw])
 
   // 渲一页到备用块（绝不碰显示中的那块）。渲完先确认这一帧不是白的，再换帧
   const doRender = useCallback(
@@ -411,6 +539,9 @@ export default function ScoreReader() {
       const target = clamp(job.page, 1, pageCount)
       const layer: Layer = activeLayerRef.current === 'a' ? 'b' : 'a'
       renderLayerRef.current = layer
+      // 铁律：马上要写这块位图了（paintPageImage / pdf.js 都会先清屏重设位图），
+      // 预绘制的记账必须当场作废——留着它就是**直接上错页**，比白页更坏
+      if (readyRef.current?.layer === layer) readyRef.current = null
       const firstPaint = viewSizeRef.current.w <= 0
       // 只在还没有任何一帧时进 rendering：后续重渲不动状态，避免提示条反复显隐
       if (firstPaint) setStage('rendering')
@@ -423,6 +554,9 @@ export default function ScoreReader() {
 
       let pageImg: LoadedPageImage | null = null
       let info: { width: number; height: number }
+      // 诊断：**这次取图之前**，预热泵是否已经抓到过这一页。它直接回答
+      // 「预热过的页在 iOS 上到底算不算命中」——warm 却仍要 600ms，说明泵白干了
+      const warm = imageMode ? (prefetchPumpRef.current?.isWarm(target) ?? false) : false
       if (imageMode) {
         // 图片模式：加载页图（**走小程序图片层，微信自带缓存**；不要换成
         // downloadFile —— 那个不走 HTTP 缓存，每次都是真下载）。尺寸直接取自图片对象
@@ -474,8 +608,11 @@ export default function ScoreReader() {
         }
       }
       const probeMs = Date.now() - tProbe
-      // 首帧必打；之后只在「这一页渲染/取图偏慢」时打——只打首帧的话翻页永远看不到
-      if (firstPaint || infoMs + renderMs > 300) {
+      // 首帧必打；**每次翻页**都打（turnMs 就是「翻页 <150ms」那个指标，快了也要看得见）；
+      // 同一页的重渲只在偏慢时打
+      const isTurn =
+        !firstPaint && displayedPageRef.current > 0 && displayedPageRef.current !== target
+      if (firstPaint || isTurn || infoMs + renderMs > 300) {
         // eslint-disable-next-line no-console
         console.log('[score-reader] render timings', {
           infoMs,
@@ -484,6 +621,10 @@ export default function ScoreReader() {
           probeMs,
           ink,
           kept,
+          warm,
+          // 走到这条日志就说明这次翻页**没命中**预绘制（命中会走 promote 那条日志）
+          predraw: imageMode && isTurn ? 'miss' : 'off',
+          turnMs: pageChangeAtRef.current ? Date.now() - pageChangeAtRef.current : -1,
           containerW,
           scale: Number(scale.toFixed(3)),
           dpr,
@@ -593,18 +734,188 @@ export default function ScoreReader() {
         }
       }
       setStage('ready')
+      // 换帧落地，趁空闲把「下一页」备进备用块（见 schedulePredraw）
+      schedulePredrawRef.current()
     },
     [containerW, fileId, pageCount, queryCanvasNode, reloadDoc]
   )
 
+  /**
+   * 用预绘制好的那一帧换帧。**逐行照抄 doRender 尾段的顺序**（尺寸落地 → 换帧 → 动画），
+   * 一处都不能改。
+   *
+   * 为什么不进串行队列：`doRender` 要先拿到 `inflightRef` 那把锁才会被调用，队列里若压着
+   * 别的东西，换帧就排到后面去了——而这里追求的就是「换帧不等队列」。它不写位图、
+   * 不碰 settle，本来就不需要那把锁。
+   */
+  const promoteReady = useCallback((f: PredrawFrame): boolean => {
+    if (pageRef.current !== f.page || zoomRef.current !== f.zoom) return false
+    // 防御：这一帧只可能画在「当前显示块的反面」，对不上说明中途有渲染写过那块
+    if (f.layer !== (activeLayerRef.current === 'a' ? 'b' : 'a')) return false
+    aspectRef.current = f.aspect
+    setViewSize((prev) =>
+      prev.w === f.cssW && prev.h === f.cssH ? prev : { w: f.cssW, h: f.cssH }
+    )
+    renderedZoomRef.current = f.zoom
+    // 退役的那一块 = 刚才还在显示的那块（预绘制的帧在反面，换上后不动）
+    const retiring: Layer = f.layer === 'a' ? 'b' : 'a'
+    const shown = displayedPageRef.current
+    displayedPageRef.current = f.page
+    activeLayerRef.current = f.layer
+    setActiveLayer(f.layer)
+    const dir = turnDirFor({ firstPaint: false, shown, target: f.page })
+    if (dir !== null) turnRef.current?.begin(retiring, dir)
+    // eslint-disable-next-line no-console
+    console.log('[score-reader] predraw promote', {
+      page: f.page,
+      predraw: 'hit',
+      ageMs: Date.now() - f.at,
+      turnMs: pageChangeAtRef.current ? Date.now() - pageChangeAtRef.current : -1,
+    })
+    setStage('ready')
+    schedulePredrawRef.current()
+    return true
+  }, [])
+
+  /**
+   * 后台预绘制：把目标页取图并画进**备用块**（当前显示块的反面），全程不进关键路径。
+   * 用户真翻到它时由 `requestRender` 直接换帧（promoteReady），等待 ≈ 0。
+   *
+   * 只对图片模式生效：pdf.js 的单页成本是 JS 主线程解码，后台跑会把**正在读的那一页**
+   * 一起冻住；而且它的白帧自愈要求「记号 + 探测 + 重开文档」整套走全才敢上屏。
+   */
+  const doPredraw = useCallback(
+    async (job: Job, ctl: BgCtl) => {
+      const t0 = Date.now()
+      const target = clamp(job.page, 1, pageCount)
+      const layer: Layer = activeLayerRef.current === 'a' ? 'b' : 'a'
+      const epoch = predrawEpochRef.current
+      const stale = () => ctl.cancelled || epoch !== predrawEpochRef.current
+      /**
+       * 采纳失败（取图失败 / 白帧 / 被失效打断）时的兜底：把这一页交回常规路径。
+       * 判据在 lib/predraw.ts 的 predrawFallback 里（**刻意不看 cancelled**，见那里的注释）。
+       */
+      const fallback = () => {
+        const job2 = predrawFallback({
+          adopt: ctl.adopt,
+          target,
+          zoom: job.zoom,
+          currentPage: pageRef.current,
+          currentZoom: zoomRef.current,
+        })
+        if (job2) queuedRef.current = job2
+      }
+      try {
+        // 写位图前必须等这块停靠：它往往正是上一段翻页动画刚退役、还在滑的那一块。
+        // 与取图一样要能被打断——否则交互任务会被它拖住（见 BgCtl）
+        await Promise.race([turnRef.current?.settle(layer) ?? Promise.resolve(), ctl.wait])
+        if (stale()) return fallback()
+        const { node } = await queryCanvasNode(
+          layer === 'a' ? '#reader-canvas-a' : '#reader-canvas-b'
+        )
+        if (stale()) return fallback()
+        const img = await Promise.race([
+          loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target)),
+          ctl.wait.then(() => null),
+        ])
+        if (!img || stale()) return fallback()
+        const cw = containerWRef.current
+        const aspect = img.height / img.width
+        const scale = (cw / img.width) * job.zoom
+        const w = Math.max(1, Math.round(img.width * scale))
+        const h = Math.max(1, Math.round(img.height * scale))
+        const dpr = rasterDpr(w, h)
+        // 与 doRender 同一条铁律：马上要写这块位图，任何指向这块的记账当场作废
+        // （否则这一笔若没画成 / 被判白帧，旧的记账会继续冒充「有效帧」）
+        if (readyRef.current?.layer === layer) readyRef.current = null
+        paintPageImage(node as CanvasNode, img.img, Math.round(w * dpr), Math.round(h * dpr))
+        // 有墨校验：帧从画完到上屏之间隔着不确定时间（位图可能被系统回收），而图片模式
+        // 没有白帧自愈 —— 只丢弃、不重试（误丢的代价只是这一页走常规路径 ~50ms）
+        const ink = frameInk(node as CanvasNode)
+        if (ink === 0) {
+          // eslint-disable-next-line no-console
+          console.warn('[score-reader] predraw dropped: blank frame', { page: target })
+          return fallback()
+        }
+        readyRef.current = {
+          page: target,
+          zoom: job.zoom,
+          containerW: cw,
+          layer,
+          cssW: w,
+          cssH: h,
+          aspect,
+          at: Date.now(),
+        }
+        const readyMs = Date.now() - t0
+        if (readyMs > 300) {
+          // eslint-disable-next-line no-console
+          console.log('[score-reader] predraw ready', { page: target, readyMs, ink })
+        }
+        // 用户已经翻到这一页了（requestRender 里标了 adopt）：顺手把帧换上；
+        // 换不上（守卫拦了）就交回常规路径
+        if (ctl.adopt && !promoteReady(readyRef.current)) fallback()
+      } catch (err) {
+        // 后台任务无权改用户界面：只留一行日志，不 setStage、不 reportClientError
+        // eslint-disable-next-line no-console
+        console.log('[score-reader] predraw failed', describeError(err))
+        return fallback()
+      }
+    },
+    [pageCount, promoteReady, queryCanvasNode]
+  )
+
+  /**
+   * 排一次后台预绘制：换帧后等动画停稳（PREDRAW_IDLE_MS）再动备用块；
+   * 还没预热到就先等（抢在预热泵前面发是对同一 URL 的重复请求），超了宽限就不等了。
+   */
+  const schedulePredraw = useCallback(() => {
+    if (predrawTimerRef.current) clearTimeout(predrawTimerRef.current)
+    const startedAt = Date.now()
+    const tick = () => {
+      predrawTimerRef.current = null
+      const target = pickPredrawTarget(pageRef.current, pageCount)
+      const go = predrawGo({
+        imageMode: imageModeRef.current,
+        zoom: zoomRef.current,
+        animating: Boolean(turnRef.current?.frame()),
+        queueBusy: Boolean(inflightRef.current || queuedRef.current),
+        target,
+        warm: target !== null && (prefetchPumpRef.current?.isWarm(target) ?? false),
+        waitedMs: Date.now() - startedAt,
+      })
+      if (go === 'wait') {
+        predrawTimerRef.current = setTimeout(tick, PREDRAW_WAIT_MS)
+        return
+      }
+      if (go === 'skip' || target === null) return
+      runJobRef.current({ page: target, zoom: zoomRef.current, bg: true })
+    }
+    predrawTimerRef.current = setTimeout(tick, PREDRAW_IDLE_MS)
+  }, [pageCount])
+  useEffect(() => {
+    schedulePredrawRef.current = schedulePredraw
+  }, [schedulePredraw])
+
   // 串行执行：一件渲完才起下一件。并发渲同一块画布会互相清屏（pdf.js 的
-  // renderPage 一上来就 canvas.width=…），这是「快速翻页白页」的根源
+  // renderPage 一上来就 canvas.width=…），这是「快速翻页白页」的根源。
+  // 后台预绘制（job.bg）也走这里：它借的是同一个「同一时刻只有一件在动画布」的不变量。
   const runJob = useCallback(
     (job: Job) => {
       void (async () => {
         inflightRef.current = job
+        let ctl: BgCtl | null = null
+        if (job.bg) {
+          let fire: () => void = () => {}
+          const wait = new Promise<void>((resolve) => {
+            fire = resolve
+          })
+          ctl = { cancelled: false, adopt: false, wait, fire: () => fire() }
+          bgRef.current = ctl
+        }
         try {
-          await doRender(job)
+          if (job.bg && ctl) await doPredraw(job, ctl)
+          else await doRender(job)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           setStage('error')
@@ -612,22 +923,59 @@ export default function ScoreReader() {
         } finally {
           inflightRef.current = null
           renderLayerRef.current = null
+          if (bgRef.current === ctl) bgRef.current = null
           const next = queuedRef.current
           queuedRef.current = null
           if (next) runJobRef.current(next)
         }
       })()
     },
-    [doRender]
+    [doPredraw, doRender]
   )
   useEffect(() => {
     runJobRef.current = runJob
   }, [runJob])
 
-  /** 请求渲染某页：在飞的正好是它就别重排（它的完成回调自己会判断换帧还是留作缓存） */
+  /**
+   * 请求渲染某页。三档：
+   * 1. 备用块上正好是这一页（预绘制命中）⇒ **不进队列**直接换帧——「翻页 <150ms」的来源；
+   * 2. 在飞的是后台预绘制 ⇒ 同一页就采纳它（让它跑完换帧），否则让它让位；
+   * 3. 其余：在飞的正好是它就别重排（它的完成回调自己会判断换帧还是留作缓存）。
+   *
+   * ⚠️ 第 2 档必须截在「同一件就吞掉」之前：否则「预绘制正在飞 N+1、用户正好翻到 N+1」
+   * 会被当成重复请求吞掉，那一帧永远上不了屏。
+   */
   const requestRender = useCallback(
     (job: Job) => {
       const f = inflightRef.current
+      if (f?.bg && bgRef.current) {
+        const ctl = bgRef.current
+        // 只采纳**还活着**的那次预绘制：写进已被失效的 ctl 会让这次请求被一起吞掉
+        // （那件任务随后必然被 stale() 拦下，请求却已经 return 出去 ⇒ 页码与画面脱节）
+        if (!ctl.cancelled && f.page === job.page && f.zoom === job.zoom) {
+          ctl.adopt = true
+          return
+        }
+        ctl.cancelled = true
+        ctl.fire() // 打断它在跑的停靠/取图，别让交互任务等
+        queuedRef.current = job
+        return
+      }
+      const r = readyRef.current
+      if (
+        r &&
+        predrawMatches(r, {
+          page: job.page,
+          zoom: job.zoom,
+          containerW: containerWRef.current,
+          layer: activeLayerRef.current === 'a' ? 'b' : 'a',
+        })
+      ) {
+        readyRef.current = null
+        predrawEpochRef.current += 1 // 顺手掐掉可能在飞的另一次预绘制
+        // 没吃下（守卫拦了，例如页码/层已经变了）：帧已作废，退回常规路径，别让用户停在上一页
+        if (promoteReady(r)) return
+      }
       if (!f) {
         runJob(job)
         return
@@ -638,11 +986,26 @@ export default function ScoreReader() {
       }
       queuedRef.current = job
     },
-    [runJob]
+    [promoteReady, runJob]
   )
   useEffect(() => {
     requestRef.current = requestRender
   }, [requestRender])
+
+  // 视口宽变化 ⇒ 预绘制的尺寸作废（同步镜像给判据用：晚了会把旧尺寸的帧当有效帧，换帧后被拉糊）
+  useEffect(() => {
+    containerWRef.current = containerW
+    invalidatePredraw('containerW')
+  }, [containerW, invalidatePredraw])
+
+  // 缩放变化 ⇒ 预绘制的缩放作废（捏合期间每次 move 都会走到这，开销只是几次 ref 写）
+  useEffect(() => {
+    invalidatePredraw('zoom')
+  }, [zoom, invalidatePredraw])
+
+  // 回到前台：画布位图在前后台切换后是否还在没有实测证据，作废一次的代价只是
+  // 「回前台后的第一次翻页走常规路径」，比上错页/上白页便宜得多
+  useDidShow(() => invalidatePredraw('show'))
 
   /** 让画面追上当前 page/zoom */
   const syncView = useCallback(() => {
@@ -653,6 +1016,9 @@ export default function ScoreReader() {
 
   // 翻页 / 首帧 / 容器宽变化：立即
   useEffect(() => {
+    // 预热优先带跟着**用户意图**走：页码一变就挪（不是等取图完成——那要 300–1600ms，
+    // 连续翻页时优先带会被追着跑）。见 lib/prefetch-pump.ts
+    if (pageCount > 0) prefetchPumpRef.current?.setCurrent(clamp(page, 1, pageCount))
     syncView()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docTick, page, containerW])
@@ -748,6 +1114,7 @@ export default function ScoreReader() {
       imageModeRef.current = false
       prefetchPumpRef.current?.stop()
       prefetchPumpRef.current = null
+      invalidatePredraw('load') // 换册：备用块上那一帧属于上一册，作废
       inkPagesRef.current.clear() // 页码对应不同内容，白页判据也要重置
       // 「显示中的页」作废：换册后的首帧不滑（换册前后页码可能撞上，靠它区分）。
       // 上一册那一段滑出不用管——它自己 200ms 内会停靠
@@ -800,7 +1167,7 @@ export default function ScoreReader() {
               ? clamp(Math.round(savedImg), 1, imagePageTotal)
               : 1
           )
-          setZoom(1)
+          applyZoom(1)
           setPan({ x: 0, y: 0 })
           renderedZoomRef.current = 1
           aspectRef.current = 0
@@ -880,7 +1247,7 @@ export default function ScoreReader() {
         })
       }
     },
-    [fileId, presetFileName, presetPageCount, presetStoragePath, t]
+    [applyZoom, fileId, invalidatePredraw, presetFileName, presetPageCount, presetStoragePath, t]
   )
 
   // 自动加载：带 file_id / url 参数进入时
@@ -894,7 +1261,10 @@ export default function ScoreReader() {
   const gotoPage = (n: number) => {
     if (pageCount <= 0) return
     cancelStroke()
-    setPage(clampPage(n))
+    const target = clampPage(n)
+    // turnMs（页码变化 → 换帧）的诊断基准，也是「翻页 <150ms」那个指标
+    if (target !== pageRef.current) pageChangeAtRef.current = Date.now()
+    setPage(target)
   }
 
   const commitPageInput = () => {
@@ -976,7 +1346,7 @@ export default function ScoreReader() {
     const s1 = clamp(next, ZOOM_MIN, ZOOM_MAX)
     const aspect = aspectRef.current
     if (aspect <= 0 || containerW <= 0 || containerH <= 0) {
-      setZoom(s1)
+      applyZoom(s1)
       return
     }
     const k = s1 / zoom
@@ -984,7 +1354,7 @@ export default function ScoreReader() {
     const cy = containerH / 2 - pan.y
     const w = Math.max(1, Math.round(containerW * s1))
     const h = Math.max(1, Math.round(aspect * containerW * s1))
-    setZoom(s1)
+    applyZoom(s1)
     setPan(
       clampPan(
         { x: containerW / 2 - cx * k, y: containerH / 2 - cy * k },
@@ -997,8 +1367,49 @@ export default function ScoreReader() {
   }
 
   // 双指：以两指中点为锚缩放，中点自身的位移同时当平移（地图式手势）
+  /**
+   * 抬手时分类：点击（分区 / 灰带）或滑动（翻页）。
+   *
+   * 为什么判定放在抬手、而不是滑动过程中：滑动中途做轴锁，一旦在起手抖动时判错，
+   * 竖直滚谱会当场卡死且**无法挽回**（手指还在屏上）；而未放大时内容框不宽于视口，
+   * 横滑造成的平移本来就是空操作，所以「移动阶段照常平移」没有任何可观察代价。
+   */
+  const resolveTouchEnd = (g: Drag, end?: { clientX: number; clientY: number }) => {
+    if (isTap(g, Date.now())) {
+      // 灰带优先：菜单关着时上下两条灰带**任意横向位置**都只开关菜单，永不翻页
+      if (g.band) {
+        setMenuOn((on) => !on)
+        return
+      }
+      const zone = zoneFor(g.relX, containerW)
+      if (zone === 'menu') {
+        setMenuOn((on) => !on)
+        return
+      }
+      if (!g.canTurn) return
+      gotoPage(pageRef.current + (zone === 'next' ? 1 : -1))
+      return
+    }
+    if (!g.canTurn || !end) return
+    const dir = swipeDir(g, end.clientX, end.clientY, swipeMinPx(containerW))
+    if (dir === 0) return
+    if (blockedByEdgeGuard(g.relX, dir)) return
+    // 回滚这次手势造成的平移：用户意图是翻页，不是把谱面挪走
+    setPan(
+      clampPan(
+        { x: g.x, y: g.y },
+        viewSizeRef.current.w,
+        viewSizeRef.current.h,
+        containerW,
+        containerH
+      )
+    )
+    gotoPage(pageRef.current + dir)
+  }
+
   const onTouchStart = (e: ITouchEvent) => {
     if (e.touches.length >= 2) {
+      multiTouchRef.current = true
       cancelStroke()
       dragRef.current = null
       const [a, b] = e.touches
@@ -1013,13 +1424,30 @@ export default function ScoreReader() {
       }
       return
     }
+    // 双指退化后剩下的那根手指：既不建拖动记录，也不参与点击判定
+    if (multiTouchRef.current) return
     const touch = e.touches[0]
-    if (!touch || docTick <= 0) return
+    if (!touch) return
     if (penOn) {
       beginStroke(touch)
       return
     }
-    dragRef.current = { tx: touch.clientX, ty: touch.clientY, x: pan.x, y: pan.y }
+    // ⚠️ 这里**不再**按 docTick <= 0 早退：菜单默认隐藏，文档还没加载出来时也得能
+    // 点中间把菜单叫出来（否则无 file_id 的调试入口连菜单都打不开）
+    const relX = touch.clientX - stageRectRef.current.left
+    const relY = touch.clientY - stageRectRef.current.top
+    dragRef.current = {
+      tx: touch.clientX,
+      ty: touch.clientY,
+      x: pan.x,
+      y: pan.y,
+      relX,
+      relY,
+      startAt: Date.now(),
+      maxMove: 0,
+      band: bandAt(relY, containerH, barH.top, barH.bottom),
+      canTurn: docTick > 0 && pageCount > 0 && zoomRef.current <= 1,
+    }
   }
 
   const onTouchMove = (e: ITouchEvent) => {
@@ -1036,7 +1464,7 @@ export default function ScoreReader() {
       const [mx, my] = touchMid(e.touches)
       const w = Math.max(1, Math.round(containerW * next))
       const h = Math.max(1, Math.round(aspectRef.current * containerW * next))
-      setZoom(next)
+      applyZoom(next)
       setPan(
         clampPan(
           {
@@ -1055,21 +1483,20 @@ export default function ScoreReader() {
     if (d && e.touches.length === 1) {
       const touch = e.touches[0]
       if (!touch) return
-      setPan(
-        clampPan(
-          { x: d.x + (touch.clientX - d.tx), y: d.y + (touch.clientY - d.ty) },
-          viewSize.w,
-          viewSize.h,
-          containerW,
-          containerH
-        )
-      )
+      const dx = touch.clientX - d.tx
+      const dy = touch.clientY - d.ty
+      // 判 tap 用的是**整段位移的最大值**，不是末点（横滑出去再滑回来会骗人）
+      d.maxMove = Math.max(d.maxMove, Math.abs(dx), Math.abs(dy))
+      setPan(clampPan({ x: d.x + dx, y: d.y + dy }, viewSize.w, viewSize.h, containerW, containerH))
     }
   }
 
   const onTouchEnd = (e: ITouchEvent) => {
     if (e.touches.length === 0) {
+      const g = dragRef.current
       dragRef.current = null
+      const multi = multiTouchRef.current
+      multiTouchRef.current = false
       if (drawingRef.current) {
         drawingRef.current = false
         const pts = strokePtsRef.current
@@ -1081,6 +1508,8 @@ export default function ScoreReader() {
         }
       }
       strokeSeedRef.current = null
+      // 分类只在「本段从单指开始、中途也没出现过第二指」时做（双指的残留手指会落在多指判定里）
+      if (g && !multi) resolveTouchEnd(g, e.changedTouches[0])
     }
     if (e.touches.length < 2 && pinchRef.current) {
       pinchRef.current = null
@@ -1092,6 +1521,7 @@ export default function ScoreReader() {
   const onTouchCancel = () => {
     cancelStroke()
     dragRef.current = null
+    multiTouchRef.current = false
     if (pinchRef.current) {
       pinchRef.current = null
       setGestureTick((n) => n + 1)
@@ -1112,7 +1542,11 @@ export default function ScoreReader() {
   const togglePen = () => {
     cancelStroke()
     dragRef.current = null
-    setPenOn((on) => !on)
+    multiTouchRef.current = false
+    const next = !penOn
+    setPenOn(next)
+    // 进批注必须把菜单打开：顶栏的「批注」按钮是它唯一的出口，菜单关着就出不来了
+    if (next) setMenuOn(true)
   }
 
   // 下载到本地并用微信原生文档查看器打开（showMenu 附带转发/用其他应用打开）
@@ -1188,33 +1622,9 @@ export default function ScoreReader() {
   }
 
   return (
-    <View className={`${darkClass} score-reader-page flex h-full min-h-0 flex-col bg-page-bg`}>
-      {/* 状态栏：页码 / 缩放 / 批注开关 */}
-      <View className='flex flex-row items-center justify-between border-b border-border bg-surface px-4 py-2'>
-        <Text className='text-xs text-text-muted'>
-          {pageCount > 0 ? t('scoreReader.pageOf', { page, total: pageCount }) : statusText}
-        </Text>
-        <View className='flex flex-row items-center'>
-          <Text className='mr-3 text-xs text-text-muted'>{Math.round(zoom * 100)}%</Text>
-          <View
-            className='mr-2 rounded-full border border-border bg-card px-3 py-1'
-            onClick={() => void openNative()}
-          >
-            <Text className='text-xs text-text-muted'>{t('scoreReader.openNative')}</Text>
-          </View>
-          <View
-            className={`rounded-full border px-3 py-1 ${
-              penOn ? 'border-primary bg-primary/10' : 'border-border bg-card'
-            }`}
-            onClick={togglePen}
-          >
-            <Text className={`text-xs ${penOn ? 'text-primary' : 'text-text-muted'}`}>
-              {t('scoreReader.annotation')}
-            </Text>
-          </View>
-        </View>
-      </View>
-
+    <View
+      className={`${darkClass} score-reader-page relative flex h-full min-h-0 flex-col bg-page-bg`}
+    >
       {stage === 'error' && message ? (
         <View className='flex flex-row items-center justify-between px-4 py-2'>
           <Text className='flex-1 text-xs text-danger'>{message}</Text>
@@ -1249,130 +1659,220 @@ export default function ScoreReader() {
         </View>
       ) : null}
 
-      {/* 画布区：内容框的位置和尺寸全由手势算，不再用 scroll-view——
-          这样双指才能锚定中点缩放、拖动中点即平移，单指在批注模式也不会被滚动抢走。
-          触摸只挂在这一层：工具条/工具栏上的点击不该被当成起笔 */}
-      <View
-        id='reader-stage'
-        className='relative flex-1 min-h-0 overflow-hidden'
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onTouchCancel={onTouchCancel}
-      >
+      {/* 舞台容器：唯一的堆叠上下文边界。工具条是它的绝对定位子节点（悬浮在谱面之上），
+          #reader-stage 占满它 —— 于是开关菜单时谱面的尺寸与位置完全不变。
+          ⚠️ 容器**不设 z-index**：那会造出新的堆叠上下文，把画布的 1/2/3 关在里面，
+          与工具条的 12 就比不了大小（层级见 lib/layout.ts） */}
+      <View className='relative flex-1 min-h-0'>
+        {/* 画布区：内容框的位置和尺寸全由手势算，不再用 scroll-view——
+            这样双指才能锚定中点缩放、拖动中点即平移，单指在批注模式也不会被滚动抢走。
+            触摸只挂在这一层：工具条/工具栏上的点击不该被当成起笔 */}
         <View
-          className='absolute'
-          style={{
-            left: `${pan.x}px`,
-            top: `${pan.y}px`,
-            width: `${boxW}px`,
-            height: `${boxH}px`,
-          }}
+          id='reader-stage'
+          className='absolute inset-0 overflow-hidden'
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onTouchCancel={onTouchCancel}
         >
-          {/* 双缓冲：显示的那块在 0 位，另一块停在视口外（仍是正常绘制的画布节点）。
-              渲染永远进备用块，渲完再换帧，pdf.js 清屏那一下就不会露白。
-              换帧时退役的那块被动画移到滑出位（见 lib/page-turn.ts） */}
-          <Canvas
-            type='2d'
-            id='reader-canvas-a'
-            className='absolute top-0 block bg-page-bg'
-            style={layerStyle('a')}
-          />
-          <Canvas
-            type='2d'
-            id='reader-canvas-b'
-            className='absolute top-0 block bg-page-bg'
-            style={layerStyle('b')}
-          />
-          {/* 批注层：压在静态页之上、滑出的旧页之下（旧页滑走时把这一页的笔迹一起露出来）。
-              不靠 DOM 顺序——滑出的那块要盖过它，只能靠 z-index */}
-          <Canvas
-            type='2d'
-            id='reader-overlay'
-            className='absolute left-0 top-0 block'
-            style={{ width: `${boxW}px`, height: `${boxH}px`, zIndex: 2 }}
-          />
-        </View>
-        {showStatusRow ? (
-          // 画布带了 z-index（见 layerStyle），这条提示得压过它们才看得见
-          <View className='absolute left-0 right-0 top-0 py-3 text-center' style={{ zIndex: 9 }}>
-            <Text className='text-xs text-text-muted'>{statusText}</Text>
-          </View>
-        ) : null}
-      </View>
-
-      {/* 批注工具条（画笔开启时显示） */}
-      {penOn ? (
-        <AnnotationBar
-          color={penColor}
-          width={penWidth}
-          canUndo={currentStrokes.length > 0}
-          onColor={setPenColor}
-          onWidth={setPenWidth}
-          onUndo={handleUndo}
-          onClear={handleClear}
-        />
-      ) : null}
-
-      {/* 工具栏：翻页（< x/n > 紧贴页码两侧）/ 跳页 / 缩放 */}
-      <View
-        className='flex flex-row items-center justify-between border-t border-border bg-surface px-3 py-2'
-        style={{ paddingBottom: 'calc(8px + env(safe-area-inset-bottom))' }}
-      >
-        <View className='flex flex-row items-center'>
-          <Button
-            className='rounded-full border border-border bg-card px-3.5 py-1 text-xs text-text'
-            disabled={page <= 1}
-            onClick={() => gotoPage(page - 1)}
-          >
-            {'<'}
-          </Button>
-          <View className='mx-2 flex flex-row items-center'>
-            <View className='overflow-hidden rounded border border-border bg-card'>
-              <Input
-                className='h-8 w-12 bg-transparent text-center text-xs text-text'
-                type='number'
-                placeholder={t('scoreReader.pageJump')}
-                value={pageCount > 0 ? pageInput : ''}
-                onFocus={() => setPageEditing(true)}
-                onInput={(e) => setPageInput(e.detail.value)}
-                onBlur={commitPageInput}
-                onConfirm={commitPageInput}
-              />
-            </View>
-            <Text className='ml-1 text-xs text-text-muted'>/ {pageCount || '-'}</Text>
-          </View>
-          <Button
-            className='rounded-full border border-border bg-card px-3.5 py-1 text-xs text-text'
-            disabled={pageCount <= 0 || page >= pageCount}
-            onClick={() => gotoPage(page + 1)}
-          >
-            {'>'}
-          </Button>
-        </View>
-        <View className='flex flex-row items-center'>
-          <Button
-            className='mr-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
-            onClick={() => zoomAtCenter(zoom - 0.25)}
-          >
-            −
-          </Button>
-          <Button
-            className='mr-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
-            onClick={() => {
-              setZoom(1)
-              setPan({ x: 0, y: 0 })
+          <View
+            className='absolute'
+            style={{
+              left: `${pan.x}px`,
+              top: `${pan.y}px`,
+              width: `${boxW}px`,
+              height: `${boxH}px`,
             }}
           >
-            {t('scoreReader.zoomReset')}
-          </Button>
-          <Button
-            className='rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
-            onClick={() => zoomAtCenter(zoom + 0.25)}
-          >
-            +
-          </Button>
+            {/* 双缓冲：显示的那块在 0 位，另一块停在视口外（仍是正常绘制的画布节点）。
+                渲染永远进备用块，渲完再换帧，pdf.js 清屏那一下就不会露白。
+                换帧时退役的那块被动画移到滑出位（见 lib/page-turn.ts） */}
+            <Canvas
+              type='2d'
+              id='reader-canvas-a'
+              className='absolute top-0 block bg-page-bg'
+              style={layerStyle('a')}
+            />
+            <Canvas
+              type='2d'
+              id='reader-canvas-b'
+              className='absolute top-0 block bg-page-bg'
+              style={layerStyle('b')}
+            />
+            {/* 批注层：压在静态页之上、滑出的旧页之下（旧页滑走时把这一页的笔迹一起露出来）。
+                不靠 DOM 顺序——滑出的那块要盖过它，只能靠 z-index */}
+            <Canvas
+              type='2d'
+              id='reader-overlay'
+              className='absolute left-0 top-0 block'
+              style={{ width: `${boxW}px`, height: `${boxH}px`, zIndex: 2 }}
+            />
+          </View>
+
+          {/* 灰带：菜单关着时压在谱面上下沿，高度＝**实测**工具条高度（与工具条严格重合）。
+              必须是 stage 的**子节点**且不挂任何事件：触摸冒泡进同一个状态机，
+              于是灰带上的点击照常按「任意横向位置＝开关菜单」处理 */}
+          {!menuOn && barH.top > 0 ? (
+            <View
+              className='absolute left-0 right-0 top-0 bg-menu-band'
+              style={{ height: `${barH.top}px`, zIndex: Z_BAND }}
+            />
+          ) : null}
+          {!menuOn && barH.bottom > 0 ? (
+            <View
+              className='absolute bottom-0 left-0 right-0 bg-menu-band'
+              style={{ height: `${barH.bottom}px`, zIndex: Z_BAND }}
+            />
+          ) : null}
+
+          {showStatusRow ? (
+            // 画布带了 z-index（见 layerStyle），这条提示得压过它们才看得见
+            <View
+              className='absolute left-0 right-0 top-0 py-3 text-center'
+              style={{ zIndex: Z_STATUS }}
+            >
+              <Text className='text-xs text-text-muted'>{statusText}</Text>
+            </View>
+          ) : null}
         </View>
+
+        {/* 顶栏（悬浮）：页码 / 缩放 / 原生打开 / 批注 / 教程。
+            菜单关着时 visibility:hidden + pointer-events:none —— 隐藏但**保留布局盒子**
+            （于是高度随时量得到），触摸则穿透到谱面。
+            非批注时半透明灰底（谱面透出，示意菜单已打开），批注时回到不透明 */}
+        <View
+          id='reader-topbar'
+          className={`absolute left-0 right-0 top-0 flex flex-row items-center justify-between border-b border-border px-4 py-2 ${
+            penOn ? 'bg-surface' : 'bg-toolbar-translucent'
+          }`}
+          style={{
+            zIndex: Z_TOOLBAR,
+            visibility: menuOn ? 'visible' : 'hidden',
+            pointerEvents: menuOn ? 'auto' : 'none',
+          }}
+        >
+          <Text className='text-xs text-text-muted'>
+            {pageCount > 0 ? t('scoreReader.pageOf', { page, total: pageCount }) : statusText}
+          </Text>
+          <View className='flex flex-row items-center'>
+            <Text className='mr-3 text-xs text-text-muted'>{Math.round(zoom * 100)}%</Text>
+            <View
+              className='mr-2 rounded-full border border-border bg-card px-3 py-1'
+              onClick={() => void openNative()}
+            >
+              <Text className='text-xs text-text-muted'>{t('scoreReader.openNative')}</Text>
+            </View>
+            <View
+              className={`rounded-full border px-3 py-1 ${
+                penOn ? 'border-primary bg-primary/10' : 'border-border bg-card'
+              }`}
+              onClick={togglePen}
+            >
+              <Text className={`text-xs ${penOn ? 'text-primary' : 'text-text-muted'}`}>
+                {t('scoreReader.annotation')}
+              </Text>
+            </View>
+            {/* 教程入口：批注按钮右边的小问号，随时可再唤出用法说明 */}
+            <View
+              className='ml-2 rounded-full border border-border bg-card px-2.5 py-1'
+              ariaLabel={t('scoreReader.tutorialOpen')}
+              onClick={() => setTutorialOn(true)}
+            >
+              <Text className='text-xs text-text-muted'>?</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* 底栏（悬浮）：翻页（< x/n > 紧贴页码两侧）/ 跳页 / 缩放 */}
+        <View
+          id='reader-bottombar'
+          className={`absolute bottom-0 left-0 right-0 flex flex-row items-center justify-between border-t border-border px-3 py-2 ${
+            penOn ? 'bg-surface' : 'bg-toolbar-translucent'
+          }`}
+          style={{
+            zIndex: Z_TOOLBAR,
+            paddingBottom: 'calc(8px + env(safe-area-inset-bottom))',
+            visibility: menuOn ? 'visible' : 'hidden',
+            pointerEvents: menuOn ? 'auto' : 'none',
+          }}
+        >
+          <View className='flex flex-row items-center'>
+            <Button
+              className='rounded-full border border-border bg-card px-3.5 py-1 text-xs text-text'
+              disabled={page <= 1}
+              onClick={() => gotoPage(page - 1)}
+            >
+              {'<'}
+            </Button>
+            <View className='mx-2 flex flex-row items-center'>
+              <View className='overflow-hidden rounded border border-border bg-card'>
+                <Input
+                  className='h-8 w-12 bg-transparent text-center text-xs text-text'
+                  type='number'
+                  placeholder={t('scoreReader.pageJump')}
+                  value={pageCount > 0 ? pageInput : ''}
+                  onFocus={() => setPageEditing(true)}
+                  onInput={(e) => setPageInput(e.detail.value)}
+                  onBlur={commitPageInput}
+                  onConfirm={commitPageInput}
+                />
+              </View>
+              <Text className='ml-1 text-xs text-text-muted'>/ {pageCount || '-'}</Text>
+            </View>
+            <Button
+              className='rounded-full border border-border bg-card px-3.5 py-1 text-xs text-text'
+              disabled={pageCount <= 0 || page >= pageCount}
+              onClick={() => gotoPage(page + 1)}
+            >
+              {'>'}
+            </Button>
+          </View>
+          <View className='flex flex-row items-center'>
+            <Button
+              className='mr-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
+              onClick={() => zoomAtCenter(zoom - 0.25)}
+            >
+              −
+            </Button>
+            <Button
+              className='mr-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
+              onClick={() => {
+                applyZoom(1)
+                setPan({ x: 0, y: 0 })
+              }}
+            >
+              {t('scoreReader.zoomReset')}
+            </Button>
+            <Button
+              className='rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
+              onClick={() => zoomAtCenter(zoom + 0.25)}
+            >
+              +
+            </Button>
+          </View>
+        </View>
+
+        {/* 批注工具条：悬浮在底栏之上（位置取底栏的**实测**高度——它已含安全区，不重复叠加） */}
+        {penOn ? (
+          <View
+            className='absolute left-0 right-0'
+            style={{ bottom: penBarBottom(barH.bottom), zIndex: Z_TOOLBAR }}
+          >
+            <AnnotationBar
+              color={penColor}
+              width={penWidth}
+              canUndo={currentStrokes.length > 0}
+              onColor={setPenColor}
+              onWidth={setPenWidth}
+              onUndo={handleUndo}
+              onClear={handleClear}
+            />
+          </View>
+        ) : null}
+
+        {/* 首次教程蒙层：放在最后 ⇒ 压在所有工具条之上（z 也最高）。
+            它是 #reader-stage 的兄弟节点，触摸不会冒泡进舞台状态机 */}
+        {tutorialOn ? <ReaderTutorial onClose={dismissTutorial} /> : null}
       </View>
     </View>
   )

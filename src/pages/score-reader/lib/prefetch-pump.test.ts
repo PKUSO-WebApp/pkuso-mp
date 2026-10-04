@@ -144,6 +144,66 @@ describe('createPrefetchPump', () => {
     expect(started).toEqual([2, 3, 4, 5]) // 补足到 3 个在途
   })
 
+  it('顺序补全不占满并发：优先带永远留得住一个空槽', async () => {
+    const started: number[] = []
+    const gates: Array<() => void> = []
+    const pump = createPrefetchPump({
+      total: 100,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: (url) =>
+        new Promise<void>((resolve) => {
+          started.push(Number(url))
+          gates.push(resolve)
+        }),
+      maxParallel: 3,
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(started).toEqual([2, 3, 4]) // 优先带整批先发
+    gates[0]()
+    gates[1]()
+    gates[2]()
+    await flush()
+    expect(started).toEqual([2, 3, 4, 5, 6]) // 补全只占 parallel-1 = 2 个槽，留 1 个
+    pump.setCurrent(50)
+    await flush()
+    expect(started).toEqual([2, 3, 4, 5, 6, 51]) // 用户翻页 → 优先带立刻拿到留出的那个槽
+  })
+
+  it('预留槽不会把顺序补全饿死：整册照样铺完（并发 > 1）', async () => {
+    const started: number[] = []
+    const pump = createPrefetchPump({
+      total: 8,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: async (url) => {
+        started.push(Number(url))
+      },
+      maxParallel: 3,
+    })
+    pump.setCurrent(1)
+    await flush()
+    // 第 1 页是当前页（前台路径负责），泵不抓它，其余全铺完
+    expect([...started].sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 7, 8])
+  })
+
+  it('isDone / isWarm：失败的页抓过但没预热', async () => {
+    const pump = createPrefetchPump({
+      total: 4,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: async (url) => {
+        if (url === '3') throw new Error('boom')
+      },
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(pump.isDone(3)).toBe(true) // 抓过
+    expect(pump.isWarm(3)).toBe(false) // 但没进缓存
+    expect(pump.isWarm(2)).toBe(true)
+    expect(pump.isDone(1)).toBe(true) // 当前页由前台路径负责，记 done
+    expect(pump.isWarm(1)).toBe(false)
+    expect(pump.isDone(99)).toBe(false)
+  })
+
   it('网络档位 → 并发数', () => {
     expect(parallelForNetwork('wifi')).toBe(4)
     expect(parallelForNetwork('5g')).toBe(4)

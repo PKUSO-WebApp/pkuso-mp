@@ -56,11 +56,37 @@ export type Pinch = {
   midY: number
 }
 
-/** 单指拖动起始快照 */
-export type Drag = { tx: number; ty: number; x: number; y: number }
+/**
+ * 单指手势记录：起手快照 + 判定用的累计量（判定见 lib/gesture.ts、接线见 index.tsx）。
+ *
+ * `tx/ty/x/y` 是**平移分支原有的四个字段**（起手 client 坐标 + 起手时的平移），
+ * 重构时刻意保留原语义，让「拖动平移」那条分支一行都不用改。
+ */
+export type Drag = {
+  /** 起手触点 client 坐标 */
+  tx: number
+  ty: number
+  /** 起手时的平移快照：判定为滑动翻页时要回滚到它，免得翻完页谱面莫名偏了一截 */
+  x: number
+  y: number
+  /** 起手落点相对视口左上角（分区与灰带命中用它，见 lib/layout.ts） */
+  relX: number
+  relY: number
+  /** 起手时刻（Date.now()；不用 e.timeStamp——小程序端语义不稳） */
+  startAt: number
+  /** 手势期间 |dx| / |dy| 的最大值——判 tap 用它而不是末点（横滑出去再滑回来会骗人） */
+  maxMove: number
+  /** 起手是否落在灰带里：灰带任意横向位置都只开关菜单，永不翻页 */
+  band: 'top' | 'bottom' | null
+  /** 起手快照：本段手势结束时还允不允许翻页（未放大 && 文档就绪；批注模式不建记录） */
+  canTurn: boolean
+}
 
-/** 一次渲染请求：把哪一页按哪个缩放渲出来 */
-export type Job = { page: number; zoom: number }
+/**
+ * 一次渲染请求：把哪一页按哪个缩放渲出来。
+ * `bg = true` 是**后台预绘制**（低优先级、可被交互任务让位，见 lib/predraw.ts）。
+ */
+export type Job = { page: number; zoom: number; bg?: boolean }
 
 /** 白帧重试记账：同一页/同一缩放重试到第几次 */
 export type BlankRetry = { page: number; zoom: number; n: number }

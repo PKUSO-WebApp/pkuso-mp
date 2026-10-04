@@ -12,6 +12,8 @@ import Taro from '@tarojs/taro'
  *   wifi/5g → 4、4g → 3、其余 → 1）。弱网下并发是负收益——用户正在等的那一页
  *   会和预热抢带宽；
  * - **优先带**：当前页之后 PRIORITY_AHEAD 页永远排在「补全整册」之前（翻到哪都有）；
+ *   并且**顺序补全不许占满并发**（最多 `parallel - 1` 个槽），保证用户翻页时
+ *   优先带立刻拿得到空槽——否则「正在补第 3 页」的四个慢请求会把「下一页」堵在后面；
  * - **失败即跳过**（标记 done、不重排）：预热只是止损，真翻到那一页时前台加载路径
  *   有自己的超时 / 换入口 / 重试；
  * - MAX_BACKFILL_PAGES 只约束「顺序补全」的页序号上限；优先带不受限（跳到第 90 页
@@ -41,6 +43,10 @@ export type PrefetchPump = {
   setCurrent(page: number): void
   /** 调整并发（按网络档位；运行中调用会在下一轮补足时生效） */
   setParallel(n: number): void
+  /** 这一页是否抓过（含失败）——「不重复抓」的记账 */
+  isDone(page: number): boolean
+  /** 这一页是否**成功**抓过（图片缓存里应该有它）。诊断的 `warm` 与预绘制据此决定等不等 */
+  isWarm(page: number): boolean
   /** 退出页面 / 换册时调用 */
   stop(): void
 }
@@ -65,15 +71,26 @@ export function createPrefetchPump(opts: {
   let stopped = false
   let running = false
   let parallel = Math.min(Math.max(1, Math.floor(opts.maxParallel ?? 1)), 8)
-  const done = new Set<number>()
+  /** 抓过的页（含失败） */
+  const attempted = new Set<number>()
+  /** 成功抓到的页 */
+  const warmed = new Set<number>()
+  /** 唤醒句柄：跑着的时候 setCurrent/setParallel 靠它把循环从等待里叫醒（否则留出的空槽要等某个请求超时才被用上） */
+  let wake: (() => void) | null = null
+
+  const wakeLoop = () => {
+    const w = wake
+    wake = null
+    if (w) w()
+  }
 
   const nextPage = (): number | null => {
     // 一、优先带：当前页之后 ahead 页之内，先保「翻下去就有」
     const zoneEnd = Math.min(total, current + ahead)
-    for (let n = current + 1; n <= zoneEnd; n += 1) if (!done.has(n)) return n
+    for (let n = current + 1; n <= zoneEnd; n += 1) if (!attempted.has(n)) return n
     // 二、顺序补全：从第 1 页往上扫，把前面的空洞按顺序填掉
     const backfillEnd = Math.min(total, maxPages)
-    for (let n = 1; n <= backfillEnd; n += 1) if (!done.has(n)) return n
+    for (let n = 1; n <= backfillEnd; n += 1) if (!attempted.has(n)) return n
     return null
   }
 
@@ -81,23 +98,37 @@ export function createPrefetchPump(opts: {
     if (running || stopped) return
     running = true
     const inFlight = new Set<Promise<void>>()
+    let backfillInFlight = 0
     while (!stopped) {
-      // 补足到并发上限；nextPage 为空且无在途 = 整册铺完，收工
+      // 顺序补全最多占 parallel-1 个槽：优先带（用户翻下去就会看到的那几页）永远留得住空槽
+      const backfillLimit = Math.max(1, parallel - 1)
       while (!stopped && inFlight.size < parallel) {
         const p = nextPage()
         if (p === null) break
-        done.add(p) // 先标记：抓失败也不重排（见文件头「失败即跳过」）
+        const priority = p > current && p <= current + ahead
+        if (!priority && backfillInFlight >= backfillLimit) break
+        attempted.add(p) // 先标记：抓失败也不重排（见文件头「失败即跳过」）
+        if (!priority) backfillInFlight += 1
         const task: Promise<void> = prefetchOne(urlsFor(p)[0])
-          .catch(() => {
-            // 预热失败无所谓——真翻到这页时前台加载路径会兜底
-          })
+          .then(
+            () => {
+              warmed.add(p)
+            },
+            () => {}
+          )
           .then(() => {
             inFlight.delete(task)
+            if (!priority) backfillInFlight -= 1
           })
         inFlight.add(task)
       }
       if (inFlight.size === 0) break
-      await Promise.race(inFlight)
+      await Promise.race([
+        ...inFlight,
+        new Promise<void>((resolve) => {
+          wake = resolve
+        }),
+      ])
     }
     running = false
   }
@@ -105,15 +136,20 @@ export function createPrefetchPump(opts: {
   return {
     setCurrent(page: number) {
       current = Math.min(Math.max(1, Math.floor(page)), Math.max(1, total))
-      done.add(current) // 当前页由前台路径负责（正在/已经加载），泵不重复抓
+      attempted.add(current) // 当前页由前台路径负责（正在/已经加载），泵不重复抓
+      wakeLoop()
       void run()
     },
     setParallel(n: number) {
       parallel = Math.min(Math.max(1, Math.floor(n)), 8)
-      void run() // 运行中：下一轮补足即用新值；已铺完时调用无副作用
+      wakeLoop() // 运行中：立刻按新并发补足，而不是等某个请求回来
+      void run()
     },
+    isDone: (page) => attempted.has(page),
+    isWarm: (page) => warmed.has(page),
     stop() {
       stopped = true
+      wakeLoop()
     },
   }
 }
