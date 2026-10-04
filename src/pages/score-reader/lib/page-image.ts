@@ -30,6 +30,29 @@ const PAGE_IMAGE_TIMEOUT_MS = 30000
 export type LoadedPageImage = { img: CanvasImage; width: number; height: number }
 
 /**
+ * 页图加载失败时抛出的错误，额外带上两条**只有这里能拿到**的诊断信息：
+ * - `urlIndex`：候选 URL 里第几条失败（0 = 反代、1 = 直连）——区分「哪条腿不通」；
+ * - `errMsg`：图片层 `onerror` 的原始文案（部分版本会给出原因，例如
+ *   `url not in domain list`）。没有它，「网络/入口」与「域名白名单/解码被拒」
+ *   在事后完全分不开（onerror 不带状态码，屏幕上只有一句「加载失败」）。
+ */
+export type PageImageError = Error & { urlIndex?: number; errMsg?: string }
+
+/** 从 onerror 的回传里尽量榨出可读文案（形态随版本不同，所以什么都接一下） */
+function detailOf(e: unknown): string {
+  try {
+    if (!e) return ''
+    if (typeof e === 'string') return e
+    const any = e as { errMsg?: unknown; detail?: { errMsg?: unknown } }
+    const msg = any.errMsg ?? any.detail?.errMsg
+    if (typeof msg === 'string') return msg
+    return JSON.stringify(e).slice(0, 200)
+  } catch {
+    return ''
+  }
+}
+
+/**
  * 加载一页页图（onload 才算完成）；失败抛出，调用方走既有错误路径。
  *
  * 尺寸直接取自图片对象 —— 不需要额外的 `getImageInfo`（少一次文件/网络往返）。
@@ -47,9 +70,12 @@ function loadOnePageImage(
       clearTimeout(timer)
       resolve({ img, width: img.width ?? 0, height: img.height ?? 0 })
     }
-    img.onerror = () => {
+    img.onerror = (e) => {
       clearTimeout(timer)
-      reject(new Error('页图加载失败'))
+      const err = new Error('页图加载失败') as PageImageError
+      const msg = detailOf(e)
+      if (msg) err.errMsg = msg
+      reject(err)
     }
     // onload/onerror 挂好之后再赋 src —— 反过来会漏掉同步完成的加载
     img.src = url
@@ -66,15 +92,17 @@ export async function loadPageImage(node: CanvasNode, urls: string[]): Promise<L
   if (typeof node.createImage !== 'function') {
     throw new Error('canvas node 不支持 createImage（无法显示页图）')
   }
-  let lastErr: unknown
+  let lastErr: PageImageError | null = null
   for (let i = 0; i < urls.length; i += 1) {
     try {
       return await loadOnePageImage(node, urls[i], i === 0 ? 15000 : PAGE_IMAGE_TIMEOUT_MS)
     } catch (err) {
-      lastErr = err
+      const e = (err instanceof Error ? err : new Error(String(err))) as PageImageError
+      e.urlIndex = i
+      lastErr = e
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error('页图加载失败')
+  throw lastErr ?? new Error('页图加载失败')
 }
 
 /**

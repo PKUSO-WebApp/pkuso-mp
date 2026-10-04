@@ -48,7 +48,12 @@ import {
   readCachedPdf,
   writeCachedPdf,
 } from './lib/pdf-cache'
-import { loadPageImage, paintPageImage, type LoadedPageImage } from './lib/page-image'
+import {
+  loadPageImage,
+  paintPageImage,
+  type LoadedPageImage,
+  type PageImageError,
+} from './lib/page-image'
 import {
   createPageTurn,
   turnDirFor,
@@ -582,7 +587,34 @@ export default function ScoreReader() {
       if (imageMode) {
         // 图片模式：加载页图（**走小程序图片层，微信自带缓存**；不要换成
         // downloadFile —— 那个不走 HTTP 缓存，每次都是真下载）。尺寸直接取自图片对象
-        pageImg = await loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target))
+        try {
+          pageImg = await loadPageImage(
+            node as CanvasNode,
+            pageImageUrls(fileUrlRef.current, target)
+          )
+        } catch (err) {
+          // 这条路径的失败原本**只在屏幕上可见**（图片层 onerror 不带状态码，唯一的原因
+          // 文案也只有这里能拿到）——真机出现「页图加载失败」时事后完全无法定性，补上这条。
+          const e = err as PageImageError
+          const urls = pageImageUrls(fileUrlRef.current, target)
+          const hostOf = (u?: string) => (u ? u.replace(/^https?:\/\//, '').split('/')[0] : '')
+          reportClientError({
+            event: 'score_reader_page_image_failed',
+            message: describeError(err),
+            detail: {
+              fileId,
+              page: target,
+              /** 0 = 反代那条腿、1 = 直连那条腿（哪条不通看它） */
+              urlIndex: e.urlIndex ?? -1,
+              host: hostOf(urls[e.urlIndex ?? 0]),
+              /** 图片层 onerror 的原文（例如 url not in domain list） */
+              imgErrMsg: e.errMsg ?? '',
+              /** 取图前这一页有没有被预热到（预热过还失败 ⇒ 不是"没预热"的问题） */
+              warm,
+            },
+          })
+          throw err
+        }
         info = { width: pageImg.width, height: pageImg.height }
         // 翻页：把预热泵的窗口挪到这一页（泵自己负责「前 3 后 3 优先、再填 ±窗口」，
         // 并发按网络档位有界——见 lib/prefetch-pump.ts）
@@ -1690,10 +1722,15 @@ export default function ScoreReader() {
         <View className='flex flex-row items-center justify-between px-4 py-2'>
           <Text className='flex-1 text-xs text-danger'>{message}</Text>
           {/* 弱网下页图可能加载超时（实测有卡 150 秒的）——给一个显式重试，
-              否则用户只能退出重进 */}
-          <Text className='ml-3 shrink-0 text-xs text-primary' onClick={() => void load()}>
-            {t('scoreReader.retry')}
-          </Text>
+              否则用户只能退出重进。
+              ⚠️ 要**做成按钮的样子**：原来是一条裸文字（text-primary），真机上没人看出它是可点的
+              （用户反馈「没看到重试按钮」） */}
+          <View
+            className='ml-3 shrink-0 rounded-full border border-border bg-card px-3 py-1'
+            onClick={() => void load()}
+          >
+            <Text className='text-xs text-text'>{t('scoreReader.retry')}</Text>
+          </View>
         </View>
       ) : null}
 
