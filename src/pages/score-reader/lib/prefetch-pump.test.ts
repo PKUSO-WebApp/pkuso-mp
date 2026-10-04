@@ -7,21 +7,26 @@ const flush = async (rounds = 80) => {
 }
 
 describe('createPrefetchPump', () => {
-  it('先补优先带（当前页 +3），再从第 1 页顺序补全', async () => {
+  it('先向前 3、再向后 3，然后向前填到窗口边界、最后向后', async () => {
     const calls: number[] = []
     const pump = createPrefetchPump({
-      total: 6,
+      total: 14,
       urlsFor: (p) => [`https://x/p${p}.jpg`],
       prefetchOne: async (url) => {
         calls.push(Number(url.match(/p(\d+)/)?.[1]))
       },
+      // 窗口收到 +5/−2，把顺序一次看全
+      windowAhead: 5,
+      windowBehind: 2,
     })
-    pump.setCurrent(1)
+    pump.setCurrent(5)
     await flush()
-    expect(calls).toEqual([2, 3, 4, 5, 6])
+    // 前带 6,7,8 → 后带 4,3,2 → 前窗 9,10；后窗只到 5-2=3，1 在窗口外**刻意不预热**
+    expect(calls).toEqual([6, 7, 8, 4, 3, 2, 9, 10])
+    expect(calls).not.toContain(1)
   })
 
-  it('抓取在途时翻到第 8 页：优先带插队到 9/10，之后再回头补空洞', async () => {
+  it('抓取在途时翻到第 8 页：前带插队 9/10，随后是**后带** 7/6/5', async () => {
     const calls: number[] = []
     const pump = createPrefetchPump({
       total: 10,
@@ -35,7 +40,9 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(1)
     await flush()
-    expect(calls).toEqual([2, 9, 10, 3, 4, 5, 6, 7])
+    // 回翻要用的 7/6/5 紧跟在前带之后——旧实现会先补 3,4,5,6,7（从第 1 页往上扫），
+    // 回翻的那一页排在最后。1 距第 8 页超过窗口（8-5=3），不再预热
+    expect(calls).toEqual([2, 9, 10, 7, 6, 5, 4, 3])
   })
 
   it('某页失败即跳过、不重排、不中断', async () => {
@@ -69,7 +76,7 @@ describe('createPrefetchPump', () => {
     expect(calls).toEqual([2])
   })
 
-  it('顺序补全受 maxPages 限制；优先带不受限制', async () => {
+  it('只预热当前页 ±窗口，**不铺整册**；setCurrent 挪窗口后继续', async () => {
     const calls: number[] = []
     const pump = createPrefetchPump({
       total: 100,
@@ -77,14 +84,18 @@ describe('createPrefetchPump', () => {
       prefetchOne: async (url) => {
         calls.push(Number(url))
       },
-      maxPages: 5,
+      windowAhead: 4,
+      windowBehind: 1,
+      priorityBehind: 1,
     })
-    pump.setCurrent(1)
+    pump.setCurrent(50)
     await flush()
-    expect(calls).toEqual([2, 3, 4, 5]) // 只补到第 5 页
+    // 前带 51,52,53 → 后带 49 → 前窗 54 → 后窗（50-4=46，已被后带 49 覆盖）
+    expect(calls).toEqual([51, 52, 53, 49, 54])
+    expect(calls).not.toContain(1) // 远处不预热：整册铺满既费流量、又会把要读的页挤出缓存
     pump.setCurrent(90)
     await flush()
-    expect(calls).toEqual([2, 3, 4, 5, 91, 92, 93]) // 跳到 90 也先备好后面 3 页
+    expect(calls).toEqual([51, 52, 53, 49, 54, 91, 92, 93, 89, 94])
   })
 
   it('setCurrent 不重复抓当前页（前台路径负责它）', async () => {
@@ -98,7 +109,7 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(3)
     await flush()
-    expect(calls).toEqual([4, 5, 6, 1, 2])
+    expect(calls).toEqual([4, 5, 6, 2, 1]) // 前带 → 后带（从近到远）
     expect(calls).not.toContain(3)
   })
 
