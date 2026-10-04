@@ -4,8 +4,11 @@ import {
   pdfCacheKey,
   pdfCachePath,
   pdfCacheTag,
+  pickEvictions,
   readCachedPdf,
   writeCachedPdf,
+  PDF_CACHE_BUDGET_BYTES,
+  type PdfCacheEntry,
 } from './pdf-cache'
 
 // vi.mock 会被提升到文件顶部，工厂里不能引用普通顶层变量——用 vi.hoisted 一起提起
@@ -98,7 +101,8 @@ describe('writeCachedPdf', () => {
   it('写失败不落指纹（下次仍会回落网络重下）', () => {
     taro.getFileSystemManager.mockReturnValue(fileSystem({ writeFails: true }))
     writeCachedPdf('abc', 'tag', new ArrayBuffer(4))
-    expect(taro.setStorageSync).not.toHaveBeenCalled()
+    // 只看指纹 key：写失败时账本（index）仍会被写一次（记下「这份没进缓存」）
+    expect(taro.setStorageSync).not.toHaveBeenCalledWith('score-pdf-cache:abc', expect.anything())
   })
 
   it('文件系统抛错时静默（不影响阅读）', () => {
@@ -106,6 +110,55 @@ describe('writeCachedPdf', () => {
       throw new Error('fs broken')
     })
     expect(() => writeCachedPdf('abc', 'tag', new ArrayBuffer(4))).not.toThrow()
+  })
+})
+
+describe('pickEvictions（自管 LRU）', () => {
+  const e = (fileId: string, size: number, at: number): PdfCacheEntry => ({
+    fileId,
+    tag: 't',
+    size,
+    at,
+  })
+
+  it('没超预算就不淘汰', () => {
+    expect(pickEvictions([e('a', 10, 1), e('b', 10, 2)], 100)).toEqual([])
+  })
+
+  it('超预算：最旧优先，淘汰到落回预算内就停', () => {
+    const entries = [e('new', 30, 300), e('old', 30, 100), e('mid', 30, 200)]
+    // 合计 90、预算 50 ⇒ 要淘汰 40 ⇒ 最旧两条（30+30）
+    expect(pickEvictions(entries, 50).map((x) => x.fileId)).toEqual(['old', 'mid'])
+  })
+
+  it('这次要写进去的字节也算进来（保证写完之后不越界）', () => {
+    expect(pickEvictions([e('a', 30, 1)], 50, 30).map((x) => x.fileId)).toEqual(['a'])
+    expect(pickEvictions([e('a', 20, 1)], 50, 30)).toEqual([])
+  })
+
+  it('不改动入参顺序', () => {
+    const entries = [e('new', 30, 300), e('old', 30, 100)]
+    pickEvictions(entries, 10)
+    expect(entries.map((x) => x.fileId)).toEqual(['new', 'old'])
+  })
+})
+
+describe('writeCachedPdf 的淘汰', () => {
+  it('超预算时先删最旧的文件、并从账本里去掉它', () => {
+    const unlinked: string[] = []
+    taro.getFileSystemManager.mockReturnValue({
+      writeFile: ({ success }: { success: () => void }) => success(),
+      unlink: ({ filePath }: { filePath: string }) => unlinked.push(filePath),
+    })
+    taro.getStorageSync.mockImplementation((k: string) =>
+      k === 'score-pdf-cache-index'
+        ? [{ fileId: 'old', tag: 't', size: PDF_CACHE_BUDGET_BYTES, at: 1 }]
+        : ''
+    )
+    writeCachedPdf('new', 'tag', new ArrayBuffer(4))
+    expect(unlinked).toEqual(['/udp/score-old.pdf'])
+    const indexCall = taro.setStorageSync.mock.calls.find((c) => c[0] === 'score-pdf-cache-index')
+    expect(indexCall?.[1]).toEqual([{ fileId: 'new', tag: 'tag', size: 4, at: expect.any(Number) }])
   })
 })
 
