@@ -73,3 +73,27 @@ export function swipeDir(g: GestureTrack, endX: number, endY: number, minPx: num
 export function blockedByEdgeGuard(startRelX: number, dir: SwipeDir): boolean {
   return dir === -1 && startRelX < EDGE_GUARD_PX
 }
+
+/**
+ * 100% 处的「吸附带」半宽：捏合时 raw 落在这条带子里一律吸到 100%。
+ * 真机手感旋钮——带子越宽越"黏"（要更用力才能离开 100%）。
+ */
+export const ZOOM_SNAP_BAND = 0.1
+
+/**
+ * 捏合缩放的吸附（detent）：把 100% 附近吸住，好让用户稳稳落在 1.0
+ * （灰带与左右滑翻页都以「未放大」为条件，差 2% 就会整片行为不同）。
+ *
+ * 出带子后**平移** band 而不是直接放行 raw：这样输出是连续的（在带的边界处正好等于 1.0），
+ * 「用力一点」表现为推过一段距离画面才开始变，而不是到某个点突然跳一下。
+ * 对称 ⇒ 缩小方向同理（从 2.0 往回收会先黏在 100%，要再往里推才继续缩）。
+ *
+ * 注意：捏合的上下限因此各内缩了一个 band（0.5→0.6、4→3.9）；按钮不走这里，
+ * 仍能到 0.5 / 4.0。
+ */
+export function snapZoom(raw: number, detent = 1, band = ZOOM_SNAP_BAND): number {
+  if (band <= 0) return raw
+  if (raw > detent + band) return raw - band
+  if (raw < detent - band) return raw + band
+  return detent
+}

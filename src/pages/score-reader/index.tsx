@@ -39,7 +39,7 @@ import type {
 import { drawMark, frameInk, markKept, rasterDpr } from './lib/raster'
 import { clamp, clampPan, touchDist, touchMid } from './lib/geometry'
 import { bandAt, penBarBottom, zoneFor, Z_BAND, Z_STATUS, Z_TOOLBAR } from './lib/layout'
-import { blockedByEdgeGuard, isTap, swipeDir, swipeMinPx } from './lib/gesture'
+import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawPolylineOn, drawStrokeOn, styleFor } from './lib/anno-draw'
 import {
   cachedPdfPath,
@@ -1465,8 +1465,13 @@ export default function ScoreReader() {
     }
     const g = pinchRef.current
     if (e.touches.length >= 2 && g && g.dist > 0) {
-      // 比例按钳制后的 zoom 折算：顶到上下限时中点也不能漂
-      const next = clamp((g.zoom * touchDist(e.touches)) / g.dist, ZOOM_MIN, ZOOM_MAX)
+      // 比例按钳制后的 zoom 折算：顶到上下限时中点也不能漂。
+      // 100% 处有「吸附」：raw 落在 1±band 内一律吸到 1，推过带子才真的开始缩放（见 snapZoom）
+      const next = clamp(
+        snapZoom(clamp((g.zoom * touchDist(e.touches)) / g.dist, ZOOM_MIN, ZOOM_MAX)),
+        ZOOM_MIN,
+        ZOOM_MAX
+      )
       const k = next / g.zoom
       const [mx, my] = touchMid(e.touches)
       const w = Math.max(1, Math.round(containerW * next))
@@ -1791,11 +1796,13 @@ export default function ScoreReader() {
             </View>
             {/* 教程入口：批注按钮右边的小问号，随时可再唤出用法说明 */}
             <View
-              className='ml-2 rounded-full border border-border bg-card px-2.5 py-1'
+              className='ml-2 flex flex-row items-center justify-center rounded-full border border-border bg-card'
+              style={{ width: '32px', height: '32px' }}
               ariaLabel={t('scoreReader.tutorialOpen')}
               onClick={() => setTutorialOn(true)}
             >
-              <Text className='text-xs text-text-muted'>?</Text>
+              {/* 「?」是文字不是图标，墨色走 --color-icon-ink（与两张图标 PNG 的笔画色逐值相同） */}
+              <Text className='text-sm text-icon-ink'>?</Text>
             </View>
           </View>
         </View>
@@ -1853,10 +1860,10 @@ export default function ScoreReader() {
             </Button>
             <Button
               className='mr-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
-              onClick={() => {
-                applyZoom(1)
-                setPan({ x: 0, y: 0 })
-              }}
+              // 以视口中心为锚回到 100%：已经在 100% 时这个换算正好是恒等（点它不该把谱面
+              // 甩到上边界、顶到 header 底下——真机反馈的 bug）；放大时则是「围绕当前视线缩小」，
+              // 而不是跳回页首
+              onClick={() => zoomAtCenter(1)}
             >
               {t('scoreReader.zoomReset')}
             </Button>

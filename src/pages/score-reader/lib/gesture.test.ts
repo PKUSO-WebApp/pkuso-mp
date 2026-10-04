@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   blockedByEdgeGuard,
   isTap,
+  snapZoom,
   swipeDir,
   swipeMinPx,
   SWIPE_MIN_CEIL_PX,
   SWIPE_MIN_FLOOR_PX,
   TAP_MAX_MOVE_PX,
   TAP_MAX_MS,
+  ZOOM_SNAP_BAND,
 } from './gesture'
 
 const track = (o: Partial<{ tx: number; ty: number; startAt: number; maxMove: number }> = {}) => ({
@@ -75,6 +77,30 @@ describe('swipeDir', () => {
 
   it('不给滑动设时长上限：缓慢横滑也算（未放大时横滑本就没有别的含义）', () => {
     expect(swipeDir(track({ tx: 300, startAt: 0 }), 240, 400, MIN)).toBe(1)
+  })
+})
+
+describe('snapZoom（100% 吸附）', () => {
+  it('带内一律吸到 1（含两条边界）', () => {
+    expect(snapZoom(1)).toBe(1)
+    expect(snapZoom(1.05)).toBe(1)
+    expect(snapZoom(0.95)).toBe(1)
+    expect(snapZoom(1 + ZOOM_SNAP_BAND)).toBe(1)
+    expect(snapZoom(1 - ZOOM_SNAP_BAND)).toBe(1)
+  })
+
+  it('出带子后平移 band ⇒ 连续、不打跳（刚出界时输出正好是 1）', () => {
+    expect(snapZoom(1 + ZOOM_SNAP_BAND + 1e-4)).toBeCloseTo(1, 3)
+    expect(snapZoom(1 + ZOOM_SNAP_BAND * 2)).toBeCloseTo(1 + ZOOM_SNAP_BAND, 6)
+  })
+
+  it('两个方向对称：放大要推过带子才动，缩小时同理', () => {
+    expect(snapZoom(2)).toBeCloseTo(2 - ZOOM_SNAP_BAND, 6)
+    expect(snapZoom(0.6)).toBeCloseTo(0.6 + ZOOM_SNAP_BAND, 6)
+  })
+
+  it('band 传 0 时是恒等（留作关掉吸附的开关）', () => {
+    expect(snapZoom(1.05, 1, 0)).toBe(1.05)
   })
 })
 
