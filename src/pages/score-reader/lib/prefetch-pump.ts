@@ -8,9 +8,8 @@ import Taro from '@tarojs/taro'
  * 命中图片缓存时只要 ~50ms。原来的「当前页 +3」预取在连续翻页 / 跳页时会被追上。
  *
  * 设计约束：
- * - **有界并发**：默认 1（串行）；调用方按网络档位调高（`parallelForNetwork`：
- *   wifi/5g → 4、4g → 3、其余 → 1）。弱网下并发是负收益——用户正在等的那一页
- *   会和预热抢带宽；
+ * - **一律串行**（`PREFETCH_PARALLEL = 1`）：并发会和前台取图抢图片层的额度，
+ *   真机上把前台那次取图挤失败过（见那个常量的注释）；
  * - **双向优先带**：前 PRIORITY_AHEAD 页 + 后 PRIORITY_BEHIND 页排在窗口填充之前；
  * - **窗口填充不许占满并发**（最多 `parallel - 1` 个槽），保证用户翻页时
  *   优先带立刻拿得到空槽——否则「正在补第 5 页」的几个慢请求会把「下一页」堵在后面；
@@ -33,14 +32,19 @@ export const WINDOW_AHEAD = 20
 export const WINDOW_BEHIND = 5
 
 /**
- * 网络档位 → 预热并发数。快网多拉（缩短铺满窗口的时间）；弱网老实串行
- * （并发会和用户正在等的那一页抢带宽）。unknown / 2g / none 一律按最保守算。
+ * 预热并发数：**固定 1（串行）**。
+ *
+ * 曾经按网络档位分档（wifi/5g=4、4g=3，理由是「缩短铺满整册的时间」），两件事让它作废：
+ * 1. 今天改成窗口预热后，泵的收益只剩「更快填满一个小窗口」——串行实测 1–3s/页
+ *    （真机 4G 经反代 0.3–1.2s/页），远快于读谱的一页十几秒，快慢根本感觉不到；
+ * 2. 并发会和「前台正在取的那一页」抢**图片层的并发额度**：2026-10-04 真机实测，
+ *    泵 4 个在飞 + 前台 1 个时，前台那次取图被图片层当场拒绝（onerror 无 errMsg、
+ *    两条腿都没到服务器），用户看到「页图加载失败」。串行把同时在飞的图片层请求
+ *    压到最多 2 个（泵 1 + 前台 1），从根上避开这类争用。
+ *
+ * ⚠️ 要再提高并发前，先想清楚怎么不让它和前台抢额度（例如前台取图期间把泵暂停）。
  */
-export function parallelForNetwork(networkType: string): number {
-  if (networkType === 'wifi' || networkType === '5g') return 4
-  if (networkType === '4g') return 3
-  return 1
-}
+export const PREFETCH_PARALLEL = 1
 
 export type PrefetchPump = {
   /** 翻到某页时调用：挪动优先带并确保泵在跑（当前页由前台路径负责，泵不重复抓） */
@@ -65,7 +69,7 @@ export function createPrefetchPump(opts: {
   /** 窗口半径：向前/向后最多预热的页数（不传用模块常量） */
   windowAhead?: number
   windowBehind?: number
-  /** 并发上限，默认 1（串行）；调用方通常随后用 setParallel 按网络档位调 */
+  /** 并发上限，默认 `PREFETCH_PARALLEL`（1 = 串行）；只在测试里改 */
   maxParallel?: number
 }): PrefetchPump {
   const total = Math.max(0, Math.floor(opts.total))
@@ -79,7 +83,7 @@ export function createPrefetchPump(opts: {
   let current = 1
   let stopped = false
   let running = false
-  let parallel = Math.min(Math.max(1, Math.floor(opts.maxParallel ?? 1)), 8)
+  let parallel = Math.min(Math.max(1, Math.floor(opts.maxParallel ?? PREFETCH_PARALLEL)), 8)
   /** 抓过的页（含失败） */
   const attempted = new Set<number>()
   /** 成功抓到的页 */

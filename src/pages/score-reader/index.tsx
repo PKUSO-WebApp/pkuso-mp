@@ -50,7 +50,9 @@ import {
 } from './lib/pdf-cache'
 import {
   loadPageImage,
+  loadPageImageWithRetry,
   paintPageImage,
+  PAGE_IMAGE_RETRY_DELAYS_MS,
   type LoadedPageImage,
   type PageImageError,
 } from './lib/page-image'
@@ -62,7 +64,7 @@ import {
   type PageTurn,
   type TurnFrame,
 } from './lib/page-turn'
-import { createPrefetchPump, parallelForNetwork, type PrefetchPump } from './lib/prefetch-pump'
+import { createPrefetchPump, type PrefetchPump } from './lib/prefetch-pump'
 import {
   ALL_LAYERS,
   frameForPage,
@@ -588,7 +590,9 @@ export default function ScoreReader() {
         // 图片模式：加载页图（**走小程序图片层，微信自带缓存**；不要换成
         // downloadFile —— 那个不走 HTTP 缓存，每次都是真下载）。尺寸直接取自图片对象
         try {
-          pageImg = await loadPageImage(
+          // 带退避重试（失败后重试两次）：图片层在高并发/瞬时抖动下会当场拒绝，
+          // 而这类拒绝多是"这一刻的"——退避一拍再来通常就好
+          pageImg = await loadPageImageWithRetry(
             node as CanvasNode,
             pageImageUrls(fileUrlRef.current, target)
           )
@@ -611,6 +615,8 @@ export default function ScoreReader() {
               imgErrMsg: e.errMsg ?? '',
               /** 取图前这一页有没有被预热到（预热过还失败 ⇒ 不是"没预热"的问题） */
               warm,
+              /** 这是第几次尝试之后才放弃（含首次；3 = 首次 + 两次重试都失败） */
+              attempts: PAGE_IMAGE_RETRY_DELAYS_MS.length + 1,
             },
           })
           throw err
@@ -1263,10 +1269,8 @@ export default function ScoreReader() {
             urlsFor: (n) => pageImageUrls(fileUrlRef.current, n),
           })
           prefetchPumpRef.current = pump
-          // 按网络档位放开并发（弱网保持串行：并发会和正在看的那一页抢带宽）
-          void Taro.getNetworkType()
-            .then(({ networkType }) => pump.setParallel(parallelForNetwork(networkType)))
-            .catch(() => {})
+          // 并发固定串行（泵默认值；理由见 lib/prefetch-pump.ts 的 PREFETCH_PARALLEL：
+          // 并发会和前台取图抢图片层的额度，真机上把前台那次取图挤失败过）
           setDocTick((tick) => tick + 1)
           return
         }

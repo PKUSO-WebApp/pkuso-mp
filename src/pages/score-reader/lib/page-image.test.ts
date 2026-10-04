@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { loadPageImage, type PageImageError } from './page-image'
+import {
+  loadPageImage,
+  loadPageImageWithRetry,
+  PAGE_IMAGE_RETRY_DELAYS_MS,
+  type PageImageError,
+} from './page-image'
 import type { CanvasNode } from './types'
 
 /**
@@ -34,6 +39,44 @@ const fail = (p: Promise<unknown>): Promise<PageImageError> =>
     },
     (e) => e as PageImageError
   )
+
+describe('loadPageImageWithRetry（失败退避重试）', () => {
+  const noWait = () => Promise.resolve()
+
+  it('默认配置：首次 + 两次重试 = 3 次尝试，全失败抛最后一次的错误', async () => {
+    const err = await fail(
+      loadPageImageWithRetry(
+        fakeNode([{ errMsg: 'first' }, { errMsg: 'second' }, { errMsg: 'third' }]),
+        ['a'],
+        {
+          sleep: noWait,
+        }
+      )
+    )
+    expect(PAGE_IMAGE_RETRY_DELAYS_MS).toEqual([500, 1000])
+    expect(err.errMsg).toBe('third')
+  })
+
+  it('重试成功就返回，不浪费后面的尝试', async () => {
+    const img = await loadPageImageWithRetry(fakeNode([{ errMsg: 'boom' }, 'ok']), ['a'], {
+      sleep: noWait,
+    })
+    expect(img.width).toBe(10)
+  })
+
+  it('每次都按给定间隔退避（顺序与次数都要对）', async () => {
+    const slept: number[] = []
+    await fail(
+      loadPageImageWithRetry(fakeNode([undefined]), ['a'], {
+        sleep: (ms) => {
+          slept.push(ms)
+          return Promise.resolve()
+        },
+      })
+    )
+    expect(slept).toEqual([500, 1000]) // 两次重试各等一拍，第三次失败后不再等
+  })
+})
 
 describe('loadPageImage 的失败信息（诊断用）', () => {
   it('onerror 的原文进 errMsg，并记下是第几条 URL 失败（0 = 反代那条腿）', async () => {

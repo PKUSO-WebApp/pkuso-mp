@@ -125,4 +125,39 @@ export function paintPageImage(
   ctx.drawImage(img, 0, 0, bitmapW, bitmapH)
 }
 
-/** 预取/预热统一走 `lib/prefetch-pump.ts`（串行泵 + 优先带；此前的单页预取已由它取代）。 */
+/**
+ * 取图失败后的退避重试间隔（数组长度 = 重试次数）。
+ *
+ * 为什么值得重试：图片层在**高并发或瞬时抖动**下会当场拒绝（`onerror` 连原因都不给），
+ * 而这类拒绝往往是"这一刻的"——退避一拍再来基本就好。真机实测过一次：泵 4 个在飞时，
+ * 前台那次取图被当场拒掉，两条腿都没到服务器（2026-10-04）。
+ */
+export const PAGE_IMAGE_RETRY_DELAYS_MS = [500, 1000]
+
+/**
+ * 取图 + 退避重试（默认失败后重试两次）。全部失败时抛**最后一次**的错误
+ * （它带着 urlIndex / errMsg，见 loadPageImage）。
+ *
+ * `sleep` 可注入，测试里不用真等。
+ */
+export async function loadPageImageWithRetry(
+  node: CanvasNode,
+  urls: string[],
+  opts: { delaysMs?: readonly number[]; sleep?: (ms: number) => Promise<void> } = {}
+): Promise<LoadedPageImage> {
+  const delays = opts.delaysMs ?? PAGE_IMAGE_RETRY_DELAYS_MS
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  let lastErr: unknown
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      return await loadPageImage(node, urls)
+    } catch (err) {
+      lastErr = err
+      if (attempt < delays.length) await sleep(delays[attempt] ?? 0)
+    }
+  }
+  throw lastErr
+}
+
+/** 预取/预热统一走 `lib/prefetch-pump.ts`（串行泵 + 优先带；此前的单页预取已由它取代）。
+ *  预绘制（doPredraw）**刻意不走重试**：它是后台补充、随时可能被交互打断，重试只会白占额度。 */

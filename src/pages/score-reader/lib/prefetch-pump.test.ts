@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createPrefetchPump, parallelForNetwork } from './prefetch-pump'
+import { createPrefetchPump, PREFETCH_PARALLEL } from './prefetch-pump'
 
 /** 把泵的循环排空（注入的 prefetchOne 只 resolve 微任务，无计时器） */
 const flush = async (rounds = 80) => {
@@ -215,11 +215,24 @@ describe('createPrefetchPump', () => {
     expect(pump.isDone(99)).toBe(false)
   })
 
-  it('网络档位 → 并发数', () => {
-    expect(parallelForNetwork('wifi')).toBe(4)
-    expect(parallelForNetwork('5g')).toBe(4)
-    expect(parallelForNetwork('4g')).toBe(3)
-    expect(parallelForNetwork('3g')).toBe(1)
-    expect(parallelForNetwork('unknown')).toBe(1)
+  it('默认串行：不传 maxParallel 时一次只抓一页（并发会和前台取图抢图片层额度）', async () => {
+    const started: number[] = []
+    const gates: Array<() => void> = []
+    const pump = createPrefetchPump({
+      total: 10,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: (url) =>
+        new Promise<void>((resolve) => {
+          started.push(Number(url))
+          gates.push(resolve)
+        }),
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(started).toEqual([2]) // 只起一个
+    expect(PREFETCH_PARALLEL).toBe(1)
+    gates[0]()
+    await flush()
+    expect(started).toEqual([2, 3])
   })
 })
