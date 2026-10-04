@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Taro, { useDidShow, useRouter, useUnload } from '@tarojs/taro'
-import { View, Canvas, Input, Button, Text } from '@tarojs/components'
+import { View, Canvas, Image, Input, Button, Text } from '@tarojs/components'
 import type { ITouchEvent } from '@tarojs/components'
 import { supabase } from '@/lib/supabase'
 import { useT, useNavTitle } from '@/i18n'
-import { useThemeClass } from '@/context/theme-context'
+import { useThemeClass, useThemeContext } from '@/context/theme-context'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
 import { ReaderTutorial } from '@/components/score/ReaderTutorial'
+// 顶栏图标（Lucide 系列，72×72 PNG；暗色用 -dark 变体）
+import pencilLine from '@/assets/icons/pencil-line.png'
+import pencilLineDark from '@/assets/icons/pencil-line-dark.png'
+import openExternal from '@/assets/icons/square-arrow-out-up-right.png'
+import openExternalDark from '@/assets/icons/square-arrow-out-up-right-dark.png'
 import {
   PEN_COLORS,
   PEN_WIDTHS,
@@ -141,6 +146,7 @@ function probePdfEnv(): Record<string, string> {
 export default function ScoreReader() {
   const { t } = useT()
   const darkClass = useThemeClass()
+  const dark = useThemeContext().mode === 'dark'
   useNavTitle('scoreReader.navTitle')
   const router = useRouter()
   const fileId = router.params.file_id ? decodeURIComponent(router.params.file_id) : ''
@@ -1445,7 +1451,8 @@ export default function ScoreReader() {
       relY,
       startAt: Date.now(),
       maxMove: 0,
-      band: bandAt(relY, containerH, barH.top, barH.bottom),
+      // 灰带的点击规则跟着灰带的**可见性**走：放大后不画灰带，那里也就按普通分区处理
+      band: zoomRef.current <= 1 ? bandAt(relY, containerH, barH.top, barH.bottom) : null,
       canTurn: docTick > 0 && pageCount > 0 && zoomRef.current <= 1,
     }
   }
@@ -1593,6 +1600,8 @@ export default function ScoreReader() {
   }
 
   const showUrlInput = !fileId
+  /** 灰带只在「菜单关着 + 未放大」时画，见 JSX 里的注释（放大后会盖住谱面） */
+  const showBands = !menuOn && zoom <= 1
   const currentStrokes = annos[String(page)] ?? []
   // 「还没画出一帧」就一直显示 —— 判据是**首帧真的换帧**（stage 到 ready），而不是
   // 「画布尺寸有没有值」：图片模式下 `setViewSize` 发生在绘制**之前**，按尺寸判会让
@@ -1709,16 +1718,18 @@ export default function ScoreReader() {
             />
           </View>
 
-          {/* 灰带：菜单关着时压在谱面上下沿，高度＝**实测**工具条高度（与工具条严格重合）。
-              必须是 stage 的**子节点**且不挂任何事件：触摸冒泡进同一个状态机，
-              于是灰带上的点击照常按「任意横向位置＝开关菜单」处理 */}
-          {!menuOn && barH.top > 0 ? (
+          {/* 灰带：菜单关着**且未放大**时压在谱面上下沿，高度＝**实测**工具条高度
+              （与工具条严格重合）。必须是 stage 的**子节点**且不挂任何事件：触摸冒泡进
+              同一个状态机，于是灰带上的点击照常按「任意横向位置＝开关菜单」处理。
+              ⚠️ 放大（zoom > 1）后不画：那时用户在逐小节看细节，两条灰带会**盖住谱面**
+              （真机反馈）；而放大状态下「点中间唤菜单」照样可用，不缺这条提示。 */}
+          {showBands && barH.top > 0 ? (
             <View
               className='absolute left-0 right-0 top-0 bg-menu-band'
               style={{ height: `${barH.top}px`, zIndex: Z_BAND }}
             />
           ) : null}
-          {!menuOn && barH.bottom > 0 ? (
+          {showBands && barH.bottom > 0 ? (
             <View
               className='absolute bottom-0 left-0 right-0 bg-menu-band'
               style={{ height: `${barH.bottom}px`, zIndex: Z_BAND }}
@@ -1757,20 +1768,26 @@ export default function ScoreReader() {
           <View className='flex flex-row items-center'>
             <Text className='mr-3 text-xs text-text-muted'>{Math.round(zoom * 100)}%</Text>
             <View
-              className='mr-2 rounded-full border border-border bg-card px-3 py-1'
+              className='mr-2 flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
+              ariaLabel={t('scoreReader.openNative')}
               onClick={() => void openNative()}
             >
-              <Text className='text-xs text-text-muted'>{t('scoreReader.openNative')}</Text>
+              <Image
+                src={dark ? openExternalDark : openExternal}
+                style={{ width: '18px', height: '18px' }}
+              />
             </View>
             <View
-              className={`rounded-full border px-3 py-1 ${
+              className={`flex flex-row items-center justify-center rounded-full border px-2.5 py-1.5 ${
                 penOn ? 'border-primary bg-primary/10' : 'border-border bg-card'
               }`}
+              ariaLabel={t('scoreReader.annotation')}
               onClick={togglePen}
             >
-              <Text className={`text-xs ${penOn ? 'text-primary' : 'text-text-muted'}`}>
-                {t('scoreReader.annotation')}
-              </Text>
+              <Image
+                src={dark ? pencilLineDark : pencilLine}
+                style={{ width: '18px', height: '18px' }}
+              />
             </View>
             {/* 教程入口：批注按钮右边的小问号，随时可再唤出用法说明 */}
             <View

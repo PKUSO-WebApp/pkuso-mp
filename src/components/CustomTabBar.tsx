@@ -26,10 +26,11 @@ import usersActiveDark from '@/assets/icons/users-active-dark.png'
 import user from '@/assets/icons/user.png'
 import userActive from '@/assets/icons/user-active.png'
 import userActiveDark from '@/assets/icons/user-active-dark.png'
-// 谱务乐谱图标三色（与 app.config.ts 的 tabBar.list 同步）
-import score from '@/assets/icons/score.png'
-import scoreActive from '@/assets/icons/score-active.png'
-import scoreActiveDark from '@/assets/icons/score-active-dark.png'
+// 谱务乐谱图标（library-big 系列，四色；与 app.config.ts 的 tabBar.list 同步）
+import libraryBig from '@/assets/icons/library-big.png'
+import libraryBigDark from '@/assets/icons/library-big-dark.png'
+import libraryBigActive from '@/assets/icons/library-big-active.png'
+import libraryBigActiveDark from '@/assets/icons/library-big-active-dark.png'
 import { subscribeLocale, translateCurrent } from '@/i18n'
 
 // 底边栏 UI：由框架专用槽位组件 src/custom-tab-bar 渲染，状态（选中/未读/主题/Modal 覆盖）
@@ -43,7 +44,17 @@ import { subscribeLocale, translateCurrent } from '@/i18n'
  * 的 `TAB_PAGE_PATHS`），三份互指、谁也不是权威，所以用一条测试把它们钉在一起。
  * 运行时没有任何人 import 它，导出不改变行为。
  */
-export const LIST = [
+export type TabItem = {
+  pagePath: string
+  key: string
+  icon: string
+  /** 未选中态的暗色版图标；只有部分图标有这一版，缺省沿用 `icon` */
+  iconDark?: string
+  selectedIcon: string
+  selectedIconDark: string
+}
+
+export const LIST: TabItem[] = [
   {
     pagePath: '/pages/index/index',
     key: 'ui.tabBar.home',
@@ -64,9 +75,10 @@ export const LIST = [
     // 谱务：位于「首页（排练）」与「B108」之间；与 TAB_PAGE_PATHS / app.config 顺序一致
     pagePath: '/pages/score/index',
     key: 'ui.tabBar.score',
-    icon: score,
-    selectedIcon: scoreActive,
-    selectedIconDark: scoreActiveDark,
+    icon: libraryBig,
+    iconDark: libraryBigDark,
+    selectedIcon: libraryBigActive,
+    selectedIconDark: libraryBigActiveDark,
   },
   {
     pagePath: '/pages/schedule/index',
@@ -187,6 +199,15 @@ export default class CustomTabBar extends Component {
       >
         {LIST.map((tab, idx) => {
           const isSelected = selected === idx
+          // 暗色模式：选中态用 active-dark（避免与深底色融为一体），
+          // 未选中态若有暗色版也换掉——深色底上默认图标的对比度不够
+          const iconSrc = isSelected
+            ? dark
+              ? tab.selectedIconDark
+              : tab.selectedIcon
+            : dark && tab.iconDark
+              ? tab.iconDark
+              : tab.icon
           return (
             <View
               key={tab.pagePath}
@@ -201,11 +222,7 @@ export default class CustomTabBar extends Component {
               }}
             >
               <View style={{ position: 'relative', display: 'flex' }}>
-                <Image
-                  // 暗色模式选中态用高亮暗版图标（active-dark），避免与深底色融为一体
-                  src={isSelected ? (dark ? tab.selectedIconDark : tab.selectedIcon) : tab.icon}
-                  style={{ width: '24px', height: '24px' }}
-                />
+                <Image src={iconSrc} style={{ width: '24px', height: '24px' }} />
                 {idx === 4 && unread > 0 && (
                   <View
                     style={{
