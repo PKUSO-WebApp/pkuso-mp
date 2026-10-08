@@ -33,7 +33,6 @@ import {
   zoneFor,
   zoneOnAxis,
   ZONE_SPLITS_UD,
-  Z_BAND,
   Z_PAGE_BADGE,
   Z_STATUS,
   Z_TOOLBAR,
@@ -218,8 +217,19 @@ export default function ScoreReader() {
   const predrawTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 在飞的后台预绘制（交互任务靠它让位 / 采纳） */
   const bgRef = useRef<BgCtl | null>(null)
-  /** 画布↔页码的记账变了（预绘制画好一整页 / 记账被清）时 +1：竖条模式要重渲染才知道往哪摆 */
-  const [, setLayerTick] = useState(0)
+  /**
+   * 每块画布**此刻显示着哪一页**（竖条模式靠它摆位）。
+   *
+   * ⚠️ 与 `layerMetaRef`（语义记账：这块画布里是**哪一页的有效帧**，供换帧命中判断）**刻意分开**：
+   * 渲染一件新页时要先把语义记账清掉（否则半成品会被当成有效帧换上去），但**摆位不能跟着清**
+   * ——清了就当场离屏，用户正看着的那一页会凭空消失几百毫秒再回来，真机上就是「翻到下一页时
+   * 上一页闪一下」。所以：语义记账随时可变，摆位只在**画成功**之后才更新。
+   */
+  const [layerSlot, setLayerSlot] = useState<Record<Layer, number | null>>({
+    a: null,
+    b: null,
+    c: null,
+  })
 
   // —— 竖条几何（上下滚动模式，见 lib/strip.ts）——
   // 一页的高 = 当前页在视口宽度下的高度；竖条总高 = 页高 × 页数。
@@ -248,9 +258,8 @@ export default function ScoreReader() {
     if (!hasFrames && !bgRef.current && !predrawTimerRef.current) return
     predrawEpochRef.current += 1
     layerMetaRef.current = { a: null, b: null, c: null }
-    // 竖条模式的画布位置来自 layerMeta，清账后要重渲染一次才会**离屏**
-    // （左右模式由 activeLayer 状态驱动，本来就会重渲染；这里多一次是幂等的）
-    setLayerTick((n) => n + 1)
+    // 摆位也清掉：尺寸/缩放/换册之后，旧的「这块显示着哪一页」不再成立
+    setLayerSlot({ a: null, b: null, c: null })
     const ctl = bgRef.current
     if (ctl) {
       ctl.cancelled = true
@@ -588,6 +597,8 @@ export default function ScoreReader() {
       // 它靠这个 ref 挑「该写哪块」——晚一步（等 effect）它就会渲到正在显示的画布上
       activeLayerRef.current = layer
       setActiveLayer(layer)
+      // 摆位跟着换帧走（见 layerSlot 的注释：它只在画成功之后更新）
+      setLayerSlot((prev) => (prev[layer] === target ? prev : { ...prev, [layer]: target }))
       // 记账：这块现在放着 target（预绘制据此知道「哪个邻居已经备好」）
       layerMetaRef.current[layer] = {
         page: target,
@@ -645,7 +656,8 @@ export default function ScoreReader() {
     displayedPageRef.current = f.page
     activeLayerRef.current = f.layer
     setActiveLayer(f.layer)
-    const dir = modeRef.current === 'ud' ? null : turnDirFor({ firstPaint: false, shown, target: f.page })
+    const dir =
+      modeRef.current === 'ud' ? null : turnDirFor({ firstPaint: false, shown, target: f.page })
     if (dir !== null) turnRef.current?.begin(retiring, dir)
     // 邻居帧换帧这条路上也补一次纸色采样（它不经过 doRender）
     sampleBandColorRef.current(f.layer)
@@ -730,9 +742,8 @@ export default function ScoreReader() {
           at: Date.now(),
         }
         layerMetaRef.current[layer] = frame
-        // 竖条模式：这一块现在放着哪一页变了 ⇒ 得重渲染一次，它才会摆到那一页的位置上
-        // （左右模式不看这个记账来摆位，多渲染一次无副作用）
-        setLayerTick((n) => n + 1)
+        // 画成功了才更新**摆位**：这一块现在真的显示着 target 了，摆到它那一页的位置上
+        setLayerSlot((prev) => (prev[layer] === target ? prev : { ...prev, [layer]: target }))
         const readyMs = Date.now() - t0
         if (readyMs > 300) {
           // eslint-disable-next-line no-console
@@ -1401,7 +1412,11 @@ export default function ScoreReader() {
       startAt: Date.now(),
       maxMove: 0,
       // 灰带的点击规则跟着灰带的**可见性**走：放大后不画灰带，那里也就按普通分区处理
-      band: zoomRef.current <= 1 ? bandAt(relY, containerH, barH.top, barH.bottom) : null,
+      // 上下边缘＝隐藏菜单命中区：只有左右模式保留（见 JSX 里那段注释）
+      band:
+        modeRef.current === 'lr' && zoomRef.current <= 1
+          ? bandAt(relY, containerH, barH.top, barH.bottom)
+          : null,
       // 翻页手势只有左右模式有；上下模式里「点分区」是滚动（放大后也照样能滚）
       canTurn: modeRef.current === 'lr' && docTick > 0 && pageCount > 0 && zoomRef.current <= 1,
       canScroll: modeRef.current === 'ud' && docTick > 0 && pageCount > 0,
@@ -1563,8 +1578,6 @@ export default function ScoreReader() {
     }
   }
 
-  /** 灰带只在「菜单关着 + 未放大」时画，见 JSX 里的注释（放大后会盖住谱面） */
-  const showBands = !menuOn && zoom <= 1
   const currentStrokes = annos[String(page)] ?? []
   // 「还没画出一帧」就一直显示 —— 判据是**首帧真的换帧**（stage 到 ready），而不是
   // 「画布尺寸有没有值」：图片模式下 `setViewSize` 发生在绘制**之前**，按尺寸判会让
@@ -1573,8 +1586,8 @@ export default function ScoreReader() {
   const showStatusRow = stage !== 'ready' && stage !== 'error'
   const boxW = viewSize.w || containerW || 0
   const boxH = viewSize.h || 0
-  /** 某块画布此刻放着哪一页（预绘制写进来、失效时清掉）——竖条模式靠它摆位 */
-  const layerPageOf = (l: Layer): number | null => layerMetaRef.current[l]?.page ?? null
+  /** 某块画布此刻**显示着**哪一页——竖条模式靠它摆位（见 layerSlot 的注释） */
+  const layerPageOf = (l: Layer): number | null => layerSlot[l]
   /** 批注窗口高度（条内像素，见 redrawOverlay）：上下模式 = 视口 + 一页；左右模式 = 那一页 */
   const overlayH = ud ? Math.min(contentH, containerH + boxH) : boxH
 
@@ -1719,30 +1732,14 @@ export default function ScoreReader() {
             </View>
           ) : null}
 
-          {/* 灰带：菜单关着**且未放大**时压在谱面上下沿，高度＝**实测**工具条高度
-              （与工具条严格重合）。必须是 stage 的**子节点**且不挂任何事件：触摸冒泡进
-              同一个状态机，于是灰带上的点击照常按「任意横向位置＝开关菜单」处理。
-              填充色 = 当前页**页边**的纸色（采样见 sampleBandColor）：菜单关着时屏幕
-              看起来就是「整屏都是谱面」，而不是「谱面上压了两条灰条」。还没采到色之前
-              退回 token 的默认灰（bg-menu-band）。
-              ⚠️ 放大（zoom > 1）后不画：那时用户在逐小节看细节，两条灰带会**盖住谱面**
-              （真机反馈）；而放大状态下「点中间唤菜单」照样可用，不缺这条提示。 */}
-          {showBands && barH.top > 0 ? (
-            <View
-              className='absolute left-0 right-0 top-0 bg-menu-band'
-              style={{ height: `${barH.top}px`, zIndex: Z_BAND, backgroundColor: bandColor?.top }}
-            />
-          ) : null}
-          {showBands && barH.bottom > 0 ? (
-            <View
-              className='absolute bottom-0 left-0 right-0 bg-menu-band'
-              style={{
-                height: `${barH.bottom}px`,
-                zIndex: Z_BAND,
-                backgroundColor: bandColor?.bottom,
-              }}
-            />
-          ) : null}
+          {/* ⚠️ 这里**不再画灰带**（用户 2026-10-08 定：菜单关着时不该遮住任何谱面）。
+              上下滚动模式里的条是连续的，那两条纸色带会实打实地压住谱面上下沿的内容；
+              左右模式虽然纸色与舞台底色同色、看不出来，留着也只是白占一层。
+              菜单**打开**时工具条是不透明的（bg-surface），那才是它该有的样子。
+
+              但「点上下边缘＝开关菜单」这个**命中区**在左右模式里保留（见 onTouchStart 的
+              band 字段）：工具条就出现在那里，点它会出现的那个位置唤菜单是自然的手势。
+              上下模式不保留：那里的分区被定死成 20/60/20（点上下 = 滚动）。 */}
 
           {showStatusRow ? (
             // 画布带了 z-index（见 layerStyle），这条提示得压过它们才看得见
@@ -1762,7 +1759,7 @@ export default function ScoreReader() {
         <View
           id='reader-topbar'
           className={`absolute left-0 right-0 top-0 flex flex-row items-center justify-between border-b border-border px-4 py-2 ${
-            penOn ? 'bg-surface' : 'bg-toolbar-translucent'
+            'bg-surface' // 菜单打开时**不透明**（用户 2026-10-08 定：完全遮蔽，不要半透明）
           }`}
           style={{
             zIndex: Z_TOOLBAR,
@@ -1814,7 +1811,7 @@ export default function ScoreReader() {
         <View
           id='reader-bottombar'
           className={`absolute bottom-0 left-0 right-0 flex flex-row items-center justify-between border-t border-border px-3 py-2 ${
-            penOn ? 'bg-surface' : 'bg-toolbar-translucent'
+            'bg-surface' // 菜单打开时**不透明**（用户 2026-10-08 定：完全遮蔽，不要半透明）
           }`}
           style={{
             zIndex: Z_TOOLBAR,

@@ -46,20 +46,27 @@ export function ReaderTutorial({ mode, onClose }: { mode: ReaderMode; onClose: (
         <>
           <View
             className='absolute left-0 right-0 flex flex-col items-center'
-            style={{ top: '7%' }}
+            style={{ top: '5%' }}
           >
             <Text className='text-2xl text-white'>↑</Text>
             <Text className='mt-1 text-sm text-white'>{t('scoreReader.tutorialPrev')}</Text>
           </View>
           <View
             className='absolute left-0 right-0 flex flex-col items-center'
-            style={{ top: '46%' }}
+            style={{ top: '40%' }}
           >
             <Text className='text-sm text-white'>{t('scoreReader.tutorialMenuZone')}</Text>
           </View>
+          {/* 说明文字放**中间**：真机上放底部会和「下一页 ↓」+「知道了」按钮挤在一起
+              （用户 2026-10-08 反馈） */}
+          <View className='absolute left-0 right-0 px-8' style={{ top: '50%' }}>
+            <View className='text-center'>
+              <Text className='text-sm text-white'>{t('scoreReader.tutorialScrollHint')}</Text>
+            </View>
+          </View>
           <View
             className='absolute left-0 right-0 flex flex-col items-center'
-            style={{ bottom: '7%' }}
+            style={{ bottom: '20%' }}
           >
             <Text className='text-sm text-white'>{t('scoreReader.tutorialNext')}</Text>
             <Text className='mt-1 text-2xl text-white'>↓</Text>
@@ -85,11 +92,11 @@ export function ReaderTutorial({ mode, onClose }: { mode: ReaderMode; onClose: (
         className='absolute bottom-0 left-0 right-0 px-8'
         style={{ paddingBottom: 'calc(32px + env(safe-area-inset-bottom))' }}
       >
-        <View className='text-center'>
-          <Text className='text-sm text-white'>
-            {t(ud ? 'scoreReader.tutorialScrollHint' : 'scoreReader.tutorialSwipeHint')}
-          </Text>
-        </View>
+        {ud ? null : (
+          <View className='text-center'>
+            <Text className='text-sm text-white'>{t('scoreReader.tutorialSwipeHint')}</Text>
+          </View>
+        )}
         <View
           className='mx-auto mt-5 w-32 rounded-full border py-2 text-center'
           style={{ borderColor: line }}
