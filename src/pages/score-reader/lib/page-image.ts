@@ -1,15 +1,18 @@
+import Taro from '@tarojs/taro'
 import type { CanvasImage, CanvasNode } from './types'
 
 /**
  * 页图（上传时预渲染的整页 JPEG）的加载与绘制。
  *
- * **刻意不做本地文件缓存**：直接把网络 URL 交给小程序的图片层 —— 微信自己有图片缓存
- * （磁盘 LRU），重复打开同一页由它负责，占空间也有上限。自己落盘要管目录、失效、清理，
- * 收益并不更大。
+ * **主路径**：把网络 URL 直接交给小程序的图片层（`canvas.createImage`）—— 微信自己有
+ * 图片缓存（磁盘 LRU），重复打开同一页由它负责。这也是为什么主路径**不用**
+ * `Taro.downloadFile`：它不走 HTTP 缓存，每次都是真下载。
  *
- * ⚠️ 这也是为什么**不用** `Taro.downloadFile`：它**不走 HTTP 缓存**，每次都是真下载；
- * 而 `canvas.createImage` / `getImageInfo` 走小程序统一的图片加载（吃缓存）。
- * 页图加载慢先看这个区别。
+ * **兜底**（2026-10-08 加）：个别 iOS 设备上图片层**必现**失败 —— onerror 连文案都不给、
+ * 两条腿（反代/直连）都一样、点重试也没用；而同一时刻服务端 storage 日志显示那张图是
+ * 200 正常取到的（失败在客户端图片层，不在网络）。这类设备上 dev.128/129 用过的
+ * 「先 downloadFile 落成临时文件、再从本地路径解码」是通的（那一版真机验证过），
+ * 所以图片层全部失败后自动改走它。代价是不吃 HTTP 缓存 —— 只该在图片层确实坏了时发生。
  *
  * ⚠️ 路径规则与 web 端 `sheetMusicPagePath` 必须一致（`{storage_path 去 .pdf}/p{n}.jpg`）。
  */
@@ -26,17 +29,29 @@ import type { CanvasImage, CanvasNode } from './types'
  */
 const PAGE_IMAGE_TIMEOUT_MS = 30000
 
+/** 反代那条腿的超时：它该快，慢了说明这条腿不通，没必要占着用户等待 */
+const PROXY_LEG_TIMEOUT_MS = 15000
+
 /** 一页已加载的页图（尺寸在 onload 之后才有） */
 export type LoadedPageImage = { img: CanvasImage; width: number; height: number }
 
 /**
- * 页图加载失败时抛出的错误，额外带上两条**只有这里能拿到**的诊断信息：
+ * 页图加载失败时抛出的错误，额外带上**只有这里能拿到**的诊断信息：
  * - `urlIndex`：候选 URL 里第几条失败（0 = 反代、1 = 直连）——区分「哪条腿不通」；
  * - `errMsg`：图片层 `onerror` 的原始文案（部分版本会给出原因，例如
  *   `url not in domain list`）。没有它，「网络/入口」与「域名白名单/解码被拒」
- *   在事后完全分不开（onerror 不带状态码，屏幕上只有一句「加载失败」）。
+ *   在事后完全分不开（onerror 不带状态码，屏幕上只有一句「加载失败」）；
+ * - `via`：最后失败发生在哪条路（`image` = 小程序图片层、`file` = downloadFile 兜底）；
+ * - `trace`：**两条路每一条**的失败原因按顺序串成的一行。只有 `errMsg` 时看不全
+ *   （它只是最后一条腿的），而「图片层失败 + 兜底也失败」与「只有图片层失败」是
+ *   两种完全不同的故障，事后必须能分开。
  */
-export type PageImageError = Error & { urlIndex?: number; errMsg?: string }
+export type PageImageError = Error & {
+  urlIndex?: number
+  errMsg?: string
+  via?: 'image' | 'file'
+  trace?: string
+}
 
 /** 从 onerror 的回传里尽量榨出可读文案（形态随版本不同，所以什么都接一下） */
 function detailOf(e: unknown): string {
@@ -82,26 +97,118 @@ function loadOnePageImage(
   })
 }
 
+/** 测试注入点：默认走 `Taro.downloadFile`；失败路径无外部依赖，不注入也能跑 */
+export type PageImageDeps = {
+  downloadFile?: (
+    url: string,
+    timeoutMs: number
+  ) => Promise<{ statusCode: number; tempFilePath: string }>
+}
+
+function defaultDownloadFile(url: string, timeoutMs: number) {
+  return Taro.downloadFile({ url, timeout: timeoutMs })
+}
+
 /**
- * 加载一页页图，**依次尝试候选 URL**（见 `pageImageUrls`：反代优先、直连兜底）。
+ * 记一次腿失败：写 urlIndex / via，并把原因攒进 trace。
  *
- * 第一个（反代）用较短超时——它该快，慢了说明这条腿不通，没必要占着用户等待；
- * 后面的（直连）给足 30 秒，弱网下 500KB 确实可能要几十秒。
+ * trace 里的原因要**当场**取：`e.errMsg` 只有最后一条腿的，而 rethrow 之后没人再知道
+ * 前面那几条是怎么死的。
  */
-export async function loadPageImage(node: CanvasNode, urls: string[]): Promise<LoadedPageImage> {
+function noteFailure(
+  err: unknown,
+  via: 'image' | 'file',
+  urlIndex: number,
+  trace: string[]
+): PageImageError {
+  const e = (err instanceof Error ? err : new Error(String(err))) as PageImageError
+  e.urlIndex = urlIndex
+  e.via = via
+  const why = e.errMsg ? `${e.message}（${e.errMsg}）` : e.message
+  trace.push(`${via}#${urlIndex} ${why}`.slice(0, 80))
+  return e
+}
+
+/**
+ * 已下载过的页图本地路径（会话内记账）。**有界**：微信的本地文件有配额（200MB，
+ * 与 pdf 缓存同池），只留最近用到的几十张，免得读一整册把配额吃满。
+ * 值可能失效（微信会清临时文件）——用之前先试，失败就把这条记账删掉重新下。
+ */
+const FILE_CACHE_LIMIT = 40
+const fileCache = new Map<string, string>()
+
+function rememberFile(url: string, path: string): void {
+  fileCache.delete(url)
+  fileCache.set(url, path)
+  while (fileCache.size > FILE_CACHE_LIMIT) {
+    const oldest = fileCache.keys().next().value
+    if (oldest === undefined) break
+    fileCache.delete(oldest)
+  }
+}
+
+/**
+ * 兜底那条路：downloadFile 落成临时文件，再从**本地路径**解码（见文件头「兜底」）。
+ * 本地路径也交给同一个 `loadOnePageImage` —— 只是 src 不同，onload/onerror 语义一样。
+ */
+async function loadOnePageImageFromFile(
+  node: CanvasNode,
+  url: string,
+  timeoutMs: number,
+  download: NonNullable<PageImageDeps['downloadFile']>
+): Promise<LoadedPageImage> {
+  const cached = fileCache.get(url)
+  if (cached) {
+    try {
+      return await loadOnePageImage(node, cached, timeoutMs)
+    } catch {
+      fileCache.delete(url) // 临时文件没了：这一条记账作废，往下重新下
+    }
+  }
+  const res = await download(url, timeoutMs)
+  if (res.statusCode !== 200) throw new Error(`页图下载失败：HTTP ${res.statusCode}`)
+  const loaded = await loadOnePageImage(node, res.tempFilePath, timeoutMs)
+  rememberFile(url, res.tempFilePath)
+  return loaded
+}
+
+/**
+ * 加载一页页图：**先图片层（吃缓存），全失败再走 downloadFile 兜底**。
+ *
+ * 图片层那轮**依次尝试候选 URL**（见 `pageImageUrls`：反代优先、直连兜底）：第一个
+ * （反代）用较短超时——它该快，慢了说明这条腿不通；后面的（直连）给足 30 秒，弱网下
+ * 500KB 确实可能要几十秒。兜底那轮用同一组 URL、同样的顺序，理由相同。
+ */
+export async function loadPageImage(
+  node: CanvasNode,
+  urls: string[],
+  deps: PageImageDeps = {}
+): Promise<LoadedPageImage> {
   if (typeof node.createImage !== 'function') {
     throw new Error('canvas node 不支持 createImage（无法显示页图）')
   }
+  const download = deps.downloadFile ?? defaultDownloadFile
+  const trace: string[] = []
   let lastErr: PageImageError | null = null
   for (let i = 0; i < urls.length; i += 1) {
     try {
-      return await loadOnePageImage(node, urls[i], i === 0 ? 15000 : PAGE_IMAGE_TIMEOUT_MS)
+      return await loadOnePageImage(
+        node,
+        urls[i],
+        i === 0 ? PROXY_LEG_TIMEOUT_MS : PAGE_IMAGE_TIMEOUT_MS
+      )
     } catch (err) {
-      const e = (err instanceof Error ? err : new Error(String(err))) as PageImageError
-      e.urlIndex = i
-      lastErr = e
+      lastErr = noteFailure(err, 'image', i, trace)
     }
   }
+  for (let i = 0; i < urls.length; i += 1) {
+    try {
+      return await loadOnePageImageFromFile(node, urls[i], PAGE_IMAGE_TIMEOUT_MS, download)
+    } catch (err) {
+      lastErr = noteFailure(err, 'file', i, trace)
+    }
+  }
+  if (lastErr) lastErr.trace = trace.join(' | ').slice(0, 300)
   throw lastErr ?? new Error('页图加载失败')
 }
 
@@ -143,14 +250,19 @@ export const PAGE_IMAGE_RETRY_DELAYS_MS = [500, 1000]
 export async function loadPageImageWithRetry(
   node: CanvasNode,
   urls: string[],
-  opts: { delaysMs?: readonly number[]; sleep?: (ms: number) => Promise<void> } = {}
+  opts: {
+    delaysMs?: readonly number[]
+    sleep?: (ms: number) => Promise<void>
+    /** 透传给 loadPageImage（测试注入 downloadFile 用） */
+    deps?: PageImageDeps
+  } = {}
 ): Promise<LoadedPageImage> {
   const delays = opts.delaysMs ?? PAGE_IMAGE_RETRY_DELAYS_MS
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
   let lastErr: unknown
   for (let attempt = 0; attempt <= delays.length; attempt += 1) {
     try {
-      return await loadPageImage(node, urls)
+      return await loadPageImage(node, urls, opts.deps)
     } catch (err) {
       lastErr = err
       if (attempt < delays.length) await sleep(delays[attempt] ?? 0)

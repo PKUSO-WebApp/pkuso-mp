@@ -615,6 +615,10 @@ export default function ScoreReader() {
               imgErrMsg: e.errMsg ?? '',
               /** 取图前这一页有没有被预热到（预热过还失败 ⇒ 不是"没预热"的问题） */
               warm,
+              /** 最后失败的是哪条路：image = 小程序图片层、file = downloadFile 兜底 */
+              via: e.via ?? '',
+              /** 两条路每一条的失败原因（图片层失败 vs 兜底也失败，事后必须分得开） */
+              trace: e.trace ?? '',
               /** 这是第几次尝试之后才放弃（含首次；3 = 首次 + 两次重试都失败） */
               attempts: PAGE_IMAGE_RETRY_DELAYS_MS.length + 1,
             },
