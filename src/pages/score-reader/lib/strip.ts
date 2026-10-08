@@ -46,12 +46,10 @@ export function pendingPages(
   pageCount: number,
   rendered: ReadonlySet<number>
 ): number[] {
-  if (!(pageH > 0) || pageCount <= 0) return []
-  const top = Math.max(0, scroll)
-  const first = clamp(Math.floor(top / pageH) + 1, 1, pageCount)
-  const last = clamp(Math.floor((top + Math.max(0, viewportH) - 1) / pageH) + 1, 1, pageCount)
+  const range = visibleRange(scroll, pageH, viewportH, pageCount)
+  if (!range) return []
   const out: number[] = []
-  for (let p = first; p <= last; p += 1) if (!rendered.has(p)) out.push(p)
+  for (let p = range.first; p <= range.last; p += 1) if (!rendered.has(p)) out.push(p)
   return out
 }
 
@@ -72,4 +70,23 @@ export function nextVisibleToRender(pending: readonly number[], dir: 1 | -1 | 0)
   // 所以这里不需要再过滤，多一个「忙页」参数只会是恒空的死参数。
   if (pending.length === 0) return null
   return dir === 1 ? pending[pending.length - 1] : pending[0]
+}
+
+/**
+ * 视口盖到哪几页（闭区间，钳进 [1, pageCount]）。`pendingPages` 与「哪几块画布可以动」
+ * 都吃它——两处必须是**同一个**判据，否则会出现「看得见的页被判成视野外」这种自相矛盾。
+ * 非法的页高/页数返回 null。
+ */
+export function visibleRange(
+  scroll: number,
+  pageH: number,
+  viewportH: number,
+  pageCount: number
+): { first: number; last: number } | null {
+  if (!(pageH > 0) || pageCount <= 0) return null
+  const top = Math.max(0, scroll)
+  return {
+    first: clamp(Math.floor(top / pageH) + 1, 1, pageCount),
+    last: clamp(Math.floor((top + Math.max(0, viewportH) - 1) / pageH) + 1, 1, pageCount),
+  }
 }

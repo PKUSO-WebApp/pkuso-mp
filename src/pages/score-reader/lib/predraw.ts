@@ -64,7 +64,7 @@ export function missingNeighbor(
 }
 
 /** 「这块画布该被写掉」的程度：越远越该弃；同样远时弃「上一页」、保「下一页」；没记账的最该弃 */
-function discardable(f: PredrawFrame | null, currentPage: number): number {
+export function discardable(f: PredrawFrame | null, currentPage: number): number {
   if (!f) return Number.POSITIVE_INFINITY
   return Math.abs(f.page - currentPage) * 2 + (f.page < currentPage ? 1 : 0)
 }
@@ -152,4 +152,45 @@ export function predrawGo(s: {
   if (s.drawing || s.pinching || s.animating || s.queueBusy) return 'skip'
   if (!s.warm && s.waitedMs <= PREDRAW_WARM_GRACE_MS) return 'wait'
   return 'start'
+}
+
+/**
+ * **后台**写帧该写哪块 —— 比 `spareLayer` 多一条硬约束：**只准写「当前不在视野里」的画布**。
+ *
+ * 为什么必须有（真机 2026-10-09）：UD 里三块画布**都可见**、都按自己的记账摆位，所以
+ * 「往备用块写一帧」在 LR 是屏外的悄悄事，在 UD 就是**当着用户的面换掉他正在看的内容**。
+ * 于是「用户正看着 n/n+1，后台却在写 n−1 那块」这种正常的预取，一旦时机不对（写的是视野
+ * 内的块）就会让屏幕上的内容跳来跳去、甚至显出别的页。
+ *
+ * 返回 null = **没有可写的块**（剩下的都在视野内）⇒ 调用方直接跳过这一次，什么都不做。
+ * 宁可这一页晚一点备好，也不搅动用户正看着的东西。
+ */
+export function spareLayerOffscreen(
+  all: readonly Layer[],
+  active: Layer,
+  metas: LayerMetas,
+  currentPage: number,
+  /** 每块画布此刻**显示着**哪一页（layerSlot；null = 没装东西） */
+  slotOf: (l: Layer) => number | null,
+  /** 视野内的页（闭区间；null = 尺寸还没量到 ⇒ 一律不许写） */
+  visible: { first: number; last: number } | null
+): Layer | null {
+  const offscreen = all.filter((l) => {
+    if (l === active) return false
+    const p = slotOf(l)
+    if (p === null) return true // 空块：本来就看不见内容，随便写
+    if (!visible) return false // 还没量到尺寸：保守，什么都不写
+    return p < visible.first || p > visible.last
+  })
+  if (offscreen.length === 0) return null
+  let best: Layer | null = null
+  for (const l of offscreen) {
+    if (
+      best === null ||
+      discardable(metas[l], currentPage) > discardable(metas[best], currentPage)
+    ) {
+      best = l
+    }
+  }
+  return best
 }

@@ -40,7 +40,14 @@ import {
   Z_TOOLBAR,
 } from './lib/layout'
 import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
-import { pageFromScroll, pageTop, pendingPages, stripHeight } from './lib/strip'
+import {
+  nextVisibleToRender,
+  pageFromScroll,
+  pageTop,
+  pendingPages,
+  stripHeight,
+  visibleRange,
+} from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawStrokeOn, strokeHitByPoint, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
@@ -73,6 +80,7 @@ import {
   predrawFallback,
   predrawGo,
   spareLayer,
+  spareLayerOffscreen,
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
   type LayerMetas,
@@ -282,6 +290,14 @@ export default function ScoreReader() {
   const lastScrollRef = useRef(0)
   /** 批注写盘失败已上报过（每册每次会话一次）：存储满会一直失败，别刷表 */
   const annoSaveFailRef = useRef(false)
+  /** 渲染队列排空的心跳（见 runJob 的 finally）：让「补渲染」有机会重看一眼视口 */
+  const [idleTick, setIdleTick] = useState(0)
+  /** 补渲染上一次请求的页 + 时刻：同一页 5 秒内不重复排（失败时别变成无限重试） */
+  const fillLastRef = useRef<{ page: number; at: number } | null>(null)
+  /** `layerSlot` 的同步镜像：后台写帧时要问「这块是不是正显示着视野内的页」 */
+  const layerSlotRef = useRef<Record<Layer, number | null>>({ a: null, b: null, c: null })
+  /** 当前视野盖到哪几页（闭区间；null = 尺寸还没量到）——判据与加载圈共用 visibleRange */
+  const visibleRef = useRef<{ first: number; last: number } | null>(null)
 
   /**
    * 让所有邻居帧作废（世代 +1，并打断在飞的那次）。触发点：视口宽变化、缩放、换册、
@@ -779,7 +795,19 @@ export default function ScoreReader() {
     async (job: Job, ctl: BgCtl) => {
       const t0 = Date.now()
       const target = clamp(job.page, 1, pageCount)
-      const layer = spareLayer(ALL_LAYERS, activeLayerRef.current, layerMetaRef.current, target)
+      // ⚠️ 后台写帧**只准写视野外的那块**（UD 里三块都可见，写视野内的块 = 当着用户的面
+      // 换掉他正看着的内容 —— 真机 2026-10-09「内容跳来跳去/显出别的页」的成因之一）。
+      // 返回 null = 没有可写的块（剩下的都在视野里）⇒ 这一次预绘制直接作罢，什么都不做：
+      // 宁可这一页晚点备好，也不搅动正在读的页面。见 lib/predraw.ts 的 spareLayerOffscreen。
+      const layer = spareLayerOffscreen(
+        ALL_LAYERS,
+        activeLayerRef.current,
+        layerMetaRef.current,
+        target,
+        (l) => layerSlotRef.current[l],
+        visibleRef.current
+      )
+      if (layer === null) return
       const epoch = predrawEpochRef.current
       const stale = () => ctl.cancelled || epoch !== predrawEpochRef.current
       /**
@@ -950,6 +978,10 @@ export default function ScoreReader() {
           const next = queuedRef.current
           queuedRef.current = null
           if (next) runJobRef.current(next)
+          // 队列**真的空了**：来一次心跳。「补渲染可见页」的 effect 依赖它——只靠滚动事件
+          // 触发是不够的：手势停下后如果没有状态变化，最后一拍恰好遇到队列忙（早退）的那页
+          // 就再没人管了（这正是 2026-10-09 真机「n 画好了、n+1 一直空白」的形态）。
+          else setIdleTick((n) => n + 1)
         }
       })()
     },
@@ -1889,6 +1921,40 @@ export default function ScoreReader() {
     pageCount,
     renderedPages
   )
+  // 给后台写帧用的两份镜像：**渲染期同步写**（晚一拍就可能在「已经可见」的块上写内容，
+  // 而那正是要防的事）。layerSlot 是显示真值，visible 与加载圈同一判据（visibleRange）。
+  layerSlotRef.current = layerSlot
+  visibleRef.current = visibleRange(
+    ud ? -pan.y : (clamp(page, 1, Math.max(pageCount, 1)) - 1) * boxH,
+    boxH,
+    ud ? containerH : boxH,
+    pageCount
+  )
+
+  /**
+   * 上下模式：**视口里露出来、但还没有帧的页，直接排一次后台渲染**（走 `bg: true` 的
+   * 预绘制通路，因此**自动继承「只写视野外的画布」这条硬约束**，见 spareLayerOffscreen）。
+   *
+   * 为什么预绘制之外还要这一条：预绘制在队列忙时只能按 300ms 去"重新争取"，而且是
+   * 「先等预热到位」才开工；连续拖拽时它几乎抢不到空档，于是手指不停就到不了下一页
+   * （真机 2026-10-09）。这条只在**渲染器真的空下来**时补一次，代价是一次取图+画一帧。
+   *
+   * 不抢在飞/排队的那件：单槽队列被来回顶会变成两页互相挤掉，谁也画不出来。
+   */
+  useEffect(() => {
+    if (!ud) return
+    if (inflightRef.current || queuedRef.current) return
+    // 可见页比画布还多（缩小 + 宽幅谱）⇒ 写哪块都会顶掉别的可见页，交给常规通路
+    if (pending.length > ALL_LAYERS.length - 1) return
+    const last = fillLastRef.current
+    const skip = last && Date.now() - last.at < 5000 ? last.page : null
+    const candidates = skip === null ? pending : pending.filter((p) => p !== skip)
+    const next = nextVisibleToRender(candidates, udDirRef.current)
+    if (next === null) return
+    fillLastRef.current = { page: next, at: Date.now() }
+    runJobRef.current({ page: next, zoom: zoomRef.current, bg: true })
+  }, [ud, pending, idleTick, requestRender])
+
   /**
    * 撤销按钮是否可用：栈非空 **且** 栈顶那一步的页此刻在屏幕上（`renderedPages` = 三块
    * 画布各自装着哪一页，LR 下含前后邻居、UD 下含条上相邻的页）。理由见 canUndo 的注释。

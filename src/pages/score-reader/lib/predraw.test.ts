@@ -6,6 +6,7 @@ import {
   predrawFallback,
   predrawGo,
   spareLayer,
+  spareLayerOffscreen,
   NEIGHBOR_MAX_ZOOM,
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
@@ -170,5 +171,45 @@ describe('predrawGo', () => {
     expect(predrawGo({ ...base, warm: false, waitedMs: 0 })).toBe('wait')
     expect(predrawGo({ ...base, warm: false, waitedMs: PREDRAW_WARM_GRACE_MS })).toBe('wait')
     expect(predrawGo({ ...base, warm: false, waitedMs: PREDRAW_WARM_GRACE_MS + 1 })).toBe('start')
+  })
+})
+
+describe('spareLayerOffscreen（后台只准写视野外的画布）', () => {
+  const all: Layer[] = ['a', 'b', 'c']
+  const slot = (o: Partial<Record<Layer, number | null>>) => (l: Layer) => o[l] ?? null
+
+  it('视野内的块一律不写（UD 三块都可见时 ⇒ 什么都不做）', () => {
+    // 视口跨 4..6，三块分别装着 5/4/6 ⇒ **都在视野内** ⇒ 哪块都不许写
+    expect(
+      spareLayerOffscreen(all, 'b', metas(), 4, slot({ a: 5, b: 4, c: 6 }), { first: 4, last: 6 })
+    ).toBeNull()
+  })
+
+  it('视野外的那块可以写（UD 里 n−1 通常在视口上方）', () => {
+    // 视野是 4..5，a 装着 3（在视野上方）⇒ 可以拿它备 n+1
+    expect(
+      spareLayerOffscreen(all, 'b', metas(), 4, slot({ a: 3, b: 4, c: 5 }), { first: 4, last: 5 })
+    ).toBe('a')
+  })
+
+  it('空块随便写（它没内容可搅动）；装东西的块在尺寸没量到时保守不写', () => {
+    expect(spareLayerOffscreen(all, 'b', metas(), 4, slot({ b: 4 }), { first: 4, last: 4 })).toBe(
+      'a'
+    )
+    // 尺寸还没量到 ⇒ 无从判断哪块在视野外：**装过东西的块一律不碰**（这里三块都有内容）
+    expect(spareLayerOffscreen(all, 'b', metas(), 4, slot({ a: 3, b: 4, c: 5 }), null)).toBeNull()
+  })
+
+  it('多块可选时仍按「最该被写掉」挑（远的先弃）', () => {
+    expect(
+      spareLayerOffscreen(
+        all,
+        'b',
+        metas({ a: frame({ layer: 'a', page: 9 }), c: frame({ layer: 'c', page: 1 }) }),
+        4,
+        slot({ a: 9, b: 4, c: 1 }),
+        { first: 4, last: 4 }
+      )
+    ).toBe('a')
   })
 })

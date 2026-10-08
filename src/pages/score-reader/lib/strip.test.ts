@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { nextVisibleToRender, pageFromScroll, pageTop, pendingPages, stripHeight } from './strip'
+import {
+  nextVisibleToRender,
+  pageFromScroll,
+  pageTop,
+  pendingPages,
+  stripHeight,
+  visibleRange,
+} from './strip'
 
 describe('竖条几何', () => {
   it('条高 = 页高 × 页数；页顶 = (页码 − 1) × 页高（页与页零间隔）', () => {
@@ -68,5 +75,20 @@ describe('nextVisibleToRender（UD：该立刻排渲染的那一页）', () => {
 
   it('没有待渲染的页 ⇒ null（不排空活）', () => {
     expect(nextVisibleToRender([], 1)).toBeNull()
+  })
+})
+
+describe('visibleRange（视口盖到哪几页）', () => {
+  it('与 pendingPages 同一判据：闭区间、钳进 [1, pageCount]', () => {
+    expect(visibleRange(0, 500, 1200, 6)).toEqual({ first: 1, last: 3 })
+    // 顶边在第 3 页中间 ⇒ 视口 500 跨到第 4 页（页界与视口不齐时本来就跨两页）
+    expect(visibleRange(1250, 500, 500, 6)).toEqual({ first: 3, last: 4 })
+    expect(visibleRange(-300, 500, 1000, 6)).toEqual({ first: 1, last: 2 })
+    expect(visibleRange(99999, 500, 1000, 4)).toEqual({ first: 4, last: 4 })
+  })
+
+  it('尺寸没量到 / 没有页 ⇒ null（调用方别拿它当「视野空」用）', () => {
+    expect(visibleRange(0, 0, 1000, 3)).toBeNull()
+    expect(visibleRange(0, 500, 1000, 0)).toBeNull()
   })
 })
