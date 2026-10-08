@@ -205,6 +205,27 @@ describe('createPrefetchPump', () => {
     expect([...started].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
   })
 
+  it('失败回调带上页码与原因（从前这里是空的 = 线上无声）、排空回调 onIdle 一次', async () => {
+    const fails: Array<[number, unknown]> = []
+    let idles = 0
+    const pump = createPrefetchPump({
+      total: 3,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: async (url) => {
+        if (url === '2') throw new Error('页图下载失败：HTTP 502')
+      },
+      onFail: (page, err) => fails.push([page, err]),
+      onIdle: () => {
+        idles += 1
+      },
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(fails.map(([p]) => p)).toEqual([2])
+    expect(String(fails[0][1])).toContain('502')
+    expect(idles).toBe(1)
+  })
+
   it('isDone / isWarm：失败的页抓过但没预热', async () => {
     const pump = createPrefetchPump({
       total: 4,

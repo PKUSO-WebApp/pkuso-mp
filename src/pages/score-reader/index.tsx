@@ -46,6 +46,7 @@ import { drawStrokeOn, strokeHitByPoint, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
 import { saveOriginalPdf, userDataRoot, type FsLike } from './lib/pdf-save'
 import {
+  isImageLayerBroken,
   loadPageImage,
   loadPageImageWithRetry,
   paintPageImage,
@@ -301,9 +302,45 @@ export default function ScoreReader() {
   /** 显示中的那一页：换帧时更新。用来判断这一帧到底「换没换页」——同一页的重渲
       （缩放、转屏等同一页的重渲）不该滑出去再滑回来 */
   const displayedPageRef = useRef(0)
+  /**
+   * 取图来源计数：file = 预下载命中（该有的样子）、image = 图片层远端、download = 现下的兜底。
+   * 与 `prefetchFailRef` 一起在**队列排空 / 退出页面**时上报一次（见 reportPageSource）——
+   * 线上判读「用户到底遇到什么」就靠这一条：滑动中 image/download 占比高 = 预下载没铺到。
+   */
+  const viaTallyRef = useRef({ file: 0, image: 0, download: 0 })
+  const prefetchFailRef = useRef(0)
+  /** 这一册的总页数（上报要在回调里读，别让它进 useCallback 的依赖） */
+  const totalPagesRef = useRef(0)
+  const pageSourceSentRef = useRef(false)
+
+  /**
+   * 上报「这一册的取图来源 + 预下载失败数」。每册只报一次：正常读完一册时由泵的 onIdle
+   * 触发，用户提前退出则由 useUnload 兜（那时请求可能发不出去，无所谓）。
+   */
+  const reportPageSource = useCallback(() => {
+    if (pageSourceSentRef.current) return
+    pageSourceSentRef.current = true
+    const tally = viaTallyRef.current
+    reportClientError({
+      event: 'score_reader_page_source',
+      message: `file ${tally.file} / image ${tally.image} / download ${tally.download} / prefetchFail ${prefetchFailRef.current}`,
+      detail: {
+        fileId,
+        file: tally.file,
+        image: tally.image,
+        download: tally.download,
+        prefetchFail: prefetchFailRef.current,
+        pages: totalPagesRef.current,
+        // 图片层被判坏 = 这台设备就是 2026-10-08 那类 iOS（它的失败会体现成 via=image）
+        imageLayerBroken: isImageLayerBroken(),
+      },
+    })
+  }, [fileId])
+
   // 退出页面即停泵、停动画、停预绘制——后台抓取/计时器不该在页面销毁后继续
   useUnload(() => {
     prefetchPumpRef.current?.stop()
+    reportPageSource()
     turnRef.current?.stop()
     if (predrawTimerRef.current) clearTimeout(predrawTimerRef.current)
     predrawTimerRef.current = null
@@ -584,6 +621,7 @@ export default function ScoreReader() {
       const renderMs = Date.now() - tRender
       // 这一帧画完了：顺手采一下这张纸的纸色，给灰带上色（后台、失败无所谓）
       sampleBandColorRef.current(layer)
+      viaTallyRef.current[pageImg.via] += 1 // 取图来源计数（见 reportPageSource）
       // 首帧必打；**每次翻页**都打（turnMs 就是「翻页 <150ms」那个指标，快了也要看得见）；
       // 同一页的重渲只在偏慢时打
       const isTurn =
@@ -1166,12 +1204,29 @@ export default function ScoreReader() {
       // prefetchPageImage 与 lib/prefetch-pump.ts 的 PREFETCH_PARALLEL——泵现在走
       // downloadFile 落本地文件，不再经过图片层，因此不怕并发）。优先级仍是「当前页
       // 前后 3 页 → 向后铺到底 → 向前补」，用户翻页时 setCurrent 把优先带挪过去（插队）。
+      totalPagesRef.current = imagePageTotal
+      viaTallyRef.current = { file: 0, image: 0, download: 0 }
+      prefetchFailRef.current = 0
+      pageSourceSentRef.current = false
       prefetchPumpRef.current = createPrefetchPump({
         total: imagePageTotal,
         urlsFor: (n) => pageImageUrls(fileUrlRef.current, n),
         prefetchOne: prefetchPageImage,
         windowAhead: imagePageTotal,
         windowBehind: imagePageTotal,
+        // 预下载是后台行为，失败不给用户弹东西——那它失败了就没人知道，所以这里上报。
+        // 只实时报前 3 条：整册都失败时不该把错误表刷成 34 行（总数在 page_source 那条里）
+        onFail: (failedPage, err) => {
+          prefetchFailRef.current += 1
+          if (prefetchFailRef.current <= 3) {
+            reportClientError({
+              event: 'score_reader_prefetch_failed',
+              message: describeError(err),
+              detail: { fileId, page: failedPage, total: imagePageTotal },
+            })
+          }
+        },
+        onIdle: reportPageSource,
       })
       setDocTick((tick) => tick + 1)
     } catch (err) {
@@ -1183,7 +1238,16 @@ export default function ScoreReader() {
         detail: { fileId },
       })
     }
-  }, [applyZoom, fileId, invalidatePredraw, presetFileName, presetPageCount, presetStoragePath, t])
+  }, [
+    applyZoom,
+    fileId,
+    invalidatePredraw,
+    presetFileName,
+    presetPageCount,
+    presetStoragePath,
+    reportPageSource,
+    t,
+  ])
 
   // 自动加载：带 file_id 进入时
   useEffect(() => {

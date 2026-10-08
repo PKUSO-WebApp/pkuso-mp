@@ -74,6 +74,14 @@ export function createPrefetchPump(opts: {
   windowBehind?: number
   /** 并发上限，默认 `PREFETCH_PARALLEL`（1 = 串行）；只在测试里改 */
   maxParallel?: number
+  /**
+   * 抓某一页失败时回调（页码 + 原始错误）。**失败本身仍按「跳过、不重排」处理**，
+   * 这个钩子只是让调用方看得见——阅读器拿它上报（预下载是后台行为，不给用户弹东西，
+   * 那它失败了就没人知道；线上判读「用户到底遇到什么」全指望这条）。
+   */
+  onFail?: (page: number, err: unknown) => void
+  /** 队列排空（该抓的都抓过、没有在途）时回调一次——调用方拿它上报这一册的取图来源/失败数 */
+  onIdle?: () => void
 }): PrefetchPump {
   const total = Math.max(0, Math.floor(opts.total))
   const urlsFor = opts.urlsFor
@@ -82,6 +90,8 @@ export function createPrefetchPump(opts: {
   const behind = opts.priorityBehind ?? PRIORITY_BEHIND
   const winAhead = opts.windowAhead ?? WINDOW_AHEAD
   const winBehind = opts.windowBehind ?? WINDOW_BEHIND
+  const onFail = opts.onFail
+  const onIdle = opts.onIdle
 
   let current = 1
   let stopped = false
@@ -147,7 +157,11 @@ export function createPrefetchPump(opts: {
             () => {
               warmed.add(p)
             },
-            () => {}
+            (err) => {
+              // 失败即跳过（不重排、不重试），但**要让人看得见**：从前这里是空的，
+              // 预下载整册失败在线上完全无声（见 opts.onFail 的注释）
+              onFail?.(p, err)
+            }
           )
           .then(() => {
             inFlight.delete(task)
@@ -164,6 +178,8 @@ export function createPrefetchPump(opts: {
       ])
     }
     running = false
+    // 排空 = 该抓的都抓过了（含失败），调用方可以结账了。会随 setCurrent 再次触发
+    if (!stopped) onIdle?.()
   }
 
   return {
