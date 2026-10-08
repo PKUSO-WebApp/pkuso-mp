@@ -594,6 +594,10 @@ export default function ScoreReader() {
           infoMs,
           nodeMs,
           renderMs,
+          // 这一张实际走的是哪一档：file = 预下载命中（**正常应有的值**）、
+          // image = 图片层远端、download = 现下的兜底。整册预下载铺到位之后
+          // 滑动中就不该再看到 image/download（见 lib/page-image.ts 的 LoadedPageImage）
+          via: pageImg.via,
           warm,
           // 走到这条日志就说明这次翻页**没命中**预绘制（命中会走 promote 那条日志）
           predraw: isTurn ? 'miss' : 'off',
@@ -954,10 +958,15 @@ export default function ScoreReader() {
   useEffect(() => {
     // 预热优先带跟着**用户意图**走：页码一变就挪（不是等取图完成——那要 300–1600ms，
     // 连续翻页时优先带会被追着跑）。见 lib/prefetch-pump.ts
-    if (pageCount > 0) prefetchPumpRef.current?.setCurrent(clamp(page, 1, pageCount))
+    //
+    // 泵**首帧落地之后**才启动（stage 到 ready）：它现在一上来就是整册下载、并发 4，
+    // 与首帧那次取图抢带宽；首帧之后才启动，进册那一下不受影响。
+    if (pageCount > 0 && stage === 'ready') {
+      prefetchPumpRef.current?.setCurrent(clamp(page, 1, pageCount))
+    }
     syncView()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docTick, page, containerW])
+  }, [docTick, page, containerW, stage])
 
   // 缩放即时反馈：只换内容尺寸（旧帧被拉伸，清晰度靠随后的重渲补回来）
   useEffect(() => {
@@ -1153,13 +1162,16 @@ export default function ScoreReader() {
       renderedZoomRef.current = 1
       aspectRef.current = 0
       // 页图预热泵：首帧仍走前台路径；泵由 doRender 的首个 setCurrent 启动——不与首帧
-      // 抢带宽。并发固定串行（泵默认值，理由见 lib/prefetch-pump.ts 的 PREFETCH_PARALLEL）
+      // 抢带宽。**整册**（窗口概念退役，2026-10-09：见 lib/page-image.ts 的
+      // prefetchPageImage 与 lib/prefetch-pump.ts 的 PREFETCH_PARALLEL——泵现在走
+      // downloadFile 落本地文件，不再经过图片层，因此不怕并发）。优先级仍是「当前页
+      // 前后 3 页 → 向后铺到底 → 向前补」，用户翻页时 setCurrent 把优先带挪过去（插队）。
       prefetchPumpRef.current = createPrefetchPump({
         total: imagePageTotal,
         urlsFor: (n) => pageImageUrls(fileUrlRef.current, n),
-        // 预取跟着「哪条路能用」走：图片层坏了就改为下进本地记账（见 prefetchPageImage），
-        // 否则前台每页都要在坏掉的图片层上白等一轮
         prefetchOne: prefetchPageImage,
+        windowAhead: imagePageTotal,
+        windowBehind: imagePageTotal,
       })
       setDocTick((tick) => tick + 1)
     } catch (err) {

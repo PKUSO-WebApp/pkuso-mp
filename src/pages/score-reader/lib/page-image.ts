@@ -32,8 +32,19 @@ const PAGE_IMAGE_TIMEOUT_MS = 30000
 /** 反代那条腿的超时：它该快，慢了说明这条腿不通，没必要占着用户等待 */
 const PROXY_LEG_TIMEOUT_MS = 15000
 
-/** 一页已加载的页图（尺寸在 onload 之后才有） */
-export type LoadedPageImage = { img: CanvasImage; width: number; height: number }
+/**
+ * 一页已加载的页图（尺寸在 onload 之后才有）。
+ *
+ * `via` = 这一张实际走的是哪一档：`file` 本地文件（预下载命中，**正常路径**）、
+ * `image` 图片层 + 远端 URL、`download` 现下的兜底。真机验收第一眼看的就是它：
+ * 滑动时要是还常常出现 `image`/`download`，说明预下载没铺到位。
+ */
+export type LoadedPageImage = {
+  img: CanvasImage
+  width: number
+  height: number
+  via: 'file' | 'image' | 'download'
+}
 
 /**
  * 页图加载失败时抛出的错误，额外带上**只有这里能拿到**的诊断信息：
@@ -72,18 +83,19 @@ function detailOf(e: unknown): string {
  *
  * 尺寸直接取自图片对象 —— 不需要额外的 `getImageInfo`（少一次文件/网络往返）。
  */
-/** 单个 URL 的加载（onload 才算完成） */
+/** 单个 URL 的加载（onload 才算完成）；`via` 由调用方指定（见 LoadedPageImage） */
 function loadOnePageImage(
   node: CanvasNode,
   url: string,
-  timeoutMs: number
+  timeoutMs: number,
+  via: LoadedPageImage['via']
 ): Promise<LoadedPageImage> {
   const img = node.createImage!()
   return new Promise<LoadedPageImage>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('页图加载超时')), timeoutMs)
     img.onload = () => {
       clearTimeout(timer)
-      resolve({ img, width: img.width ?? 0, height: img.height ?? 0 })
+      resolve({ img, width: img.width ?? 0, height: img.height ?? 0, via })
     }
     img.onerror = (e) => {
       clearTimeout(timer)
@@ -130,11 +142,15 @@ function noteFailure(
 }
 
 /**
- * 已下载过的页图本地路径（会话内记账）。**有界**：微信的本地文件有配额（200MB，
- * 与 pdf 缓存同池），只留最近用到的几十张，免得读一整册把配额吃满。
+ * 已下载过的页图本地路径（本会话记账，键 = 该页的**第一条 URL**，两条腿指向同一张图）。
+ *
+ * **整册记账**（2026-10-09 起）：进册即把整册下到本地临时文件（见 `prefetchPageImage`），
+ * 前台渲染的第 0 档就命中它 —— 正常使用中**根本不问图片层**，「远端 URL 交给图片层」
+ * 那类 iOS 必现故障因此不会出现在主路径上。上限只是防呆：`downloadFile` 的临时文件有
+ * 4GB 预算且平台自己按 LRU 清（单小程序超 2GB 才动手），一册最多几十页，碰不到这个上限。
  * 值可能失效（微信会清临时文件）——用之前先试，失败就把这条记账删掉重新下。
  */
-const FILE_CACHE_LIMIT = 40
+const FILE_CACHE_LIMIT = 200
 const fileCache = new Map<string, string>()
 
 function rememberFile(url: string, path: string): void {
@@ -170,12 +186,15 @@ export function isImageLayerBroken(): boolean {
 }
 
 /**
- * 预取（预热泵用）：图片层能用就照旧走它（吃微信图片缓存）；**已判定它坏了就改成把图
- * 下进本地记账**——前台随后直接命中那份文件，翻页仍然不疼。流量与从前一致：健康设备上
- * `getImageInfo` 本来也是整张下回来。
+ * 预取（预热泵用）：**一律把页图下载到本地文件**（2026-10-09 起）。
+ *
+ * 从前是「图片层能用就走 `getImageInfo`（吃微信图片缓存）」——改掉的理由是那条路正是
+ * iOS 故障路径的入口；而且图片层的缓存不透明、容量不公开、清不清由平台说了算。
+ * 本地文件是我们自己的：路径确定、可记账复用、且**不占 200MB 持久配额**
+ * （`downloadFile` 的临时文件是另一个池子，4GB 预算 + 平台 LRU）。
+ * 流量不增反降：健康设备上 `getImageInfo` 本来也是把整张下回来。
  */
 export function prefetchPageImage(url: string, deps: PageImageDeps = {}): Promise<unknown> {
-  if (!imageLayerBroken) return Taro.getImageInfo({ src: url })
   return warmPageImageFile(url, deps.downloadFile ?? defaultDownloadFile)
 }
 
@@ -193,31 +212,39 @@ async function warmPageImageFile(
 /**
  * 兜底那条路：downloadFile 落成临时文件，再从**本地路径**解码（见文件头「兜底」）。
  * 本地路径也交给同一个 `loadOnePageImage` —— 只是 src 不同，onload/onerror 语义一样。
+ *
+ * `key` 与 `url` 分开：两条腿（反代/直连）指向同一张图，记账只该有一条（`urls[0]`），
+ * 否则从第 2 条腿下回来的那份，第 0 档看不见。
  */
 async function loadOnePageImageFromFile(
   node: CanvasNode,
+  key: string,
   url: string,
   timeoutMs: number,
   download: NonNullable<PageImageDeps['downloadFile']>
 ): Promise<LoadedPageImage> {
-  const cached = fileCache.get(url)
+  const cached = fileCache.get(key)
   if (cached) {
     try {
-      return await loadOnePageImage(node, cached, timeoutMs)
+      return await loadOnePageImage(node, cached, timeoutMs, 'file')
     } catch {
-      fileCache.delete(url) // 临时文件没了：这一条记账作废，往下重新下
+      fileCache.delete(key) // 临时文件没了：这一条记账作废，往下重新下
     }
   }
   const res = await download(url, timeoutMs)
   if (res.statusCode !== 200) throw new Error(`页图下载失败：HTTP ${res.statusCode}`)
-  const loaded = await loadOnePageImage(node, res.tempFilePath, timeoutMs)
-  rememberFile(url, res.tempFilePath)
+  const loaded = await loadOnePageImage(node, res.tempFilePath, timeoutMs, 'download')
+  rememberFile(key, res.tempFilePath)
   return loaded
 }
 
 /**
- * 加载一页页图：**先图片层（吃缓存），全失败再走 downloadFile 兜底**；本会话已判定
- * 图片层坏了的话，直接走兜底那轮（见 `imageLayerBroken`）。
+ * 加载一页页图。三档，顺序即优先级：
+ *   0. **本地文件**（整册预下载的产物）——主路径，命中时完全不碰图片层；
+ *   1. 图片层 + 远端 URL（吃微信图片缓存）——只有「这一页还没下到本地」时才会走到
+ *      （进册头几页、下载失败、或预下载被停）；
+ *   2. downloadFile 落本地再解码——兜底。本会话已判定图片层坏了时，跳过第 1 档
+ *      （见 `imageLayerBroken`）。
  *
  * 图片层那轮**依次尝试候选 URL**（见 `pageImageUrls`：反代优先、直连兜底）：第一个
  * （反代）用较短超时——它该快，慢了说明这条腿不通；后面的（直连）给足 30 秒，弱网下
@@ -234,6 +261,16 @@ export async function loadPageImage(
   const download = deps.downloadFile ?? defaultDownloadFile
   const trace: string[] = []
   let lastErr: PageImageError | null = null
+  // 第 0 档（**主路径**）：本地文件 —— 整册预下载的产物。命中时压根不问图片层，
+  // 「远端 URL 交给图片层」那类故障（iOS 必现，见文件头）在正常使用中不会出现。
+  const cached = fileCache.get(urls[0])
+  if (cached) {
+    try {
+      return await loadOnePageImage(node, cached, PROXY_LEG_TIMEOUT_MS, 'file')
+    } catch {
+      fileCache.delete(urls[0]) // 临时文件没了：记账作废，往下走常规腿
+    }
+  }
   // 已判定图片层坏了 ⇒ 这一轮直接跳过它（判据与复位见 imageLayerBroken 的注释）
   if (!imageLayerBroken) {
     for (let i = 0; i < urls.length; i += 1) {
@@ -241,7 +278,8 @@ export async function loadPageImage(
         return await loadOnePageImage(
           node,
           urls[i],
-          i === 0 ? PROXY_LEG_TIMEOUT_MS : PAGE_IMAGE_TIMEOUT_MS
+          i === 0 ? PROXY_LEG_TIMEOUT_MS : PAGE_IMAGE_TIMEOUT_MS,
+          'image'
         )
       } catch (err) {
         lastErr = noteFailure(err, 'image', i, trace)
@@ -250,9 +288,13 @@ export async function loadPageImage(
   }
   for (let i = 0; i < urls.length; i += 1) {
     try {
-      const loaded = await loadOnePageImageFromFile(node, urls[i], PAGE_IMAGE_TIMEOUT_MS, download)
-      // 图片层刚失败、兜底却拿得到 ⇒ 坏的是图片层这一层（地址与网络都好）：记下结论，
-      // 本会话余下的取图不再白撞它。trace 为空说明这一轮压根没试图片层，别误判。
+      const loaded = await loadOnePageImageFromFile(
+        node,
+        urls[0],
+        urls[i],
+        PAGE_IMAGE_TIMEOUT_MS,
+        download
+      )
       // 图片层刚失败、兜底却拿得到 ⇒ 坏的是图片层这一层（地址与网络都好）：记下结论，
       // 本会话余下的取图不再白撞它。判据必须是「这一轮真的试过图片层」（trace 非空）。
       if (trace.length > 0) imageLayerBroken = true

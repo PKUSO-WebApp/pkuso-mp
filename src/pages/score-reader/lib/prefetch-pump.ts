@@ -1,24 +1,22 @@
 import Taro from '@tarojs/taro'
 
 /**
- * 页图预热泵：**以当前页为中心**，把前后一个窗口的页图在后台预热进微信图片缓存。
+ * 页图预热泵：**以当前页为中心**，把页图在后台按优先级抓下来（现在落本地文件，
+ * 见 `prefetchPageImage`；从前是预热进微信图片缓存）。
  *
  * 为什么值得（2026-10-04 真机数据）：JPEG 模式下渲染已经免费（renderMs ≈ 0～1），
- * 翻页延迟全在 `infoMs`（取图）——没预热到的页要一次完整网络来回（实测 305–1661ms），
- * 命中图片缓存时只要 ~50ms。原来的「当前页 +3」预取在连续翻页 / 跳页时会被追上。
+ * 翻页延迟全在取图——没预热到的页要一次完整网络来回（实测 305–1661ms），
+ * 命中本地文件时只要 ~50ms。原来的「当前页 +3」预取在连续翻页 / 跳页时会被追上。
  *
  * 设计约束：
- * - **一律串行**（`PREFETCH_PARALLEL = 1`）：并发会和前台取图抢图片层的额度，
- *   真机上把前台那次取图挤失败过（见那个常量的注释）；
  * - **双向优先带**：前 PRIORITY_AHEAD 页 + 后 PRIORITY_BEHIND 页排在窗口填充之前；
  * - **窗口填充不许占满并发**（最多 `parallel - 1` 个槽），保证用户翻页时
  *   优先带立刻拿得到空槽——否则「正在补第 5 页」的几个慢请求会把「下一页」堵在后面；
- * - **窗口之外刻意不预热**（见 `nextPage` 的注释：整册铺满既费流量，又可能把要读的页挤出缓存）；
+ * - **窗口之外不预热**（见 `nextPage`）：谱务阅读器现在传的是**整册**
+ *   （窗口概念退役，2026-10-09，见 index.tsx 的 createPrefetchPump），
+ *   这段窗口逻辑留给别的调用方与用例；
  * - **失败即跳过**（标记 done、不重排）：预热只是止损，真翻到那一页时前台加载路径
  *   有自己的超时 / 换入口 / 重试。
- *
- * ⚠️ 预热**必须走小程序的图片层**（`Taro.getImageInfo` / `createImage`）——微信自带
- * HTTP/磁盘图片缓存；不要换成 `Taro.downloadFile`，那个不走 HTTP 缓存，每次都是真下载。
  */
 
 /** 优先带（前）：当前页之后这几页最先预热 */
@@ -26,25 +24,30 @@ export const PRIORITY_AHEAD = 3
 /** 优先带（后）：回翻的那几页。**必须排在「继续向前」之前**——旧实现把向后的页交给
  *  「从第 1 页往上扫」顺带覆盖，结果是排最后、且 60 页以外完全没有，回翻能否命中全靠运气。 */
 export const PRIORITY_BEHIND = 3
-/** 窗口（前）：从当前页向前最多预热到这里（含优先带）≈ 20×510KB ≈ 10MB */
+/**
+ * 窗口（前）默认值：从当前页向前最多预热到这里（含优先带）。
+ * ⚠️ 谱务阅读器**不用**这两个默认值——它传的是整册（窗口概念退役，见 index.tsx 的
+ * `createPrefetchPump`）。默认值只留给窗口化预取的场景与用例。
+ */
 export const WINDOW_AHEAD = 20
-/** 窗口（后）：从当前页向后最多预热到这里 */
+/** 窗口（后）默认值；同上 */
 export const WINDOW_BEHIND = 5
 
 /**
- * 预热并发数：**固定 1（串行）**。
+ * 预热并发数：**4**（2026-10-09 从 1 提上来）。
  *
- * 曾经按网络档位分档（wifi/5g=4、4g=3，理由是「缩短铺满整册的时间」），两件事让它作废：
- * 1. 今天改成窗口预热后，泵的收益只剩「更快填满一个小窗口」——串行实测 1–3s/页
- *    （真机 4G 经反代 0.3–1.2s/页），远快于读谱的一页十几秒，快慢根本感觉不到；
- * 2. 并发会和「前台正在取的那一页」抢**图片层的并发额度**：2026-10-04 真机实测，
- *    泵 4 个在飞 + 前台 1 个时，前台那次取图被图片层当场拒绝（onerror 无 errMsg、
- *    两条腿都没到服务器），用户看到「页图加载失败」。串行把同时在飞的图片层请求
- *    压到最多 2 个（泵 1 + 前台 1），从根上避开这类争用。
+ * 串行的时代：泵走的是**小程序图片层**（`getImageInfo`），而并发会和前台抢图片层的额度
+ * ——2026-10-04 真机实测，泵 4 个在飞 + 前台 1 个时，前台那次取图被图片层当场拒绝
+ * （onerror 无 errMsg、两条腿都没到服务器），用户看到「页图加载失败」。串行把在飞的
+ * 图片层请求压到最多 2 个，从根上避开争用。
  *
- * ⚠️ 要再提高并发前，先想清楚怎么不让它和前台抢额度（例如前台取图期间把泵暂停）。
+ * 那之后泵改成走 `downloadFile`（见 `prefetchPageImage`），**不再经过图片层**，抢额度的
+ * 前提消失；换成网络额度约束：`request` / `uploadFile` / `downloadFile` **合计 10 个**
+ * （基础库 1.4.0 起超出的排队不丢弃）。4 个留给泵、6 个留给 app 自身的请求与前台兜底腿。
+ *
+ * ⚠️ 再往上抬之前先看这条：额度是**三类请求共享**的，泵独占太多会让登录/查询排在后面。
  */
-export const PREFETCH_PARALLEL = 1
+export const PREFETCH_PARALLEL = 4
 
 export type PrefetchPump = {
   /** 翻到某页时调用：挪动优先带并确保泵在跑（当前页由前台路径负责，泵不重复抓） */
@@ -98,15 +101,17 @@ export function createPrefetchPump(opts: {
   }
 
   /**
-   * 下一件抓什么，按四级排：
-   *   一、优先带（前）——翻下去就会看到的
-   *   二、优先带（后）——回翻的那几页（**不能**排在"继续向前"后面，否则快速连翻/跳页时永远轮不到）
-   *   三、窗口（前）到 current+winAhead
-   *   四、窗口（后）到 current-winBehind
-   * 窗口之外**刻意不预热**：整册铺满既费流量，又可能把"马上要读的那几页"挤出微信图片缓存
-   * （预热反而在破坏命中率）。跳到某页后 setCurrent 会把窗口挪过去。
+   * 下一件抓什么，按五级排：
+   *   一、**当前页**——用户正看着的这一页也要落本地（见 setCurrent 的注释）；
+   *   二、优先带（前）——翻下去就会看到的
+   *   三、优先带（后）——回翻的那几页（**不能**排在"继续向前"后面，否则快速连翻/跳页时永远轮不到）
+   *   四、窗口（前）到 current+winAhead
+   *   五、窗口（后）到 current-winBehind
+   * 窗口之外**不预热**：铺满整册既费流量，又会把"马上要读的那几页"挤到队尾。
+   * 跳到某页后 setCurrent 会把窗口挪过去。
    */
   const nextPage = (): number | null => {
+    if (!attempted.has(current)) return current
     const fwdEnd = Math.min(total, current + ahead)
     for (let n = current + 1; n <= fwdEnd; n += 1) if (!attempted.has(n)) return n
     for (let n = current - 1; n >= Math.max(1, current - behind); n -= 1)
@@ -118,9 +123,9 @@ export function createPrefetchPump(opts: {
     return null
   }
 
-  /** 优先带 = 前/后各一段（顺序补全不许占满并发，留槽给它们） */
+  /** 优先带 = 当前页 + 前后各一段（顺序补全不许占满并发，留槽给它们） */
   const isPriority = (n: number): boolean =>
-    (n > current && n <= current + ahead) || (n < current && n >= current - behind)
+    n === current || (n > current && n <= current + ahead) || (n < current && n >= current - behind)
 
   const run = async (): Promise<void> => {
     if (running || stopped) return
@@ -164,7 +169,10 @@ export function createPrefetchPump(opts: {
   return {
     setCurrent(page: number) {
       current = Math.min(Math.max(1, Math.floor(page)), Math.max(1, total))
-      attempted.add(current) // 当前页由前台路径负责（正在/已经加载），泵不重复抓
+      // ⚠️ 这里**不再**把当前页标记成 attempted（2026-10-09）。从前那行的理由（「当前页由
+      // 前台路径负责」）在预取改为落本地文件后不成立了：前台的取图走图片层，不产生本地文件，
+      // 于是**用户翻过/滑过的每一页都被永久排除在预下载之外**——而它们恰恰是最可能被回看的。
+      // 与首帧抢带宽的顾虑改由调用方解决：**首帧落地（stage ready）之后才启动泵**。
       wakeLoop()
       void run()
     },

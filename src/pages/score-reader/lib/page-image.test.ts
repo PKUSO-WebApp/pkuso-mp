@@ -121,7 +121,8 @@ describe('loadPageImage 主路径（小程序图片层）', () => {
     }
     await loadPageImage(fakeNode([{ errMsg: 'x' }, 'ok']), [proxy], deps)
     expect(downloads).toBe(1)
-    // 第二次：图片层已被判定坏了（上一轮就是它失败+兜底成功），直接画本地那份
+    // 第二次：第 0 档命中本地记账（**不走图片层**——node 只给了一个 'ok'，要是先去图片层
+    // 就画到远端 URL 上了），直接画本地那份
     const second = fakeNode(['ok'])
     await loadPageImage(second, [proxy], deps)
     expect(downloads).toBe(1)
@@ -207,12 +208,15 @@ describe('取图策略的判定（判一次、本会话记住）', () => {
     expect(isImageLayerBroken()).toBe(true)
 
     resetPageImageStrategy()
+    // ⚠️ 必须换一条 URL：上面那页的本地文件已经记账了，第 0 档会直接命中它
+    // （那是**缓存命中**，不是「图片层坏了」的结论，复位不该、也没法把它赶走）
+    const [fresh] = freshUrls()
     const again = fakeNode(['ok'])
-    await loadPageImage(again, [proxy], deps)
-    expect(again.srcs).toEqual([proxy]) // 又从图片层开始试
+    await loadPageImage(again, [fresh], deps)
+    expect(again.srcs).toEqual([fresh]) // 又从图片层开始试
   })
 
-  it('预取：判定坏了之后改为下进本地记账，且不重复下已经记过的', async () => {
+  it('预取：**图片层健康也照样下本地文件**（主路径就是本地，不问图片层），已记过的不重复下', async () => {
     const [proxy] = freshUrls()
     const files: string[] = []
     const deps = {
@@ -221,15 +225,26 @@ describe('取图策略的判定（判一次、本会话记住）', () => {
         return { statusCode: 200, tempFilePath: 'wxfile://tmp/warm.jpg' }
       },
     }
-    await loadPageImage(fakeNode([{ errMsg: 'boom' }, 'ok']), [proxy], deps)
-    expect(isImageLayerBroken()).toBe(true)
-
-    files.length = 0
-    await prefetchPageImage(proxy, deps) // 前台刚下过、已记账 ⇒ 不再下
-    expect(files).toEqual([])
+    // 全新会话、图片层健康：从前这条路会走 getImageInfo（图片层），现在必须走下载
+    expect(isImageLayerBroken()).toBe(false)
+    await prefetchPageImage(proxy, deps)
+    expect(files).toEqual([proxy])
+    await prefetchPageImage(proxy, deps) // 已记账 ⇒ 不再下
+    expect(files).toEqual([proxy])
     const [other] = freshUrls()
     await prefetchPageImage(other, deps) // 没记过 ⇒ 下它
-    expect(files).toEqual([other])
+    expect(files).toEqual([proxy, other])
+  })
+
+  it('预取下来的文件就是渲染源：之后的加载用本地路径、一次都不碰远端', async () => {
+    const [proxy, direct] = freshUrls()
+    const deps = {
+      downloadFile: async () => ({ statusCode: 200, tempFilePath: 'wxfile://tmp/pre-1.jpg' }),
+    }
+    await prefetchPageImage(proxy, deps)
+    const node = fakeNode(['ok']) // 图片层"可用"，但压根不该被问到
+    await loadPageImage(node, [proxy, direct], deps)
+    expect(node.srcs).toEqual(['wxfile://tmp/pre-1.jpg'])
   })
 })
 

@@ -7,7 +7,7 @@ const flush = async (rounds = 80) => {
 }
 
 describe('createPrefetchPump', () => {
-  it('先向前 3、再向后 3，然后向前填到窗口边界、最后向后', async () => {
+  it('当前页最先、再向前 3、向后 3，然后向前填到窗口边界、最后向后', async () => {
     const calls: number[] = []
     const pump = createPrefetchPump({
       total: 14,
@@ -21,12 +21,12 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(5)
     await flush()
-    // 前带 6,7,8 → 后带 4,3,2 → 前窗 9,10；后窗只到 5-2=3，1 在窗口外**刻意不预热**
-    expect(calls).toEqual([6, 7, 8, 4, 3, 2, 9, 10])
+    // 当前页 5 → 前带 6,7,8 → 后带 4,3,2 → 前窗 9,10；后窗只到 5-2=3，1 在窗口外**刻意不预热**
+    expect(calls).toEqual([5, 6, 7, 8, 4, 3, 2, 9, 10])
     expect(calls).not.toContain(1)
   })
 
-  it('抓取在途时翻到第 8 页：前带插队 9/10，随后是**后带** 7/6/5', async () => {
+  it('抓取在途时翻到第 8 页：当前页与 9/10 插队，随后是**后带** 7/6/5', async () => {
     const calls: number[] = []
     const pump = createPrefetchPump({
       total: 10,
@@ -40,9 +40,9 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(1)
     await flush()
-    // 回翻要用的 7/6/5 紧跟在前带之后——旧实现会先补 3,4,5,6,7（从第 1 页往上扫），
-    // 回翻的那一页排在最后。1 距第 8 页超过窗口（8-5=3），不再预热
-    expect(calls).toEqual([2, 9, 10, 7, 6, 5, 4, 3])
+    // 1、2 之后用户翻到 8：8（当前页）→ 9,10（前带）→ 7,6,5（后带，回翻要用的那几页）
+    // 紧跟其后——旧实现会先补 4,3（从那时的 current 起往前扫），回翻的页排在最后
+    expect(calls).toEqual([1, 2, 8, 9, 10, 7, 6, 5, 4, 3])
   })
 
   it('某页失败即跳过、不重排、不中断', async () => {
@@ -57,7 +57,7 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(1)
     await flush()
-    expect(calls).toEqual([2, 3, 4]) // 3 失败后继续 4
+    expect(calls).toEqual([1, 2, 3, 4]) // 3 失败后继续 4
     expect(calls.filter((n) => n === 3)).toHaveLength(1) // 且不重试
   })
 
@@ -73,7 +73,7 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(1)
     await flush()
-    expect(calls).toEqual([2])
+    expect(calls).toEqual([1])
   })
 
   it('只预热当前页 ±窗口，**不铺整册**；setCurrent 挪窗口后继续', async () => {
@@ -90,15 +90,15 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(50)
     await flush()
-    // 前带 51,52,53 → 后带 49 → 前窗 54 → 后窗（50-4=46，已被后带 49 覆盖）
-    expect(calls).toEqual([51, 52, 53, 49, 54])
-    expect(calls).not.toContain(1) // 远处不预热：整册铺满既费流量、又会把要读的页挤出缓存
+    // 当前页 50 → 前带 51,52,53 → 后带 49 → 前窗 54 → 后窗（50-1-1=48，已越过后带的下界）
+    expect(calls).toEqual([50, 51, 52, 53, 49, 54])
+    expect(calls).not.toContain(1) // 远处不预热：铺满整册既费流量、又把要读的页挤到队尾
     pump.setCurrent(90)
     await flush()
-    expect(calls).toEqual([51, 52, 53, 49, 54, 91, 92, 93, 89, 94])
+    expect(calls).toEqual([50, 51, 52, 53, 49, 54, 90, 91, 92, 93, 89, 94])
   })
 
-  it('setCurrent 不重复抓当前页（前台路径负责它）', async () => {
+  it('当前页也抓（它必须落本地），但**不会重复**抓——重复 setCurrent 不重排', async () => {
     const calls: number[] = []
     const pump = createPrefetchPump({
       total: 6,
@@ -109,8 +109,10 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(3)
     await flush()
-    expect(calls).toEqual([4, 5, 6, 2, 1]) // 前带 → 后带（从近到远）
-    expect(calls).not.toContain(3)
+    expect(calls).toEqual([3, 4, 5, 6, 2, 1]) // 当前页 → 前带 → 后带（从近到远）
+    pump.setCurrent(3)
+    await flush()
+    expect(calls.filter((n) => n === 3)).toHaveLength(1) // 记过就不再来一次（否则会无限重下）
   })
 
   it('并发档位：maxParallel=3 时优先带整批同时发、最多 3 个在途', async () => {
@@ -128,10 +130,10 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(1)
     await flush()
-    expect(started).toEqual([2, 3, 4]) // 优先带三个同时发
+    expect(started).toEqual([1, 2, 3]) // 当前页 + 前带两个，整批同时发
     gates[0]() // 完成一个 → 补一个
     await flush()
-    expect(started).toEqual([2, 3, 4, 5])
+    expect(started).toEqual([1, 2, 3, 4])
   })
 
   it('setParallel 运行中调高：下一轮补足到新的并发', async () => {
@@ -145,14 +147,17 @@ describe('createPrefetchPump', () => {
           started.push(Number(url))
           gates.push(resolve)
         }),
+      maxParallel: 1,
     })
     pump.setCurrent(1)
     await flush()
-    expect(started).toEqual([2]) // 默认串行
+    expect(started).toEqual([1]) // 串行：一次一个
     pump.setParallel(3)
+    await flush()
+    expect(started).toEqual([1, 2, 3]) // 补足到 3 个在途（不等在途那个回来）
     gates[0]()
     await flush()
-    expect(started).toEqual([2, 3, 4, 5]) // 补足到 3 个在途
+    expect(started).toEqual([1, 2, 3, 4])
   })
 
   it('顺序补全不占满并发：优先带永远留得住一个空槽', async () => {
@@ -170,15 +175,18 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(1)
     await flush()
-    expect(started).toEqual([2, 3, 4]) // 优先带整批先发
+    expect(started).toEqual([1, 2, 3]) // 优先带整批先发
     gates[0]()
     gates[1]()
     gates[2]()
     await flush()
-    expect(started).toEqual([2, 3, 4, 5, 6]) // 补全只占 parallel-1 = 2 个槽，留 1 个
+    expect(started).toEqual([1, 2, 3, 4, 5, 6]) // 补全只占 parallel-1 = 2 个槽，留 1 个
+    gates[3]() // 4 完成：空出来的槽**不会被补全抢走**（5、6 还在途，补全已占满 2 个）
+    await flush()
+    expect(started).toEqual([1, 2, 3, 4, 5, 6])
     pump.setCurrent(50)
     await flush()
-    expect(started).toEqual([2, 3, 4, 5, 6, 51]) // 用户翻页 → 优先带立刻拿到留出的那个槽
+    expect(started).toEqual([1, 2, 3, 4, 5, 6, 50]) // 用户翻页 → 优先带立刻拿到留出的那个槽
   })
 
   it('预留槽不会把顺序补全饿死：整册照样铺完（并发 > 1）', async () => {
@@ -193,8 +201,8 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(1)
     await flush()
-    // 第 1 页是当前页（前台路径负责），泵不抓它，其余全铺完
-    expect([...started].sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 7, 8])
+    // 当前页与其余各页都要落本地（当前页不再被排除）
+    expect([...started].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
   })
 
   it('isDone / isWarm：失败的页抓过但没预热', async () => {
@@ -210,12 +218,12 @@ describe('createPrefetchPump', () => {
     expect(pump.isDone(3)).toBe(true) // 抓过
     expect(pump.isWarm(3)).toBe(false) // 但没进缓存
     expect(pump.isWarm(2)).toBe(true)
-    expect(pump.isDone(1)).toBe(true) // 当前页由前台路径负责，记 done
-    expect(pump.isWarm(1)).toBe(false)
+    expect(pump.isDone(1)).toBe(true) // 当前页也抓
+    expect(pump.isWarm(1)).toBe(true)
     expect(pump.isDone(99)).toBe(false)
   })
 
-  it('默认串行：不传 maxParallel 时一次只抓一页（并发会和前台取图抢图片层额度）', async () => {
+  it('默认并发 4（泵走 downloadFile，不再和图片层抢额度）', async () => {
     const started: number[] = []
     const gates: Array<() => void> = []
     const pump = createPrefetchPump({
@@ -229,10 +237,10 @@ describe('createPrefetchPump', () => {
     })
     pump.setCurrent(1)
     await flush()
-    expect(started).toEqual([2]) // 只起一个
-    expect(PREFETCH_PARALLEL).toBe(1)
+    expect(PREFETCH_PARALLEL).toBe(4)
+    expect(started).toEqual([1, 2, 3, 4]) // 四个在途
     gates[0]()
     await flush()
-    expect(started).toEqual([2, 3])
+    expect(started).toEqual([1, 2, 3, 4, 5])
   })
 })
