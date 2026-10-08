@@ -40,12 +40,7 @@ import {
   Z_TOOLBAR,
 } from './lib/layout'
 import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
-import {
-  pageFromScroll,
-  pageTop,
-  pendingPages,
-  stripHeight,
-} from './lib/strip'
+import { pageFromScroll, pageTop, pendingPages, stripHeight } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawStrokeOn, strokeHitByPoint, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
@@ -670,8 +665,20 @@ export default function ScoreReader() {
           bitmapH: h * dpr,
         })
       }
-      // 换帧：只在这页仍是当前页时
-      if (pageRef.current !== target || zoomRef.current !== job.zoom) return
+      // 换帧：只在这页仍是当前页时。
+      // ⚠️ 但**位图已经写进这块画布了**（上面那次 paintPageImage），所以「丢弃」不等于
+      // 「什么都没发生」：这块画布的**像素是 target、记账还是旧页**。UD 里三块画布都可见
+      // 且都按记账摆位 ⇒ 屏幕上就是「某个页位反复闪出别的页」（真机 2026-10-09 报的
+      // 「第 4 页位置轮闪 1/2/3」）。所以页过期时必须**立刻把真正的当前页补渲回来**，
+      // 把错配窗口压到一次渲染之内（渲染队列是单槽最新优先，不会因此堆积）。
+      // 只补「页过期」：缩放过期是捏合中的常态（每帧都变，补渲会变成每帧一次全页解码），
+      // 那条由捏合结束后的合并重渲兜（见 zoom 的 settle 渲染）。
+      if (pageRef.current !== target || zoomRef.current !== job.zoom) {
+        if (pageRef.current !== target) {
+          requestRef.current({ page: pageRef.current, zoom: zoomRef.current })
+        }
+        return
+      }
       aspectRef.current = aspect
       // 尺寸等渲完再落地，旧帧不被提前拉伸
       setViewSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
@@ -1888,7 +1895,6 @@ export default function ScoreReader() {
    */
   const undoTopPage = historyRef.current[historyRef.current.length - 1]?.page ?? null
   const undoVisible = undoDepth > 0 && undoTopPage !== null && renderedPages.has(undoTopPage)
-
 
   // 双缓冲两块的样式。左右模式：活跃块在 0 位；**滑出中的那块**压在最上层向左/向右移出，
   // 新页在下面被露出来（换帧时新页早已渲好，不违反「宁停上一页也不上白帧」）。
