@@ -51,6 +51,9 @@ export function bandAt(
  * 逃逸到页面根：工具条作为兄弟节点若不给显式 z-index，会被画在画布下面。
  */
 export const Z_BAND = 4
+/** 页码徽标（贴在谱面右下角）：要在画布（滑出中的那块是 3）**和灰带（4）**之上——
+    谱面下沿落到灰带里时它也得看得见；但低于状态行（9）与工具条（12） */
+export const Z_PAGE_BADGE = 5
 export const Z_STATUS = 9
 export const Z_TOOLBAR = 12
 export const Z_TUTORIAL = 60

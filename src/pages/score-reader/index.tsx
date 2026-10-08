@@ -36,9 +36,17 @@ import type {
   Pinch,
   Stage,
 } from './lib/types'
-import { drawMark, frameInk, markKept, rasterDpr } from './lib/raster'
+import { drawMark, frameInk, markKept, rasterDpr, sampleEdgeColors } from './lib/raster'
 import { clamp, clampPan, touchDist, touchMid } from './lib/geometry'
-import { bandAt, penBarBottom, zoneFor, Z_BAND, Z_STATUS, Z_TOOLBAR } from './lib/layout'
+import {
+  bandAt,
+  penBarBottom,
+  zoneFor,
+  Z_BAND,
+  Z_PAGE_BADGE,
+  Z_STATUS,
+  Z_TOOLBAR,
+} from './lib/layout'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawPolylineOn, drawStrokeOn, styleFor } from './lib/anno-draw'
 import {
@@ -203,6 +211,9 @@ export default function ScoreReader() {
   // 工具条**实测**高度：灰带的高度与灰带的点击命中都取它。
   // 不写死常量——微信的系统字体大小会改工具条高度，写死就会让灰带与工具条错位。
   const [barH, setBarH] = useState({ top: 0, bottom: 0 })
+  // 灰带的填充色 = 当前这页**页边**的纸色（采样见 lib/raster.ts 的 sampleEdgeColors）：
+  // 菜单关着时屏幕看起来就是「整屏都是谱面」。null = 还没采样到 ⇒ 用 token 里的默认灰
+  const [bandColor, setBandColor] = useState<{ top: string; bottom: string } | null>(null)
   // 首次使用教程（蒙层）：从未看过的人第一次进来自动展示，顶栏「?」可随时再唤
   const [tutorialOn, setTutorialOn] = useState(false)
   const tutorialShownRef = useRef(false)
@@ -337,18 +348,21 @@ export default function ScoreReader() {
   const consoleTailRef = useRef<string[]>([])
   const timingRef = useRef<Record<string, number | string | boolean>>({})
 
+  /**
+   * 状态提示：首帧真正落地之前**只有一个词**「加载中…」。
+   *
+   * 曾经按 下载中/解析中/渲染中 分三档，用户反馈（2026-10-08）「加载转完了还显示渲染中」——
+   * 那三档对用户没有可操作的信息，只是把「还没出来」说了三遍，还容易被读成卡住。
+   * 想分档诊断仍旧可以：console 里有 `render timings` 的分阶段耗时。
+   */
   const statusText =
-    stage === 'fetching'
-      ? t('scoreReader.fetching')
-      : stage === 'parsing'
-        ? t('scoreReader.parsing')
-        : stage === 'rendering'
-          ? t('scoreReader.rendering')
-          : stage === 'ready'
-            ? t('scoreReader.ready')
-            : stage === 'error'
-              ? message
-              : t('scoreReader.idle')
+    stage === 'ready'
+      ? t('scoreReader.ready')
+      : stage === 'idle'
+        ? t('scoreReader.idle')
+        : stage === 'error'
+          ? message
+          : t('scoreReader.loading')
 
   useEffect(() => {
     viewSizeRef.current = viewSize
@@ -507,6 +521,36 @@ export default function ScoreReader() {
   )
 
   /**
+   * 采样刚落地这一帧的**纸色**，给上下灰带当填充色（观感：整屏都是谱面）。
+   *
+   * 后台跑、失败就算了：它只是观感，绝不能影响渲染与翻页。采样点取**页边留白**
+   * （见 lib/raster.ts），所以拿到的是「这张纸的底色」而不是谱面的平均色。
+   */
+  const sampleBandColor = useCallback(
+    (layer: Layer) => {
+      void (async () => {
+        try {
+          const { node } = await queryCanvasNode(CANVAS_SEL[layer])
+          const c = sampleEdgeColors(node as CanvasNode)
+          if (c) {
+            setBandColor((prev) =>
+              prev && prev.top === c.top && prev.bottom === c.bottom ? prev : c
+            )
+          }
+        } catch {
+          // 采不到就保持原色（默认灰带），不是错误
+        }
+      })()
+    },
+    [queryCanvasNode]
+  )
+  /** ref 转一手：promoteFrame 的依赖数组是空的（只用 ref），拿不到这个 useCallback */
+  const sampleBandColorRef = useRef<(layer: Layer) => void>(() => {})
+  useEffect(() => {
+    sampleBandColorRef.current = sampleBandColor
+  }, [sampleBandColor])
+
+  /**
    * 用同一份字节重建引擎与文档。用于白帧自愈：pdf.js 内部有一层按页缓存
    * （算子列表 / 已解码图像），一旦某页被清空，之后每次重渲都只画底色——
    * 实测规律是「渲过的页、往前翻再翻回来就永远加载不出」。封装层没有暴露
@@ -659,6 +703,8 @@ export default function ScoreReader() {
         await doc!.renderPage(target, node, { scale, pixelRatio: dpr })
       }
       const renderMs = Date.now() - tRender
+      // 这一帧画完了：顺手采一下这张纸的纸色，给灰带上色（后台、失败无所谓）
+      sampleBandColorRef.current(layer)
       const tProbe = Date.now()
       // 图片模式**不做**白帧探测：那套（渲前记号 + 渲后采样）是为 pdf.js 的**静默
       // 失败**设计的；页图是上传时预渲染的权威结果，不存在「渲染失败」。直接当有墨
@@ -848,6 +894,8 @@ export default function ScoreReader() {
     setActiveLayer(f.layer)
     const dir = turnDirFor({ firstPaint: false, shown, target: f.page })
     if (dir !== null) turnRef.current?.begin(retiring, dir)
+    // 邻居帧换帧这条路上也补一次纸色采样（它不经过 doRender）
+    sampleBandColorRef.current(f.layer)
     // eslint-disable-next-line no-console
     console.log('[score-reader] predraw promote', {
       page: f.page,
@@ -1214,6 +1262,7 @@ export default function ScoreReader() {
       // 取图策略（图片层 / downloadFile 兜底）的判定也跟着复位：换册=换了网络场景，
       // 用户点「重试」=明确要求重来一次，两处都值得重新判一遍（见 page-image 的注释）
       resetPageImageStrategy()
+      setBandColor(null) // 纸色也作废：新册第一帧采到之前，先退回默认灰带
       invalidatePredraw('load') // 换册：备用块上那一帧属于上一册，作废
       inkPagesRef.current.clear() // 页码对应不同内容，白页判据也要重置
       // 「显示中的页」作废：换册后的首帧不滑（换册前后页码可能撞上，靠它区分）。
@@ -1828,23 +1877,47 @@ export default function ScoreReader() {
               className='absolute left-0 top-0 block'
               style={{ width: `${boxW}px`, height: `${boxH}px`, zIndex: 2 }}
             />
+
+            {/* 页码徽标：贴在**内容框**（这张谱子）的右下角——跟着平移/缩放走，不是屏幕
+                坐标（谱子被拖出屏幕时它也一起走）。
+                − 纯 Text/View，**不引入任何原生组件**（底栏那个跳页 Input 是原生组件，
+                  它在父级 visibility:hidden 下仍可能漏出来，别在这里重蹈覆辙）；
+                − chip 沿用工具条按钮那套（bg-card + border），压在谱面上也读得清；
+                − 菜单开着时也保留：它就是「我在第几页」的常驻提示（用户 2026-10-08 定）。 */}
+            {pageCount > 0 ? (
+              <View
+                className='absolute bottom-2 right-2 rounded border border-border bg-card px-1.5 py-0.5'
+                style={{ zIndex: Z_PAGE_BADGE }}
+              >
+                <Text className='text-xs text-text-muted'>
+                  {t('scoreReader.pageOf', { page, total: pageCount })}
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           {/* 灰带：菜单关着**且未放大**时压在谱面上下沿，高度＝**实测**工具条高度
               （与工具条严格重合）。必须是 stage 的**子节点**且不挂任何事件：触摸冒泡进
               同一个状态机，于是灰带上的点击照常按「任意横向位置＝开关菜单」处理。
+              填充色 = 当前页**页边**的纸色（采样见 sampleBandColor）：菜单关着时屏幕
+              看起来就是「整屏都是谱面」，而不是「谱面上压了两条灰条」。还没采到色之前
+              退回 token 的默认灰（bg-menu-band）。
               ⚠️ 放大（zoom > 1）后不画：那时用户在逐小节看细节，两条灰带会**盖住谱面**
               （真机反馈）；而放大状态下「点中间唤菜单」照样可用，不缺这条提示。 */}
           {showBands && barH.top > 0 ? (
             <View
               className='absolute left-0 right-0 top-0 bg-menu-band'
-              style={{ height: `${barH.top}px`, zIndex: Z_BAND }}
+              style={{ height: `${barH.top}px`, zIndex: Z_BAND, backgroundColor: bandColor?.top }}
             />
           ) : null}
           {showBands && barH.bottom > 0 ? (
             <View
               className='absolute bottom-0 left-0 right-0 bg-menu-band'
-              style={{ height: `${barH.bottom}px`, zIndex: Z_BAND }}
+              style={{
+                height: `${barH.bottom}px`,
+                zIndex: Z_BAND,
+                backgroundColor: bandColor?.bottom,
+              }}
             />
           ) : null}
 
@@ -1937,16 +2010,24 @@ export default function ScoreReader() {
             </Button>
             <View className='mx-2 flex flex-row items-center'>
               <View className='overflow-hidden rounded border border-border bg-card'>
-                <Input
-                  className='h-8 w-12 bg-transparent text-center text-xs text-text'
-                  type='number'
-                  placeholder={t('scoreReader.pageJump')}
-                  value={pageCount > 0 ? pageInput : ''}
-                  onFocus={() => setPageEditing(true)}
-                  onInput={(e) => setPageInput(e.detail.value)}
-                  onBlur={commitPageInput}
-                  onConfirm={commitPageInput}
-                />
+                {/* 菜单关着时**不挂载 `Input`**：`input` 是小程序的**原生组件**，由原生层
+                    渲染，父级的 visibility:hidden 在 iOS 上盖不住它（真机反馈：菜单关着
+                    仍能看到这个框/框里的数字）。关着时用同尺寸的空 View 占位——
+                    `measureStage` 只取底栏的**高度**，所以灰带高度与点击命中不受影响。 */}
+                {menuOn ? (
+                  <Input
+                    className='h-8 w-12 bg-transparent text-center text-xs text-text'
+                    type='number'
+                    placeholder={t('scoreReader.pageJump')}
+                    value={pageCount > 0 ? pageInput : ''}
+                    onFocus={() => setPageEditing(true)}
+                    onInput={(e) => setPageInput(e.detail.value)}
+                    onBlur={commitPageInput}
+                    onConfirm={commitPageInput}
+                  />
+                ) : (
+                  <View className='h-8 w-12' />
+                )}
               </View>
               <Text className='ml-1 text-xs text-text-muted'>/ {pageCount || '-'}</Text>
             </View>

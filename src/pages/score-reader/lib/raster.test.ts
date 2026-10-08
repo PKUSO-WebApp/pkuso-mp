@@ -6,7 +6,9 @@ import {
   drawMark,
   frameInk,
   markKept,
+  medianHex,
   rasterDpr,
+  sampleEdgeColors,
 } from './raster'
 import type { CanvasCtx, CanvasNode } from './types'
 
@@ -128,6 +130,54 @@ describe('drawMark / markKept', () => {
 
   it('markKept：探测失败算「记号不在」（宁可认为渲染碰过画布）', () => {
     expect(markKept(fakeNode({ probeThrows: true }).node)).toBe(false)
+  })
+})
+
+describe('medianHex / sampleEdgeColors（灰带的纸色采样）', () => {
+  it('medianHex 逐通道取中位数：少数离群点（压到墨上）改不了结论', () => {
+    expect(medianHex([WHITE, BLACK, WHITE])).toBe('#ffffff')
+    expect(medianHex([WHITE, WHITE, BLACK, WHITE, WHITE])).toBe('#ffffff')
+    expect(medianHex([[1, 2, 3]])).toBe('#010203')
+  })
+
+  it('medianHex 补零与钳位（越界/小数都不该写出非法色值）', () => {
+    expect(medianHex([[0, 15, 255]])).toBe('#000fff')
+    expect(medianHex([[300, -5, 12.6]])).toBe('#ff000d')
+  })
+
+  it('sampleEdgeColors 采的是**贴边两行**：离边 1% 页高（避开扫描压边），顶底各一条', () => {
+    const spy = vi.fn((_x: number, _y: number) => ({ data: [200, 200, 200, 255] }))
+    const node: CanvasNode = {
+      width: 1000,
+      height: 2000,
+      getContext: () => ({ ...fakeCtx().ctx, getImageData: spy }),
+    }
+    expect(sampleEdgeColors(node)).toEqual({ top: '#c8c8c8', bottom: '#c8c8c8' })
+    const ys = [...new Set(spy.mock.calls.map((c) => c[1]))].sort((a, b) => a - b)
+    expect(ys).toEqual([20, 1979]) // inset = max(2, 1% × 2000) = 20；底行是 h-1-inset
+  })
+
+  it('顶边与底边各采各的（不是一条色用两遍）', () => {
+    let call = 0
+    const node: CanvasNode = {
+      width: 1000,
+      height: 1000,
+      getContext: () => ({
+        ...fakeCtx().ctx,
+        getImageData: () => {
+          call += 1
+          if (call <= 5) return { data: call === 3 ? BLACK : WHITE } // 顶边：4 白 1 黑
+          return { data: BLACK } // 底边：全黑
+        },
+      }),
+    }
+    expect(sampleEdgeColors(node)).toEqual({ top: '#ffffff', bottom: '#000000' })
+  })
+
+  it('取不到像素 → null（调用方保持原色，不虚构）', () => {
+    expect(sampleEdgeColors(fakeNode({ probeThrows: true }).node)).toBeNull()
+    expect(sampleEdgeColors(fakeNode({ ctxThrows: true }).node)).toBeNull()
+    expect(sampleEdgeColors(fakeNode({ width: 0 }).node)).toBeNull()
   })
 })
 

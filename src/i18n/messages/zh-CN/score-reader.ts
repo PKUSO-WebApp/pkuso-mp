@@ -10,9 +10,9 @@ export const scoreReader = {
   inputPlaceholder: 'PDF 地址',
   load: '加载并渲染',
   retry: '重试',
-  fetching: '下载中…',
-  parsing: '解析中…',
-  rendering: '渲染中…',
+  // 首帧落地之前**只有这一个**状态词（原来的下载中/解析中/渲染中三档已合并）：
+  // 用户反馈「加载中转完还显示渲染中」像是卡住了，而这三档对用户没有可操作的信息
+  loading: '加载中…',
   ready: '就绪',
   idle: '未加载',
   annotation: '批注',
