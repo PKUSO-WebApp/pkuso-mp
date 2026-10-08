@@ -676,14 +676,13 @@ async function toTaroBody(body: BodyInit | null | undefined): Promise<TaroBody |
  * 构造 postgrest / auth / functions / storage 统一消费的 Response 形状对象。
  *
  * ⚠️ **不要改回 `new Response(...)`**（曾经的 `typeof Response !== 'undefined'` 分支）：
- * wechat-miniprogram-pdf 运行时（首次打开谱面文件时随 score-reader 分包加载）会向
- * globalThis 注入一个**残缺的 Response 垫片**——只有 body/status/ok/arrayBuffer/bytes，
- * 没有 text()/json()/headers（vendor 源：`typeof globalThis.Response > "u" && (...)`）。
- * 当时走原生分支返回该残缺实例，postgrest-js 的 processResponse 对它调 `res.text()`
- * 即抛 `TypeError: t.text is not a function`，且被吞成查询错误消息——表现为
- * 「打开一个文件后，所有页面的 Supabase 查询全部失败」，阅读器查不到文件 URL 还会
- * 连带让「原生打开」落到 dummy pdf。小程序本无原生 Response，恒返回下方自实现的
- * 完整垫片即可；下方实现已有单测覆盖（含残缺 Response 垫片污染的回归用例）。
+ * 小程序本无原生 Response，那个分支只会在**别的代码往 globalThis 注入 Response 垫片**时
+ * 生效，而这类垫片常常是残缺的——曾经的来源就是 pdf 运行时（2026-10-08 已随阅读器分包
+ * 一起拿掉）：它注入的 Response 只有 body/status/ok/arrayBuffer/bytes，没有
+ * text()/json()/headers。当时走原生分支返回该残缺实例，postgrest-js 的 processResponse
+ * 对它调 `res.text()` 即抛 `TypeError: t.text is not a function`，且被吞成查询错误消息
+ * ——表现为「打开一个文件后，所有页面的 Supabase 查询全部失败」。
+ * 恒返回下方自实现的完整垫片即可；下方实现已有单测覆盖（含残缺 Response 垫片污染的回归用例）。
  */
 function createFetchResponse(
   status: number,

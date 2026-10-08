@@ -7,7 +7,7 @@
  * 1.61MB（主包上限 2MB，基线已约 1.5MB）。
  */
 
-export type Stage = 'idle' | 'fetching' | 'parsing' | 'rendering' | 'ready' | 'error'
+export type Stage = 'idle' | 'fetching' | 'rendering' | 'ready' | 'error'
 /**
  * 画布块。**三块**：一块显示中、一块放着「下一页」（预绘制）、一块放着「上一页」
  * （换帧后退役的那块，内容是刚离开的那页 ⇒ 免费）。见 lib/predraw.ts 的模型说明。
@@ -23,7 +23,7 @@ export type CanvasCtx = {
   stroke: () => void
   fillRect: (x: number, y: number, w: number, h: number) => void
   getImageData: (x: number, y: number, w: number, h: number) => { data: ArrayLike<number> }
-  /** 图片模式（页图）用它把整页 JPEG 画上去；pdf.js 路径不经过它 */
+  /** 把整页 JPEG 画上去（见 lib/page-image.ts 的 paintPageImage） */
   drawImage: (img: unknown, x: number, y: number, w: number, h: number) => void
   fillStyle: string
   strokeStyle: string
@@ -91,6 +91,3 @@ export type Drag = {
  * `bg = true` 是**后台预绘制**（低优先级、可被交互任务让位，见 lib/predraw.ts）。
  */
 export type Job = { page: number; zoom: number; bg?: boolean }
-
-/** 白帧重试记账：同一页/同一缩放重试到第几次 */
-export type BlankRetry = { page: number; zoom: number; n: number }

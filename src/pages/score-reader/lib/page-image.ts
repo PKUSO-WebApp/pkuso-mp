@@ -268,7 +268,7 @@ export async function loadPageImage(
 /**
  * 把已加载的页图画进画布（**位图像素坐标系** —— 与 raster.ts 的记号/探测同一坐标系，
  * 所以 `setTransform(1,0,0,1,0,0)` 后直接按位图尺寸画）。
- * 画布尺寸在这里设（pdf.js 路径是 `renderPage` 内部设的，图片模式得自己来）。
+ * 画布尺寸在这里设（另一个渲染路径已随 pdf.js 运行时一起删掉，见 index.tsx）。
  */
 export function paintPageImage(
   node: CanvasNode,

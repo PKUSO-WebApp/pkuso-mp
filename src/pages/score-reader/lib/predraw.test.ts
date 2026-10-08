@@ -131,7 +131,6 @@ describe('预绘制的两个时间常量', () => {
 
 describe('predrawGo', () => {
   const base = {
-    imageMode: true,
     zoom: 1,
     pinching: false,
     animating: false,
@@ -145,8 +144,7 @@ describe('predrawGo', () => {
     expect(predrawGo(base)).toBe('start')
   })
 
-  it('非图片模式 / 没有目标页 都不做', () => {
-    expect(predrawGo({ ...base, imageMode: false })).toBe('skip')
+  it('没有目标页就不做', () => {
     expect(predrawGo({ ...base, target: null })).toBe('skip')
   })
 

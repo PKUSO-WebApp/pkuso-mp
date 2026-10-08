@@ -22,21 +22,10 @@ import {
 } from '@/lib/annotation'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { pageImageUrls } from '@/lib/score-page-image'
-import { createPdfEngine, type PdfDocument, type PdfEngine } from '@vendor/wechat-miniprogram-pdf'
 import type { SheetMusicFileRow } from '@/types/database'
 // 页面内部模块：留在分包目录内，保证被打进分包 chunk（见 lib/types.ts 顶部注释）
-import type {
-  BlankRetry,
-  CanvasCtx,
-  CanvasNode,
-  Drag,
-  Job,
-  Layer,
-  Pan,
-  Pinch,
-  Stage,
-} from './lib/types'
-import { drawMark, frameInk, markKept, rasterDpr, sampleEdgeColors } from './lib/raster'
+import type { CanvasCtx, CanvasNode, Drag, Job, Layer, Pan, Pinch, Stage } from './lib/types'
+import { frameInk, rasterDpr, sampleEdgeColors } from './lib/raster'
 import { clamp, clampPan, touchDist, touchMid } from './lib/geometry'
 import {
   bandAt,
@@ -49,13 +38,7 @@ import {
 } from './lib/layout'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawPolylineOn, drawStrokeOn, styleFor } from './lib/anno-draw'
-import {
-  cachedPdfPath,
-  lastPageKey,
-  pdfCacheTag,
-  readCachedPdf,
-  writeCachedPdf,
-} from './lib/pdf-cache'
+import { lastPageKey } from './lib/last-page'
 import {
   loadPageImage,
   loadPageImageWithRetry,
@@ -91,20 +74,12 @@ import {
 import { hasSeenReaderTutorial, markReaderTutorialSeen } from './lib/tutorial-seen'
 import './index.scss'
 
-const DEFAULT_URL = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 4
 /** 缩放合并窗口：停手满这么久才真正重渲（期间画布只换尺寸，不清屏） */
 const ZOOM_SETTLE_MS = 180
 /** 手写进行中推迟渲染的重试间隔 */
 const RENDER_RETRY_MS = 140
-/** 渲完后第一次读到白：再等一拍复核（绘图指令是异步落到原生侧的） */
-const PROBE_RECHECK_MS = 150
-/** 白帧重试的间隔（第 n 次等 n 倍）与上限；用尽后重开文档 */
-const BLANK_RETRY_MS = 400
-const BLANK_MAX_RETRY = 2
-/** 重开文档的节流窗口：同一页这段时间内只重开一次 */
-const RELOAD_COOLDOWN_MS = 15000
 /** 备用帧停靠位置：移出视口即可（overflow:hidden 会裁掉），它仍是正常在绘制的画布 */
 const OFFSCREEN = '-99999px'
 
@@ -114,8 +89,6 @@ const CANVAS_SEL: Record<Layer, string> = {
   b: '#reader-canvas-b',
   c: '#reader-canvas-c',
 }
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /**
  * 在飞的后台预绘制的控制块（见 `doPredraw`）：
@@ -130,47 +103,6 @@ type BgCtl = {
   fire: () => void
 }
 
-/**
- * 探测 pdf 渲染依赖的环境能力（诊断用；一次调用开销可忽略）。
- *
- * 为什么需要：iOS 真机上 pdf.js 会「静默不画」——resolve、无异常，只有 console.warn。
- * 把环境事实随上报一起带回来，才能判断是缺 API（OffscreenCanvas / createImageBitmap）
- * 还是别的原因，而不用让测试者做真机调试。
- */
-function probePdfEnv(): Record<string, string> {
-  const out: Record<string, string> = {}
-  try {
-    out.offscreenCtor = typeof (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas
-  } catch {
-    out.offscreenCtor = 'err'
-  }
-  try {
-    const wxAny = Taro as unknown as {
-      createOffscreenCanvas?: (o: { type: string; width: number; height: number }) => {
-        getContext?: (t: string) => unknown
-      } | null
-    }
-    const c = wxAny.createOffscreenCanvas?.({ type: '2d', width: 4, height: 4 })
-    if (!c) out.wxOffscreen = 'null'
-    else if (typeof c.getContext !== 'function') out.wxOffscreen = 'noGetContext'
-    else {
-      try {
-        out.wxOffscreen = c.getContext('2d') ? 'ok' : 'nullCtx'
-      } catch {
-        out.wxOffscreen = 'ctxThrow'
-      }
-    }
-  } catch {
-    out.wxOffscreen = 'throw'
-  }
-  try {
-    out.createImageBitmap = typeof (globalThis as { createImageBitmap?: unknown }).createImageBitmap
-  } catch {
-    out.createImageBitmap = 'err'
-  }
-  return out
-}
-
 export default function ScoreReader() {
   const { t } = useT()
   const darkClass = useThemeClass()
@@ -178,15 +110,15 @@ export default function ScoreReader() {
   useNavTitle('scoreReader.navTitle')
   const router = useRouter()
   const fileId = router.params.file_id ? decodeURIComponent(router.params.file_id) : ''
-  const presetUrl = router.params.url ? decodeURIComponent(router.params.url) : ''
   // 列表页（pages/score-part）带过来的元数据：省掉一次走反代到境外库的查询
   //（实测 ~600ms）。缺了就回退查库——分享链接等旧入口不受影响。
   const presetStoragePath = router.params.sp ? decodeURIComponent(router.params.sp) : ''
   const presetPageCount = Number(router.params.pc) || 0
   const presetFileName = router.params.fn ? decodeURIComponent(router.params.fn) : ''
 
-  const [url, setUrl] = useState(presetUrl || DEFAULT_URL)
   const [stage, setStage] = useState<Stage>('idle')
+  /** 这份谱子没有页图（预渲染失败 / 还没跑迁移）：不在 App 里渲染，只引导「原生打开」 */
+  const [noImages, setNoImages] = useState(false)
   const [message, setMessage] = useState('')
   const [pageCount, setPageCount] = useState(0)
   const [page, setPage] = useState(1)
@@ -224,8 +156,6 @@ export default function ScoreReader() {
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS[0])
   const [annos, setAnnos] = useState<AnnoDoc>({})
 
-  const engineRef = useRef<PdfEngine | null>(null)
-  const docRef = useRef<PdfDocument | null>(null)
   /** 在飞的渲染任务：同一时刻只准一件——两块画布绝不能被并发写 */
   const inflightRef = useRef<Job | null>(null)
   /** 排队中的下一件（连点只保留最新一件） */
@@ -251,18 +181,12 @@ export default function ScoreReader() {
   const overlayCtxRef = useRef<CanvasCtx | null>(null)
   const overlayRectRef = useRef<{ left: number; top: number } | null>(null)
   const fileUrlRef = useRef('')
-  /**
-   * 图片模式：`page_count` 有值 = web 端上传时已预渲染页图（pkuso-web #378/#379）⇒
-   * 逐页下载图片显示（原生解码，几十毫秒/页），不再下载/解析 PDF（那是 6 秒/页的
-   * 纯 JS 解码路径）。NULL = 老文件或页图渲染失败 ⇒ 走 pdf.js 回退，功能完整但慢。
-   */
-  const imageModeRef = useRef(false)
   /** 页图预热泵：以当前页为中心的窗口预热（见 lib/prefetch-pump.ts） */
   const prefetchPumpRef = useRef<PrefetchPump | null>(null)
   // —— 邻居帧 / 预绘制（见 lib/predraw.ts、doPredraw / promoteFrame）——
   /**
    * 每块画布「现在放着哪一页」的记账。**铁律**：决定要写某块位图的那一刻就把这一笔清掉，
-   * 只有画成功（含白帧校验）才写回——留着过期的记账就是上错页。
+   * 只有画成功（预绘制那条路还要过「有墨校验」）才写回——留着过期的记账就是上错页。
    */
   const layerMetaRef = useRef<LayerMetas>({ a: null, b: null, c: null })
   /** 失效世代：每个 await 之后都要复核，变了就丢掉这次预绘制 */
@@ -277,7 +201,7 @@ export default function ScoreReader() {
 
   /**
    * 让所有邻居帧作废（世代 +1，并打断在飞的那次）。触发点：视口宽变化、缩放、换册、
-   * 白帧重开文档、页面销毁、回到前台——凡是「已经画好的帧尺寸对不上/内容来路不明」的事。
+   * 页面销毁、回到前台——凡是「已经画好的帧尺寸对不上/内容来路不明」的事。
    */
   const invalidatePredraw = useCallback((why: string) => {
     const hasFrames = Boolean(
@@ -302,7 +226,7 @@ export default function ScoreReader() {
   const turnRef = useRef<PageTurn | null>(null)
   if (!turnRef.current) turnRef.current = createPageTurn({ onChange: setTurn })
   /** 显示中的那一页：换帧时更新。用来判断这一帧到底「换没换页」——同一页的重渲
-      （缩放、转屏、白帧自愈）不该滑出去再滑回来 */
+      （缩放、转屏等同一页的重渲）不该滑出去再滑回来 */
   const displayedPageRef = useRef(0)
   // 退出页面即停泵、停动画、停预绘制——后台抓取/计时器不该在页面销毁后继续
   useUnload(() => {
@@ -329,23 +253,8 @@ export default function ScoreReader() {
   const activeLayerRef = useRef<Layer>('a')
   /** 在飞任务正写着的那一块 */
   const renderLayerRef = useRef<Layer | null>(null)
-  /** 当前文档的字节：白帧自愈要重开文档，不再回网络/磁盘拿一次 */
-  const bytesRef = useRef<ArrayBuffer | null>(null)
-  /** 重开文档的节流：同一页短时间内只重开一次，防死循环 */
-  const reloadGuardRef = useRef<{ page: number; at: number } | null>(null)
-
-  // —— 白帧自愈：不是临时诊断，是修复「渲染内容丢失」的常驻机制，别删 ——
-  // 真机上 pdf.js 会 resolve 却什么都没画出来（整页白），只能靠渲前记号 + 渲后抽样
-  // 探测（见 lib/raster.ts）发现，然后按情况重试渲染、或重开文档复位。
-  /** 白帧重渲的记录：同一页/同一缩放重试到第几次（有上限，不会死循环） */
-  const blankRetryRef = useRef<BlankRetry | null>(null)
-  /** 渲出过内容的页：用来区分「坏帧」和「这页本来就空白」 */
-  const inkPagesRef = useRef<Set<number>>(new Set())
   /** 指向 requestRender（doRender 的延迟探针要用，避免循环依赖） */
   const requestRef = useRef<(job: Job) => void>(() => {})
-  // —— 诊断探针（定位 iOS 真机「打开全白」与「加载慢」）——
-  // 白屏时页面逻辑是活的（顶栏能显示「1 / 34」），所以这些数据能随上报回传
-  const consoleTailRef = useRef<string[]>([])
   const timingRef = useRef<Record<string, number | string | boolean>>({})
 
   /**
@@ -368,47 +277,6 @@ export default function ScoreReader() {
     viewSizeRef.current = viewSize
   }, [viewSize])
 
-  // 采集 console 尾部：pdf.js 的失败只走 console.warn（不抛错），真机上没人看得到它，
-  // 只保留最近若干条，随「首帧全白」的上报一起回传
-  useEffect(() => {
-    const tail: string[] = []
-    consoleTailRef.current = tail
-    const origWarn = console.warn
-    const origError = console.error
-    const push = (tag: string, args: unknown[]) => {
-      try {
-        const line =
-          tag +
-          args
-            .map((a) => {
-              if (typeof a === 'string') return a
-              try {
-                return JSON.stringify(a)
-              } catch {
-                return String(a)
-              }
-            })
-            .join(' ')
-            .slice(0, 240)
-        tail.push(line)
-        if (tail.length > 12) tail.shift()
-      } catch {
-        // 探针绝不能反过来影响业务
-      }
-    }
-    console.warn = (...args: unknown[]) => {
-      push('W|', args)
-      origWarn(...(args as never[]))
-    }
-    console.error = (...args: unknown[]) => {
-      push('E|', args)
-      origError(...(args as never[]))
-    }
-    return () => {
-      console.warn = origWarn
-      console.error = origError
-    }
-  }, [])
   // 异步渲完后要判「这页还是不是当前页」，故用 ref 读最新值
   useEffect(() => {
     pageRef.current = page
@@ -424,16 +292,6 @@ export default function ScoreReader() {
   const applyZoom = useCallback((v: number) => {
     zoomRef.current = v
     setZoom(v)
-  }, [])
-
-  // 卸载销毁引擎与文档
-  useEffect(() => {
-    return () => {
-      docRef.current?.destroy()
-      engineRef.current?.destroy()
-      docRef.current = null
-      engineRef.current = null
-    }
   }, [])
 
   // 进入文件时载入本地批注
@@ -550,134 +408,68 @@ export default function ScoreReader() {
     sampleBandColorRef.current = sampleBandColor
   }, [sampleBandColor])
 
-  /**
-   * 用同一份字节重建引擎与文档。用于白帧自愈：pdf.js 内部有一层按页缓存
-   * （算子列表 / 已解码图像），一旦某页被清空，之后每次重渲都只画底色——
-   * 实测规律是「渲过的页、往前翻再翻回来就永远加载不出」。封装层没有暴露
-   * 单页复位接口，重开文档是唯一能确定复位的手段。
-   */
-  const reloadDoc = useCallback(async () => {
-    // 防御：文档都重开了，备用块上那一帧的来历也就不作数了
-    invalidatePredraw('reloadDoc')
-    try {
-      let bytes = bytesRef.current
-      // 原字节可能已被 pdf.js 转移走（detach 后 byteLength 为 0）：重新取一份
-      if (!bytes || bytes.byteLength === 0) {
-        const target = fileUrlRef.current
-        if (!target) return
-        bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
-          Taro.request({
-            url: target,
-            method: 'GET',
-            responseType: 'arraybuffer',
-            timeout: 60000,
-            success: (res) => {
-              if (res.statusCode === 200) resolve(res.data as ArrayBuffer)
-              else reject(new Error(`HTTP ${res.statusCode}`))
-            },
-            fail: (err) => reject(new Error(err.errMsg || 'request failed')),
-          })
-        })
-        bytesRef.current = bytes
-      }
-      setStage('parsing')
-      const engine = createPdfEngine()
-      engineRef.current?.destroy()
-      engineRef.current = engine
-      const doc = await engine.open(bytes)
-      docRef.current?.destroy()
-      docRef.current = doc
-      setPageCount(doc.pageCount)
-      aspectRef.current = 0
-      renderedZoomRef.current = 0 // 与当前 zoom 必然不等，强制重渲一次
-      blankRetryRef.current = null
-      setDocTick((tick) => tick + 1)
-    } catch (err) {
-      setStage('error')
-      setMessage(describeError(err))
-      // 这条自愈路径的重取字节走裸 Taro.request（绕过 taroFetch），失败只在屏幕上。
-      // 白帧自愈多发生在弱网/大文件，正是最需要事后回溯的场景
-      reportClientError({
-        event: 'score_reader_reload_failed',
-        message: describeError(err),
-        detail: { fileId },
-      })
-    }
-  }, [fileId, invalidatePredraw])
-
-  // 渲一页到备用块（绝不碰显示中的那块）。渲完先确认这一帧不是白的，再换帧
+  // 渲一页到备用块（绝不碰显示中的那块）。渲完直接换帧
   const doRender = useCallback(
     async (job: Job) => {
-      const imageMode = imageModeRef.current
-      const doc = docRef.current
-      // 图片模式没有 doc（刻意不打开 PDF）；pdf 模式下没有 doc 就没法渲染
-      if ((!doc && !imageMode) || containerW <= 0 || pageCount <= 0) return
+      if (containerW <= 0 || pageCount <= 0) return
       const target = clamp(job.page, 1, pageCount)
       // 写哪块：不是显示中的那块，且是「最该被写掉」的那块（远的先弃、同远时弃上一页保下一页）
       const layer = spareLayer(ALL_LAYERS, activeLayerRef.current, layerMetaRef.current, target)
       renderLayerRef.current = layer
-      // 铁律：马上要写这块位图了（paintPageImage / pdf.js 都会先清屏重设位图），
+      // 铁律：马上要写这块位图了（paintPageImage 一上来就重设 canvas 尺寸 = 清屏），
       // 这块画布的记账必须当场作废——留着它就是**直接上错页**，比白页更坏
       layerMetaRef.current[layer] = null
       const firstPaint = viewSizeRef.current.w <= 0
       // 只在还没有任何一帧时进 rendering：后续重渲不动状态，避免提示条反复显隐
       if (firstPaint) setStage('rendering')
       const tStep = Date.now()
-      // 两种模式都要画布节点（图片模式的 createImage 挂在它上面），提前取
       const { node } = await queryCanvasNode(CANVAS_SEL[layer])
       const nodeMs = Date.now() - tStep
 
-      let pageImg: LoadedPageImage | null = null
-      let info: { width: number; height: number }
+      let pageImg: LoadedPageImage
       // 诊断：**这次取图之前**，预热泵是否已经抓到过这一页。它直接回答
       // 「预热过的页在 iOS 上到底算不算命中」——warm 却仍要 600ms，说明泵白干了
-      const warm = imageMode ? (prefetchPumpRef.current?.isWarm(target) ?? false) : false
-      if (imageMode) {
-        // 图片模式：加载页图（**走小程序图片层，微信自带缓存**；不要换成
-        // downloadFile —— 那个不走 HTTP 缓存，每次都是真下载）。尺寸直接取自图片对象
-        try {
-          // 带退避重试（失败后重试两次）：图片层在高并发/瞬时抖动下会当场拒绝，
-          // 而这类拒绝多是"这一刻的"——退避一拍再来通常就好
-          pageImg = await loadPageImageWithRetry(
-            node as CanvasNode,
-            pageImageUrls(fileUrlRef.current, target)
-          )
-        } catch (err) {
-          // 这条路径的失败原本**只在屏幕上可见**（图片层 onerror 不带状态码，唯一的原因
-          // 文案也只有这里能拿到）——真机出现「页图加载失败」时事后完全无法定性，补上这条。
-          const e = err as PageImageError
-          const urls = pageImageUrls(fileUrlRef.current, target)
-          const hostOf = (u?: string) => (u ? u.replace(/^https?:\/\//, '').split('/')[0] : '')
-          reportClientError({
-            event: 'score_reader_page_image_failed',
-            message: describeError(err),
-            detail: {
-              fileId,
-              page: target,
-              /** 0 = 反代那条腿、1 = 直连那条腿（哪条不通看它） */
-              urlIndex: e.urlIndex ?? -1,
-              host: hostOf(urls[e.urlIndex ?? 0]),
-              /** 图片层 onerror 的原文（例如 url not in domain list） */
-              imgErrMsg: e.errMsg ?? '',
-              /** 取图前这一页有没有被预热到（预热过还失败 ⇒ 不是"没预热"的问题） */
-              warm,
-              /** 最后失败的是哪条路：image = 小程序图片层、file = downloadFile 兜底 */
-              via: e.via ?? '',
-              /** 两条路每一条的失败原因（图片层失败 vs 兜底也失败，事后必须分得开） */
-              trace: e.trace ?? '',
-              /** 这是第几次尝试之后才放弃（含首次；3 = 首次 + 两次重试都失败） */
-              attempts: PAGE_IMAGE_RETRY_DELAYS_MS.length + 1,
-            },
-          })
-          throw err
-        }
-        info = { width: pageImg.width, height: pageImg.height }
-        // 翻页：把预热泵的窗口挪到这一页（泵自己负责「前 3 后 3 优先、再填 ±窗口」，
-        // 并发按网络档位有界——见 lib/prefetch-pump.ts）
-        prefetchPumpRef.current?.setCurrent(target)
-      } else {
-        info = await doc!.getPageInfo(target)
+      const warm = prefetchPumpRef.current?.isWarm(target) ?? false
+      try {
+        // 页图走**小程序图片层**（微信自带 HTTP/磁盘图片缓存）；图片层在个别设备上会
+        // 必现失败，那时自动退到 downloadFile 兜底并记住结论——见 lib/page-image.ts
+        pageImg = await loadPageImageWithRetry(
+          node as CanvasNode,
+          pageImageUrls(fileUrlRef.current, target)
+        )
+      } catch (err) {
+        // 这条路径的失败原本**只在屏幕上可见**（图片层 onerror 不带状态码，唯一的原因
+        // 文案也只有这里能拿到）——真机出现「页图加载失败」时事后完全无法定性，补上这条。
+        const e = err as PageImageError
+        const urls = pageImageUrls(fileUrlRef.current, target)
+        const hostOf = (u?: string) => (u ? u.replace(/^https?:\/\//, '').split('/')[0] : '')
+        reportClientError({
+          event: 'score_reader_page_image_failed',
+          message: describeError(err),
+          detail: {
+            fileId,
+            page: target,
+            /** 0 = 反代那条腿、1 = 直连那条腿（哪条不通看它） */
+            urlIndex: e.urlIndex ?? -1,
+            host: hostOf(urls[e.urlIndex ?? 0]),
+            /** 图片层 onerror 的原文（例如 url not in domain list） */
+            imgErrMsg: e.errMsg ?? '',
+            /** 取图前这一页有没有被预热到（预热过还失败 ⇒ 不是"没预热"的问题） */
+            warm,
+            /** 最后失败的是哪条路：image = 小程序图片层、file = downloadFile 兜底 */
+            via: e.via ?? '',
+            /** 两条路每一条的失败原因（图片层失败 vs 兜底也失败，事后必须分得开） */
+            trace: e.trace ?? '',
+            /** 这是第几次尝试之后才放弃（含首次；3 = 首次 + 两次重试都失败） */
+            attempts: PAGE_IMAGE_RETRY_DELAYS_MS.length + 1,
+          },
+        })
+        throw err
       }
+      const info = { width: pageImg.width, height: pageImg.height }
+      // 翻页：把预热泵的窗口挪到这一页（泵自己负责「前 3 后 3 优先、再填 ±窗口」，
+      // 并发按网络档位有界——见 lib/prefetch-pump.ts）
+      prefetchPumpRef.current?.setCurrent(target)
       const aspect = info.height / info.width
       const fit = containerW / info.width
       const scale = fit * job.zoom
@@ -688,38 +480,18 @@ export default function ScoreReader() {
       if (firstPaint) setViewSize({ w, h })
       const infoMs = Date.now() - tStep - nodeMs
       // 目标块可能还在滑（上一次翻页的动画没走完）：等它停靠再动它。串行队列的下一件
-      // 必然写「刚退役的那一块」，而清屏（pdf.js 的 canvas.width = …）落在滑行半路
+      // 必然写「刚退役的那一块」，而清屏（paintPageImage 重设尺寸）落在滑行半路
       // 会当场露白。放在这里而不是开头，是为了让取图/解析与动画尾巴并行
       const pageTurn = turnRef.current
       while (pageTurn && pageTurn.frame()?.layer === layer) {
         await pageTurn.settle(layer)
       }
-      drawMark(node as CanvasNode)
       const tRender = Date.now()
-      if (imageMode && pageImg) {
-        // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
-        paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
-      } else {
-        await doc!.renderPage(target, node, { scale, pixelRatio: dpr })
-      }
+      // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
+      paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
       const renderMs = Date.now() - tRender
       // 这一帧画完了：顺手采一下这张纸的纸色，给灰带上色（后台、失败无所谓）
       sampleBandColorRef.current(layer)
-      const tProbe = Date.now()
-      // 图片模式**不做**白帧探测：那套（渲前记号 + 渲后采样）是为 pdf.js 的**静默
-      // 失败**设计的；页图是上传时预渲染的权威结果，不存在「渲染失败」。直接当有墨
-      let kept = false
-      let ink = 3
-      if (!imageMode) {
-        kept = markKept(node as CanvasNode)
-        // 白帧判定：绘图指令是异步落到原生侧的，第一次读到白要再等一拍复核
-        ink = frameInk(node as CanvasNode)
-        if (ink === 0) {
-          await sleep(PROBE_RECHECK_MS)
-          ink = frameInk(node as CanvasNode)
-        }
-      }
-      const probeMs = Date.now() - tProbe
       // 首帧必打；**每次翻页**都打（turnMs 就是「翻页 <150ms」那个指标，快了也要看得见）；
       // 同一页的重渲只在偏慢时打
       const isTurn =
@@ -730,12 +502,9 @@ export default function ScoreReader() {
           infoMs,
           nodeMs,
           renderMs,
-          probeMs,
-          ink,
-          kept,
           warm,
           // 走到这条日志就说明这次翻页**没命中**预绘制（命中会走 promote 那条日志）
-          predraw: imageMode && isTurn ? 'miss' : 'off',
+          predraw: isTurn ? 'miss' : 'off',
           turnMs: pageChangeAtRef.current ? Date.now() - pageChangeAtRef.current : -1,
           containerW,
           scale: Number(scale.toFixed(3)),
@@ -743,61 +512,6 @@ export default function ScoreReader() {
           bitmapW: w * dpr,
           bitmapH: h * dpr,
         })
-      }
-      if (ink === 0) {
-        const prev = blankRetryRef.current
-        const attempt = prev && prev.page === target && prev.zoom === job.zoom ? prev.n + 1 : 1
-        const stillHere = () => pageRef.current === target && zoomRef.current === job.zoom
-        if (!inkPagesRef.current.has(target)) {
-          // 这一页还没渲出过内容：可能它本来就空白（谱子里夹的空白页），
-          // 也可能第一次渲就坏了。复核一次再定，别把白页判成坏帧、也别放过坏帧
-          if (attempt <= 1) {
-            blankRetryRef.current = { page: target, zoom: job.zoom, n: attempt }
-            setTimeout(() => {
-              if (stillHere()) requestRef.current({ page: target, zoom: job.zoom })
-            }, BLANK_RETRY_MS)
-            return
-          }
-          // 确认本来就空：照常换上去
-        } else {
-          blankRetryRef.current = { page: target, zoom: job.zoom, n: attempt }
-          // 记号还在 = 这次渲染根本没碰画布（多半是瞬时问题）→ 重试有意义。
-          // 记号被盖掉 = 渲染跑了却只画了底色（pdf.js 那页的数据没了）→ 重试没用，
-          // 直接重开文档复位；这一条是实测出来的（用户复现时重试次次皆白）
-          if (kept && attempt <= BLANK_MAX_RETRY && stillHere()) {
-            setTimeout(() => {
-              // 到点了再看一眼：用户要是已经翻走，这次重试就没意义了
-              if (stillHere()) requestRef.current({ page: target, zoom: job.zoom })
-            }, BLANK_RETRY_MS * attempt)
-            return
-          }
-          // 图片模式没有「文档」可重开、也没有本地缓存可清：重试一次即可
-          //（微信图片层会重拉那张图）
-          if (imageMode && stillHere()) {
-            const gi = reloadGuardRef.current
-            if (!gi || gi.page !== target || Date.now() - gi.at > RELOAD_COOLDOWN_MS) {
-              reloadGuardRef.current = { page: target, at: Date.now() }
-              requestRef.current({ page: target, zoom: job.zoom })
-              return
-            }
-          }
-          const g = reloadGuardRef.current
-          if (
-            !imageMode &&
-            stillHere() &&
-            bytesRef.current &&
-            (!g || g.page !== target || Date.now() - g.at > RELOAD_COOLDOWN_MS)
-          ) {
-            reloadGuardRef.current = { page: target, at: Date.now() }
-            void reloadDoc()
-            return
-          }
-          // 连重开文档都没救回来：宁可停在上一页，也不把白帧换上去
-          return
-        }
-      } else {
-        inkPagesRef.current.add(target)
-        blankRetryRef.current = null
       }
       // 换帧：只在这页仍是当前页时
       if (pageRef.current !== target || zoomRef.current !== job.zoom) return
@@ -814,57 +528,35 @@ export default function ScoreReader() {
       // 它靠这个 ref 挑「该写哪块」——晚一步（等 effect）它就会渲到正在显示的画布上
       activeLayerRef.current = layer
       setActiveLayer(layer)
-      // 记账：这块现在放着 target。**只有图片模式才记**——pdf.js 的帧可能是静默白帧，
-      // 而白帧自愈只跑在前台路径上，存下来的帧没有兜底
-      layerMetaRef.current[layer] = imageMode
-        ? {
-            page: target,
-            zoom: job.zoom,
-            containerW,
-            layer,
-            cssW: w,
-            cssH: h,
-            aspect,
-            at: Date.now(),
-          }
-        : null
+      // 记账：这块现在放着 target（预绘制据此知道「哪个邻居已经备好」）
+      layerMetaRef.current[layer] = {
+        page: target,
+        zoom: job.zoom,
+        containerW,
+        layer,
+        cssW: w,
+        cssH: h,
+        aspect,
+        at: Date.now(),
+      }
       // 翻页动画：方向跟着翻页方向走（往回翻就向右滑），该不该滑见 turnDirFor
       const dir = turnDirFor({ firstPaint, shown, target })
       if (dir !== null) turnRef.current?.begin(retiring, dir)
       if (firstPaint) {
         const startedAt = Number(timingRef.current.startedAt ?? 0)
-        const timing = {
-          ...timingRef.current,
-          firstMs: startedAt ? Date.now() - startedAt : -1,
-        }
         // 分阶段耗时：PC/工具端能在 console 里直接看到（「打开慢」靠它定位）
         // eslint-disable-next-line no-console
-        console.log('[score-reader] first frame', { page: target, ink, kept, ...timing })
-        if (ink <= 0) {
-          // ink=0：首帧全白仍被换上去 = 渲染静默失败——正是 iOS 真机「打开全白」的表现
-          // （顶栏有页码、画布什么都没有、pdf.js 不抛错）。
-          // ink=-1：墨迹探测本身失败（getImageData 不可用/抛错，raster.ts 会吞成 -1），
-          // 此时白帧判定整条链都失效，同样只在屏幕上可见。两种情况都只有这里能留痕；
-          // 把 pdf.js 的 console 尾部与环境能力一起回传，免得依赖真机调试
-          reportClientError({
-            event: 'score_reader_blank_frame',
-            message: `首帧未出墨 ink=${ink}`,
-            detail: {
-              fileId,
-              page: target,
-              kept,
-              ...timing,
-              env: probePdfEnv(),
-              consoleTail: consoleTailRef.current.slice(-8),
-            },
-          })
-        }
+        console.log('[score-reader] first frame', {
+          page: target,
+          firstMs: startedAt ? Date.now() - startedAt : -1,
+          ...timingRef.current,
+        })
       }
       setStage('ready')
       // 换帧落地，趁空闲把「下一页」备进备用块（见 schedulePredraw）
       schedulePredrawRef.current()
     },
-    [containerW, fileId, pageCount, queryCanvasNode, reloadDoc]
+    [containerW, fileId, pageCount, queryCanvasNode]
   )
 
   /**
@@ -912,8 +604,8 @@ export default function ScoreReader() {
    * 后台预绘制：把「缺的那个邻居」取图并画进备用块，全程不进关键路径。
    * 用户真翻到它时由 `requestRender` 直接换帧（promoteFrame），等待 ≈ 0。
    *
-   * 只对图片模式生效：pdf.js 的单页成本是 JS 主线程解码，后台跑会把**正在读的那一页**
-   * 一起冻住；而且它的白帧自愈要求「记号 + 探测 + 重开文档」整套走全才敢上屏。
+   * 预绘制只对「写位图」这条路成立：它的帧是整页 JPEG，画进备用块的成本是几毫秒，
+   * 所以能放在后台；写的时候只碰备用块，绝不动正在显示的那一块。
    */
   const doPredraw = useCallback(
     async (job: Job, ctl: BgCtl) => {
@@ -959,7 +651,7 @@ export default function ScoreReader() {
         layerMetaRef.current[layer] = null
         paintPageImage(node as CanvasNode, img.img, Math.round(w * dpr), Math.round(h * dpr))
         // 有墨校验：帧从画完到上屏之间隔着不确定时间（位图可能被系统回收），而图片模式
-        // 没有白帧自愈 —— 只丢弃、不重试（误丢的代价只是这一页走常规路径 ~50ms）
+        // 没有自愈路径 —— 只丢弃、不重试（误丢的代价只是这一页走常规渲染 ~50ms）
         const ink = frameInk(node as CanvasNode)
         if (ink === 0) {
           // eslint-disable-next-line no-console
@@ -1024,7 +716,6 @@ export default function ScoreReader() {
         })
       )
       const go = predrawGo({
-        imageMode: imageModeRef.current,
         zoom: zoomRef.current,
         pinching: Boolean(pinchRef.current),
         animating: Boolean(turnRef.current?.frame()),
@@ -1046,8 +737,8 @@ export default function ScoreReader() {
     schedulePredrawRef.current = schedulePredraw
   }, [schedulePredraw])
 
-  // 串行执行：一件渲完才起下一件。并发渲同一块画布会互相清屏（pdf.js 的
-  // renderPage 一上来就 canvas.width=…），这是「快速翻页白页」的根源。
+  // 串行执行：一件渲完才起下一件。并发渲同一块画布会互相清屏（paintPageImage
+  // 一上来就重设 canvas 尺寸），这是「快速翻页白页」的根源。
   // 后台预绘制（job.bg）也走这里：它借的是同一个「同一时刻只有一件在动画布」的不变量。
   const runJob = useCallback(
     (job: Job) => {
@@ -1249,160 +940,98 @@ export default function ScoreReader() {
     [fileId]
   )
 
-  const load = useCallback(
-    async (targetUrl?: string) => {
-      let finalUrl = targetUrl || ''
-      let cacheTag = ''
-      let imagePageTotal = 0
-      // 每次 load 都重置：ref 跨调用保留，上一次的图片模式不能让这一次（比如无
-      // file_id 的 url 直开）误走图片路径
-      imageModeRef.current = false
-      prefetchPumpRef.current?.stop()
-      prefetchPumpRef.current = null
-      // 取图策略（图片层 / downloadFile 兜底）的判定也跟着复位：换册=换了网络场景，
-      // 用户点「重试」=明确要求重来一次，两处都值得重新判一遍（见 page-image 的注释）
-      resetPageImageStrategy()
-      setBandColor(null) // 纸色也作废：新册第一帧采到之前，先退回默认灰带
-      invalidatePredraw('load') // 换册：备用块上那一帧属于上一册，作废
-      inkPagesRef.current.clear() // 页码对应不同内容，白页判据也要重置
-      // 「显示中的页」作废：换册后的首帧不滑（换册前后页码可能撞上，靠它区分）。
-      // 上一册那一段滑出不用管——它自己 200ms 内会停靠
-      displayedPageRef.current = 0
-      const tStart = Date.now()
-      timingRef.current = { startedAt: tStart }
-      setStage('fetching')
-      setMessage('')
-      try {
-        if (fileId && !finalUrl && presetStoragePath && presetPageCount > 0) {
-          // 快速路径：列表页已把元数据带来 —— 省掉整次查询（那是首帧最大的一项）
-          finalUrl = supabase.storage.from('sheet-music').getPublicUrl(presetStoragePath)
-            .data.publicUrl
-          imageModeRef.current = true
-          imagePageTotal = presetPageCount
-          if (presetFileName) void Taro.setNavigationBarTitle({ title: presetFileName })
-        } else if (fileId && !finalUrl) {
-          const { data, error } = await supabase
-            .from('sheet_music_files')
-            .select('*')
-            .eq('id', fileId)
-            .maybeSingle()
-          if (error) throw new Error(error.message)
-          if (!data) throw new Error(t('scoreReader.notFound'))
-          const fileMeta = data as SheetMusicFileRow
-          finalUrl = supabase.storage.from('sheet-music').getPublicUrl(fileMeta.storage_path)
-            .data.publicUrl
-          // 图片模式（pkuso-web #378/#379）：page_count 有值 = 上传时已预渲染页图 ⇒
-          // 不下载 PDF、不解析，逐页下载图片显示（原生解码，几十毫秒/页）
-          if (fileMeta.page_count && fileMeta.page_count > 0) {
-            imageModeRef.current = true
-            imagePageTotal = fileMeta.page_count
-          } else {
-            // 老文件 / 页图渲染失败的 ⇒ pdf.js 回退路径
-            cacheTag = pdfCacheTag(fileMeta)
-          }
-          void Taro.setNavigationBarTitle({ title: fileMeta.file_name })
-        }
-        timingRef.current.metaMs = Date.now() - tStart
-        if (!finalUrl) throw new Error(t('scoreReader.loadFailed', { error: 'no url' }))
-        fileUrlRef.current = finalUrl
-
-        if (imageModeRef.current) {
-          // 图片模式：PDF 不下载、不解析——总页数来自库（page_count），首帧由 doRender 拉
-          timingRef.current.cached = true
-          setPageCount(imagePageTotal)
-          const savedImg = fileId ? Number(Taro.getStorageSync(lastPageKey(fileId))) : NaN
-          setPage(
-            Number.isFinite(savedImg) && savedImg >= 1
-              ? clamp(Math.round(savedImg), 1, imagePageTotal)
-              : 1
-          )
-          applyZoom(1)
-          setPan({ x: 0, y: 0 })
-          renderedZoomRef.current = 1
-          aspectRef.current = 0
-          // 页图预热泵：总页数已知就建。首帧仍走前台路径；泵由 doRender 的首个
-          // setCurrent 启动——不与首帧抢带宽
-          const pump = createPrefetchPump({
-            total: imagePageTotal,
-            urlsFor: (n) => pageImageUrls(fileUrlRef.current, n),
-            // 预取跟着「哪条路能用」走：图片层坏了就改为下进本地记账（见 prefetchPageImage），
-            // 否则前台每页都要在坏掉的图片层上白等一轮
-            prefetchOne: prefetchPageImage,
-          })
-          prefetchPumpRef.current = pump
-          // 并发固定串行（泵默认值；理由见 lib/prefetch-pump.ts 的 PREFETCH_PARALLEL：
-          // 并发会和前台取图抢图片层的额度，真机上把前台那次取图挤失败过）
-          setDocTick((tick) => tick + 1)
-          return
-        }
-
-        // 本地缓存优先：同一份谱子第二次打开不再走网络
-        const tBytes = Date.now()
-        let bytes = fileId && cacheTag ? await readCachedPdf(fileId, cacheTag) : null
-        timingRef.current.cached = Boolean(bytes)
-        if (!bytes) {
-          bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
-            Taro.request({
-              url: finalUrl,
-              method: 'GET',
-              responseType: 'arraybuffer',
-              timeout: 60000,
-              success: (res) => {
-                if (res.statusCode === 200) resolve(res.data as ArrayBuffer)
-                else reject(new Error(`HTTP ${res.statusCode}`))
-              },
-              fail: (err) => reject(new Error(err.errMsg || 'request failed')),
-            })
-          })
-          // 落盘不挡首帧；失败也无所谓
-          if (fileId && cacheTag) writeCachedPdf(fileId, cacheTag, bytes)
-        }
-        timingRef.current.bytesMs = Date.now() - tBytes
-        timingRef.current.size = bytes.byteLength
-        bytesRef.current = bytes
-
-        setStage('parsing')
-        const tOpen = Date.now()
-        const engine = createPdfEngine()
-        engineRef.current?.destroy()
-        engineRef.current = engine
-        const doc = await engine.open(bytes)
-        timingRef.current.openMs = Date.now() - tOpen
-        docRef.current?.destroy()
-        docRef.current = doc
-        const total = doc.pageCount
-        setPageCount(total)
-        // 书签：上次读到哪页就回到哪页
-        const saved = fileId ? Number(Taro.getStorageSync(lastPageKey(fileId))) : NaN
-        setPage(Number.isFinite(saved) && saved >= 1 ? clamp(Math.round(saved), 1, total) : 1)
-        setZoom(1)
-        setPan({ x: 0, y: 0 })
-        renderedZoomRef.current = 1
-        aspectRef.current = 0
-        setDocTick((tick) => tick + 1)
-
-        // ⚠️ 这里曾回填 page_count（admin/score_manager 打开时写总页数）——**已删**。
-        // 新语义下 page_count 是「页图就绪」的开关（pkuso-web #378）：回填会把没有
-        // 页图的老文件标成「有页图」，阅读器进图片模式却找不到页图。总页数由 web 端
-        // 在上传时（预渲染页图的那一次）写入——跨仓约定，别再回填。
-      } catch (err) {
-        setStage('error')
-        setMessage(describeError(err))
-        // 这条链路上有两类失败没有其它通道上报：下载字节走裸 Taro.request（绕过
-        // taroFetch），pdf.js 解析/引擎错误则不经网络层——都只在用户屏幕上
-        reportClientError({
-          event: 'score_reader_load_failed',
-          message: describeError(err),
-          detail: { fileId },
-        })
+  const load = useCallback(async () => {
+    let finalUrl = ''
+    let imagePageTotal = 0
+    prefetchPumpRef.current?.stop()
+    prefetchPumpRef.current = null
+    // 取图策略（图片层 / downloadFile 兜底）的判定也跟着复位：换册=换了网络场景，
+    // 用户点「重试」=明确要求重来一次，两处都值得重新判一遍（见 page-image 的注释）
+    resetPageImageStrategy()
+    setBandColor(null) // 纸色也作废：新册第一帧采到之前，先退回默认灰带
+    invalidatePredraw('load') // 换册：备用块上那一帧属于上一册，作废
+    setNoImages(false)
+    // 「显示中的页」作废：换册后的首帧不滑（换册前后页码可能撞上，靠它区分）。
+    // 上一册那一段滑出不用管——它自己 200ms 内会停靠
+    displayedPageRef.current = 0
+    const tStart = Date.now()
+    timingRef.current = { startedAt: tStart }
+    setStage('fetching')
+    setMessage('')
+    try {
+      if (!fileId) throw new Error(t('scoreReader.notFound'))
+      if (presetStoragePath && presetPageCount > 0) {
+        // 快速路径：列表页已把元数据带来 —— 省掉整次查询（那是首帧最大的一项）
+        finalUrl = supabase.storage.from('sheet-music').getPublicUrl(presetStoragePath)
+          .data.publicUrl
+        imagePageTotal = presetPageCount
+        if (presetFileName) void Taro.setNavigationBarTitle({ title: presetFileName })
+      } else {
+        const { data, error } = await supabase
+          .from('sheet_music_files')
+          .select('*')
+          .eq('id', fileId)
+          .maybeSingle()
+        if (error) throw new Error(error.message)
+        if (!data) throw new Error(t('scoreReader.notFound'))
+        const fileMeta = data as SheetMusicFileRow
+        finalUrl = supabase.storage.from('sheet-music').getPublicUrl(fileMeta.storage_path)
+          .data.publicUrl
+        imagePageTotal = fileMeta.page_count ?? 0
+        void Taro.setNavigationBarTitle({ title: fileMeta.file_name })
       }
-    },
-    [applyZoom, fileId, invalidatePredraw, presetFileName, presetPageCount, presetStoragePath, t]
-  )
+      timingRef.current.metaMs = Date.now() - tStart
+      if (!finalUrl) throw new Error(t('scoreReader.loadFailed', { error: 'no url' }))
+      fileUrlRef.current = finalUrl
 
-  // 自动加载：带 file_id / url 参数进入时
+      // ⚠️ `page_count` 是「**页图就绪**」的开关（pkuso-web #378），不是「总页数」那么简单：
+      // 这里**绝不能回填**它（曾经 admin/score_manager 打开时写总页数 ⇒ 没有页图的老文件
+      // 被标成「有页图」，阅读器进来却找不到页图）。由 web 端在上传（预渲染页图那一次）写入。
+      //
+      // 没有页图的（预渲染失败、或还没跑迁移）⇒ 不在 App 里渲染，直接引导「原生打开」。
+      // 这是拿掉 pdf.js 运行时（分包里 1.6MB）之后唯一的代价：这类文件交给系统阅读器。
+      if (!(imagePageTotal > 0)) {
+        setNoImages(true)
+        setStage('error')
+        return
+      }
+
+      setPageCount(imagePageTotal)
+      // 书签：上次读到哪页就回到哪页
+      const savedImg = fileId ? Number(Taro.getStorageSync(lastPageKey(fileId))) : NaN
+      setPage(
+        Number.isFinite(savedImg) && savedImg >= 1
+          ? clamp(Math.round(savedImg), 1, imagePageTotal)
+          : 1
+      )
+      applyZoom(1)
+      setPan({ x: 0, y: 0 })
+      renderedZoomRef.current = 1
+      aspectRef.current = 0
+      // 页图预热泵：首帧仍走前台路径；泵由 doRender 的首个 setCurrent 启动——不与首帧
+      // 抢带宽。并发固定串行（泵默认值，理由见 lib/prefetch-pump.ts 的 PREFETCH_PARALLEL）
+      prefetchPumpRef.current = createPrefetchPump({
+        total: imagePageTotal,
+        urlsFor: (n) => pageImageUrls(fileUrlRef.current, n),
+        // 预取跟着「哪条路能用」走：图片层坏了就改为下进本地记账（见 prefetchPageImage），
+        // 否则前台每页都要在坏掉的图片层上白等一轮
+        prefetchOne: prefetchPageImage,
+      })
+      setDocTick((tick) => tick + 1)
+    } catch (err) {
+      setStage('error')
+      setMessage(describeError(err))
+      reportClientError({
+        event: 'score_reader_load_failed',
+        message: describeError(err),
+        detail: { fileId },
+      })
+    }
+  }, [applyZoom, fileId, invalidatePredraw, presetFileName, presetPageCount, presetStoragePath, t])
+
+  // 自动加载：带 file_id 进入时
   useEffect(() => {
-    if (fileId || presetUrl) void load(presetUrl || undefined)
+    if (fileId) void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1709,8 +1338,7 @@ export default function ScoreReader() {
   const [nativeBusy, setNativeBusy] = useState(false)
   const openNative = async () => {
     if (nativeBusy) return
-    // 只认 load() 成功后写入的真实文件 URL：曾经 fallback 到 url state（无 file_id
-    // 进入时是 DEFAULT_URL dummy.pdf），load 失败时「原生打开」会下载到 dummy
+    // 只认 load() 成功后写入的真实文件 URL（拿不到就别下——下到别的谱子上更糟）
     const target = fileUrlRef.current
     if (!target) {
       void Taro.showToast({ title: t('scoreReader.nativeNotReady'), icon: 'none' })
@@ -1718,16 +1346,6 @@ export default function ScoreReader() {
     }
     setNativeBusy(true)
     try {
-      // 有本地缓存就直接用它，省一次下载
-      const cached = cachedPdfPath(fileId)
-      if (cached) {
-        try {
-          await Taro.openDocument({ filePath: cached, showMenu: true })
-          return
-        } catch {
-          // 缓存文件没了/打不开：走下面重新下载
-        }
-      }
       const res = await Taro.downloadFile({ url: target })
       if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}`)
       await Taro.openDocument({ filePath: res.tempFilePath, showMenu: true })
@@ -1748,7 +1366,6 @@ export default function ScoreReader() {
     }
   }
 
-  const showUrlInput = !fileId
   /** 灰带只在「菜单关着 + 未放大」时画，见 JSX 里的注释（放大后会盖住谱面） */
   const showBands = !menuOn && zoom <= 1
   const currentStrokes = annos[String(page)] ?? []
@@ -1783,7 +1400,19 @@ export default function ScoreReader() {
     <View
       className={`${darkClass} score-reader-page relative flex h-full min-h-0 flex-col bg-page-bg`}
     >
-      {stage === 'error' && message ? (
+      {noImages ? (
+        // 没有页图：App 里没有可渲染的东西（pdf.js 运行时已拿掉，见文件头的注释）。
+        // 给一条真出口 —— 「原生打开」交给系统阅读器，功能上仍看得到这份谱子
+        <View className='flex flex-row items-center justify-between px-4 py-2'>
+          <Text className='flex-1 text-xs text-text-muted'>{t('scoreReader.noImages')}</Text>
+          <View
+            className='ml-3 shrink-0 rounded-full border border-border bg-card px-3 py-1'
+            onClick={() => void openNative()}
+          >
+            <Text className='text-xs text-text'>{t('scoreReader.openNative')}</Text>
+          </View>
+        </View>
+      ) : stage === 'error' && message ? (
         <View className='flex flex-row items-center justify-between px-4 py-2'>
           <Text className='flex-1 text-xs text-danger'>{message}</Text>
           {/* 弱网下页图可能加载超时（实测有卡 150 秒的）——给一个显式重试，
@@ -1795,29 +1424,6 @@ export default function ScoreReader() {
             onClick={() => void load()}
           >
             <Text className='text-xs text-text'>{t('scoreReader.retry')}</Text>
-          </View>
-        </View>
-      ) : null}
-
-      {/* 调试模式：URL 输入（无 file_id 进入时） */}
-      {showUrlInput ? (
-        <View className='px-4 pt-3'>
-          <View className='overflow-hidden rounded-lg border border-border bg-card'>
-            <Input
-              className='h-10 w-full bg-transparent px-3 text-sm text-text'
-              value={url}
-              onInput={(e) => setUrl(e.detail.value)}
-              placeholder={t('scoreReader.inputPlaceholder')}
-            />
-          </View>
-          <View className='mt-3 flex justify-center'>
-            <Button
-              className='rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground'
-              onClick={() => void load()}
-              disabled={stage === 'fetching'}
-            >
-              {t('scoreReader.load')}
-            </Button>
           </View>
         </View>
       ) : null}
@@ -1849,7 +1455,7 @@ export default function ScoreReader() {
           >
             {/* 三块画布：一块显示中、一块放着「下一页」（预绘制）、一块放着「上一页」
                 （换帧后退役的那块，内容是刚离开的那页——免费）。渲染永远进「该写的那块」，
-                渲完再换帧，pdf.js 清屏那一下就不会露白（见 lib/predraw.ts 与 layerStyle）。
+                渲完再换帧，清屏那一下就不会露白（见 lib/predraw.ts 与 layerStyle）。
                 换帧时退役的那块被动画移到滑出位（见 lib/page-turn.ts） */}
             <Canvas
               type='2d'

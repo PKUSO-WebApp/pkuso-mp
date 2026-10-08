@@ -88,7 +88,7 @@ describe('turnDirFor', () => {
     expect(turnDirFor({ firstPaint: true, shown: 0, target: 7 })).toBeNull()
   })
 
-  it('同一页的重渲不滑（缩放 / 转屏 / 白帧自愈）', () => {
+  it('同一页的重渲不滑（缩放 / 转屏）', () => {
     expect(turnDirFor({ firstPaint: false, shown: 7, target: 7 })).toBeNull()
   })
 

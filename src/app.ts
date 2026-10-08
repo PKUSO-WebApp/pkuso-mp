@@ -1,14 +1,5 @@
 import { createElement, Fragment, PropsWithChildren } from 'react'
 import Taro, { useLaunch } from '@tarojs/taro'
-// JBIG2 回退件（扫描件必需）挂在主包里、启动时立刻挂到全局：
-// pdf 运行时（在 score-reader 分包内）通过 globalThis 取它，从而不把这份
-// 768KB 的体积算进分包——分包 2MB 上限会被顶破（微信上传报 80200）。
-// 放在 app.ts 而不是页面里，是因为 app 先于任何页面执行，不会来不及。
-//
-// ⚠️ 谱务是 dev 独占的未发布功能，所以 main 的 app.ts 里没有这几行——合并 main
-// 进 dev 时这段会被删掉（真发生过），合并后必须回补，否则打开扫描件时
-// pdf 运行时抛 "jbig2 fallback not wired"。
-import jbig2Fallback from '@vendor/jbig2_nowasm_fallback'
 import { UserProvider } from './context/user-context'
 import { ThemeProvider } from './context/theme-context'
 import { NotificationBadgeSync } from './components/notification-badge-sync'
@@ -25,8 +16,6 @@ import { isNavigationError, showNavigateFailedToast } from './lib/navigate'
 
 import './app.css'
 import './app.scss'
-
-Object.assign(globalThis, { __pkusoJbig2Fallback: jbig2Fallback })
 
 const IGNORE_ERRORS = [/not TabBar page/i]
 

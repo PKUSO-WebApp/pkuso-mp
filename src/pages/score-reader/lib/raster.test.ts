@@ -3,9 +3,7 @@ import {
   DPR,
   MAX_RASTER_EDGE,
   MAX_RASTER_PIXELS,
-  drawMark,
   frameInk,
-  markKept,
   medianHex,
   rasterDpr,
   sampleEdgeColors,
@@ -108,28 +106,6 @@ describe('rasterDpr', () => {
       expect(dpr).toBeLessThanOrEqual(prev)
       prev = dpr
     }
-  })
-})
-
-describe('drawMark / markKept', () => {
-  it('drawMark 把变换复位后点一个洋红方块', () => {
-    const { calls, node } = fakeNode({})
-    drawMark(node)
-    expect(calls).toEqual(['setTransform(1,0,0,1,0,0)', 'fillRect(0,0,4,4)'])
-  })
-
-  it('getContext 抛错时静默（不影响主流程）', () => {
-    const { node } = fakeNode({ ctxThrows: true })
-    expect(() => drawMark(node)).not.toThrow()
-  })
-
-  it('markKept：洋红 → true，白 → false', () => {
-    expect(markKept(fakeNode({ rows: [[255, 0, 255, 255]] }).node)).toBe(true)
-    expect(markKept(fakeNode({ rows: [WHITE] }).node)).toBe(false)
-  })
-
-  it('markKept：探测失败算「记号不在」（宁可认为渲染碰过画布）', () => {
-    expect(markKept(fakeNode({ probeThrows: true }).node)).toBe(false)
   })
 })
 

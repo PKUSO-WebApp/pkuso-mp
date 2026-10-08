@@ -37,8 +37,10 @@ export default defineAppConfig({
     'pages/score-detail/index',
     'pages/score-part/index',
   ],
-  // 独立分包：PDF 渲染运行时（wechat-miniprogram-pdf，1.61MB）必须隔离在分包，
-  // 否则主包超微信 2MB 上限（主包基线约 1.5MB）
+  // 独立分包：阅读器单独成包（只被 pages/score-reader 自己引用）。
+  // 这里**曾经**装着 pdf.js 运行时（wechat-miniprogram-pdf，1.61MB，当年是为了不把
+  // 主包顶破微信 2MB 上限才隔离的）；2026-10-08 拿掉运行时后分包只剩阅读器自己的
+  // 代码（~100KB）——独立分包保留：这条页面重（三画布 + 手势 + 批注），不该进主包。
   subpackages: [
     {
       root: 'pages/score-reader',

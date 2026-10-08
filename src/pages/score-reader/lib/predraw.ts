@@ -136,7 +136,6 @@ export type PredrawGo = 'skip' | 'wait' | 'start'
  * 抢在泵前面发就是对同一 URL 的重复请求）。
  */
 export function predrawGo(s: {
-  imageMode: boolean
   zoom: number
   /** 正在捏合：缩放每帧都在变，等停手后那次重渲会再排一次 */
   pinching: boolean
@@ -146,7 +145,7 @@ export function predrawGo(s: {
   warm: boolean
   waitedMs: number
 }): PredrawGo {
-  if (!s.imageMode || s.target === null) return 'skip'
+  if (s.target === null) return 'skip'
   if (s.zoom > NEIGHBOR_MAX_ZOOM) return 'skip'
   if (s.pinching || s.animating || s.queueBusy) return 'skip'
   if (!s.warm && s.waitedMs <= PREDRAW_WARM_GRACE_MS) return 'wait'

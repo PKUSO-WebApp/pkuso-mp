@@ -3,10 +3,14 @@ import type { CanvasNode } from './types'
 /**
  * 位图栅格化与「这一帧到底画出来没有」的探测。
  *
- * 真机上的静默失败是这块最难查的：pdf.js 会 resolve、没有任何报错，而画布上什么都
- * 没有（整页白）。所以渲前先点一个洋红记号，渲完再看它还在不在 / 抽样看有没有墨，
- * 以此区分「空渲染」「没渲染」「这页本来就空白」三种情况——上层据此决定重试还是
- * 重开文档。
+ * 页图是 web 端**预渲染好的整页 JPEG**（不是现渲的），所以这里只剩两件事：
+ * - `frameInk`：抽样看一帧有没有墨——预绘制把帧备进备用块之后要过这一关，
+ *   空白帧只丢弃、不重试（误丢的代价只是这一页走常规渲染）；
+ * - `sampleEdgeColors`：采页边的**纸色**，给上下灰带当填充色。
+ *
+ * 历史上这里还有一整套「渲前点记号 → 渲后探测 → 重开文档」的白帧自愈，那是为 pdf.js
+ * 的**静默失败**（resolve 了却什么都没画）准备的；2026-10-08 拿掉 pdf 运行时之后一并删掉
+ * ——页图不存在「渲染失败」这种情况。
  */
 
 export const DPR = 2
@@ -22,31 +26,6 @@ export function rasterDpr(cssW: number, cssH: number): number {
   const edge = Math.min(MAX_RASTER_EDGE / (cssW * DPR), MAX_RASTER_EDGE / (cssH * DPR))
   const area = Math.sqrt(MAX_RASTER_PIXELS / (cssW * cssH * DPR * DPR))
   return Math.min(1, edge, area) * DPR
-}
-
-/**
- * 渲前在画布角上点一个洋红记号。渲完记号还在 = 这次渲染**根本没碰这块画布**
- * （否则 pdf.js 的底色填充会把它盖掉）。用来区分「空渲染」和「没渲染」
- */
-export function drawMark(node: CanvasNode): void {
-  try {
-    const ctx = node.getContext('2d')
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.fillStyle = '#ff00ff'
-    ctx.fillRect(0, 0, 4, 4)
-  } catch {
-    // 记号画不上不影响主流程
-  }
-}
-
-/** 记号是否还在（还在 = 这次渲染没碰过画布） */
-export function markKept(node: CanvasNode): boolean {
-  try {
-    const d = node.getContext('2d').getImageData(1, 1, 1, 1).data
-    return d[0] > 200 && d[1] < 80 && d[2] > 200
-  } catch {
-    return false
-  }
 }
 
 /**
@@ -97,8 +76,8 @@ export function sampleEdgeColors(node: CanvasNode): { top: string; bottom: strin
 }
 
 /**
- * 抽样看这一帧有没有墨：渲染静默失败（pdf.js resolve 了但一个操作都没落下去）
- * 时整块画布是纯白，这里能看出来。返回 -1 表示探测本身失败，不参与判定。
+ * 抽样看这一帧有没有墨：预绘制把整页 JPEG 画进备用块之后用它验一次，全白（0）
+ * 就丢弃这一帧、交回常规路径。返回 -1 表示探测本身失败，不参与判定。
  */
 export function frameInk(node: CanvasNode): number {
   try {

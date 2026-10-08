@@ -6,7 +6,7 @@ import type { Layer } from './types'
  * 为什么收成一个状态机、而不是把 CSS 动画直接挂上去——两条竞态：
  *
  * 1. **写位图 × 正在滑的那一块**：串行队列的下一件渲染按 `activeLayerRef` 挑反面那块，
- *    换帧后挑中的正是刚退役、还在滑的那一块；而 pdf.js 的 `renderPage` 一上来就
+ *    换帧后挑中的正是刚退役、还在滑的那一块；而写位图（`paintPageImage`）一上来就
  *    `canvas.width = …`（清屏）⇒ 半路被清，滑行中的旧页当场露白。所以**动位图之前
  *    必须 `settle(layer)` 等它停靠**（那一关在 `index.tsx` 的 doRender 里）。
  * 2. **两块同时在滑**：`begin` 里先 `park()` 收尾上一段。按现在的接线这是防御性的
@@ -33,7 +33,7 @@ export type TurnFrame = { layer: Layer; dir: TurnDir }
  * 这次换帧要不要滑、往哪滑；null = 不滑（直接切）。
  *
  * 不滑的三类，都是**同一页/没有旧页**的重渲——滑出去再滑回来只会像故障：
- * 首帧（没有旧页可滑）、缩放/转屏/白帧自愈的重渲（`shown === target`）、
+ * 首帧（没有旧页可滑）、缩放/转屏等同一页的重渲（`shown === target`）、
  * 换册后的首帧（`shown = 0`，此时换册前后页码可能撞上，不能靠页码区分）。
  */
 export function turnDirFor(opts: {

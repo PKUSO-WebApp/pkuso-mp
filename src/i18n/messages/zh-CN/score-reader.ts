@@ -7,9 +7,9 @@ export const scoreReader = {
   zoomIn: '放大',
   zoomOut: '缩小',
   zoomReset: '适配',
-  inputPlaceholder: 'PDF 地址',
-  load: '加载并渲染',
   retry: '重试',
+  /** 没有页图（预渲染失败 / 还没跑迁移）：App 里渲染不了，引导「原生打开」 */
+  noImages: '这份谱子还没有页图',
   // 首帧落地之前**只有这一个**状态词（原来的下载中/解析中/渲染中三档已合并）：
   // 用户反馈「加载中转完还显示渲染中」像是卡住了，而这三档对用户没有可操作的信息
   loading: '加载中…',
