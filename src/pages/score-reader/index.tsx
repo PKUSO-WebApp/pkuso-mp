@@ -12,6 +12,8 @@ import pencilLine from '@/assets/icons/pencil-line.png'
 import pencilLineDark from '@/assets/icons/pencil-line-dark.png'
 import openExternal from '@/assets/icons/square-arrow-out-up-right.png'
 import openExternalDark from '@/assets/icons/square-arrow-out-up-right-dark.png'
+import download from '@/assets/icons/download.png'
+import downloadDark from '@/assets/icons/download-dark.png'
 import {
   PEN_COLORS,
   PEN_WIDTHS,
@@ -42,6 +44,7 @@ import { pageFromScroll, pageTop, pendingPages, stripHeight } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawStrokeOn, strokeHitByPoint, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
+import { saveOriginalPdf, userDataRoot, type FsLike } from './lib/pdf-save'
 import {
   loadPageImage,
   loadPageImageWithRetry,
@@ -1665,6 +1668,53 @@ export default function ScoreReader() {
     }
   }
 
+  // 顶栏「下载」：把**原始 PDF** 存到本地（只落盘，不打开）。与「原生打开」的分工见
+  // lib/pdf-save.ts —— 那个把文件交给系统应用，这个让用户拿到文件本身。
+  const [downloadBusy, setDownloadBusy] = useState(false)
+  const downloadPdf = async () => {
+    if (downloadBusy) return
+    const target = fileUrlRef.current
+    if (!target) {
+      void Taro.showToast({ title: t('scoreReader.nativeNotReady'), icon: 'none' })
+      return
+    }
+    setDownloadBusy(true)
+    void Taro.showLoading({ title: t('scoreReader.downloading'), mask: true })
+    try {
+      const { path } = await saveOriginalPdf(
+        { fileId, url: target },
+        {
+          root: userDataRoot(),
+          fs: (Taro.getFileSystemManager?.() as FsLike | undefined) ?? null,
+          download: (url) => Taro.downloadFile({ url }),
+        }
+      )
+      // PC（Windows/macOS）再导出一份到磁盘。手机**没有**这个接口，文件只落在小程序本地
+      // ——要让文件出小程序得走「原生打开」的系统菜单（用其他应用打开 / 转发）。
+      // saveFileToDisk 是 PC 专有 API，类型里未必有 ⇒ 显式收窄后可选调用
+      const platform = (Taro.getDeviceInfo?.() as { platform?: string } | undefined)?.platform
+      const saveToDisk = (
+        Taro as unknown as { saveFileToDisk?: (o: { filePath: string }) => Promise<unknown> }
+      ).saveFileToDisk
+      if ((platform === 'windows' || platform === 'mac') && saveToDisk) {
+        await saveToDisk({ filePath: path })
+      }
+      Taro.hideLoading()
+      void Taro.showToast({ title: t('scoreReader.downloadSaved'), icon: 'success' })
+    } catch (err) {
+      Taro.hideLoading()
+      const msg = describeError(err)
+      reportClientError({
+        event: 'score_reader_pdf_save_failed',
+        message: msg,
+        detail: { fileId },
+      })
+      void Taro.showToast({ title: t('scoreReader.saveFailed', { error: msg }), icon: 'none' })
+    } finally {
+      setDownloadBusy(false)
+    }
+  }
+
   // 「还没画出一帧」就一直显示 —— 判据是**首帧真的换帧**（stage 到 ready），而不是
   // 「画布尺寸有没有值」：图片模式下 `setViewSize` 发生在绘制**之前**，按尺寸判会让
   // 提示在画面出来之前就消失（真机反馈：第一次「进度走完但没渲染出来」、第二次
@@ -1867,7 +1917,7 @@ export default function ScoreReader() {
           ) : null}
         </View>
 
-        {/* 顶栏（悬浮）：页码 / 缩放 / 原生打开 / 批注 / 教程。
+        {/* 顶栏（悬浮）：页码 / 缩放 / 下载 / 原生打开 / 批注 / 教程。
             菜单关着时 visibility:hidden + pointer-events:none —— 隐藏但**保留布局盒子**
             （于是高度随时量得到），触摸则穿透到谱面。
             非批注时半透明灰底（谱面透出，示意菜单已打开），批注时回到不透明 */}
@@ -1887,6 +1937,16 @@ export default function ScoreReader() {
           </Text>
           <View className='flex flex-row items-center'>
             <Text className='mr-3 text-xs text-text-muted'>{Math.round(zoom * 100)}%</Text>
+            <View
+              className='mr-2 flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
+              ariaLabel={t('scoreReader.download')}
+              onClick={() => void downloadPdf()}
+            >
+              <Image
+                src={dark ? downloadDark : download}
+                style={{ width: '18px', height: '18px' }}
+              />
+            </View>
             <View
               className='mr-2 flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
               ariaLabel={t('scoreReader.openNative')}
