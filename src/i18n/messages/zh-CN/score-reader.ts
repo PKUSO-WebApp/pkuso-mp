@@ -27,9 +27,11 @@ export const scoreReader = {
   tutorialPrev: '上一页',
   tutorialNext: '下一页',
   tutorialMenuZone: '菜单',
-  tutorialSwipeHint: '左滑 = 下一页，右滑 = 上一页；上下拖动可滚动谱面',
-  tutorialZoomHint: '放大后：滑动只移动谱面，不翻页',
-  tutorialPenHint: '批注时：滑动与点击都不翻页',
+  tutorialSwipeHint: '左滑 = 下一页，右滑 = 上一页',
+  tutorialScrollHint: '上下拖动 = 滚动；点上下方 = 上/下一页',
   tutorialDismiss: '知道了',
   tutorialOpen: '使用说明',
+  /** 底栏的模式切换按钮：显示**当前**模式 */
+  modeLr: 'LR',
+  modeUd: 'UD',
 }

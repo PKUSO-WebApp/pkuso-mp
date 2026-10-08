@@ -4,7 +4,9 @@ import {
   penBarBottom,
   SAFE_BOTTOM,
   zoneFor,
+  zoneOnAxis,
   ZONE_SPLITS,
+  ZONE_SPLITS_UD,
   Z_BAND,
   Z_STATUS,
   Z_TOOLBAR,
@@ -31,6 +33,29 @@ describe('zoneFor（点击分区）', () => {
 
   it('分区比例是唯一事实来源（教程示意线也用它，两边不许各写一份）', () => {
     expect(ZONE_SPLITS).toEqual([0.25, 0.75])
+  })
+})
+
+describe('zoneOnAxis（上下滚动模式：20/60/20）', () => {
+  const H = 600
+
+  it('上 20% 往上、中 60% 菜单、下 20% 往下——边界归**中间**那一档', () => {
+    expect(zoneOnAxis(0, H, ZONE_SPLITS_UD)).toBe('prev')
+    expect(zoneOnAxis(119.9, H, ZONE_SPLITS_UD)).toBe('prev')
+    expect(zoneOnAxis(120, H, ZONE_SPLITS_UD)).toBe('menu') // 边界 20% 归中区
+    expect(zoneOnAxis(479.9, H, ZONE_SPLITS_UD)).toBe('menu')
+    expect(zoneOnAxis(480, H, ZONE_SPLITS_UD)).toBe('next') // 边界 80% 归下区
+    expect(zoneOnAxis(600, H, ZONE_SPLITS_UD)).toBe('next')
+  })
+
+  it('视口没量到（<=0）时一律当中区', () => {
+    expect(zoneOnAxis(0, 0, ZONE_SPLITS_UD)).toBe('menu')
+  })
+
+  it('中区确实是 60%（不是把 25/75 那组拿来用）', () => {
+    expect(ZONE_SPLITS_UD).toEqual([0.2, 0.8])
+    // 用左右模式的比例去判纵轴的话，30% 处会被判成 prev——这里必须是 menu
+    expect(zoneOnAxis(180, H, ZONE_SPLITS_UD)).toBe('menu')
   })
 })
 

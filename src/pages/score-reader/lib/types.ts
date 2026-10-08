@@ -25,6 +25,10 @@ export type CanvasCtx = {
   getImageData: (x: number, y: number, w: number, h: number) => { data: ArrayLike<number> }
   /** 把整页 JPEG 画上去（见 lib/page-image.ts 的 paintPageImage） */
   drawImage: (img: unknown, x: number, y: number, w: number, h: number) => void
+  /** 批注层按窗口锚点平移到「这一页在这一帧里的位置」时要用的三个 */
+  save: () => void
+  restore: () => void
+  translate: (x: number, y: number) => void
   fillStyle: string
   strokeStyle: string
   lineWidth: number
@@ -82,8 +86,10 @@ export type Drag = {
   maxMove: number
   /** 起手是否落在灰带里：灰带任意横向位置都只开关菜单，永不翻页 */
   band: 'top' | 'bottom' | null
-  /** 起手快照：本段手势结束时还允不允许翻页（未放大 && 文档就绪；批注模式不建记录） */
+  /** 起手快照：本段手势结束时还允不允许**翻页**（仅左右模式：未放大 && 文档就绪；批注模式不建记录） */
   canTurn: boolean
+  /** 起手快照：本段手势结束时还允不允许**按分区滚动**（仅上下模式：文档就绪即可，放大后也允许） */
+  canScroll: boolean
 }
 
 /**

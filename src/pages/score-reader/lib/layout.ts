@@ -13,18 +13,26 @@
 
 /** 点击分区边界（占视口宽的比例）：左 25% 上一页、中 50% 开关菜单、右 25% 下一页 */
 export const ZONE_SPLITS = [0.25, 0.75] as const
+/** 上下滚动模式的分区边界（占视口高）：上 20% 往上滚一页、中 60% 菜单、下 20% 往下滚一页 */
+export const ZONE_SPLITS_UD = [0.2, 0.8] as const
 
 export type TapZone = 'prev' | 'menu' | 'next'
 
 /**
- * 落点在哪个分区。视口还没量到（`stageW <= 0`）时**一律当中间区**：
- * 菜单默认隐藏，必须保证任何时刻点中间都能把它叫出来。
+ * 落点在某条轴上属于哪个分区（左右模式看横轴、上下模式看纵轴）。
+ * 视口还没量到（`len <= 0`）时**一律当中间区**：菜单默认隐藏，必须保证任何时刻点中间
+ * 都能把它叫出来。
  */
-export function zoneFor(relX: number, stageW: number): TapZone {
-  if (!(stageW > 0)) return 'menu'
-  if (relX < stageW * ZONE_SPLITS[0]) return 'prev'
-  if (relX < stageW * ZONE_SPLITS[1]) return 'menu'
+export function zoneOnAxis(rel: number, len: number, splits: readonly [number, number]): TapZone {
+  if (!(len > 0)) return 'menu'
+  if (rel < len * splits[0]) return 'prev'
+  if (rel < len * splits[1]) return 'menu'
   return 'next'
+}
+
+/** 左右模式的落点判定（横轴、25/75） */
+export function zoneFor(relX: number, stageW: number): TapZone {
+  return zoneOnAxis(relX, stageW, ZONE_SPLITS)
 }
 
 export type Band = 'top' | 'bottom'

@@ -24,9 +24,10 @@ export const scoreReader = {
   tutorialPrev: 'Previous',
   tutorialNext: 'Next',
   tutorialMenuZone: 'Controls',
-  tutorialSwipeHint: 'Swipe left / right to turn pages; drag up / down to scroll',
-  tutorialZoomHint: 'When zoomed in, dragging only moves the page',
-  tutorialPenHint: 'While annotating, gestures never turn pages',
+  tutorialSwipeHint: 'Swipe left = next page, right = previous',
+  tutorialScrollHint: 'Drag up / down to scroll; tap top / bottom for one page',
   tutorialDismiss: 'Got it',
   tutorialOpen: 'How to use',
+  modeLr: 'LR',
+  modeUd: 'UD',
 }

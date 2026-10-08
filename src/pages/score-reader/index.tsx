@@ -31,11 +31,15 @@ import {
   bandAt,
   penBarBottom,
   zoneFor,
+  zoneOnAxis,
+  ZONE_SPLITS_UD,
   Z_BAND,
   Z_PAGE_BADGE,
   Z_STATUS,
   Z_TOOLBAR,
 } from './lib/layout'
+import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
+import { pageFromScroll, pageTop, splitStrokeByStrip, stripHeight } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawPolylineOn, drawStrokeOn, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
@@ -119,6 +123,15 @@ export default function ScoreReader() {
   const [stage, setStage] = useState<Stage>('idle')
   /** 这份谱子没有页图（预渲染失败 / 还没跑迁移）：不在 App 里渲染，只引导「原生打开」 */
   const [noImages, setNoImages] = useState(false)
+  /**
+   * 翻页模式：`lr` 左右翻页 / `ud` 上下滚动（见 lib/reader-mode.ts）。记住用户的选择。
+   * 手势判定读的是 `modeRef`——那些回调要么依赖数组空、要么不想因模式重建。
+   */
+  const [mode, setMode] = useState<ReaderMode>(() => loadReaderMode())
+  const modeRef = useRef<ReaderMode>(mode)
+  useEffect(() => {
+    modeRef.current = mode
+  }, [mode])
   const [message, setMessage] = useState('')
   const [pageCount, setPageCount] = useState(0)
   const [page, setPage] = useState(1)
@@ -180,6 +193,17 @@ export default function ScoreReader() {
   const strokeSeedRef = useRef<{ x: number; y: number } | null>(null)
   const overlayCtxRef = useRef<CanvasCtx | null>(null)
   const overlayRectRef = useRef<{ left: number; top: number } | null>(null)
+  /**
+   * 批注层的**窗口锚点**（条内像素偏移）。上下模式的条可能有几十页高，不能做一张那么大的
+   * 画布（超画布像素上限），所以批注层是一个「视口 + 一页」高的窗口：锚点决定它盖住条的
+   * 哪一段。滚动**停稳**后重新锚定（滚动过程中保持不动——它跟着内容走，笔迹才粘在谱上）。
+   * 左右模式恒为 0。
+   */
+  const [overlayAnchor, setOverlayAnchor] = useState(0)
+  const overlayAnchorRef = useRef(0)
+  useEffect(() => {
+    overlayAnchorRef.current = overlayAnchor
+  }, [overlayAnchor])
   const fileUrlRef = useRef('')
   /** 页图预热泵：以当前页为中心的窗口预热（见 lib/prefetch-pump.ts） */
   const prefetchPumpRef = useRef<PrefetchPump | null>(null)
@@ -194,6 +218,20 @@ export default function ScoreReader() {
   const predrawTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 在飞的后台预绘制（交互任务靠它让位 / 采纳） */
   const bgRef = useRef<BgCtl | null>(null)
+  /** 画布↔页码的记账变了（预绘制画好一整页 / 记账被清）时 +1：竖条模式要重渲染才知道往哪摆 */
+  const [, setLayerTick] = useState(0)
+
+  // —— 竖条几何（上下滚动模式，见 lib/strip.ts）——
+  // 一页的高 = 当前页在视口宽度下的高度；竖条总高 = 页高 × 页数。
+  // `contentHRef` 供手势回调读：拖动/捏合/按钮缩放的钳制都要用**内容总高**（竖条模式下
+  // 不是一页高），而那些回调不能依赖每次渲染重建。
+  const ud = mode === 'ud'
+  const pageH = viewSize.h
+  const contentH = ud ? stripHeight(pageH, pageCount) : pageH
+  const contentHRef = useRef(contentH)
+  useEffect(() => {
+    contentHRef.current = contentH
+  }, [contentH])
   /** `containerW` 的同步镜像：帧的判据不能等 effect（晚一拍会把旧尺寸的帧当有效帧） */
   const containerWRef = useRef(0)
   /** 排下一次预绘制（doRender 尾段与 promoteFrame 都要调，用 ref 断开循环依赖） */
@@ -210,6 +248,9 @@ export default function ScoreReader() {
     if (!hasFrames && !bgRef.current && !predrawTimerRef.current) return
     predrawEpochRef.current += 1
     layerMetaRef.current = { a: null, b: null, c: null }
+    // 竖条模式的画布位置来自 layerMeta，清账后要重渲染一次才会**离屏**
+    // （左右模式由 activeLayer 状态驱动，本来就会重渲染；这里多一次是幂等的）
+    setLayerTick((n) => n + 1)
     const ctl = bgRef.current
     if (ctl) {
       ctl.cancelled = true
@@ -311,6 +352,25 @@ export default function ScoreReader() {
   const dismissTutorial = () => {
     markReaderTutorialSeen()
     setTutorialOn(false)
+  }
+
+  /**
+   * 切换翻页模式（底栏中间那个按钮）：左右 ↔ 上下。
+   *
+   * 一次要动四件事：① 记住选择；② `modeRef` 当帧就更新（手势判定读它）；③ 换布局后
+   * 视图对准**当前页**（上下模式的条比一屏高得多，不滚过去就会看到第 1 页）；④ 作废
+   * 邻居帧并重渲一次。最后弹一次**新模式**的教程——换模式等于换一套手势（用户 2026-10-08 定）。
+   */
+  const switchMode = () => {
+    const next: ReaderMode = modeRef.current === 'ud' ? 'lr' : 'ud'
+    modeRef.current = next
+    setMode(next)
+    saveReaderMode(next)
+    cancelStroke()
+    invalidatePredraw('mode')
+    if (next === 'ud') scrollToPage(pageRef.current)
+    setTutorialOn(true)
+    syncView()
   }
 
   /**
@@ -539,8 +599,9 @@ export default function ScoreReader() {
         aspect,
         at: Date.now(),
       }
-      // 翻页动画：方向跟着翻页方向走（往回翻就向右滑），该不该滑见 turnDirFor
-      const dir = turnDirFor({ firstPaint, shown, target })
+      // 翻页动画：方向跟着翻页方向走（往回翻就向右滑），该不该滑见 turnDirFor。
+      // ⚠️ 上下模式不做滑出动画——那里的「翻页」就是滚动本身，滑一下反而像故障
+      const dir = modeRef.current === 'ud' ? null : turnDirFor({ firstPaint, shown, target })
       if (dir !== null) turnRef.current?.begin(retiring, dir)
       if (firstPaint) {
         const startedAt = Number(timingRef.current.startedAt ?? 0)
@@ -584,7 +645,7 @@ export default function ScoreReader() {
     displayedPageRef.current = f.page
     activeLayerRef.current = f.layer
     setActiveLayer(f.layer)
-    const dir = turnDirFor({ firstPaint: false, shown, target: f.page })
+    const dir = modeRef.current === 'ud' ? null : turnDirFor({ firstPaint: false, shown, target: f.page })
     if (dir !== null) turnRef.current?.begin(retiring, dir)
     // 邻居帧换帧这条路上也补一次纸色采样（它不经过 doRender）
     sampleBandColorRef.current(f.layer)
@@ -669,6 +730,9 @@ export default function ScoreReader() {
           at: Date.now(),
         }
         layerMetaRef.current[layer] = frame
+        // 竖条模式：这一块现在放着哪一页变了 ⇒ 得重渲染一次，它才会摆到那一页的位置上
+        // （左右模式不看这个记账来摆位，多渲染一次无副作用）
+        setLayerTick((n) => n + 1)
         const readyMs = Date.now() - t0
         if (readyMs > 300) {
           // eslint-disable-next-line no-console
@@ -869,10 +933,34 @@ export default function ScoreReader() {
     setViewSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
   }, [zoom, containerW, docTick])
 
-  // 内容尺寸变了：位置重新钳制（缩放/翻页/转屏后不会拉出空白）
+  // 内容尺寸变了：位置重新钳制（缩放/翻页/转屏后不会拉出空白）。
+  // 高度用 contentH：竖条模式下是整条的高度，不是一页高
   useEffect(() => {
-    setPan((prev) => clampPan(prev, viewSize.w, viewSize.h, containerW, containerH))
-  }, [viewSize, containerW, containerH])
+    setPan((prev) => clampPan(prev, viewSize.w, contentH, containerW, containerH))
+  }, [viewSize, contentH, containerW, containerH])
+
+  // 上下模式：页码跟着**滚动位置**走（视口顶边落在哪一页）——徽标、批注、预热窗口都吃它。
+  // 左右模式没有这条：那里的页码是用户翻出来的，不是滚出来的。
+  useEffect(() => {
+    if (!ud || !(pageH > 0) || pageCount <= 0) return
+    const p = pageFromScroll(-pan.y, pageH, pageCount)
+    if (p !== page) setPage(p)
+  }, [ud, pan.y, pageH, pageCount, page])
+
+  // 批注窗口的锚点：滚动**停稳**后重新锚定，让窗口以「当前视口」为中心、上下各留半页
+  // （见 overlayAnchor 的注释）。左右模式恒为 0（窗口就是那一页）。
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const h = viewSize.h
+      if (!ud || !(h > 0)) {
+        setOverlayAnchor(0)
+        return
+      }
+      const win = Math.min(contentH, containerH + h)
+      setOverlayAnchor(clamp(-pan.y - h / 2, 0, Math.max(0, contentH - win)))
+    }, 160)
+    return () => clearTimeout(timer)
+  }, [ud, pan.y, contentH, containerH, viewSize])
 
   // 缩放合并渲染：手势/连点期间不起渲染，停手后一次渲到位
   useEffect(() => {
@@ -905,27 +993,63 @@ export default function ScoreReader() {
     if (viewSize.w <= 0 || viewSize.h <= 0 || pageCount <= 0) return
     // 手势中不重画：内容框被拉伸时位图跟着缩放即可，停手后由 gestureTick 补画
     if (pinchRef.current) return
+    const w = viewSize.w
+    const h = viewSize.h
+    // 窗口高度：上下模式 = 视口 + 一页（锚点见 overlayAnchor），左右模式 = 那一页
+    const winH = ud ? Math.min(stripHeight(h, pageCount), containerH + h) : h
+    const anchor = ud ? overlayAnchor : 0
     try {
       const { node, left, top } = await queryCanvasNode('#reader-overlay')
       const overlay = node as CanvasNode
       overlayRectRef.current = { left, top }
-      const dpr = rasterDpr(viewSize.w, viewSize.h)
-      overlay.width = Math.round(viewSize.w * dpr)
-      overlay.height = Math.round(viewSize.h * dpr)
+      const dpr = rasterDpr(w, winH)
+      overlay.width = Math.round(w * dpr)
+      overlay.height = Math.round(winH * dpr)
       const ctx = overlay.getContext('2d')
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      ctx.clearRect(0, 0, viewSize.w, viewSize.h)
+      ctx.clearRect(0, 0, w, winH)
       overlayCtxRef.current = ctx
+      if (ud) {
+        // 窗口内的每一页各画各的：平移到它那一页在条里的偏移，笔迹坐标是页内归一化坐标
+        const first = Math.max(1, Math.floor(anchor / h) + 1)
+        const last = Math.min(pageCount, Math.floor((anchor + winH - 1) / h) + 1)
+        for (let p = first; p <= last; p += 1) {
+          const strokes = annos[String(p)] ?? []
+          if (strokes.length === 0) continue
+          ctx.save()
+          ctx.translate(0, pageTop(p, h) - anchor)
+          strokes.forEach((s) => drawStrokeOn(ctx, s, w, h))
+          ctx.restore()
+        }
+        // 正在画的那一笔：上面刚清过屏，补回来免得断成两截
+        if (drawingRef.current && strokePtsRef.current.length > 0) {
+          ctx.save()
+          ctx.translate(0, -anchor)
+          drawPolylineOn(ctx, strokePtsRef.current, penColor, penWidth, w, h)
+          ctx.restore()
+        }
+        return
+      }
       const strokes = annos[String(page)] ?? []
-      strokes.forEach((s) => drawStrokeOn(ctx, s, viewSize.w, viewSize.h))
-      // 正在画的那一笔：上面刚清过屏，补回来免得断成两截
+      strokes.forEach((s) => drawStrokeOn(ctx, s, w, h))
       if (drawingRef.current && strokePtsRef.current.length > 0) {
-        drawPolylineOn(ctx, strokePtsRef.current, penColor, penWidth, viewSize.w, viewSize.h)
+        drawPolylineOn(ctx, strokePtsRef.current, penColor, penWidth, w, h)
       }
     } catch {
       // overlay 未就绪时静默，下次状态变化会重试
     }
-  }, [annos, page, pageCount, penColor, penWidth, queryCanvasNode, viewSize])
+  }, [
+    annos,
+    page,
+    pageCount,
+    penColor,
+    penWidth,
+    queryCanvasNode,
+    viewSize,
+    ud,
+    containerH,
+    overlayAnchor,
+  ])
 
   useEffect(() => {
     if (docTick > 0) void redrawOverlay()
@@ -1037,12 +1161,47 @@ export default function ScoreReader() {
 
   const clampPage = (n: number) => clamp(Math.round(n), 1, Math.max(pageCount, 1))
 
+  /**
+   * 上下模式：把视图**滚动**到第 n 页的页首（连续滚动，不吸附到别的对齐方式）。
+   * 非竖条模式（内容比视口矮）时 clampPan 会把它居中，也就无从滚动——没关系。
+   */
+  const scrollToPage = (n: number) => {
+    const h = viewSizeRef.current.h
+    if (!(h > 0)) return
+    setPan((prev) =>
+      clampPan(
+        { x: prev.x, y: -pageTop(clampPage(n), h) },
+        viewSizeRef.current.w,
+        stripHeight(h, pageCount),
+        containerW,
+        containerH
+      )
+    )
+  }
+
+  /** 上下模式：往上/下移动**一页的高**（点分区用；不吸附，见 lib/strip.ts） */
+  const scrollByPage = (dir: 1 | -1) => {
+    const h = viewSizeRef.current.h
+    if (!(h > 0)) return
+    setPan((prev) =>
+      clampPan(
+        { x: prev.x, y: prev.y - dir * h },
+        viewSizeRef.current.w,
+        stripHeight(h, pageCount),
+        containerW,
+        containerH
+      )
+    )
+  }
+
   const gotoPage = (n: number) => {
     if (pageCount <= 0) return
     cancelStroke()
     const target = clampPage(n)
     // turnMs（页码变化 → 换帧）的诊断基准，也是「翻页 <150ms」那个指标
     if (target !== pageRef.current) pageChangeAtRef.current = Date.now()
+    // 上下模式：翻页就是**滚过去**——页码变了但视图不动的话，用户看到的是另一页
+    if (modeRef.current === 'ud') scrollToPage(target)
     setPage(target)
   }
 
@@ -1069,12 +1228,18 @@ export default function ScoreReader() {
     if (fileId && pageCount > 0) Taro.setStorageSync(lastPageKey(fileId), String(page))
   }, [fileId, page, pageCount])
 
-  // 触点归一化：rect 与尺寸都取「当次」值，笔迹与画布不脱节
+  // 触点归一化：rect 与尺寸都取「当次」值，笔迹与画布不脱节。
+  // 返回 `[x, py]`——x 按宽度归一化；py 是**页坐标**（整数部分 = 第几页 − 1，小数 = 页内
+  // 归一化纵坐标，见 lib/strip.ts），所以左右模式下 py 也带着当前页的序号，
+  // 「一笔落在哪一页」两种模式走同一条判据。
   const pointOf = (clientX: number, clientY: number): [number, number] => {
     const rect = overlayRectRef.current
     const { w, h } = viewSizeRef.current
     if (!rect || w <= 0 || h <= 0) return [0, 0]
-    return [clamp((clientX - rect.left) / w, 0, 1), clamp((clientY - rect.top) / h, 0, 1)]
+    const x = clamp((clientX - rect.left) / w, 0, 1)
+    // 竖条模式：overlay 是一个有锚点偏移的**窗口**（不是从条顶开始），先换算回条坐标
+    const base = ud ? overlayAnchorRef.current / h : pageRef.current - 1
+    return [x, base + clamp((clientY - rect.top) / h, 0, 1)]
   }
 
   const cancelStroke = () => {
@@ -1114,10 +1279,14 @@ export default function ScoreReader() {
     if (!prev) return
     const { w, h } = viewSizeRef.current
     styleFor(ctx, penColor, penWidth, w)
+    // 笔迹坐标是**页坐标**（见 pointOf）：先按窗口锚点平移回窗口内坐标，再按页高换算
+    ctx.save()
+    ctx.translate(0, -overlayAnchorRef.current)
     ctx.beginPath()
     ctx.moveTo(prev[0] * w, prev[1] * h)
     ctx.lineTo(p[0] * w, p[1] * h)
     ctx.stroke()
+    ctx.restore()
   }
 
   // 按钮缩放：以视口中心为锚（不然放大只会往右下长）
@@ -1138,7 +1307,7 @@ export default function ScoreReader() {
       clampPan(
         { x: containerW / 2 - cx * k, y: containerH / 2 - cy * k },
         w,
-        h,
+        ud ? stripHeight(h, pageCount) : h,
         containerW,
         containerH
       )
@@ -1155,20 +1324,27 @@ export default function ScoreReader() {
    */
   const resolveTouchEnd = (g: Drag, end?: { clientX: number; clientY: number }) => {
     if (isTap(g, Date.now())) {
-      // 灰带优先：菜单关着时上下两条灰带**任意横向位置**都只开关菜单，永不翻页
+      // 灰带优先：菜单关着时上下两条灰带**任意位置**都只开关菜单，永不翻页/滚动
       if (g.band) {
         setMenuOn((on) => !on)
         return
       }
-      const zone = zoneFor(g.relX, containerW)
+      // 分区：左右模式看横轴（25/50/25，点两侧翻页），上下模式看纵轴
+      // （20/60/20，点上下方滚动一页的距离）——分区判据见 lib/layout.ts
+      const zone = ud ? zoneOnAxis(g.relY, containerH, ZONE_SPLITS_UD) : zoneFor(g.relX, containerW)
       if (zone === 'menu') {
         setMenuOn((on) => !on)
+        return
+      }
+      if (ud) {
+        if (g.canScroll) scrollByPage(zone === 'next' ? 1 : -1)
         return
       }
       if (!g.canTurn) return
       gotoPage(pageRef.current + (zone === 'next' ? 1 : -1))
       return
     }
+    if (ud) return // 上下模式的滑动就是滚动本身（移动阶段已经滚过了），抬手不再做别的
     if (!g.canTurn || !end) return
     const dir = swipeDir(g, end.clientX, end.clientY, swipeMinPx(containerW))
     if (dir === 0) return
@@ -1178,7 +1354,7 @@ export default function ScoreReader() {
       clampPan(
         { x: g.x, y: g.y },
         viewSizeRef.current.w,
-        viewSizeRef.current.h,
+        contentHRef.current,
         containerW,
         containerH
       )
@@ -1226,7 +1402,9 @@ export default function ScoreReader() {
       maxMove: 0,
       // 灰带的点击规则跟着灰带的**可见性**走：放大后不画灰带，那里也就按普通分区处理
       band: zoomRef.current <= 1 ? bandAt(relY, containerH, barH.top, barH.bottom) : null,
-      canTurn: docTick > 0 && pageCount > 0 && zoomRef.current <= 1,
+      // 翻页手势只有左右模式有；上下模式里「点分区」是滚动（放大后也照样能滚）
+      canTurn: modeRef.current === 'lr' && docTick > 0 && pageCount > 0 && zoomRef.current <= 1,
+      canScroll: modeRef.current === 'ud' && docTick > 0 && pageCount > 0,
     }
   }
 
@@ -1257,7 +1435,7 @@ export default function ScoreReader() {
             y: my - stageRectRef.current.top - (g.midY - g.pan.y) * k,
           },
           w,
-          h,
+          modeRef.current === 'ud' ? stripHeight(h, pageCount) : h,
           containerW,
           containerH
         )
@@ -1272,7 +1450,17 @@ export default function ScoreReader() {
       const dy = touch.clientY - d.ty
       // 判 tap 用的是**整段位移的最大值**，不是末点（横滑出去再滑回来会骗人）
       d.maxMove = Math.max(d.maxMove, Math.abs(dx), Math.abs(dy))
-      setPan(clampPan({ x: d.x + dx, y: d.y + dy }, viewSize.w, viewSize.h, containerW, containerH))
+      // 上下模式：拖动**永远**是在滚动（竖条比视口高，纵向一定有可滚的余地）；
+      // 左右模式下未放大时内容不宽于视口，横向那一项本来就是空操作
+      setPan(
+        clampPan(
+          { x: d.x + dx, y: d.y + dy },
+          viewSize.w,
+          contentHRef.current,
+          containerW,
+          containerH
+        )
+      )
     }
   }
 
@@ -1287,9 +1475,18 @@ export default function ScoreReader() {
         const pts = strokePtsRef.current
         strokePtsRef.current = []
         if (pts.length > 0) {
-          const key = String(page)
-          const stroke: AnnoStroke = { color: penColor, width: penWidth, points: pts }
-          persist({ ...annos, [key]: [...(annos[key] ?? []), stroke] })
+          // 一笔可能跨页（上下模式的滚动条里）：按页切开，各自记到各自的页上
+          // （左右模式只会切出一段——点坐标自带当前页序号，见 pointOf）
+          const runs = splitStrokeByStrip(pts, pageCount)
+          if (runs.length > 0) {
+            const next: AnnoDoc = { ...annos }
+            for (const run of runs) {
+              const key = String(run.page)
+              const stroke: AnnoStroke = { color: penColor, width: penWidth, points: run.points }
+              next[key] = [...(next[key] ?? []), stroke]
+            }
+            persist(next)
+          }
         }
       }
       strokeSeedRef.current = null
@@ -1376,16 +1573,26 @@ export default function ScoreReader() {
   const showStatusRow = stage !== 'ready' && stage !== 'error'
   const boxW = viewSize.w || containerW || 0
   const boxH = viewSize.h || 0
+  /** 某块画布此刻放着哪一页（预绘制写进来、失效时清掉）——竖条模式靠它摆位 */
+  const layerPageOf = (l: Layer): number | null => layerMetaRef.current[l]?.page ?? null
+  /** 批注窗口高度（条内像素，见 redrawOverlay）：上下模式 = 视口 + 一页；左右模式 = 那一页 */
+  const overlayH = ud ? Math.min(contentH, containerH + boxH) : boxH
 
-  // 双缓冲两块的样式。活跃块在 0 位；**滑出中的那块**压在最上层向左/向右移出，
+  // 双缓冲两块的样式。左右模式：活跃块在 0 位；**滑出中的那块**压在最上层向左/向右移出，
   // 新页在下面被露出来（换帧时新页早已渲好，不违反「宁停上一页也不上白帧」）。
   // 移出距离取「内容框宽 / 视口宽」里的较大者：缩小后内容比视口窄且居中，只移
   // 自己一个宽度会在左边留一条没盖住的旧页。transform 恒给具体值（不用 none）：
-  // 「none → 具体值」的插值在部分 WebView 上不稳，会直接跳到终点
+  // 「none → 具体值」的插值在部分 WebView 上不稳，会直接跳到终点。
+  //
+  // 上下模式：不做滑出动画（滚动本身就是连续位移），三块各自摆到**它那一页的纵向偏移**上
+  // ——于是上下相邻的页天然接在一起，滚下去时邻居页早已画好并摆在正确的位置。
   const layerStyle = (l: Layer) => {
-    const sliding = turn && turn.layer === l ? turn : null
+    const sliding = !ud && turn && turn.layer === l ? turn : null
+    const held = ud ? layerPageOf(l) : null
+    const visible = ud ? held !== null : activeLayer === l || Boolean(sliding)
     return {
-      left: activeLayer === l || sliding ? '0px' : OFFSCREEN,
+      left: visible ? '0px' : OFFSCREEN,
+      top: ud && held !== null ? `${pageTop(held, boxH)}px` : '0px',
       width: `${boxW}px`,
       height: `${boxH}px`,
       zIndex: sliding ? 3 : 1,
@@ -1443,6 +1650,10 @@ export default function ScoreReader() {
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
           onTouchCancel={onTouchCancel}
+          // 舞台底色 = 采样到的**纸色**：谱面比屏幕矮时（A4 比例的手机屏必然如此）上下会
+          // 各留一段，之前露的是页面底色（浅灰）——那道「乐谱与灰带之间的距离」就是它。
+          // 与灰带同色之后整屏连成一片，看起来就是一整张谱子
+          style={{ backgroundColor: bandColor?.top }}
         >
           <View
             className='absolute'
@@ -1450,7 +1661,7 @@ export default function ScoreReader() {
               left: `${pan.x}px`,
               top: `${pan.y}px`,
               width: `${boxW}px`,
-              height: `${boxH}px`,
+              height: `${contentH}px`,
             }}
           >
             {/* 三块画布：一块显示中、一块放着「下一页」（预绘制）、一块放着「上一页」
@@ -1476,31 +1687,37 @@ export default function ScoreReader() {
               style={layerStyle('c')}
             />
             {/* 批注层：压在静态页之上、滑出的旧页之下（旧页滑走时把这一页的笔迹一起露出来）。
-                不靠 DOM 顺序——滑出的那块要盖过它，只能靠 z-index */}
+                不靠 DOM 顺序——滑出的那块要盖过它，只能靠 z-index。
+                上下模式里它是一个**窗口**（视口 + 一页高，锚点见 overlayAnchor）：条可能有
+                几十页高，做一张那么大的画布会超画布像素上限 */}
             <Canvas
               type='2d'
               id='reader-overlay'
-              className='absolute left-0 top-0 block'
-              style={{ width: `${boxW}px`, height: `${boxH}px`, zIndex: 2 }}
+              className='absolute left-0 block'
+              style={{
+                top: `${overlayAnchor}px`,
+                width: `${boxW}px`,
+                height: `${overlayH}px`,
+                zIndex: 2,
+              }}
             />
-
-            {/* 页码徽标：贴在**内容框**（这张谱子）的右下角——跟着平移/缩放走，不是屏幕
-                坐标（谱子被拖出屏幕时它也一起走）。
-                − 纯 Text/View，**不引入任何原生组件**（底栏那个跳页 Input 是原生组件，
-                  它在父级 visibility:hidden 下仍可能漏出来，别在这里重蹈覆辙）；
-                − chip 沿用工具条按钮那套（bg-card + border），压在谱面上也读得清；
-                − 菜单开着时也保留：它就是「我在第几页」的常驻提示（用户 2026-10-08 定）。 */}
-            {pageCount > 0 ? (
-              <View
-                className='absolute bottom-2 right-2 rounded border border-border bg-card px-1.5 py-0.5'
-                style={{ zIndex: Z_PAGE_BADGE }}
-              >
-                <Text className='text-xs text-text-muted'>
-                  {t('scoreReader.pageOf', { page, total: pageCount })}
-                </Text>
-              </View>
-            ) : null}
           </View>
+
+          {/* 页码徽标：**固定在屏幕右下角**（不随谱面拖动/缩放走）。
+              曾经锚在谱面右下角 ⇒ 谱面在屏幕里垂直居中时它就落在屏幕中部，还会压住
+              谱面最后一个谱表的音符（用户 2026-10-08 反馈）。
+              − 纯 Text/View，**不引入任何原生组件**（底栏那个跳页 Input 是原生组件，
+                它在父级 visibility:hidden 下仍可能漏出来，别在这里重蹈覆辙）；
+              − 无底色、只给文字描边（见 index.scss 的 .page-badge-text）：压在任何
+                深浅的谱面上都读得清，又不像色块那样挡内容；
+              − 菜单开着时也保留：它就是「我在第几页」的常驻提示。 */}
+          {pageCount > 0 ? (
+            <View className='absolute bottom-2 right-2' style={{ zIndex: Z_PAGE_BADGE }}>
+              <Text className='page-badge-text text-xs'>
+                {t('scoreReader.pageOf', { page, total: pageCount })}
+              </Text>
+            </View>
+          ) : null}
 
           {/* 灰带：菜单关着**且未放大**时压在谱面上下沿，高度＝**实测**工具条高度
               （与工具条严格重合）。必须是 stage 的**子节点**且不挂任何事件：触摸冒泡进
@@ -1646,6 +1863,14 @@ export default function ScoreReader() {
             </Button>
           </View>
           <View className='flex flex-row items-center'>
+            {/* 翻页模式切换：夹在「翻页」与「缩放」两组中间。
+                按钮显示的是**当前**模式（LR / UD），点一下切到另一种；切换即弹该模式的教程 */}
+            <Button
+              className='mr-2 rounded-full border border-primary bg-primary/10 px-3 py-1 text-xs text-text'
+              onClick={switchMode}
+            >
+              {t(ud ? 'scoreReader.modeUd' : 'scoreReader.modeLr')}
+            </Button>
             <Button
               className='mr-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
               onClick={() => zoomAtCenter(zoom - 0.25)}
@@ -1690,7 +1915,7 @@ export default function ScoreReader() {
 
         {/* 首次教程蒙层：放在最后 ⇒ 压在所有工具条之上（z 也最高）。
             它是 #reader-stage 的兄弟节点，触摸不会冒泡进舞台状态机 */}
-        {tutorialOn ? <ReaderTutorial onClose={dismissTutorial} /> : null}
+        {tutorialOn ? <ReaderTutorial mode={mode} onClose={dismissTutorial} /> : null}
       </View>
     </View>
   )
