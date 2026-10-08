@@ -38,7 +38,14 @@ import {
   Z_TOOLBAR,
 } from './lib/layout'
 import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
-import { pageFromScroll, pageTop, splitStrokeByStrip, stripHeight } from './lib/strip'
+import {
+  pageCoordOf,
+  pageFromScroll,
+  pageTop,
+  splitStrokeByStrip,
+  stripHeight,
+  windowYOf,
+} from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawPolylineOn, drawStrokeOn, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
@@ -961,7 +968,15 @@ export default function ScoreReader() {
   // 批注窗口的锚点：滚动**停稳**后重新锚定，让窗口以「当前视口」为中心、上下各留半页
   // （见 overlayAnchor 的注释）。左右模式恒为 0（窗口就是那一页）。
   useEffect(() => {
-    const timer = setTimeout(() => {
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const tick = () => {
+      if (!alive) return
+      // 正在落笔：现在挪窗口会改掉这一笔的零点（见 strokeBaseRef）⇒ 等收笔再锚定
+      if (drawingRef.current || strokeSeedRef.current) {
+        timer = setTimeout(tick, 160)
+        return
+      }
       const h = viewSize.h
       if (!ud || !(h > 0)) {
         setOverlayAnchor(0)
@@ -969,8 +984,12 @@ export default function ScoreReader() {
       }
       const win = Math.min(contentH, containerH + h)
       setOverlayAnchor(clamp(-pan.y - h / 2, 0, Math.max(0, contentH - win)))
-    }, 160)
-    return () => clearTimeout(timer)
+    }
+    timer = setTimeout(tick, 160)
+    return () => {
+      alive = false
+      if (timer) clearTimeout(timer)
+    }
   }, [ud, pan.y, contentH, containerH, viewSize])
 
   // 缩放合并渲染：手势/连点期间不起渲染，停手后一次渲到位
@@ -1035,7 +1054,8 @@ export default function ScoreReader() {
         // 正在画的那一笔：上面刚清过屏，补回来免得断成两截
         if (drawingRef.current && strokePtsRef.current.length > 0) {
           ctx.save()
-          ctx.translate(0, -anchor)
+          // 这一笔的点是页坐标 ⇒ 减掉零点（见 strokeBaseRef）
+          ctx.translate(0, -(strokeBaseRef.current?.base ?? anchor / h) * h)
           drawPolylineOn(ctx, strokePtsRef.current, penColor, penWidth, w, h)
           ctx.restore()
         }
@@ -1044,7 +1064,11 @@ export default function ScoreReader() {
       const strokes = annos[String(page)] ?? []
       strokes.forEach((s) => drawStrokeOn(ctx, s, w, h))
       if (drawingRef.current && strokePtsRef.current.length > 0) {
+        // 同上：左右模式的零点 = 当前页号 − 1
+        ctx.save()
+        ctx.translate(0, -(strokeBaseRef.current?.base ?? page - 1) * h)
         drawPolylineOn(ctx, strokePtsRef.current, penColor, penWidth, w, h)
+        ctx.restore()
       }
     } catch {
       // overlay 未就绪时静默，下次状态变化会重试
@@ -1239,24 +1263,40 @@ export default function ScoreReader() {
     if (fileId && pageCount > 0) Taro.setStorageSync(lastPageKey(fileId), String(page))
   }, [fileId, page, pageCount])
 
-  // 触点归一化：rect 与尺寸都取「当次」值，笔迹与画布不脱节。
-  // 返回 `[x, py]`——x 按宽度归一化；py 是**页坐标**（整数部分 = 第几页 − 1，小数 = 页内
-  // 归一化纵坐标，见 lib/strip.ts），所以左右模式下 py 也带着当前页的序号，
-  // 「一笔落在哪一页」两种模式走同一条判据。
+  /**
+   * 这一笔的**基准快照**：落笔那一刻的「页坐标零点」与窗口高度（都以页高为单位）。
+   *
+   * 为什么必须快照：① 窗口锚点会在滚动停稳 160ms 后重锚——正好落在落笔期间的话，
+   * 这一笔的后半段基准就变了，笔迹会歪；② 抬手后要把点按页切开（见 lib/strip.ts），
+   * 需要的是**页坐标**（带页号），而画的时候需要的是**窗口内坐标**——两者差一个固定的
+   * 零点，所以把零点在落笔时定死，画与存各减各的。
+   */
+  const strokeBaseRef = useRef<{ base: number; winPages: number } | null>(null)
+
+  /**
+   * 触点归一化，返回 `[x, py]`：x 按**页宽**归一化；py 是**页坐标**（整数部分 = 第几页 − 1，
+   * 小数 = 页内归一化纵坐标）——左右模式里 py 也带当前页号，所以「一笔落在哪一页」两种模式
+   * 走同一条判据。
+   *
+   * ⚠️ 纵坐标的钳制范围是**整块窗口**（上下模式 = 视口 + 一页；左右模式 = 一页），不是一页：
+   * 钳成一页的话，在窗口下半部画的点会全被压到同一个值上——真机上就是「笔迹塌缩成一条线」。
+   */
   const pointOf = (clientX: number, clientY: number): [number, number] => {
     const rect = overlayRectRef.current
     const { w, h } = viewSizeRef.current
     if (!rect || w <= 0 || h <= 0) return [0, 0]
+    const snap = strokeBaseRef.current
+    const base = snap ? snap.base : ud ? overlayAnchorRef.current / h : pageRef.current - 1
+    const winPages = snap ? snap.winPages : ud ? Math.min(contentH, containerH + h) / h : 1
     const x = clamp((clientX - rect.left) / w, 0, 1)
-    // 竖条模式：overlay 是一个有锚点偏移的**窗口**（不是从条顶开始），先换算回条坐标
-    const base = ud ? overlayAnchorRef.current / h : pageRef.current - 1
-    return [x, base + clamp((clientY - rect.top) / h, 0, 1)]
+    return [x, pageCoordOf(clientY, rect.top, h, base, winPages)]
   }
 
   const cancelStroke = () => {
     drawingRef.current = false
     strokePtsRef.current = []
     strokeSeedRef.current = null
+    strokeBaseRef.current = null
   }
 
   // 起笔：rect 必须当次现取（工具条显隐会挪动画布），取到之前不落笔——
@@ -1274,6 +1314,16 @@ export default function ScoreReader() {
       }
       const seed = strokeSeedRef.current
       if (!seed) return // 手指已抬起或已转双指
+      const { h } = viewSizeRef.current
+      if (!(h > 0)) {
+        cancelStroke()
+        return
+      }
+      // 基准快照（见 strokeBaseRef）：零点 + 窗口高度都在这一刻定死
+      strokeBaseRef.current = {
+        base: ud ? overlayAnchorRef.current / h : pageRef.current - 1,
+        winPages: ud ? Math.min(contentH, containerH + h) / h : 1,
+      }
       strokeSeedRef.current = null
       drawingRef.current = true
       strokePtsRef.current = [pointOf(seed.x, seed.y)]
@@ -1290,12 +1340,16 @@ export default function ScoreReader() {
     if (!prev) return
     const { w, h } = viewSizeRef.current
     styleFor(ctx, penColor, penWidth, w)
-    // 笔迹坐标是**页坐标**（见 pointOf）：先按窗口锚点平移回窗口内坐标，再按页高换算
+    // 点存的是**页坐标**（见 pointOf）⇒ 画的时候要减掉这一笔的零点（页号偏移 / 窗口锚点）。
+    // 两种模式同一个式子：左右模式零点 = 页号 − 1，上下模式 = 锚点 / 页高。
+    // ⚠️ 早先这里写的是「只在上下模式平移锚点、左右模式不平移」——于是左右模式把带页号的
+    // 纵坐标当成页内坐标画，落笔全程画在画布外，抬手后从存储重画才现身（真机反馈）。
+    const base = strokeBaseRef.current?.base ?? 0
     ctx.save()
-    ctx.translate(0, -overlayAnchorRef.current)
+    ctx.translate(0, -base * h)
     ctx.beginPath()
-    ctx.moveTo(prev[0] * w, prev[1] * h)
-    ctx.lineTo(p[0] * w, p[1] * h)
+    ctx.moveTo(prev[0] * w, windowYOf(prev[1], base, h))
+    ctx.lineTo(p[0] * w, windowYOf(p[1], base, h))
     ctx.stroke()
     ctx.restore()
   }

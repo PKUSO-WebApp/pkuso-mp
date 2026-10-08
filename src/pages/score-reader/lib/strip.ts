@@ -61,3 +61,31 @@ export function splitStrokeByStrip(
   }
   return runs
 }
+
+/**
+ * 屏幕纵坐标 → **页坐标**（批注落点用）。`top` 是批注画布在屏幕上的顶边，`pageH` 是页高，
+ * `base` 是这一笔的零点（左右模式 = 页号 − 1；上下模式 = 窗口锚点 / 页高），
+ * `winPages` 是**窗口**高度（以页为单位）。
+ *
+ * ⚠️ 越界的点是钳进**窗口**、不是钳进一页：钳成一页的话，窗口下半部画的点会全落回同一个值，
+ * 真机上表现为「笔迹在屏幕上方塌缩成一条线」。
+ */
+export function pageCoordOf(
+  screenY: number,
+  top: number,
+  pageH: number,
+  base: number,
+  winPages: number
+): number {
+  return base + clamp((screenY - top) / pageH, 0, winPages)
+}
+
+/**
+ * 页坐标 → **画布内**纵坐标（减掉这一笔的零点）。与 `pageCoordOf` 互为逆运算：
+ * `windowYOf(pageCoordOf(y, …), …) === y - top` —— 「画出来的位置必须等于手指的位置」。
+ * 这一条同时钉住两个真机 bug：左右模式落笔看不见（忘了减零点 ⇒ 画到画布外）、
+ * 上下模式塌缩成一条线（钳制范围写成了一页）。
+ */
+export function windowYOf(py: number, base: number, pageH: number): number {
+  return (py - base) * pageH
+}

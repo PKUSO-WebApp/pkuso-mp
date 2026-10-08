@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { pageFromScroll, pageTop, splitStrokeByStrip, stripHeight } from './strip'
+import {
+  pageCoordOf,
+  pageFromScroll,
+  pageTop,
+  splitStrokeByStrip,
+  stripHeight,
+  windowYOf,
+} from './strip'
 
 describe('竖条几何', () => {
   it('条高 = 页高 × 页数；页顶 = (页码 − 1) × 页高（页与页零间隔）', () => {
@@ -92,5 +99,30 @@ describe('splitStrokeByStrip（一笔按页切开）', () => {
   it('空输入 / 页数非法时切出空数组', () => {
     expect(splitStrokeByStrip([], 3)).toEqual([])
     expect(splitStrokeByStrip([[0, 0]], 0)).toEqual([])
+  })
+})
+
+describe('笔迹坐标换算（屏幕 ↔ 页坐标）', () => {
+  const H = 500
+
+  it('画出来的位置 == 手指的位置（两种模式都成立）——这是这两个真机 bug 的共同判据', () => {
+    // 左右模式：第 5 页（零点 = 4），窗口一页高
+    expect(windowYOf(pageCoordOf(300, 40, H, 4, 1), 4, H)).toBeCloseTo(260, 6)
+    // 上下模式：零点 = 2.24（锚点不是页高的整数倍，很常见），窗口 2.4 页高
+    const base = 2.24
+    expect(windowYOf(pageCoordOf(300, 40, H, base, 2.4), base, H)).toBeCloseTo(260, 6)
+  })
+
+  it('窗口下半部的点**不许**被钳到同一条线上（真机「塌缩成一条线」的成因）', () => {
+    const y = 40 + H * 1.2 // 落在窗口的第二页里
+    expect(pageCoordOf(y, 40, H, 2, 2.4)).toBeCloseTo(3.2, 6)
+    // 旋钮：把窗口高度当成一页，这里立刻塌缩成同一个值 —— 用例要能看出这两种的区别
+    expect(pageCoordOf(y, 40, H, 2, 1)).toBe(3)
+    expect(pageCoordOf(y + 77, 40, H, 2, 1)).toBe(3)
+  })
+
+  it('越界钳进窗口两端（含 px 为负、页面被拖出屏幕的情形）', () => {
+    expect(pageCoordOf(-999, 40, H, 3, 2.4)).toBe(3)
+    expect(pageCoordOf(99999, 40, H, 3, 2.4)).toBeCloseTo(5.4, 6)
   })
 })
