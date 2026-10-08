@@ -41,7 +41,6 @@ import {
 } from './lib/layout'
 import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
 import {
-  nextVisibleToRender,
   pageFromScroll,
   pageTop,
   pendingPages,
@@ -79,7 +78,6 @@ import {
   predrawFallback,
   predrawGo,
   spareLayer,
-  NEIGHBOR_MAX_ZOOM,
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
   type LayerMetas,
@@ -235,6 +233,13 @@ export default function ScoreReader() {
   const erasingRef = useRef(false)
   const erasedRef = useRef<AnnoStroke[] | null>(null)
   const fileUrlRef = useRef('')
+  /**
+   * 页图本地记账的键：**与入口无关**（fileId + 页号）。绝不能用 URL 当键——`urls[0]` 是
+   * 当前生效入口派生的，入口一次翻转（proxy → direct，且会持久化）就变，于是整册预下载
+   * 下好的本地文件在第 0 档集体失联、泵又不会重下（已标记 attempted）⇒ 白重下整册。
+   * 见 lib/page-image.ts 的 PageImageDeps.key（评审 2026-10-09 抓出）。
+   */
+  const pageFileKey = useCallback((n: number) => `${fileId}#${n}`, [fileId])
   /** 页图预热泵：以当前页为中心的窗口预热（见 lib/prefetch-pump.ts） */
   const prefetchPumpRef = useRef<PrefetchPump | null>(null)
   // —— 邻居帧 / 预绘制（见 lib/predraw.ts、doPredraw / promoteFrame）——
@@ -280,10 +285,6 @@ export default function ScoreReader() {
   /** 上下模式的滚动方向（1 = 往下滚）与上一次滚动位置：见「补渲染视口里的页」effect */
   const udDirRef = useRef<1 | -1>(1)
   const lastScrollRef = useRef(0)
-  /** 渲染队列排空的次数：把它放进 effect 依赖，等于「渲染器一空下来就再看一眼视口」 */
-  const [idleTick, setIdleTick] = useState(0)
-  /** 刚渲染失败的那一页（+ 时刻）：补渲染要跳过它，别把一次失败变成无限重试 */
-  const fillFailedRef = useRef<{ page: number; at: number } | null>(null)
   /** 批注写盘失败已上报过（每册每次会话一次）：存储满会一直失败，别刷表 */
   const annoSaveFailRef = useRef(false)
 
@@ -298,14 +299,13 @@ export default function ScoreReader() {
     if (!hasFrames && !bgRef.current && !predrawTimerRef.current) return
     predrawEpochRef.current += 1
     layerMetaRef.current = { a: null, b: null, c: null }
-    // ⚠️ **不清 `layerSlot`**（2026-10-09，评审抓出）：它问的是「这块画布装着哪一页」，
-    // 缩放/回前台之后**这个身份仍然成立**——像素旧了、被 CSS 拉伸，但页没错。清掉它等于
-    // 把「显示中」判据（UD 的 `visible = layerSlot != null`）也清了 ⇒ UD 下三块画布当场
-    // 全摆到屏外（`left:-99999`），**整个谱面消失**，只剩纸色背景 + 页码：捏合缩放的每一个
-    // move 都会触发，回前台也触发（LR 不白屏，因为它的可见判据是 `activeLayer`，正好印证
-    // 这条判据不该依赖摆位记账）。清层只清语义帧（`layerMetaRef`）：预绘制据此重备，
-    // 而屏幕上的旧帧留到新帧落地——正是「缩放即时反馈：只换内容尺寸」想要的样子。
-    // （换册不需要在这里清：每册是一个独立的页面实例。）
+    // ⚠️ 摆位记账**必须一起清**（2026-10-09 真机教训，见下面的注）：它同时是 UD 的
+    // 「这块现在显示着哪一页」判据，留着它会让「像素已经换成别的页、摆位还说旧页」的错配
+    // 一直摆在那儿——真机表现就是同一块位置反复闪出别的页（「第 4 页位置轮闪 1/2/3」）。
+    setLayerSlot({ a: null, b: null, c: null })
+    // 代价：UD 里三块画布会当场摆到屏外（可见判据=记账）⇒ 缩放/回前台那一瞬谱面是空的，
+    // 直到新帧落地。所以**清完必须立刻补渲当前页**（见 useDidShow 那条与 zoom 的 settle 渲染）。
+    // 正解是给「显示中」单独一份与帧有效性无关的记账，别再让两层共用一个——那是下一步。
     const ctl = bgRef.current
     if (ctl) {
       ctl.cancelled = true
@@ -586,7 +586,8 @@ export default function ScoreReader() {
         // 必现失败，那时自动退到 downloadFile 兜底并记住结论——见 lib/page-image.ts
         pageImg = await loadPageImageWithRetry(
           node as CanvasNode,
-          pageImageUrls(fileUrlRef.current, target)
+          pageImageUrls(fileUrlRef.current, target),
+          { deps: { key: pageFileKey(target) } }
         )
       } catch (err) {
         // 这条路径的失败原本**只在屏幕上可见**（图片层 onerror 不带状态码，唯一的原因
@@ -715,7 +716,7 @@ export default function ScoreReader() {
       // 换帧落地，趁空闲把「下一页」备进备用块（见 schedulePredraw）
       schedulePredrawRef.current()
     },
-    [containerW, fileId, pageCount, queryCanvasNode]
+    [containerW, fileId, pageCount, pageFileKey, queryCanvasNode]
   )
 
   /**
@@ -935,9 +936,6 @@ export default function ScoreReader() {
           const msg = err instanceof Error ? err.message : String(err)
           setStage('error')
           setMessage(msg)
-          // 这一页渲染不出来：记下来，「补渲染视口里的页」别再自动重排它
-          // （否则渲染器一空就又排一次，等于把一次失败变成无限重试）
-          fillFailedRef.current = { page: job.page, at: Date.now() }
         } finally {
           inflightRef.current = null
           renderLayerRef.current = null
@@ -945,9 +943,6 @@ export default function ScoreReader() {
           const next = queuedRef.current
           queuedRef.current = null
           if (next) runJobRef.current(next)
-          // 队列**真的空了**：叫醒「补渲染视口里还看得见但没有帧的页」那条 effect
-          // （它是拉模型——不靠滚动事件，而是每次渲染器空下来都再看一眼）
-          else setIdleTick((n) => n + 1)
         }
       })()
     },
@@ -1022,7 +1017,11 @@ export default function ScoreReader() {
 
   // 回到前台：画布位图在前后台切换后是否还在没有实测证据，作废一次的代价只是
   // 「回前台后的第一次翻页走常规路径」，比上错页/上白页便宜得多
-  useDidShow(() => invalidatePredraw('show'))
+  useDidShow(() => {
+    invalidatePredraw('show')
+    // 记账被清空 ⇒ UD 的画布全在屏外。回前台不补这一下，谱面会一直空着等用户操作
+    if (docTick > 0) requestRef.current({ page: pageRef.current, zoom: zoomRef.current })
+  })
 
   /** 让画面追上当前 page/zoom */
   const syncView = useCallback(() => {
@@ -1269,7 +1268,7 @@ export default function ScoreReader() {
       prefetchPumpRef.current = createPrefetchPump({
         total: imagePageTotal,
         urlsFor: (n) => pageImageUrls(fileUrlRef.current, n),
-        prefetchOne: prefetchPageImage,
+        prefetchOne: (url, pageNo) => prefetchPageImage(url, { key: pageFileKey(pageNo) }),
         windowAhead: imagePageTotal,
         windowBehind: imagePageTotal,
         // 预下载是后台行为，失败不给用户弹东西——那它失败了就没人知道，所以这里上报。
@@ -1300,6 +1299,7 @@ export default function ScoreReader() {
     applyZoom,
     fileId,
     invalidatePredraw,
+    pageFileKey,
     presetFileName,
     presetPageCount,
     presetStoragePath,
@@ -1889,44 +1889,6 @@ export default function ScoreReader() {
   const undoTopPage = historyRef.current[historyRef.current.length - 1]?.page ?? null
   const undoVisible = undoDepth > 0 && undoTopPage !== null && renderedPages.has(undoTopPage)
 
-  /**
-   * 上下模式：**视口里看得见、还没有帧的页，直接排渲染**——不走预绘制。
-   *
-   * 为什么需要这条独立通路（真机 2026-10-09 报「n 画好了、下面的 n+1 一直空白」）：
-   * 滚动期间每一次页码变化都占住渲染队列，`predrawGo` 的 queueBusy 于是整段返回 skip
-   * **且不重排**，手指按着屏幕的整段时间里预绘制等于停摆；而 UD 视口高 ≈ 1.4 页
-   * （pageH 是内容高，容器还更高），下一页的顶边从一进来就露在屏幕上——于是那一片空白
-   * 要挂到手指停下 300ms 后。
-   *
-   * 只在**队列空着**时补（不抢在飞的那件、也不顶掉排队中的可见页：单槽队列被来回顶
-   * 会变成两页互相挤掉，谁也画不出来）。
-   *
-   * ⚠️ `idleTick` 是这条 effect 的关键：**渲染器每次排空都会 +1**，于是它是个拉模型
-   * ——「谁空了谁就看一眼视口还缺哪页」。只靠滚动事件触发是不行的：手势停下之后再没有
-   * 状态变化，如果最后一拍队列恰好忙，这一页就再也没人管了（这正是 2026-10-09 真机
-   * 「n 画好了、n+1 一直空白」的形态）。
-   */
-  useEffect(() => {
-    if (!ud) return
-    if (inflightRef.current || queuedRef.current) return
-    // ⚠️ 必须走**预绘制**那条路（`bg: true`），不能走 requestRender：前台通路
-    // `doRender` 是「先画位图、再判‘这页还是不是当前页’」——补渲染的目标按定义**不是**
-    // 当前页（当前页是视口顶边那页），于是它画完位图就在守卫处 return，**从不写记账**
-    // （`setLayerSlot`/`layerMetaRef` 都在守卫之后）。而 UD 里「这块画布看得见」的判据
-    // 正是 `layerSlot != null` ⇒ 页面永远不出现、pending 永不缩小 ⇒ 渲染器一空就又排一次，
-    // 空转成环（评审 2026-10-09 抓出；那版还把位图和摆位记账写成了不一致的两页）。
-    // 预绘制那条路自带记账（画成功 ⇒ setLayerSlot），UD 里立刻就被摆到它那一页的位置上。
-    if (zoomRef.current > NEIGHBOR_MAX_ZOOM) return // 放大档位与预绘制同一道闸（内存）
-    // 视口里的页比画布还多（缩小到 0.5 又碰上宽幅谱时会发生）：一块画布只放一页，
-    // 补渲染会和正在显示的页互相顶。不补，交给「当前页变化」那条通路 + 加载圆圈兜。
-    if (pending.length > ALL_LAYERS.length - 1) return
-    // 刚渲染失败的那页跳过（10 秒）：否则渲染器每次空下来都会再排它一次
-    const failed = fillFailedRef.current
-    const skip = failed && Date.now() - failed.at < 10_000 ? failed.page : null
-    const candidates = skip === null ? pending : pending.filter((p) => p !== skip)
-    const next = nextVisibleToRender(candidates, udDirRef.current)
-    if (next !== null) runJobRef.current({ page: next, zoom: zoomRef.current, bg: true })
-  }, [ud, pending, idleTick])
 
   // 双缓冲两块的样式。左右模式：活跃块在 0 位；**滑出中的那块**压在最上层向左/向右移出，
   // 新页在下面被露出来（换帧时新页早已渲好，不违反「宁停上一页也不上白帧」）。

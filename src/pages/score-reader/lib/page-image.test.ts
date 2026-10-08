@@ -236,6 +236,27 @@ describe('取图策略的判定（判一次、本会话记住）', () => {
     expect(files).toEqual([proxy, other])
   })
 
+  it('记账键与入口无关：入口翻转（两条腿换了 URL）后，整册预下载的文件仍然命中', async () => {
+    // 真实的翻转形态：`pageImageUrls` 返回的**第一条腿**从反代域名变成直连域名，
+    // 键若取 urls[0] 就会全 miss（评审 2026-10-09 抓出的「整册预下载失联」）
+    const [proxyA] = freshUrls()
+    const [directB] = freshUrls()
+    let downloads = 0
+    const deps = {
+      downloadFile: async () => {
+        downloads += 1
+        return { statusCode: 200, tempFilePath: `wxfile://tmp/keep-${downloads}.jpg` }
+      },
+    }
+    const key = 'file-9#3'
+    await prefetchPageImage(proxyA, { ...deps, key }) // 翻转前：泵按反代腿下好
+    expect(downloads).toBe(1)
+    const node = fakeNode(['ok']) // 图片层"可用"，但压根不该被问到
+    await loadPageImage(node, [directB], { ...deps, key }) // 翻转后：按直连腿取
+    expect(node.srcs).toEqual(['wxfile://tmp/keep-1.jpg']) // 命中翻转前那份文件
+    expect(downloads).toBe(1) // 没有重下
+  })
+
   it('预取下来的文件就是渲染源：之后的加载用本地路径、一次都不碰远端', async () => {
     const [proxy, direct] = freshUrls()
     const deps = {

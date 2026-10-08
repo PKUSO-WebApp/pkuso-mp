@@ -65,8 +65,8 @@ export type PrefetchPump = {
 export function createPrefetchPump(opts: {
   total: number
   urlsFor: (page: number) => string[]
-  /** 测试注入用；默认走小程序图片层（微信自带缓存） */
-  prefetchOne?: (url: string) => Promise<unknown>
+  /** 测试注入用；默认走小程序图片层（微信自带缓存）。第二个参数是页号（记账键要用） */
+  prefetchOne?: (url: string, page: number) => Promise<unknown>
   priorityAhead?: number
   priorityBehind?: number
   /** 窗口半径：向前/向后最多预热的页数（不传用模块常量） */
@@ -152,7 +152,7 @@ export function createPrefetchPump(opts: {
         if (!priority && backfillInFlight >= backfillLimit) break
         attempted.add(p) // 先标记：抓失败也不重排（见文件头「失败即跳过」）
         if (!priority) backfillInFlight += 1
-        const task: Promise<void> = prefetchOne(urlsFor(p)[0])
+        const task: Promise<void> = prefetchOne(urlsFor(p)[0], p)
           .then(
             () => {
               warmed.add(p)

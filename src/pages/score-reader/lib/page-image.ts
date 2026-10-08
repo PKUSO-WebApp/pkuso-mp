@@ -115,6 +115,16 @@ export type PageImageDeps = {
     url: string,
     timeoutMs: number
   ) => Promise<{ statusCode: number; tempFilePath: string }>
+  /**
+   * 本地文件记账的键。**必须与入口无关**（调用方传 `fileId#页号`）。
+   *
+   * 从前键恒取 `urls[0]`——而 `urls[0]` 是**当前生效入口**派生的：入口在一次请求失败后
+   * 会被 `switchTo('direct')` 改写并持久化，键随之改变 ⇒ 整册预下载下好的本地文件在第 0 档
+   * **集体失联**（前台按新键查全 miss，回落到图片层「远端 URL」那条腿——正是整册预下载要
+   * 规避的东西），而泵又因为已把那些页标记成 attempted 不会重下 ⇒ 本会话里这批文件作废。
+   * （评审 2026-10-09 抓出。）
+   */
+  key?: string
 }
 
 function defaultDownloadFile(url: string, timeoutMs: number) {
@@ -195,26 +205,28 @@ export function isImageLayerBroken(): boolean {
  * 流量不增反降：健康设备上 `getImageInfo` 本来也是把整张下回来。
  */
 export function prefetchPageImage(url: string, deps: PageImageDeps = {}): Promise<unknown> {
-  return warmPageImageFile(url, deps.downloadFile ?? defaultDownloadFile)
+  return warmPageImageFile(url, deps.key ?? url, deps.downloadFile ?? defaultDownloadFile)
 }
 
-/** 把一页图下进本地记账（不画，只为让它进缓存）；已有记账就不重复下 */
+/** 把一页图下进本地记账（不画，只为让它进缓存）；已有记账就不重复下。`key` 见 PageImageDeps */
 async function warmPageImageFile(
   url: string,
+  key: string,
   download: NonNullable<PageImageDeps['downloadFile']>
 ): Promise<void> {
-  if (fileCache.has(url)) return
+  if (fileCache.has(key)) return
   const res = await download(url, PAGE_IMAGE_TIMEOUT_MS)
   if (res.statusCode !== 200) throw new Error(`页图下载失败：HTTP ${res.statusCode}`)
-  rememberFile(url, res.tempFilePath)
+  rememberFile(key, res.tempFilePath)
 }
 
 /**
  * 兜底那条路：downloadFile 落成临时文件，再从**本地路径**解码（见文件头「兜底」）。
  * 本地路径也交给同一个 `loadOnePageImage` —— 只是 src 不同，onload/onerror 语义一样。
  *
- * `key` 与 `url` 分开：两条腿（反代/直连）指向同一张图，记账只该有一条（`urls[0]`），
- * 否则从第 2 条腿下回来的那份，第 0 档看不见。
+ * `key` 与 `url` 分开：两条腿（反代/直连）指向同一张图，记账只该有一条。键由调用方给
+ * （`fileId#页号`，与入口无关），否则从第 2 条腿下回来的那份第 0 档看不见，入口一换更是
+ * 全部失联（见 PageImageDeps.key）。
  */
 async function loadOnePageImageFromFile(
   node: CanvasNode,
@@ -263,12 +275,14 @@ export async function loadPageImage(
   let lastErr: PageImageError | null = null
   // 第 0 档（**主路径**）：本地文件 —— 整册预下载的产物。命中时压根不问图片层，
   // 「远端 URL 交给图片层」那类故障（iOS 必现，见文件头）在正常使用中不会出现。
-  const cached = fileCache.get(urls[0])
+  // 记账键与入口解耦：入口一翻转 `urls[0]` 就变了，用它当键会让整册预下载的文件集体失联
+  const key = deps.key ?? urls[0]
+  const cached = fileCache.get(key)
   if (cached) {
     try {
       return await loadOnePageImage(node, cached, PROXY_LEG_TIMEOUT_MS, 'file')
     } catch {
-      fileCache.delete(urls[0]) // 临时文件没了：记账作废，往下走常规腿
+      fileCache.delete(key) // 临时文件没了：记账作废，往下走常规腿
     }
   }
   // 已判定图片层坏了 ⇒ 这一轮直接跳过它（判据与复位见 imageLayerBroken 的注释）
@@ -290,7 +304,7 @@ export async function loadPageImage(
     try {
       const loaded = await loadOnePageImageFromFile(
         node,
-        urls[0],
+        key,
         urls[i],
         PAGE_IMAGE_TIMEOUT_MS,
         download
