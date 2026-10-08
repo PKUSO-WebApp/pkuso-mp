@@ -28,3 +28,29 @@ export function pageFromScroll(scroll: number, pageH: number, pageCount: number)
   if (!(pageH > 0) || pageCount <= 0) return 1
   return clamp(Math.floor(Math.max(0, scroll) / pageH) + 1, 1, pageCount)
 }
+
+/**
+ * 视口里**还没渲染出来**的页（给它们画加载圆圈，用户 2026-10-09 定）。
+ *
+ * - `scroll`：视口顶边在条内的位置（= −pan.y；左右模式传「当前页的页首」即可，退化成只看这一页）；
+ * - `viewportH`：视口高（左右模式传页高 ⇒ 只判当前页）；
+ * - `rendered`：已经有画布放着内容的页（作者：`layerSlot` 的值集合）。
+ *
+ * 这些页是「用户看得见、但还没有内容」——空白与「这页本来就白」在屏幕上分不开，
+ * 所以给它一个明确在加载的信号，而不是让他以为卡住了。
+ */
+export function pendingPages(
+  scroll: number,
+  pageH: number,
+  viewportH: number,
+  pageCount: number,
+  rendered: ReadonlySet<number>
+): number[] {
+  if (!(pageH > 0) || pageCount <= 0) return []
+  const top = Math.max(0, scroll)
+  const first = clamp(Math.floor(top / pageH) + 1, 1, pageCount)
+  const last = clamp(Math.floor((top + Math.max(0, viewportH) - 1) / pageH) + 1, 1, pageCount)
+  const out: number[] = []
+  for (let p = first; p <= last; p += 1) if (!rendered.has(p)) out.push(p)
+  return out
+}

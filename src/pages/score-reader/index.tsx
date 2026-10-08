@@ -38,7 +38,7 @@ import {
   Z_TOOLBAR,
 } from './lib/layout'
 import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
-import { pageFromScroll, pageTop, stripHeight } from './lib/strip'
+import { pageFromScroll, pageTop, pendingPages, stripHeight } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawStrokeOn, strokeHitByPoint, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
@@ -1674,6 +1674,19 @@ export default function ScoreReader() {
   const boxH = viewSize.h || 0
   /** 某块画布此刻**显示着**哪一页——竖条模式靠它摆位（见 layerSlot 的注释） */
   const layerPageOf = (l: Layer): number | null => layerSlot[l]
+  /**
+   * 视口里**还没渲染出来**的页：在它们各自的中心显示一个加载圆圈（用户 2026-10-09 定）。
+   * 用途是「看得见但还没有内容」的那些页——空白与「这页本来就白」在屏幕上分不开，
+   * 给个明确在加载的信号，别让人以为卡住了。
+   */
+  const renderedPages = new Set(Object.values(layerSlot).filter((p): p is number => p !== null))
+  const pending = pendingPages(
+    ud ? -pan.y : (clamp(page, 1, Math.max(pageCount, 1)) - 1) * boxH,
+    boxH,
+    ud ? containerH : boxH,
+    pageCount,
+    renderedPages
+  )
 
   // 双缓冲两块的样式。左右模式：活跃块在 0 位；**滑出中的那块**压在最上层向左/向右移出，
   // 新页在下面被露出来（换帧时新页早已渲好，不违反「宁停上一页也不上白帧」）。
@@ -1801,6 +1814,22 @@ export default function ScoreReader() {
               ) : null
             )}
           </View>
+
+          {/* 还没渲染出来的页：各自中心一个转圈。位置按**页**算（不跟屏幕），
+              所以它跟着条一起滚，正好停在那一页该在的地方 */}
+          {pending.map((p) => (
+            <View
+              key={`pending-${p}`}
+              className='absolute left-0 flex flex-row justify-center'
+              style={{
+                top: `${pageTop(p, boxH) + boxH / 2 - 20}px`,
+                width: `${boxW}px`,
+                zIndex: 5,
+              }}
+            >
+              <View className='score-reader-spinner h-8 w-8 rounded-full border-2' />
+            </View>
+          ))}
 
           {/* 页码徽标：**固定在屏幕右下角**（不随谱面拖动/缩放走）。
               曾经锚在谱面右下角 ⇒ 谱面在屏幕里垂直居中时它就落在屏幕中部，还会压住

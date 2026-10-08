@@ -16,3 +16,21 @@
     0 0 3px #ffffff,
     0 0 3px #ffffff;
 }
+
+/* 未渲染页的加载圆圈：转圈动画 + 中性灰环。
+   刻意不用主题 token 的理由与 .page-badge-text 相同——谱面是浅色扫描件，环要压在任何
+   谱面上都看得清；换主题色反而会在暗色主题下变成浅环压在浅纸上。 */
+.score-reader-spinner {
+  border-color: rgb(0 0 0 / 0.12);
+  border-top-color: rgb(0 0 0 / 0.45);
+  animation: score-reader-spin 0.9s linear infinite;
+}
+
+@keyframes score-reader-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
