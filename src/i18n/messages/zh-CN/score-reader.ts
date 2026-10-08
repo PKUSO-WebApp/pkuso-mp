@@ -18,6 +18,8 @@ export const scoreReader = {
   annotation: '批注',
   penThin: '细',
   penThick: '粗',
+  pen: '笔',
+  eraser: '橡皮',
   undo: '撤销',
   clear: '清空本页',
   clearConfirm: '确认？',

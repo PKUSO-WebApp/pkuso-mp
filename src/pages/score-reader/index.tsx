@@ -38,16 +38,9 @@ import {
   Z_TOOLBAR,
 } from './lib/layout'
 import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
-import {
-  pageCoordOf,
-  pageFromScroll,
-  pageTop,
-  splitStrokeByStrip,
-  stripHeight,
-  windowYOf,
-} from './lib/strip'
+import { pageFromScroll, pageTop, stripHeight } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
-import { drawStrokeOn, styleFor } from './lib/anno-draw'
+import { drawPolylineOn, drawStrokeOn, strokeHitByPoint, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
 import {
   loadPageImage,
@@ -84,6 +77,9 @@ import {
 import { hasSeenReaderTutorial, markReaderTutorialSeen } from './lib/tutorial-seen'
 import './index.scss'
 
+/** 橡皮擦的命中半径（CSS px）：手指划过的这条带子里的笔迹都会被整条删掉 */
+const ERASER_RADIUS_PX = 14
+
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 4
 /** 缩放合并窗口：停手满这么久才真正重渲（期间画布只换尺寸，不清屏） */
@@ -98,6 +94,13 @@ const CANVAS_SEL: Record<Layer, string> = {
   a: '#reader-canvas-a',
   b: '#reader-canvas-b',
   c: '#reader-canvas-c',
+}
+
+/** 批注画布：**每块页画布各一层**（跟着自己那一页走，见 strokeLayerRef 的注释） */
+const CANVAS_OVERLAY_SEL: Record<Layer, string> = {
+  a: '#reader-overlay-a',
+  b: '#reader-overlay-b',
+  c: '#reader-overlay-c',
 }
 
 /**
@@ -174,6 +177,15 @@ export default function ScoreReader() {
   const [penColor, setPenColor] = useState<string>(PEN_COLORS[0])
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS[0])
   const [annos, setAnnos] = useState<AnnoDoc>({})
+  /** 画笔 / 橡皮擦（橡皮擦按**整条**删除，见 eraseAtPoint + strokeHitByPoint） */
+  const [eraserOn, setEraserOn] = useState(false)
+  /**
+   * 撤销栈：**一步 = 一次操作**（画一笔 / 擦掉若干笔），记该页「操作前」的笔迹。
+   * 早先的撤销是「删掉当前页最后一笔」——有了橡皮擦就不能那样了：擦完再点撤销会删掉一笔
+   * 用户根本没碰过的笔迹。栈只活在本次会话里（与从前一样，重进不保留）。
+   */
+  const historyRef = useRef<Array<{ page: number; before: AnnoStroke[] }>>([])
+  const [undoDepth, setUndoDepth] = useState(0)
 
   /** 在飞的渲染任务：同一时刻只准一件——两块画布绝不能被并发写 */
   const inflightRef = useRef<Job | null>(null)
@@ -200,16 +212,17 @@ export default function ScoreReader() {
   const overlayCtxRef = useRef<CanvasCtx | null>(null)
   const overlayRectRef = useRef<{ left: number; top: number } | null>(null)
   /**
-   * 批注层的**窗口锚点**（条内像素偏移）。上下模式的条可能有几十页高，不能做一张那么大的
-   * 画布（超画布像素上限），所以批注层是一个「视口 + 一页」高的窗口：锚点决定它盖住条的
-   * 哪一段。滚动**停稳**后重新锚定（滚动过程中保持不动——它跟着内容走，笔迹才粘在谱上）。
-   * 左右模式恒为 0。
+   * 这一笔落在**哪一页**、画进**哪一块**批注画布（落笔时定死，抬手时按它归档）。
+   *
+   * 批注层是**每块页画布各配一层**（`#reader-overlay-a|b|c`，跟着自己那一页的偏移走）：
+   * 滚动时它跟着内容移动、完全不需要重画，所以不会闪；相邻页的笔迹也一起可见。
+   * （早先是「一块视口大小的窗口画布 + 离散重锚」，重锚要清屏重画 ⇒ 真机上就是上下闪。）
    */
-  const [overlayAnchor, setOverlayAnchor] = useState(0)
-  const overlayAnchorRef = useRef(0)
-  useEffect(() => {
-    overlayAnchorRef.current = overlayAnchor
-  }, [overlayAnchor])
+  const strokePageRef = useRef(0)
+  const strokeLayerRef = useRef<Layer | null>(null)
+  /** 橡皮擦：本段手势是否在擦、擦之前那页的笔迹（抬手时并成**一步**记进撤销栈） */
+  const erasingRef = useRef(false)
+  const erasedRef = useRef<AnnoStroke[] | null>(null)
   const fileUrlRef = useRef('')
   /** 页图预热泵：以当前页为中心的窗口预热（见 lib/prefetch-pump.ts） */
   const prefetchPumpRef = useRef<PrefetchPump | null>(null)
@@ -965,33 +978,6 @@ export default function ScoreReader() {
     if (p !== page) setPage(p)
   }, [ud, pan.y, pageH, pageCount, page])
 
-  // 批注窗口的锚点：滚动**停稳**后重新锚定，让窗口以「当前视口」为中心、上下各留半页
-  // （见 overlayAnchor 的注释）。左右模式恒为 0（窗口就是那一页）。
-  useEffect(() => {
-    let alive = true
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const tick = () => {
-      if (!alive) return
-      // 正在落笔：现在挪窗口会改掉这一笔的零点（见 strokeBaseRef）⇒ 等收笔再锚定
-      if (drawingRef.current || strokeSeedRef.current) {
-        timer = setTimeout(tick, 160)
-        return
-      }
-      const h = viewSize.h
-      if (!ud || !(h > 0)) {
-        setOverlayAnchor(0)
-        return
-      }
-      const win = Math.min(contentH, containerH + h)
-      setOverlayAnchor(clamp(-pan.y - h / 2, 0, Math.max(0, contentH - win)))
-    }
-    timer = setTimeout(tick, 160)
-    return () => {
-      alive = false
-      if (timer) clearTimeout(timer)
-    }
-  }, [ud, pan.y, contentH, containerH, viewSize])
-
   // 缩放合并渲染：手势/连点期间不起渲染，停手后一次渲到位
   useEffect(() => {
     if (docTick <= 0) return
@@ -1020,95 +1006,51 @@ export default function ScoreReader() {
 
   // 批注层重绘：翻页 / 缩放 / 笔迹变化时按当前页恢复
   /**
-   * 把「页坐标」的点画进批注画布——**整个文件里唯一的换算点**。
+   * 重画**每块**批注画布：每块画布画**它自己那一页**的笔迹（页内归一化坐标，直接画）。
    *
-   * ⚠️ 规矩就一条：页坐标一律走 `windowYOf`（它自己减零点），**画之前绝不再 translate**。
-   * 这条规矩是被两个真机 bug 逼出来的：先是左右模式忘了减零点（落笔全程画在画布外、
-   * 抬手才现身），后来是「減零点」和「translate 减零点」**同时用上**（减了两次、越修越偏）。
-   * 所以这里把换算收成一处：想改换算只能改这里。
+   * 为什么按「块」而不是按「页」：滚动时每块批注画布跟着它那一页的偏移走，**不需要重画**
+   * ——这正是它不闪的原因。只有「这块换了页」「这一页的笔迹变了」才重画。
    */
-  const drawStrokePts = useCallback(
-    (ctx: CanvasCtx, pts: readonly [number, number][], from: number): void => {
-      const { w, h } = viewSizeRef.current
-      const base = strokeBaseRef.current?.base ?? 0
-      styleFor(ctx, penColor, penWidth, w)
-      ctx.beginPath()
-      for (let i = from; i < pts.length; i += 1) {
-        const [x, y] = pts[i]
-        const px = x * w
-        const py = windowYOf(y, base, h)
-        if (i === from) ctx.moveTo(px, py)
-        else ctx.lineTo(px, py)
-      }
-      ctx.stroke()
-    },
-    [penColor, penWidth]
-  )
-
   const redrawOverlay = useCallback(async () => {
-    if (viewSize.w <= 0 || viewSize.h <= 0 || pageCount <= 0) return
-    // 手势中不重画：内容框被拉伸时位图跟着缩放即可，停手后由 gestureTick 补画
-    if (pinchRef.current) return
     const w = viewSize.w
     const h = viewSize.h
-    // 窗口高度：上下模式 = 视口 + 一页（锚点见 overlayAnchor），左右模式 = 那一页
-    const winH = ud ? Math.min(stripHeight(h, pageCount), containerH + h) : h
-    const anchor = ud ? overlayAnchor : 0
-    try {
-      const { node, left, top } = await queryCanvasNode('#reader-overlay')
-      const overlay = node as CanvasNode
-      overlayRectRef.current = { left, top }
-      const dpr = rasterDpr(w, winH)
-      overlay.width = Math.round(w * dpr)
-      overlay.height = Math.round(winH * dpr)
-      const ctx = overlay.getContext('2d')
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      ctx.clearRect(0, 0, w, winH)
-      overlayCtxRef.current = ctx
-      if (ud) {
-        // 窗口内的每一页各画各的：平移到它那一页在条里的偏移，笔迹坐标是页内归一化坐标
-        const first = Math.max(1, Math.floor(anchor / h) + 1)
-        const last = Math.min(pageCount, Math.floor((anchor + winH - 1) / h) + 1)
-        for (let p = first; p <= last; p += 1) {
-          const strokes = annos[String(p)] ?? []
-          if (strokes.length === 0) continue
-          ctx.save()
-          ctx.translate(0, pageTop(p, h) - anchor)
-          strokes.forEach((s) => drawStrokeOn(ctx, s, w, h))
-          ctx.restore()
+    if (w <= 0 || h <= 0 || pageCount <= 0) return
+    // 手势中不重画：内容框被拉伸时位图跟着缩放即可，停手后由 gestureTick 补画
+    if (pinchRef.current) return
+    const dpr = rasterDpr(w, h)
+    for (const l of ALL_LAYERS) {
+      const p = layerSlot[l]
+      if (p === null) continue
+      const strokes = annos[String(p)] ?? []
+      const live = drawingRef.current && strokeLayerRef.current === l
+      if (strokes.length === 0 && !live) continue // 这一页没笔迹就不画（画布本身也没挂载）
+      try {
+        const { node, left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[l])
+        const overlay = node as CanvasNode
+        if (live) overlayRectRef.current = { left, top }
+        overlay.width = Math.round(w * dpr)
+        overlay.height = Math.round(h * dpr)
+        const ctx = overlay.getContext('2d')
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        ctx.clearRect(0, 0, w, h)
+        strokes.forEach((s) => drawStrokeOn(ctx, s, w, h))
+        if (live) {
+          // 正在画的那一笔：上面刚清过屏，补回来免得断成两截
+          overlayCtxRef.current = ctx
+          drawPolylineOn(ctx, strokePtsRef.current, penColor, penWidth, w, h)
         }
-        // 正在画的那一笔：上面刚清过屏，补回来免得断成两截
-        if (drawingRef.current && strokePtsRef.current.length > 0) {
-          drawStrokePts(ctx, strokePtsRef.current, 0)
-        }
-        return
+      } catch {
+        // overlay 未就绪时静默，下次状态变化会重试
       }
-      const strokes = annos[String(page)] ?? []
-      strokes.forEach((s) => drawStrokeOn(ctx, s, w, h))
-      if (drawingRef.current && strokePtsRef.current.length > 0) {
-        drawStrokePts(ctx, strokePtsRef.current, 0)
-      }
-    } catch {
-      // overlay 未就绪时静默，下次状态变化会重试
     }
-  }, [
-    annos,
-    page,
-    pageCount,
-    queryCanvasNode,
-    viewSize,
-    ud,
-    containerH,
-    overlayAnchor,
-    drawStrokePts,
-  ])
+  }, [annos, pageCount, queryCanvasNode, viewSize, layerSlot, penColor, penWidth])
 
   useEffect(() => {
-    // ⚠️ 依赖里必须有 ud / overlayAnchor：批注层的窗口位置与坐标零点都跟着它们变，
-    // 少一个就会出现「切换翻页模式后批注层还画在旧位置」（真机反馈）
+    // ⚠️ 依赖里必须有 layerSlot：批注层是跟着「这块画布显示着哪一页」走的，
+    // 换页 / 切模式 / 换册都会改它，少一个就会出现「切换模式后批注层还留在旧位置」
     if (docTick > 0) void redrawOverlay()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docTick, page, viewSize, annos, gestureTick, ud, overlayAnchor])
+  }, [docTick, page, viewSize, annos, gestureTick, layerSlot, eraserOn])
 
   const persist = useCallback(
     (next: AnnoDoc) => {
@@ -1127,6 +1069,8 @@ export default function ScoreReader() {
     // 用户点「重试」=明确要求重来一次，两处都值得重新判一遍（见 page-image 的注释）
     resetPageImageStrategy()
     setBandColor(null) // 纸色也作废：新册第一帧采到之前，先退回默认灰带
+    historyRef.current = [] // 撤销栈不跨册
+    setUndoDepth(0)
     invalidatePredraw('load') // 换册：备用块上那一帧属于上一册，作废
     setNoImages(false)
     // 「显示中的页」作废：换册后的首帧不滑（换册前后页码可能撞上，靠它区分）。
@@ -1283,69 +1227,75 @@ export default function ScoreReader() {
   }, [fileId, page, pageCount])
 
   /**
-   * 这一笔的**基准快照**：落笔那一刻的「页坐标零点」与窗口高度（都以页高为单位）。
+   * 触点 → **页内归一化坐标**（0~1，相对这一页的内框）。
    *
-   * 为什么必须快照：① 窗口锚点会在滚动停稳 160ms 后重锚——正好落在落笔期间的话，
-   * 这一笔的后半段基准就变了，笔迹会歪；② 抬手后要把点按页切开（见 lib/strip.ts），
-   * 需要的是**页坐标**（带页号），而画的时候需要的是**窗口内坐标**——两者差一个固定的
-   * 零点，所以把零点在落笔时定死，画与存各减各的。
-   */
-  const strokeBaseRef = useRef<{ base: number; winPages: number } | null>(null)
-
-  /**
-   * 触点归一化，返回 `[x, py]`：x 按**页宽**归一化；py 是**页坐标**（整数部分 = 第几页 − 1，
-   * 小数 = 页内归一化纵坐标）——左右模式里 py 也带当前页号，所以「一笔落在哪一页」两种模式
-   * 走同一条判据。
-   *
-   * ⚠️ 纵坐标的钳制范围是**整块窗口**（上下模式 = 视口 + 一页；左右模式 = 一页），不是一页：
-   * 钳成一页的话，在窗口下半部画的点会全被压到同一个值上——真机上就是「笔迹塌缩成一条线」。
+   * 落笔那一刻已经定死了「画在哪一页、哪一块批注画布」（见 strokePageRef / strokeLayerRef），
+   * 所以这里**不再需要任何零点/窗口换算**——画布就是那一页，画出来哪儿就是哪儿。
+   * （早先按「页坐标 + 窗口零点」换算，连出两个真机 bug：忘减零点 ⇒ 落笔看不见；
+   * 减两次 ⇒ 越修越偏。现在坐标系只剩一种，这类错没有生存空间。）
    */
   const pointOf = (clientX: number, clientY: number): [number, number] => {
     const rect = overlayRectRef.current
     const { w, h } = viewSizeRef.current
     if (!rect || w <= 0 || h <= 0) return [0, 0]
-    const snap = strokeBaseRef.current
-    const base = snap ? snap.base : ud ? overlayAnchorRef.current / h : pageRef.current - 1
-    const winPages = snap ? snap.winPages : ud ? Math.min(contentH, containerH + h) / h : 1
-    const x = clamp((clientX - rect.left) / w, 0, 1)
-    return [x, pageCoordOf(clientY, rect.top, h, base, winPages)]
+    return [clamp((clientX - rect.left) / w, 0, 1), clamp((clientY - rect.top) / h, 0, 1)]
   }
 
   const cancelStroke = () => {
     drawingRef.current = false
+    erasingRef.current = false
     strokePtsRef.current = []
     strokeSeedRef.current = null
-    strokeBaseRef.current = null
+    strokeLayerRef.current = null
+    erasedRef.current = null
+  }
+
+  /**
+   * 手指落在**哪一页**上、那一页在哪一块画布上（落笔/落擦都要先定这个）。
+   * 找不到（那一页还没渲染进任何一块）就返回 null —— 不落笔，免得记到别的页上。
+   */
+  const laneUnderPoint = (clientY: number): { page: number; layer: Layer } | null => {
+    const h = viewSizeRef.current.h
+    if (!(h > 0) || pageCount <= 0) return null
+    const p = ud
+      ? pageFromScroll(clientY - stageRectRef.current.top - pan.y, h, pageCount)
+      : pageRef.current
+    const layer = ALL_LAYERS.find((l) => layerSlot[l] === p)
+    return layer ? { page: p, layer } : null
   }
 
   // 起笔：rect 必须当次现取（工具条显隐会挪动画布），取到之前不落笔——
   // 拿旧 rect 算出的首点会连出一条「从按钮到落笔处」的飞线
   const beginStroke = (touch: { clientX: number; clientY: number }) => {
     cancelStroke()
+    const lane = laneUnderPoint(touch.clientY)
+    if (!lane) return
     strokeSeedRef.current = { x: touch.clientX, y: touch.clientY }
+    strokeLayerRef.current = lane.layer
+    strokePageRef.current = lane.page
     void (async () => {
       try {
-        const { left, top } = await queryCanvasNode('#reader-overlay')
+        const { node, left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[lane.layer])
         overlayRectRef.current = { left, top }
+        // 现取画布并把它重置干净：cxt 要立刻可用（首点马上就到），已有的笔迹由 redraw 补
+        const canvas = node as CanvasNode
+        const { w, h } = viewSizeRef.current
+        const dpr = rasterDpr(w, h)
+        canvas.width = Math.round(w * dpr)
+        canvas.height = Math.round(h * dpr)
+        const ctx = canvas.getContext('2d')
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        overlayCtxRef.current = ctx
       } catch {
         cancelStroke()
         return
       }
       const seed = strokeSeedRef.current
       if (!seed) return // 手指已抬起或已转双指
-      const { h } = viewSizeRef.current
-      if (!(h > 0)) {
-        cancelStroke()
-        return
-      }
-      // 基准快照（见 strokeBaseRef）：零点 + 窗口高度都在这一刻定死
-      strokeBaseRef.current = {
-        base: ud ? overlayAnchorRef.current / h : pageRef.current - 1,
-        winPages: ud ? Math.min(contentH, containerH + h) / h : 1,
-      }
       strokeSeedRef.current = null
       drawingRef.current = true
       strokePtsRef.current = [pointOf(seed.x, seed.y)]
+      void redrawOverlay() // 把这一页已有的笔迹补上（上面刚清过屏）
     })()
   }
 
@@ -1357,7 +1307,49 @@ export default function ScoreReader() {
     const prev = pts[pts.length - 1]
     pts.push(p)
     if (!prev) return
-    drawStrokePts(ctx, pts, pts.length - 2)
+    const { w, h } = viewSizeRef.current
+    styleFor(ctx, penColor, penWidth, w)
+    ctx.beginPath()
+    ctx.moveTo(prev[0] * w, prev[1] * h)
+    ctx.lineTo(p[0] * w, p[1] * h)
+    ctx.stroke()
+  }
+
+  /** 落擦：和落笔一样先定死「擦哪一页、哪一块画布」（坐标要按那块画布的 rect 算） */
+  const beginErase = (touch: { clientX: number; clientY: number }) => {
+    cancelStroke()
+    const lane = laneUnderPoint(touch.clientY)
+    if (!lane) return
+    strokeLayerRef.current = lane.layer
+    strokePageRef.current = lane.page
+    erasingRef.current = true
+    void (async () => {
+      try {
+        const { left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[lane.layer])
+        overlayRectRef.current = { left, top }
+      } catch {
+        cancelStroke()
+      }
+    })()
+  }
+
+  /**
+   * 橡皮擦：手指划过的笔迹**整条删掉**（不做逐点擦除——那会把笔迹切碎、也没法撤销）。
+   * 命中判据见 lib/anno-draw.ts 的 strokeHitByPoint。
+   */
+  const eraseAtPoint = (touch: { clientX: number; clientY: number }) => {
+    const rect = overlayRectRef.current
+    const { w, h } = viewSizeRef.current
+    if (!rect || !(w > 0) || !(h > 0)) return
+    const px = touch.clientX - rect.left
+    const py = touch.clientY - rect.top
+    const key = String(strokePageRef.current)
+    const cur = annos[key] ?? []
+    if (cur.length === 0) return
+    const kept = cur.filter((s) => !strokeHitByPoint(s, px, py, ERASER_RADIUS_PX, w, h))
+    if (kept.length === cur.length) return
+    if (!erasedRef.current) erasedRef.current = cur // 本段手势擦掉之前的原样（抬手时记进撤销栈）
+    persist({ ...annos, [key]: kept })
   }
 
   // 按钮缩放：以视口中心为锚（不然放大只会往右下长）
@@ -1455,7 +1447,8 @@ export default function ScoreReader() {
     const touch = e.touches[0]
     if (!touch) return
     if (penOn) {
-      beginStroke(touch)
+      if (eraserOn) beginErase(touch)
+      else beginStroke(touch)
       return
     }
     // ⚠️ 这里**不再**按 docTick <= 0 早退：菜单默认隐藏，文档还没加载出来时也得能
@@ -1487,6 +1480,11 @@ export default function ScoreReader() {
     if (drawingRef.current && e.touches.length === 1) {
       const touch = e.touches[0]
       if (touch) drawLiveSegment(touch)
+      return
+    }
+    if (erasingRef.current && e.touches.length === 1) {
+      const touch = e.touches[0]
+      if (touch) eraseAtPoint(touch)
       return
     }
     const g = pinchRef.current
@@ -1550,19 +1548,23 @@ export default function ScoreReader() {
         const pts = strokePtsRef.current
         strokePtsRef.current = []
         if (pts.length > 0) {
-          // 一笔可能跨页（上下模式的滚动条里）：按页切开，各自记到各自的页上
-          // （左右模式只会切出一段——点坐标自带当前页序号，见 pointOf）
-          const runs = splitStrokeByStrip(pts, pageCount)
-          if (runs.length > 0) {
-            const next: AnnoDoc = { ...annos }
-            for (const run of runs) {
-              const key = String(run.page)
-              const stroke: AnnoStroke = { color: penColor, width: penWidth, points: run.points }
-              next[key] = [...(next[key] ?? []), stroke]
-            }
-            persist(next)
-          }
+          // 落在**落笔时定死的那一页**上（见 strokePageRef）：画布就是那一页，坐标就是页内的，
+          // 不需要任何跨页切分
+          const key = String(strokePageRef.current)
+          const before = annos[key] ?? []
+          const stroke: AnnoStroke = { color: penColor, width: penWidth, points: pts }
+          pushHistory(strokePageRef.current, before)
+          persist({ ...annos, [key]: [...before, stroke] })
         }
+        strokeLayerRef.current = null
+      }
+      if (erasingRef.current) {
+        // 擦完一段：把「擦之前那页的原样」记成**一步**（撤销要能整段退回来）
+        erasingRef.current = false
+        const before = erasedRef.current
+        erasedRef.current = null
+        if (before) pushHistory(strokePageRef.current, before)
+        strokeLayerRef.current = null
       }
       strokeSeedRef.current = null
       // 分类只在「本段从单指开始、中途也没出现过第二指」时做（双指的残留手指会落在多指判定里）
@@ -1585,11 +1587,19 @@ export default function ScoreReader() {
     }
   }
 
+  /** 记一步撤销（见 historyRef）：操作前的状态 + 页码 */
+  const pushHistory = (pageNo: number, before: AnnoStroke[]) => {
+    historyRef.current.push({ page: pageNo, before })
+    if (historyRef.current.length > 50) historyRef.current.shift() // 只留最近 50 步
+    setUndoDepth(historyRef.current.length)
+  }
+
+  /** 撤销**一步操作**（画一笔 / 擦掉若干笔都算一步）——不是「删掉最后一笔」 */
   const handleUndo = () => {
-    const key = String(page)
-    const cur = annos[key] ?? []
-    if (cur.length === 0) return
-    persist({ ...annos, [key]: cur.slice(0, -1) })
+    const op = historyRef.current.pop()
+    setUndoDepth(historyRef.current.length)
+    if (!op) return
+    persist({ ...annos, [String(op.page)]: op.before })
   }
 
   const handleClear = () => {
@@ -1638,7 +1648,6 @@ export default function ScoreReader() {
     }
   }
 
-  const currentStrokes = annos[String(page)] ?? []
   // 「还没画出一帧」就一直显示 —— 判据是**首帧真的换帧**（stage 到 ready），而不是
   // 「画布尺寸有没有值」：图片模式下 `setViewSize` 发生在绘制**之前**，按尺寸判会让
   // 提示在画面出来之前就消失（真机反馈：第一次「进度走完但没渲染出来」、第二次
@@ -1648,8 +1657,6 @@ export default function ScoreReader() {
   const boxH = viewSize.h || 0
   /** 某块画布此刻**显示着**哪一页——竖条模式靠它摆位（见 layerSlot 的注释） */
   const layerPageOf = (l: Layer): number | null => layerSlot[l]
-  /** 批注窗口高度（条内像素，见 redrawOverlay）：上下模式 = 视口 + 一页；左右模式 = 那一页 */
-  const overlayH = ud ? Math.min(contentH, containerH + boxH) : boxH
 
   // 双缓冲两块的样式。左右模式：活跃块在 0 位；**滑出中的那块**压在最上层向左/向右移出，
   // 新页在下面被露出来（换帧时新页早已渲好，不违反「宁停上一页也不上白帧」）。
@@ -1759,21 +1766,23 @@ export default function ScoreReader() {
               className='absolute top-0 block bg-page-bg'
               style={layerStyle('c')}
             />
-            {/* 批注层：压在静态页之上、滑出的旧页之下（旧页滑走时把这一页的笔迹一起露出来）。
-                不靠 DOM 顺序——滑出的那块要盖过它，只能靠 z-index。
-                上下模式里它是一个**窗口**（视口 + 一页高，锚点见 overlayAnchor）：条可能有
-                几十页高，做一张那么大的画布会超画布像素上限 */}
-            <Canvas
-              type='2d'
-              id='reader-overlay'
-              className='absolute left-0 block'
-              style={{
-                top: `${overlayAnchor}px`,
-                width: `${boxW}px`,
-                height: `${overlayH}px`,
-                zIndex: 2,
-              }}
-            />
+            {/* 批注层：**每块页画布各配一层**，position/size 与它那一页完全一致
+                （直接复用 layerStyle ⇒ 翻页动画时也跟着滑，笔迹不会掉队）。
+                ⚠️ 挂在页画布**之后**：DOM 靠后的压在上面（两块都用 zIndex 1 或 3 时靠顺序）。
+                只在该页有笔迹、或画笔打开（准备画）时挂载——没笔迹的页不白占一块画布。
+                ⚠️ 不覆盖 layerStyle 的 zIndex：否则翻页动画里（滑出那块 z=3）笔迹会被自己
+                那一页盖住。同级 z 时**排在后面的在上**，所以批注层要放在页画布之后。 */}
+            {ALL_LAYERS.map((l) =>
+              penOn || (annos[String(layerSlot[l] ?? 0)] ?? []).length > 0 ? (
+                <Canvas
+                  key={l}
+                  type='2d'
+                  id={`reader-overlay-${l}`}
+                  className='absolute top-0 block'
+                  style={layerStyle(l)}
+                />
+              ) : null
+            )}
           </View>
 
           {/* 页码徽标：**固定在屏幕右下角**（不随谱面拖动/缩放走）。
@@ -1961,7 +1970,9 @@ export default function ScoreReader() {
             <AnnotationBar
               color={penColor}
               width={penWidth}
-              canUndo={currentStrokes.length > 0}
+              eraser={eraserOn}
+              onEraser={setEraserOn}
+              canUndo={undoDepth > 0}
               onColor={setPenColor}
               onWidth={setPenWidth}
               onUndo={handleUndo}

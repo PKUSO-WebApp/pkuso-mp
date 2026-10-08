@@ -6,6 +6,10 @@ import { PEN_COLORS, PEN_WIDTHS } from '@/lib/annotation'
 type AnnotationBarProps = {
   color: string
   width: number
+  /** 橡皮擦模式（按**整条**删除，见读者页的 eraseAtPoint） */
+  eraser: boolean
+  onEraser: (v: boolean) => void
+  /** 撤销栈里还有没有可回退的操作（不是「这一页有没有笔迹」） */
   canUndo: boolean
   onColor: (color: string) => void
   onWidth: (width: number) => void
@@ -17,6 +21,8 @@ type AnnotationBarProps = {
 export function AnnotationBar({
   color,
   width,
+  eraser,
+  onEraser,
   canUndo,
   onColor,
   onWidth,
@@ -59,6 +65,23 @@ export function AnnotationBar({
   return (
     <View className='flex flex-row items-center justify-between border-t border-border bg-surface px-3 py-2'>
       <View className='flex flex-row items-center'>
+        {/* 笔 / 擦：橡皮擦按整条删除，比「清空本页」好用（能只擦掉不想要的那几笔） */}
+        <Button
+          className={`mr-2 rounded-full border px-3 py-1 text-xs ${
+            eraser ? 'border-border bg-card text-text' : 'border-primary bg-primary/10 text-text'
+          }`}
+          onClick={() => onEraser(false)}
+        >
+          {t('scoreReader.pen')}
+        </Button>
+        <Button
+          className={`mr-2 rounded-full border px-3 py-1 text-xs ${
+            eraser ? 'border-primary bg-primary/10 text-text' : 'border-border bg-card text-text'
+          }`}
+          onClick={() => onEraser(true)}
+        >
+          {t('scoreReader.eraser')}
+        </Button>
         {PEN_COLORS.map((c) => (
           <View
             key={c}

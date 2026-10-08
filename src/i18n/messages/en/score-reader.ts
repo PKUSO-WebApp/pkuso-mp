@@ -15,6 +15,8 @@ export const scoreReader = {
   annotation: 'Ink',
   penThin: 'Thin',
   penThick: 'Thick',
+  pen: 'Pen',
+  eraser: 'Eraser',
   undo: 'Undo',
   clear: 'Clear page',
   clearConfirm: 'Confirm?',
