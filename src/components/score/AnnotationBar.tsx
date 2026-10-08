@@ -11,6 +11,9 @@ type AnnotationBarProps = {
   onEraser: (v: boolean) => void
   /** 撤销栈里还有没有可回退的操作（不是「这一页有没有笔迹」） */
   canUndo: boolean
+  /** 清空按钮针对的页码：UD 下「本页」是有歧义的（写/擦按手指位置、清空按顶边页），
+   *  所以文案把页码写出来，用户点之前就知道会清哪一页 */
+  clearPage: number
   onColor: (color: string) => void
   onWidth: (width: number) => void
   onUndo: () => void
@@ -24,6 +27,7 @@ export function AnnotationBar({
   eraser,
   onEraser,
   canUndo,
+  clearPage,
   onColor,
   onWidth,
   onUndo,
@@ -113,7 +117,9 @@ export function AnnotationBar({
           }`}
           onClick={handleClear}
         >
-          {confirmingClear ? t('scoreReader.clearConfirm') : t('scoreReader.clear')}
+          {confirmingClear
+            ? t('scoreReader.clearConfirm')
+            : t('scoreReader.clear', { page: clearPage })}
         </Button>
       </View>
     </View>

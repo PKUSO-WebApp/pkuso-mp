@@ -284,6 +284,8 @@ export default function ScoreReader() {
   const [idleTick, setIdleTick] = useState(0)
   /** 刚渲染失败的那一页（+ 时刻）：补渲染要跳过它，别把一次失败变成无限重试 */
   const fillFailedRef = useRef<{ page: number; at: number } | null>(null)
+  /** 批注写盘失败已上报过（每册每次会话一次）：存储满会一直失败，别刷表 */
+  const annoSaveFailRef = useRef(false)
 
   /**
    * 让所有邻居帧作废（世代 +1，并打断在飞的那次）。触发点：视口宽变化、缩放、换册、
@@ -1063,14 +1065,19 @@ export default function ScoreReader() {
   // 左右模式没有这条：那里的页码是用户翻出来的，不是滚出来的。
   useEffect(() => {
     if (!ud || !(pageH > 0) || pageCount <= 0) return
-    const p = pageFromScroll(-pan.y, pageH, pageCount)
-    // 滚动方向：给「该先渲染视口哪一端」用（见下面的补渲染 effect）。内容上移 = 往下滚
     const scroll = -pan.y
+    // 滚动方向：给「该先渲染视口哪一端」用（见下面的补渲染 effect）。内容上移 = 往下滚
     const prev = lastScrollRef.current
     if (scroll !== prev) udDirRef.current = scroll > prev ? 1 : -1
     lastScrollRef.current = scroll
+    // ⚠️ 滚到条尾时由**末页**接管（2026-10-09，评审抓出）：pageH < 容器高时最大滚动量
+    // `pageCount×pageH − 容器高` 小于 `(pageCount−1)×pageH` ⇒ 末页的页首**永远够不到视口
+    // 顶边**，`pageFromScroll` 只能给到 N−1 ⇒ 徽标/书签/「清空本页」长期错一位，末页永远
+    // 当不上「当前页」（2 页册滚到底显示「1 / 2」，跳页输入 2 会回弹成 1）。
+    const maxScroll = Math.max(0, contentH - containerH)
+    const p = scroll >= maxScroll - 1 ? pageCount : pageFromScroll(scroll, pageH, pageCount)
     if (p !== page) setPage(p)
-  }, [ud, pan.y, pageH, pageCount, page])
+  }, [ud, pan.y, pageH, pageCount, page, contentH, containerH])
 
   // 缩放合并渲染：手势/连点期间不起渲染，停手后一次渲到位
   useEffect(() => {
@@ -1166,7 +1173,16 @@ export default function ScoreReader() {
   const persist = useCallback(
     (next: AnnoDoc) => {
       setAnnos(next)
-      if (fileId) saveAnnoDoc(fileId, next)
+      // 写不进去（存储满 / 单键超限）以前是**完全静默**的：画面照旧、退出重进才发现丢了，
+      // 线上一条线索都没有（评审抓出）。每册每次会话只报一次——存储满会一直失败。
+      if (fileId && !saveAnnoDoc(fileId, next) && !annoSaveFailRef.current) {
+        annoSaveFailRef.current = true
+        reportClientError({
+          event: 'score_reader_annotation_save_failed',
+          message: 'setStorageSync 失败（存储满/超限？）',
+          detail: { fileId, pages: Object.keys(next).length },
+        })
+      }
     },
     [fileId]
   )
@@ -1740,8 +1756,19 @@ export default function ScoreReader() {
     persist({ ...annos, [String(op.page)]: op.before })
   }
 
+  /**
+   * 清空当前页。⚠️ 两件事都不能省（评审 2026-10-09 抓出）：
+   * 1. **先记一步撤销**——从前它不进栈，于是「清空」不可撤销，而栈顶还留着清空前的快照，
+   *    用户点撤销会**删掉最后一笔**而不是恢复清空（数据丢失、无 redo）；
+   * 2. 清的是 `page`（UD 下 = 视口顶边那页）——所以按钮文案必须带上页码（见 AnnotationBar
+   *    的 clearPage），否则「本页」在 UD 里是歧义的：写/擦按**手指位置**定页，清空按顶边页。
+   */
   const handleClear = () => {
-    persist({ ...annos, [String(page)]: [] })
+    const key = String(page)
+    const before = annos[key] ?? []
+    if (before.length === 0) return // 没笔迹就没有可撤销的一步
+    pushHistory(page, before)
+    persist({ ...annos, [key]: [] })
   }
 
   const togglePen = () => {
@@ -1855,6 +1882,12 @@ export default function ScoreReader() {
     pageCount,
     renderedPages
   )
+  /**
+   * 撤销按钮是否可用：栈非空 **且** 栈顶那一步的页此刻在屏幕上（`renderedPages` = 三块
+   * 画布各自装着哪一页，LR 下含前后邻居、UD 下含条上相邻的页）。理由见 canUndo 的注释。
+   */
+  const undoTopPage = historyRef.current[historyRef.current.length - 1]?.page ?? null
+  const undoVisible = undoDepth > 0 && undoTopPage !== null && renderedPages.has(undoTopPage)
 
   /**
    * 上下模式：**视口里看得见、还没有帧的页，直接排渲染**——不走预绘制。
@@ -2242,7 +2275,11 @@ export default function ScoreReader() {
               width={penWidth}
               eraser={eraserOn}
               onEraser={setEraserOn}
-              canUndo={undoDepth > 0}
+              // 撤销按钮只在「栈顶那一步的页**正显示在屏幕上**」时给：撤销弹的是全局栈顶，
+              // 从前只看栈深 ⇒ 在没笔迹的页上点它会**静默改掉别页的笔迹**（评审抓出）。
+              // 现在每次按下都必然看得见效果。
+              canUndo={undoVisible}
+              clearPage={page}
               onColor={setPenColor}
               onWidth={setPenWidth}
               onUndo={handleUndo}

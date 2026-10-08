@@ -18,7 +18,7 @@ export const scoreReader = {
   pen: 'Pen',
   eraser: 'Eraser',
   undo: 'Undo',
-  clear: 'Clear page',
+  clear: 'Clear p.{page}',
   clearConfirm: 'Confirm?',
   openNative: 'Native',
   nativeNotReady: 'File not loaded yet',

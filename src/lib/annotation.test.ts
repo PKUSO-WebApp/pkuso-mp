@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import Taro from '@tarojs/taro'
 import {
   annoStorageKey,
   compactDoc,
@@ -43,8 +44,23 @@ describe('annotation storage', () => {
       ],
       '2': [{ color: '#2f6fed', width: 0.008, points: [[0.5, 0.5]] }],
     }
-    saveAnnoDoc('f1', doc)
+    expect(saveAnnoDoc('f1', doc)).toBe(true) // 写成功要如实回 true
     expect(loadAnnoDoc('f1')).toEqual(doc)
+  })
+
+  it('写不进去时返回 false——调用方据此上报，别静默丢（存储满/超限）', () => {
+    const taro = Taro as unknown as { setStorageSync: (k: string, v: string) => void }
+    const orig = taro.setStorageSync
+    taro.setStorageSync = () => {
+      throw new Error('setStorageSync:fail exceed storage')
+    }
+    try {
+      expect(saveAnnoDoc('f1', { '1': [{ color: '#111', width: 0.004, points: [[0, 0]] }] })).toBe(
+        false
+      )
+    } finally {
+      taro.setStorageSync = orig
+    }
   })
 
   it('不同文件 id 批注互不串扰', () => {

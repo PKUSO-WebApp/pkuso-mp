@@ -71,10 +71,20 @@ export function loadAnnoDoc(fileId: string): AnnoDoc {
   }
 }
 
-export function saveAnnoDoc(fileId: string, doc: AnnoDoc): void {
+/**
+ * 保存批注。**返回是否真的写进去了**（2026-10-09 补）：从前这个函数吞掉一切、返回 void，
+ * 于是「存储满 / 单键超限 / 存储不可用」时，内存态照旧更新、画布照旧显示笔迹——用户看到的
+ * 一切正常，退出重进却整段消失，而 `client_error_logs` 里**一条都没有**（评审抓出）。
+ *
+ * 上报交给调用方（阅读器）：这里不 import 上报模块——那会把这个纯存储模块拽上
+ * `error-report → supabase`（缺 env 时**导入即抛**，测试直接加载不了）。
+ */
+export function saveAnnoDoc(fileId: string, doc: AnnoDoc): boolean {
   try {
     Taro.setStorageSync(annoStorageKey(fileId), JSON.stringify(compactDoc(doc)))
+    return true
   } catch {
-    // 存储满/失败不阻断绘制，仅放弃持久化
+    // 存储满/失败不阻断绘制，仅放弃持久化——由调用方决定怎么让人看见
+    return false
   }
 }

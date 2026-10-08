@@ -21,7 +21,8 @@ export const scoreReader = {
   pen: '笔',
   eraser: '橡皮',
   undo: '撤销',
-  clear: '清空本页',
+  /** 带页码：UD 下「本页」歧义（见 AnnotationBar 的 clearPage） */
+  clear: '清空第 {page} 页',
   clearConfirm: '确认？',
   openNative: '原生打开',
   nativeNotReady: '文件尚未加载完成',
