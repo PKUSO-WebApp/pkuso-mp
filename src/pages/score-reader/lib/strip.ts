@@ -54,3 +54,22 @@ export function pendingPages(
   for (let p = first; p <= last; p += 1) if (!rendered.has(p)) out.push(p)
   return out
 }
+
+/**
+ * 竖条模式下「该立刻排渲染」的那一页（null = 不用排）。
+ *
+ * 判据：视口里看得见、还没有帧（`pending`，见 `pendingPages`）。方向决定取哪一端：
+ * - 往下滚（`dir = 1`）：滚进来的是**最靠下**的那一页，它是用户的下一眼；
+ * - 往上滚 / 方向未知：取**最靠上**的那一页。
+ *
+ * 为什么要单独一条通路而不是靠预绘制：滚动期间每一次页码变化都会占住渲染队列，
+ * `predrawGo` 因此整段返回 skip **且不重排**——手指按着屏幕的整段时间里预绘制等于停摆，
+ * 而 UD 视口高 ≈ 1.4 页（`pageH` 是内容高，容器还更高），下一页的顶边从一进来就露在
+ * 屏幕上，于是「n 画好了、n+1 一直空白」要挂到手指停下 300ms 后（真机反馈 2026-10-09）。
+ */
+export function nextVisibleToRender(pending: readonly number[], dir: 1 | -1 | 0): number | null {
+  // 调用方保证这些页**都不在忙队列里**（见 index.tsx 的守卫：队列空着才补）——
+  // 所以这里不需要再过滤，多一个「忙页」参数只会是恒空的死参数。
+  if (pending.length === 0) return null
+  return dir === 1 ? pending[pending.length - 1] : pending[0]
+}

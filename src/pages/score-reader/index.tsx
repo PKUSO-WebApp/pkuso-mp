@@ -40,7 +40,13 @@ import {
   Z_TOOLBAR,
 } from './lib/layout'
 import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
-import { pageFromScroll, pageTop, pendingPages, stripHeight } from './lib/strip'
+import {
+  nextVisibleToRender,
+  pageFromScroll,
+  pageTop,
+  pendingPages,
+  stripHeight,
+} from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawStrokeOn, strokeHitByPoint, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
@@ -270,6 +276,9 @@ export default function ScoreReader() {
   const containerWRef = useRef(0)
   /** 排下一次预绘制（doRender 尾段与 promoteFrame 都要调，用 ref 断开循环依赖） */
   const schedulePredrawRef = useRef<() => void>(() => {})
+  /** 上下模式的滚动方向（1 = 往下滚）与上一次滚动位置：见「补渲染视口里的页」effect */
+  const udDirRef = useRef<1 | -1>(1)
+  const lastScrollRef = useRef(0)
 
   /**
    * 让所有邻居帧作废（世代 +1，并打断在飞的那次）。触发点：视口宽变化、缩放、换册、
@@ -1027,6 +1036,11 @@ export default function ScoreReader() {
   useEffect(() => {
     if (!ud || !(pageH > 0) || pageCount <= 0) return
     const p = pageFromScroll(-pan.y, pageH, pageCount)
+    // 滚动方向：给「该先渲染视口哪一端」用（见下面的补渲染 effect）。内容上移 = 往下滚
+    const scroll = -pan.y
+    const prev = lastScrollRef.current
+    if (scroll !== prev) udDirRef.current = scroll > prev ? 1 : -1
+    lastScrollRef.current = scroll
     if (p !== page) setPage(p)
   }, [ud, pan.y, pageH, pageCount, page])
 
@@ -1813,6 +1827,25 @@ export default function ScoreReader() {
     pageCount,
     renderedPages
   )
+
+  /**
+   * 上下模式：**视口里看得见、还没有帧的页，直接排渲染**——不走预绘制。
+   *
+   * 为什么需要这条独立通路（真机 2026-10-09 报「n 画好了、下面的 n+1 一直空白」）：
+   * 滚动期间每一次页码变化都占住渲染队列，`predrawGo` 的 queueBusy 于是整段返回 skip
+   * **且不重排**，手指按着屏幕的整段时间里预绘制等于停摆；而 UD 视口高 ≈ 1.4 页
+   * （pageH 是内容高，容器还更高），下一页的顶边从一进来就露在屏幕上——于是那一片空白
+   * 要挂到手指停下 300ms 后。
+   *
+   * 只在**队列空着**时补（不抢在飞的那件、也不顶掉排队中的可见页：单槽队列被来回顶
+   * 会变成两页互相挤掉，谁也画不出来）。每件渲染只有几十毫秒，空档足够多。
+   */
+  useEffect(() => {
+    if (!ud) return
+    if (inflightRef.current || queuedRef.current) return
+    const next = nextVisibleToRender(pending, udDirRef.current)
+    if (next !== null) requestRender({ page: next, zoom: zoomRef.current })
+  }, [ud, pending, requestRender])
 
   // 双缓冲两块的样式。左右模式：活跃块在 0 位；**滑出中的那块**压在最上层向左/向右移出，
   // 新页在下面被露出来（换帧时新页早已渲好，不违反「宁停上一页也不上白帧」）。

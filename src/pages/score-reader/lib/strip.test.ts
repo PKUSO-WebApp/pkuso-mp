@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pageFromScroll, pageTop, pendingPages, stripHeight } from './strip'
+import { nextVisibleToRender, pageFromScroll, pageTop, pendingPages, stripHeight } from './strip'
 
 describe('竖条几何', () => {
   it('条高 = 页高 × 页数；页顶 = (页码 − 1) × 页高（页与页零间隔）', () => {
@@ -56,5 +56,17 @@ describe('pendingPages（该给哪些页显示加载圆圈）', () => {
   it('滚到条尾之外也不越界（钳进 [1, pageCount]）', () => {
     expect(pendingPages(99999, H, 1000, 4, new Set())).toEqual([4])
     expect(pendingPages(-500, H, 1000, 4, new Set())).toEqual([1, 2])
+  })
+})
+
+describe('nextVisibleToRender（UD：该立刻排渲染的那一页）', () => {
+  it('往下滚取最靠下的一页（滚进来的那一眼），往上滚取最靠上的', () => {
+    expect(nextVisibleToRender([4, 5, 6], 1)).toBe(6)
+    expect(nextVisibleToRender([4, 5, 6], -1)).toBe(4)
+    expect(nextVisibleToRender([4, 5, 6], 0)).toBe(4)
+  })
+
+  it('没有待渲染的页 ⇒ null（不排空活）', () => {
+    expect(nextVisibleToRender([], 1)).toBeNull()
   })
 })
