@@ -148,6 +148,49 @@ function rememberFile(url: string, path: string): void {
 }
 
 /**
+ * 本会话对「小程序图片层还能不能用」的判定：判过一次就不再每页白撞它一遍。
+ *
+ * ⚠️ **真正的「失败前判断」做不到** —— 判断本身就是一次取图，没有别的信息源（微信也没给
+ * 查询「这个设备能不能用图片层」的接口）。能做的是**只判一次**，并且让判据尽量硬：
+ * **同一条 URL 图片层刚失败、downloadFile 当场拿得到**（地址与网络都好，坏的就是图片层
+ * 这一层）⇒ 本会话余下取图直接走兜底。反过来，两条路都失败时**不下结论**（可能只是网络
+ * 或入口的问题），下一次仍然先试图片层——这也是「刚才那次拒绝可能只是瞬时抖动」
+ * （见 PAGE_IMAGE_RETRY_DELAYS_MS 的注释）留下的余地。
+ */
+let imageLayerBroken = false
+
+/** 换册 / 用户点「重试」时复位：网络换了、或用户明确要求重来时，值得重新判一次 */
+export function resetPageImageStrategy(): void {
+  imageLayerBroken = false
+}
+
+/** 诊断用（真机日志/用例里能看出这台设备走的是哪条路） */
+export function isImageLayerBroken(): boolean {
+  return imageLayerBroken
+}
+
+/**
+ * 预取（预热泵用）：图片层能用就照旧走它（吃微信图片缓存）；**已判定它坏了就改成把图
+ * 下进本地记账**——前台随后直接命中那份文件，翻页仍然不疼。流量与从前一致：健康设备上
+ * `getImageInfo` 本来也是整张下回来。
+ */
+export function prefetchPageImage(url: string, deps: PageImageDeps = {}): Promise<unknown> {
+  if (!imageLayerBroken) return Taro.getImageInfo({ src: url })
+  return warmPageImageFile(url, deps.downloadFile ?? defaultDownloadFile)
+}
+
+/** 把一页图下进本地记账（不画，只为让它进缓存）；已有记账就不重复下 */
+async function warmPageImageFile(
+  url: string,
+  download: NonNullable<PageImageDeps['downloadFile']>
+): Promise<void> {
+  if (fileCache.has(url)) return
+  const res = await download(url, PAGE_IMAGE_TIMEOUT_MS)
+  if (res.statusCode !== 200) throw new Error(`页图下载失败：HTTP ${res.statusCode}`)
+  rememberFile(url, res.tempFilePath)
+}
+
+/**
  * 兜底那条路：downloadFile 落成临时文件，再从**本地路径**解码（见文件头「兜底」）。
  * 本地路径也交给同一个 `loadOnePageImage` —— 只是 src 不同，onload/onerror 语义一样。
  */
@@ -173,7 +216,8 @@ async function loadOnePageImageFromFile(
 }
 
 /**
- * 加载一页页图：**先图片层（吃缓存），全失败再走 downloadFile 兜底**。
+ * 加载一页页图：**先图片层（吃缓存），全失败再走 downloadFile 兜底**；本会话已判定
+ * 图片层坏了的话，直接走兜底那轮（见 `imageLayerBroken`）。
  *
  * 图片层那轮**依次尝试候选 URL**（见 `pageImageUrls`：反代优先、直连兜底）：第一个
  * （反代）用较短超时——它该快，慢了说明这条腿不通；后面的（直连）给足 30 秒，弱网下
@@ -190,20 +234,29 @@ export async function loadPageImage(
   const download = deps.downloadFile ?? defaultDownloadFile
   const trace: string[] = []
   let lastErr: PageImageError | null = null
-  for (let i = 0; i < urls.length; i += 1) {
-    try {
-      return await loadOnePageImage(
-        node,
-        urls[i],
-        i === 0 ? PROXY_LEG_TIMEOUT_MS : PAGE_IMAGE_TIMEOUT_MS
-      )
-    } catch (err) {
-      lastErr = noteFailure(err, 'image', i, trace)
+  // 已判定图片层坏了 ⇒ 这一轮直接跳过它（判据与复位见 imageLayerBroken 的注释）
+  if (!imageLayerBroken) {
+    for (let i = 0; i < urls.length; i += 1) {
+      try {
+        return await loadOnePageImage(
+          node,
+          urls[i],
+          i === 0 ? PROXY_LEG_TIMEOUT_MS : PAGE_IMAGE_TIMEOUT_MS
+        )
+      } catch (err) {
+        lastErr = noteFailure(err, 'image', i, trace)
+      }
     }
   }
   for (let i = 0; i < urls.length; i += 1) {
     try {
-      return await loadOnePageImageFromFile(node, urls[i], PAGE_IMAGE_TIMEOUT_MS, download)
+      const loaded = await loadOnePageImageFromFile(node, urls[i], PAGE_IMAGE_TIMEOUT_MS, download)
+      // 图片层刚失败、兜底却拿得到 ⇒ 坏的是图片层这一层（地址与网络都好）：记下结论，
+      // 本会话余下的取图不再白撞它。trace 为空说明这一轮压根没试图片层，别误判。
+      // 图片层刚失败、兜底却拿得到 ⇒ 坏的是图片层这一层（地址与网络都好）：记下结论，
+      // 本会话余下的取图不再白撞它。判据必须是「这一轮真的试过图片层」（trace 非空）。
+      if (trace.length > 0) imageLayerBroken = true
+      return loaded
     } catch (err) {
       lastErr = noteFailure(err, 'file', i, trace)
     }

@@ -1,25 +1,35 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  isImageLayerBroken,
   loadPageImage,
   loadPageImageWithRetry,
+  prefetchPageImage,
+  resetPageImageStrategy,
   PAGE_IMAGE_RETRY_DELAYS_MS,
   type PageImageError,
 } from './page-image'
 import type { CanvasNode } from './types'
 
+// 「图片层还能不能用」的判定是模块级、跨用例保留的：每个用例都从「还没判过」开始
+beforeEach(() => resetPageImageStrategy())
+
 /**
  * 假画布节点：`createImage()` 每次返回一张「赋 src 就异步触发 onload / onerror」的假图片。
  * `payloads` 按调用次序取——`'ok'` 表示这次成功，其余值原样喂给 onerror。
+ * `srcs` 记下每次被赋的 src：**断言「走的是哪条路」靠它**（两条路都调 createImage，
+ * 区别只在 src 是远端 URL 还是本地路径）。
  */
-function fakeNode(payloads: Array<unknown | 'ok'>) {
+function fakeNode(payloads: Array<unknown | 'ok'>): CanvasNode & { srcs: string[] } {
   let call = 0
-  return {
+  const srcs: string[] = []
+  const node = {
     createImage: () => {
       const payload = payloads[Math.min(call, payloads.length - 1)]
       call += 1
       const img = { width: 10, height: 20 } as Record<string, unknown>
       Object.defineProperty(img, 'src', {
-        set() {
+        set(v: string) {
+          srcs.push(v)
           queueMicrotask(() => {
             if (payload === 'ok') (img.onload as (() => void) | null)?.()
             else (img.onerror as ((e: unknown) => void) | null)?.(payload)
@@ -28,7 +38,9 @@ function fakeNode(payloads: Array<unknown | 'ok'>) {
       })
       return img
     },
-  } as unknown as CanvasNode
+    srcs,
+  }
+  return node as unknown as CanvasNode & { srcs: string[] }
 }
 
 /**
@@ -109,8 +121,11 @@ describe('loadPageImage 主路径（小程序图片层）', () => {
     }
     await loadPageImage(fakeNode([{ errMsg: 'x' }, 'ok']), [proxy], deps)
     expect(downloads).toBe(1)
-    await loadPageImage(fakeNode([{ errMsg: 'x' }, 'ok']), [proxy], deps)
+    // 第二次：图片层已被判定坏了（上一轮就是它失败+兜底成功），直接画本地那份
+    const second = fakeNode(['ok'])
+    await loadPageImage(second, [proxy], deps)
     expect(downloads).toBe(1)
+    expect(second.srcs).toEqual(['wxfile://tmp/once-1.jpg'])
   })
 })
 
@@ -154,6 +169,67 @@ describe('loadPageImage 的失败信息（诊断用）', () => {
       }
     )
     expect(img.width).toBe(10)
+  })
+})
+
+describe('取图策略的判定（判一次、本会话记住）', () => {
+  const okDownload = async () => ({ statusCode: 200, tempFilePath: 'wxfile://tmp/once.jpg' })
+
+  it('图片层失败 + 兜底成功 ⇒ 判定图片层坏了；下一次取图不再去撞远端', async () => {
+    const [proxy] = freshUrls()
+    const deps = { downloadFile: okDownload }
+    const first = fakeNode([{ errMsg: 'boom' }, 'ok'])
+    await loadPageImage(first, [proxy], deps)
+    expect(first.srcs).toEqual([proxy, 'wxfile://tmp/once.jpg'])
+    expect(isImageLayerBroken()).toBe(true)
+
+    const second = fakeNode(['ok'])
+    await loadPageImage(second, [proxy], deps)
+    expect(second.srcs).toEqual(['wxfile://tmp/once.jpg']) // 只画本地那份，没试远端
+  })
+
+  it('两条路都失败 ⇒ 不下结论（可能只是网络），下一次仍然先试图片层', async () => {
+    const [proxy] = freshUrls()
+    await fail(
+      loadPageImage(fakeNode([{ errMsg: 'boom' }]), [proxy], { downloadFile: downloadNever })
+    )
+    expect(isImageLayerBroken()).toBe(false)
+
+    const next = fakeNode(['ok'])
+    await loadPageImage(next, [proxy], { downloadFile: downloadNever })
+    expect(next.srcs).toEqual([proxy])
+  })
+
+  it('复位之后重新判：换册 / 点「重试」不该永远锁在兜底那条路上', async () => {
+    const [proxy] = freshUrls()
+    const deps = { downloadFile: okDownload }
+    await loadPageImage(fakeNode([{ errMsg: 'boom' }, 'ok']), [proxy], deps)
+    expect(isImageLayerBroken()).toBe(true)
+
+    resetPageImageStrategy()
+    const again = fakeNode(['ok'])
+    await loadPageImage(again, [proxy], deps)
+    expect(again.srcs).toEqual([proxy]) // 又从图片层开始试
+  })
+
+  it('预取：判定坏了之后改为下进本地记账，且不重复下已经记过的', async () => {
+    const [proxy] = freshUrls()
+    const files: string[] = []
+    const deps = {
+      downloadFile: async (url: string) => {
+        files.push(url)
+        return { statusCode: 200, tempFilePath: 'wxfile://tmp/warm.jpg' }
+      },
+    }
+    await loadPageImage(fakeNode([{ errMsg: 'boom' }, 'ok']), [proxy], deps)
+    expect(isImageLayerBroken()).toBe(true)
+
+    files.length = 0
+    await prefetchPageImage(proxy, deps) // 前台刚下过、已记账 ⇒ 不再下
+    expect(files).toEqual([])
+    const [other] = freshUrls()
+    await prefetchPageImage(other, deps) // 没记过 ⇒ 下它
+    expect(files).toEqual([other])
   })
 })
 

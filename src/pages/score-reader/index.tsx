@@ -52,6 +52,8 @@ import {
   loadPageImage,
   loadPageImageWithRetry,
   paintPageImage,
+  prefetchPageImage,
+  resetPageImageStrategy,
   PAGE_IMAGE_RETRY_DELAYS_MS,
   type LoadedPageImage,
   type PageImageError,
@@ -1209,6 +1211,9 @@ export default function ScoreReader() {
       imageModeRef.current = false
       prefetchPumpRef.current?.stop()
       prefetchPumpRef.current = null
+      // 取图策略（图片层 / downloadFile 兜底）的判定也跟着复位：换册=换了网络场景，
+      // 用户点「重试」=明确要求重来一次，两处都值得重新判一遍（见 page-image 的注释）
+      resetPageImageStrategy()
       invalidatePredraw('load') // 换册：备用块上那一帧属于上一册，作废
       inkPagesRef.current.clear() // 页码对应不同内容，白页判据也要重置
       // 「显示中的页」作废：换册后的首帧不滑（换册前后页码可能撞上，靠它区分）。
@@ -1271,6 +1276,9 @@ export default function ScoreReader() {
           const pump = createPrefetchPump({
             total: imagePageTotal,
             urlsFor: (n) => pageImageUrls(fileUrlRef.current, n),
+            // 预取跟着「哪条路能用」走：图片层坏了就改为下进本地记账（见 prefetchPageImage），
+            // 否则前台每页都要在坏掉的图片层上白等一轮
+            prefetchOne: prefetchPageImage,
           })
           prefetchPumpRef.current = pump
           // 并发固定串行（泵默认值；理由见 lib/prefetch-pump.ts 的 PREFETCH_PARALLEL：
