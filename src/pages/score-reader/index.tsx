@@ -79,6 +79,7 @@ import {
   predrawFallback,
   predrawGo,
   spareLayer,
+  NEIGHBOR_MAX_ZOOM,
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
   type LayerMetas,
@@ -279,6 +280,10 @@ export default function ScoreReader() {
   /** 上下模式的滚动方向（1 = 往下滚）与上一次滚动位置：见「补渲染视口里的页」effect */
   const udDirRef = useRef<1 | -1>(1)
   const lastScrollRef = useRef(0)
+  /** 渲染队列排空的次数：把它放进 effect 依赖，等于「渲染器一空下来就再看一眼视口」 */
+  const [idleTick, setIdleTick] = useState(0)
+  /** 刚渲染失败的那一页（+ 时刻）：补渲染要跳过它，别把一次失败变成无限重试 */
+  const fillFailedRef = useRef<{ page: number; at: number } | null>(null)
 
   /**
    * 让所有邻居帧作废（世代 +1，并打断在飞的那次）。触发点：视口宽变化、缩放、换册、
@@ -291,8 +296,14 @@ export default function ScoreReader() {
     if (!hasFrames && !bgRef.current && !predrawTimerRef.current) return
     predrawEpochRef.current += 1
     layerMetaRef.current = { a: null, b: null, c: null }
-    // 摆位也清掉：尺寸/缩放/换册之后，旧的「这块显示着哪一页」不再成立
-    setLayerSlot({ a: null, b: null, c: null })
+    // ⚠️ **不清 `layerSlot`**（2026-10-09，评审抓出）：它问的是「这块画布装着哪一页」，
+    // 缩放/回前台之后**这个身份仍然成立**——像素旧了、被 CSS 拉伸，但页没错。清掉它等于
+    // 把「显示中」判据（UD 的 `visible = layerSlot != null`）也清了 ⇒ UD 下三块画布当场
+    // 全摆到屏外（`left:-99999`），**整个谱面消失**，只剩纸色背景 + 页码：捏合缩放的每一个
+    // move 都会触发，回前台也触发（LR 不白屏，因为它的可见判据是 `activeLayer`，正好印证
+    // 这条判据不该依赖摆位记账）。清层只清语义帧（`layerMetaRef`）：预绘制据此重备，
+    // 而屏幕上的旧帧留到新帧落地——正是「缩放即时反馈：只换内容尺寸」想要的样子。
+    // （换册不需要在这里清：每册是一个独立的页面实例。）
     const ctl = bgRef.current
     if (ctl) {
       ctl.cancelled = true
@@ -864,13 +875,14 @@ export default function ScoreReader() {
           containerW: containerWRef.current,
         })
       )
+      const busy = Boolean(inflightRef.current || queuedRef.current)
       const go = predrawGo({
         // 正在落笔/落擦：预绘制画完会 setLayerSlot ⇒ 触发批注层重绘 ⇒ 正画着的那一页闪一下
         drawing: drawingRef.current || erasingRef.current,
         zoom: zoomRef.current,
         pinching: Boolean(pinchRef.current),
         animating: Boolean(turnRef.current?.frame()),
-        queueBusy: Boolean(inflightRef.current || queuedRef.current),
+        queueBusy: busy,
         target,
         warm: target !== null && (prefetchPumpRef.current?.isWarm(target) ?? false),
         waitedMs: Date.now() - startedAt,
@@ -879,10 +891,20 @@ export default function ScoreReader() {
         predrawTimerRef.current = setTimeout(tick, PREDRAW_WAIT_MS)
         return
       }
-      if (go === 'skip' || target === null) return
+      if (go === 'skip') {
+        // ⚠️ 从前这里是**终点**：队列一忙就再也不重排，于是整个滚动过程（每一页变化都占住
+        // 队列）预绘制死透，手指停下也不会自己复活——真机「n 画好了、n+1 一直空白」的直接
+        // 成因（2026-10-09）。队列忙只是**这一刻**的状态，过一拍再看；单槽队列永远只留最新
+        // 一件，前台请求会把它顶掉，所以重排不会和前台抢。
+        if (busy) predrawTimerRef.current = setTimeout(tick, PREDRAW_WAIT_MS)
+        return
+      }
+      if (target === null) return
       runJobRef.current({ page: target, zoom: zoomRef.current, bg: true })
     }
-    predrawTimerRef.current = setTimeout(tick, PREDRAW_IDLE_MS)
+    // UD 没有"滑出那块还要停稳"要等（PREDRAW_IDLE_MS 是为它留的）⇒ 立刻试；
+    // LR 保留：换帧后 300ms 内那块画布可能还在滑，写它就是把动画打断
+    predrawTimerRef.current = setTimeout(tick, modeRef.current === 'ud' ? 0 : PREDRAW_IDLE_MS)
   }, [pageCount])
   useEffect(() => {
     schedulePredrawRef.current = schedulePredraw
@@ -911,6 +933,9 @@ export default function ScoreReader() {
           const msg = err instanceof Error ? err.message : String(err)
           setStage('error')
           setMessage(msg)
+          // 这一页渲染不出来：记下来，「补渲染视口里的页」别再自动重排它
+          // （否则渲染器一空就又排一次，等于把一次失败变成无限重试）
+          fillFailedRef.current = { page: job.page, at: Date.now() }
         } finally {
           inflightRef.current = null
           renderLayerRef.current = null
@@ -918,6 +943,9 @@ export default function ScoreReader() {
           const next = queuedRef.current
           queuedRef.current = null
           if (next) runJobRef.current(next)
+          // 队列**真的空了**：叫醒「补渲染视口里还看得见但没有帧的页」那条 effect
+          // （它是拉模型——不靠滚动事件，而是每次渲染器空下来都再看一眼）
+          else setIdleTick((n) => n + 1)
         }
       })()
     },
@@ -1838,14 +1866,34 @@ export default function ScoreReader() {
    * 要挂到手指停下 300ms 后。
    *
    * 只在**队列空着**时补（不抢在飞的那件、也不顶掉排队中的可见页：单槽队列被来回顶
-   * 会变成两页互相挤掉，谁也画不出来）。每件渲染只有几十毫秒，空档足够多。
+   * 会变成两页互相挤掉，谁也画不出来）。
+   *
+   * ⚠️ `idleTick` 是这条 effect 的关键：**渲染器每次排空都会 +1**，于是它是个拉模型
+   * ——「谁空了谁就看一眼视口还缺哪页」。只靠滚动事件触发是不行的：手势停下之后再没有
+   * 状态变化，如果最后一拍队列恰好忙，这一页就再也没人管了（这正是 2026-10-09 真机
+   * 「n 画好了、n+1 一直空白」的形态）。
    */
   useEffect(() => {
     if (!ud) return
     if (inflightRef.current || queuedRef.current) return
-    const next = nextVisibleToRender(pending, udDirRef.current)
-    if (next !== null) requestRender({ page: next, zoom: zoomRef.current })
-  }, [ud, pending, requestRender])
+    // ⚠️ 必须走**预绘制**那条路（`bg: true`），不能走 requestRender：前台通路
+    // `doRender` 是「先画位图、再判‘这页还是不是当前页’」——补渲染的目标按定义**不是**
+    // 当前页（当前页是视口顶边那页），于是它画完位图就在守卫处 return，**从不写记账**
+    // （`setLayerSlot`/`layerMetaRef` 都在守卫之后）。而 UD 里「这块画布看得见」的判据
+    // 正是 `layerSlot != null` ⇒ 页面永远不出现、pending 永不缩小 ⇒ 渲染器一空就又排一次，
+    // 空转成环（评审 2026-10-09 抓出；那版还把位图和摆位记账写成了不一致的两页）。
+    // 预绘制那条路自带记账（画成功 ⇒ setLayerSlot），UD 里立刻就被摆到它那一页的位置上。
+    if (zoomRef.current > NEIGHBOR_MAX_ZOOM) return // 放大档位与预绘制同一道闸（内存）
+    // 视口里的页比画布还多（缩小到 0.5 又碰上宽幅谱时会发生）：一块画布只放一页，
+    // 补渲染会和正在显示的页互相顶。不补，交给「当前页变化」那条通路 + 加载圆圈兜。
+    if (pending.length > ALL_LAYERS.length - 1) return
+    // 刚渲染失败的那页跳过（10 秒）：否则渲染器每次空下来都会再排它一次
+    const failed = fillFailedRef.current
+    const skip = failed && Date.now() - failed.at < 10_000 ? failed.page : null
+    const candidates = skip === null ? pending : pending.filter((p) => p !== skip)
+    const next = nextVisibleToRender(candidates, udDirRef.current)
+    if (next !== null) runJobRef.current({ page: next, zoom: zoomRef.current, bg: true })
+  }, [ud, pending, idleTick])
 
   // 双缓冲两块的样式。左右模式：活跃块在 0 位；**滑出中的那块**压在最上层向左/向右移出，
   // 新页在下面被露出来（换帧时新页早已渲好，不违反「宁停上一页也不上白帧」）。
@@ -1974,14 +2022,21 @@ export default function ScoreReader() {
             )}
           </View>
 
-          {/* 还没渲染出来的页：各自中心一个转圈。位置按**页**算（不跟屏幕），
-              所以它跟着条一起滚，正好停在那一页该在的地方 */}
+          {/* 还没渲染出来的页：各自中心一个转圈。
+              ⚠️ 这两层是 `#reader-stage` 的直接子节点（在内容框**外面**），坐标是**舞台**的
+              —— 所以必须把 `pan` 加上：`pageTop` 给的是内容坐标。漏了 `pan` 就等于「圆圈按
+              内容位置摆，却被当成屏幕位置用」，除第 1 页外全被 `overflow-hidden` 裁掉，
+              而且**恰好在用户最需要它的时候**（滚到第 4 页，第 5 页的圈被放到 4×页高之外）。
+              2026-10-09 真机「下面一片空白、连加载圈都没有」就是这个（评审抓出）。 */}
           {pending.map((p) => (
             <View
               key={`pending-${p}`}
-              className='absolute left-0 flex flex-row justify-center'
+              className='absolute flex flex-row justify-center'
               style={{
-                top: `${pageTop(p, boxH) + boxH / 2 - 20}px`,
+                left: `${pan.x}px`,
+                // `pageTop` 只在竖条模式有意义（内容框 = 整条）；LR 的内容框只有一页高，
+                // 圆圈该落在**这一页**（也就是内容框）的中心，取 0 而不是 (p-1)×页高
+                top: `${(ud ? pageTop(p, boxH) : 0) + pan.y + boxH / 2 - 20}px`,
                 width: `${boxW}px`,
                 zIndex: 5,
               }}
