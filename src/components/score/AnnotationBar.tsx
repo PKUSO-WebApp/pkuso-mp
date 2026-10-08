@@ -72,13 +72,16 @@ export function AnnotationBar({
       </View>
       <View className='flex flex-row items-center'>
         {PEN_WIDTHS.map(widthDot)}
-        <Button
-          className='ml-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
-          disabled={!canUndo}
-          onClick={onUndo}
-        >
-          {t('scoreReader.undo')}
-        </Button>
+        {/* 这一页没有任何笔迹时**根本不渲染**撤销（用户 2026-10-08 定）：一个点不动的
+            按钮只会让人以为坏了。清空仍保留（它有二次确认，不会误触） */}
+        {canUndo ? (
+          <Button
+            className='ml-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
+            onClick={onUndo}
+          >
+            {t('scoreReader.undo')}
+          </Button>
+        ) : null}
         <Button
           className={`ml-2 rounded-full border px-3 py-1 text-xs ${
             confirmingClear

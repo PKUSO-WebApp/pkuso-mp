@@ -47,7 +47,7 @@ import {
   windowYOf,
 } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
-import { drawPolylineOn, drawStrokeOn, styleFor } from './lib/anno-draw'
+import { drawStrokeOn, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
 import {
   loadPageImage,
@@ -1019,6 +1019,32 @@ export default function ScoreReader() {
   // 换来的是「换帧完全无闪」还是值得的。省显存靠水位控制（见 rasterDpr）
 
   // 批注层重绘：翻页 / 缩放 / 笔迹变化时按当前页恢复
+  /**
+   * 把「页坐标」的点画进批注画布——**整个文件里唯一的换算点**。
+   *
+   * ⚠️ 规矩就一条：页坐标一律走 `windowYOf`（它自己减零点），**画之前绝不再 translate**。
+   * 这条规矩是被两个真机 bug 逼出来的：先是左右模式忘了减零点（落笔全程画在画布外、
+   * 抬手才现身），后来是「減零点」和「translate 减零点」**同时用上**（减了两次、越修越偏）。
+   * 所以这里把换算收成一处：想改换算只能改这里。
+   */
+  const drawStrokePts = useCallback(
+    (ctx: CanvasCtx, pts: readonly [number, number][], from: number): void => {
+      const { w, h } = viewSizeRef.current
+      const base = strokeBaseRef.current?.base ?? 0
+      styleFor(ctx, penColor, penWidth, w)
+      ctx.beginPath()
+      for (let i = from; i < pts.length; i += 1) {
+        const [x, y] = pts[i]
+        const px = x * w
+        const py = windowYOf(y, base, h)
+        if (i === from) ctx.moveTo(px, py)
+        else ctx.lineTo(px, py)
+      }
+      ctx.stroke()
+    },
+    [penColor, penWidth]
+  )
+
   const redrawOverlay = useCallback(async () => {
     if (viewSize.w <= 0 || viewSize.h <= 0 || pageCount <= 0) return
     // 手势中不重画：内容框被拉伸时位图跟着缩放即可，停手后由 gestureTick 补画
@@ -1053,22 +1079,14 @@ export default function ScoreReader() {
         }
         // 正在画的那一笔：上面刚清过屏，补回来免得断成两截
         if (drawingRef.current && strokePtsRef.current.length > 0) {
-          ctx.save()
-          // 这一笔的点是页坐标 ⇒ 减掉零点（见 strokeBaseRef）
-          ctx.translate(0, -(strokeBaseRef.current?.base ?? anchor / h) * h)
-          drawPolylineOn(ctx, strokePtsRef.current, penColor, penWidth, w, h)
-          ctx.restore()
+          drawStrokePts(ctx, strokePtsRef.current, 0)
         }
         return
       }
       const strokes = annos[String(page)] ?? []
       strokes.forEach((s) => drawStrokeOn(ctx, s, w, h))
       if (drawingRef.current && strokePtsRef.current.length > 0) {
-        // 同上：左右模式的零点 = 当前页号 − 1
-        ctx.save()
-        ctx.translate(0, -(strokeBaseRef.current?.base ?? page - 1) * h)
-        drawPolylineOn(ctx, strokePtsRef.current, penColor, penWidth, w, h)
-        ctx.restore()
+        drawStrokePts(ctx, strokePtsRef.current, 0)
       }
     } catch {
       // overlay 未就绪时静默，下次状态变化会重试
@@ -1077,19 +1095,20 @@ export default function ScoreReader() {
     annos,
     page,
     pageCount,
-    penColor,
-    penWidth,
     queryCanvasNode,
     viewSize,
     ud,
     containerH,
     overlayAnchor,
+    drawStrokePts,
   ])
 
   useEffect(() => {
+    // ⚠️ 依赖里必须有 ud / overlayAnchor：批注层的窗口位置与坐标零点都跟着它们变，
+    // 少一个就会出现「切换翻页模式后批注层还画在旧位置」（真机反馈）
     if (docTick > 0) void redrawOverlay()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docTick, page, viewSize, annos, gestureTick])
+  }, [docTick, page, viewSize, annos, gestureTick, ud, overlayAnchor])
 
   const persist = useCallback(
     (next: AnnoDoc) => {
@@ -1338,20 +1357,7 @@ export default function ScoreReader() {
     const prev = pts[pts.length - 1]
     pts.push(p)
     if (!prev) return
-    const { w, h } = viewSizeRef.current
-    styleFor(ctx, penColor, penWidth, w)
-    // 点存的是**页坐标**（见 pointOf）⇒ 画的时候要减掉这一笔的零点（页号偏移 / 窗口锚点）。
-    // 两种模式同一个式子：左右模式零点 = 页号 − 1，上下模式 = 锚点 / 页高。
-    // ⚠️ 早先这里写的是「只在上下模式平移锚点、左右模式不平移」——于是左右模式把带页号的
-    // 纵坐标当成页内坐标画，落笔全程画在画布外，抬手后从存储重画才现身（真机反馈）。
-    const base = strokeBaseRef.current?.base ?? 0
-    ctx.save()
-    ctx.translate(0, -base * h)
-    ctx.beginPath()
-    ctx.moveTo(prev[0] * w, windowYOf(prev[1], base, h))
-    ctx.lineTo(p[0] * w, windowYOf(p[1], base, h))
-    ctx.stroke()
-    ctx.restore()
+    drawStrokePts(ctx, pts, pts.length - 2)
   }
 
   // 按钮缩放：以视口中心为锚（不然放大只会往右下长）
