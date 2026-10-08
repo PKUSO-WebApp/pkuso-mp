@@ -811,6 +811,8 @@ export default function ScoreReader() {
         })
       )
       const go = predrawGo({
+        // 正在落笔/落擦：预绘制画完会 setLayerSlot ⇒ 触发批注层重绘 ⇒ 正画着的那一页闪一下
+        drawing: drawingRef.current || erasingRef.current,
         zoom: zoomRef.current,
         pinching: Boolean(pinchRef.current),
         animating: Boolean(turnRef.current?.frame()),
@@ -1023,7 +1025,9 @@ export default function ScoreReader() {
       if (p === null) continue
       const strokes = annos[String(p)] ?? []
       const live = drawingRef.current && strokeLayerRef.current === l
-      if (strokes.length === 0 && !live) continue // 这一页没笔迹就不画（画布本身也没挂载）
+      // ⚠️ 这里**不能**「没笔迹就跳过」：擦掉/撤销之后这一页的笔迹变空，跳过就永远不清屏，
+      // 旧像素会一直留在画布上（画笔还开着时画布也没卸载）——真机反馈「擦完仍有笔迹、
+      // 重进才消失」。所以照常进去，笔迹为空就是清一下屏（没挂载的画布查询会抛，被下面接住）。
       try {
         const { node, left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[l])
         const overlay = node as CanvasNode

@@ -131,6 +131,7 @@ describe('预绘制的两个时间常量', () => {
 
 describe('predrawGo', () => {
   const base = {
+    drawing: false,
     zoom: 1,
     pinching: false,
     animating: false,
@@ -142,6 +143,10 @@ describe('predrawGo', () => {
 
   it('条件齐了就开工', () => {
     expect(predrawGo(base)).toBe('start')
+  })
+
+  it('正在落笔/落擦时不做（否则它画完触发批注层重绘，正画着的笔迹会闪一下）', () => {
+    expect(predrawGo({ ...base, drawing: true })).toBe('skip')
   })
 
   it('没有目标页就不做', () => {
