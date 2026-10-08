@@ -40,7 +40,7 @@ import {
 import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
 import { pageFromScroll, pageTop, stripHeight } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
-import { drawPolylineOn, drawStrokeOn, strokeHitByPoint, styleFor } from './lib/anno-draw'
+import { drawStrokeOn, strokeHitByPoint, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
 import {
   loadPageImage,
@@ -1008,53 +1008,68 @@ export default function ScoreReader() {
 
   // 批注层重绘：翻页 / 缩放 / 笔迹变化时按当前页恢复
   /**
-   * 重画**每块**批注画布：每块画布画**它自己那一页**的笔迹（页内归一化坐标，直接画）。
+   * 把某一块批注画布画成「它那一页现在该有的样子」。
    *
-   * 为什么按「块」而不是按「页」：滚动时每块批注画布跟着它那一页的偏移走，**不需要重画**
-   * ——这正是它不闪的原因。只有「这块换了页」「这一页的笔迹变了」才重画。
+   * ⚠️ 只有尺寸真的不对时才重设画布（重设 = 清屏）。重绘本身是「查节点 → 清屏 → 画」
+   * 一步到底（同一个 JS 时间片内完成），所以看不出中间态；但**落笔那一刻绝不能再清屏**
+   * ——清了要等下一次异步补画才回来，真机上就是「一落笔整页笔迹闪一下」（见 beginStroke）。
    */
-  const redrawOverlay = useCallback(async () => {
-    const w = viewSize.w
-    const h = viewSize.h
-    if (w <= 0 || h <= 0 || pageCount <= 0) return
-    // 手势中不重画：内容框被拉伸时位图跟着缩放即可，停手后由 gestureTick 补画
-    if (pinchRef.current) return
-    const dpr = rasterDpr(w, h)
-    for (const l of ALL_LAYERS) {
-      const p = layerSlot[l]
-      if (p === null) continue
-      const strokes = annos[String(p)] ?? []
-      const live = drawingRef.current && strokeLayerRef.current === l
-      // ⚠️ 这里**不能**「没笔迹就跳过」：擦掉/撤销之后这一页的笔迹变空，跳过就永远不清屏，
-      // 旧像素会一直留在画布上（画笔还开着时画布也没卸载）——真机反馈「擦完仍有笔迹、
-      // 重进才消失」。所以照常进去，笔迹为空就是清一下屏（没挂载的画布查询会抛，被下面接住）。
+  const paintLane = useCallback(
+    async (l: Layer, pageNo: number): Promise<void> => {
+      const { w, h } = viewSizeRef.current
+      if (!(w > 0) || !(h > 0)) return
       try {
-        const { node, left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[l])
+        const { node } = await queryCanvasNode(CANVAS_OVERLAY_SEL[l])
+        // ⚠️ 等待期间可能已经落笔了：**这时绝不能碰这块画布**——清屏会抹掉正画着的那一笔，
+        // 而重设尺寸还会让画笔手里那个 ctx 失效（之后画什么都不出来，真机反馈
+        // 「连续快速批注后完全不再显示，直到下一笔才恢复」）。落笔那一块由 drawLiveSegment
+        // 增量维护，收笔后 annos 变化自然会重画一次。
+        if (drawingRef.current && strokeLayerRef.current === l) return
         const overlay = node as CanvasNode
-        if (live) overlayRectRef.current = { left, top }
-        overlay.width = Math.round(w * dpr)
-        overlay.height = Math.round(h * dpr)
+        const dpr = rasterDpr(w, h)
+        const bw = Math.round(w * dpr)
+        const bh = Math.round(h * dpr)
+        if (overlay.width !== bw || overlay.height !== bh) {
+          overlay.width = bw
+          overlay.height = bh
+        }
         const ctx = overlay.getContext('2d')
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
         ctx.clearRect(0, 0, w, h)
+        const strokes = annos[String(pageNo)] ?? []
         strokes.forEach((s) => drawStrokeOn(ctx, s, w, h))
-        if (live) {
-          // 正在画的那一笔：上面刚清过屏，补回来免得断成两截
-          overlayCtxRef.current = ctx
-          drawPolylineOn(ctx, strokePtsRef.current, penColor, penWidth, w, h)
-        }
       } catch {
-        // overlay 未就绪时静默，下次状态变化会重试
+        // 画布没挂载 / 未就绪：静默，下次状态变化会重试
       }
+    },
+    [annos, queryCanvasNode]
+  )
+
+  /**
+   * 重画**每块**批注画布。
+   *
+   * ⚠️ **正在落笔的那一块一律跳过**：重画要清屏，会把用户画到一半的笔迹（与这一页已有的
+   * 笔迹）抹掉再补上——真机上就是「批注时笔迹闪」。它的内容由 `drawLiveSegment` 增量维护，
+   * 收笔后（annos 变化）自然会重画一次。落擦**不**跳过：擦除就是要把画面改掉。
+   */
+  const redrawOverlay = useCallback(async () => {
+    if (viewSize.w <= 0 || viewSize.h <= 0 || pageCount <= 0) return
+    // 手势中不重画：内容框被拉伸时位图跟着缩放即可，停手后由 gestureTick 补画
+    if (pinchRef.current) return
+    for (const l of ALL_LAYERS) {
+      const p = layerSlot[l]
+      if (p === null) continue
+      if (drawingRef.current && strokeLayerRef.current === l) continue
+      await paintLane(l, p)
     }
-  }, [annos, pageCount, queryCanvasNode, viewSize, layerSlot, penColor, penWidth])
+  }, [layerSlot, paintLane, pageCount, viewSize])
 
   useEffect(() => {
     // ⚠️ 依赖里必须有 layerSlot：批注层是跟着「这块画布显示着哪一页」走的，
     // 换页 / 切模式 / 换册都会改它，少一个就会出现「切换模式后批注层还留在旧位置」
     if (docTick > 0) void redrawOverlay()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docTick, page, viewSize, annos, gestureTick, layerSlot, eraserOn])
+  }, [docTick, page, viewSize, annos, gestureTick, layerSlot, eraserOn, penOn])
 
   const persist = useCallback(
     (next: AnnoDoc) => {
@@ -1281,14 +1296,13 @@ export default function ScoreReader() {
       try {
         const { node, left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[lane.layer])
         overlayRectRef.current = { left, top }
-        // 现取画布并把它重置干净：cxt 要立刻可用（首点马上就到），已有的笔迹由 redraw 补
-        const canvas = node as CanvasNode
+        // ⚠️ 这里**只取 ctx，绝不重设画布尺寸**：重设 = 清屏，而补画是异步的（要等节点查询）
+        // ⇒ 一落笔整页笔迹先消失、几十~几百毫秒后才回来，反复落笔就是「批注时笔迹闪」。
+        // 画布尺寸/已有笔迹由 paintLane 负责（它只在尺寸真的不对时才重设，且清屏与重画
+        // 在同一个 JS 时间片里完成，看不出中间态）。
+        const ctx = (node as CanvasNode).getContext('2d')
         const { w, h } = viewSizeRef.current
-        const dpr = rasterDpr(w, h)
-        canvas.width = Math.round(w * dpr)
-        canvas.height = Math.round(h * dpr)
-        const ctx = canvas.getContext('2d')
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        ctx.setTransform(rasterDpr(w, h), 0, 0, rasterDpr(w, h), 0, 0)
         overlayCtxRef.current = ctx
       } catch {
         cancelStroke()
@@ -1299,7 +1313,6 @@ export default function ScoreReader() {
       strokeSeedRef.current = null
       drawingRef.current = true
       strokePtsRef.current = [pointOf(seed.x, seed.y)]
-      void redrawOverlay() // 把这一页已有的笔迹补上（上面刚清过屏）
     })()
   }
 
