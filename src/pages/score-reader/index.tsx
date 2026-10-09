@@ -47,6 +47,7 @@ import {
   pageTop,
   pendingPages,
   stripHeight,
+  stripViewport,
   visibleRange,
 } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
@@ -210,6 +211,19 @@ export default function ScoreReader() {
   // 工具条**实测**高度：灰带的高度与灰带的点击命中都取它。
   // 不写死常量——微信的系统字体大小会改工具条高度，写死就会让灰带与工具条错位。
   const [barH, setBarH] = useState({ top: 0, bottom: 0 })
+  /**
+   * 钳制与「这是第几页」要用的上下内缩：竖条模式 = 工具条实测高度，左右模式恒 0。
+   *
+   * 工具条悬浮在谱面之上、会盖住内容，所以「页顶对齐屏幕顶」这条判据要换成
+   * 「页顶对齐**菜单栏下沿**」——否则跳到第 n 页时 n 的顶部就藏在菜单后面，滚到条首/条尾时
+   * 第 1 页的顶与末页的底也永远露不出来（用户 2026-10-09 报）。见 lib/strip.ts 的 stripViewport。
+   * 工具条关着时它的**布局盒子仍在**（visibility:hidden），高度照量 ⇒ 这条内缩与菜单开关无关，
+   * 不然一开菜单页码/落点就跳一下。
+   */
+  const panInsets = useCallback(
+    (): [number, number] => (modeRef.current === 'ud' ? [barH.top, barH.bottom] : [0, 0]),
+    [barH.top, barH.bottom]
+  )
   // 灰带的填充色 = 当前这页**页边**的纸色（采样见 lib/raster.ts 的 sampleEdgeColors）：
   // 菜单关着时屏幕看起来就是「整屏都是谱面」。null = 还没采样到 ⇒ 用 token 里的默认灰
   const [bandColor, setBandColor] = useState<{ top: string; bottom: string } | null>(null)
@@ -1131,26 +1145,37 @@ export default function ScoreReader() {
   useEffect(() => {
     // 待落地的位移先补上再钳：钳制要按**最新**位置算，否则会「钳完旧值又被队列里的新值盖掉」
     flushPan()
-    commitPanIfMoved(clampPan(panRef.current, viewSize.w, contentH, containerW, containerH))
-  }, [viewSize, contentH, containerW, containerH, commitPanIfMoved, flushPan])
+    const [insetTop, insetBottom] = panInsets()
+    commitPanIfMoved(
+      clampPan(panRef.current, viewSize.w, contentH, containerW, containerH, insetTop, insetBottom)
+    )
+  }, [viewSize, contentH, containerW, containerH, commitPanIfMoved, flushPan, panInsets])
 
   // 上下模式：页码跟着**滚动位置**走（视口顶边落在哪一页）——徽标、批注、预热窗口都吃它。
   // 左右模式没有这条：那里的页码是用户翻出来的，不是滚出来的。
   useEffect(() => {
     if (!ud || !(pageH > 0) || pageCount <= 0) return
-    const scroll = -pan.y
+    // 基准线 = **菜单栏下沿**（不是屏幕顶）：工具条会盖住内容，按屏幕顶判就会把
+    // 「页顶正好藏在菜单后面」的那一页当成当前页（用户 2026-10-09 报）。见 lib/strip.ts
+    const { scroll, maxScroll } = stripViewport({
+      panY: pan.y,
+      pageH,
+      pageCount,
+      containerH,
+      insetTop: barH.top,
+      insetBottom: barH.bottom,
+    })
     // 滚动方向：给「该先渲染视口哪一端」用（见下面的补渲染 effect）。内容上移 = 往下滚
     const prev = lastScrollRef.current
     if (scroll !== prev) udDirRef.current = scroll > prev ? 1 : -1
     lastScrollRef.current = scroll
     // ⚠️ 滚到条尾时由**末页**接管（2026-10-09，评审抓出）：pageH < 容器高时最大滚动量
-    // `pageCount×pageH − 容器高` 小于 `(pageCount−1)×pageH` ⇒ 末页的页首**永远够不到视口
-    // 顶边**，`pageFromScroll` 只能给到 N−1 ⇒ 徽标/书签/「清空本页」长期错一位，末页永远
-    // 当不上「当前页」（2 页册滚到底显示「1 / 2」，跳页输入 2 会回弹成 1）。
-    const maxScroll = Math.max(0, contentH - containerH)
+    // `pageCount×页高 − 可用高` 小于 `(pageCount−1)×页高` ⇒ 末页的页首**永远够不到基准线**，
+    // `pageFromScroll` 只能给到 N−1 ⇒ 徽标/书签/「清空本页」长期错一位，末页永远当不上
+    // 「当前页」（2 页册滚到底显示「1 / 2」，跳页输入 2 会回弹成 1）。
     const p = scroll >= maxScroll - 1 ? pageCount : pageFromScroll(scroll, pageH, pageCount)
     if (p !== page) setPage(p)
-  }, [ud, pan.y, pageH, pageCount, page, contentH, containerH])
+  }, [ud, pan.y, pageH, pageCount, page, containerH, barH.top, barH.bottom])
 
   // 缩放合并渲染：手势/连点期间不起渲染，停手后一次渲到位
   useEffect(() => {
@@ -1393,7 +1418,8 @@ export default function ScoreReader() {
   const clampPage = (n: number) => clamp(Math.round(n), 1, Math.max(pageCount, 1))
 
   /**
-   * 上下模式：把视图**滚动**到第 n 页的页首（连续滚动，不吸附到别的对齐方式）。
+   * 上下模式：把视图**滚动**到第 n 页（连续滚动，不吸附到别的对齐方式）。
+   * 落点是「这一页的页顶对齐**菜单栏下沿**」，不是对齐屏幕顶——工具条会盖住内容。
    * 非竖条模式（内容比视口矮）时 clampPan 会把它居中，也就无从滚动——没关系。
    */
   const scrollToPage = (n: number) => {
@@ -1401,13 +1427,18 @@ export default function ScoreReader() {
     if (!(h > 0)) return
     // 离散动作以自己为准：队列里压着的位移先丢掉，否则它会在之后盖掉这次滚动
     panQueueRef.current?.cancel()
+    const [insetTop, insetBottom] = panInsets()
     commitPanIfMoved(
       clampPan(
-        { x: panRef.current.x, y: -pageTop(clampPage(n), h) },
+        // 落点 = 「这一页的页顶对齐**菜单栏下沿**」。对齐屏幕顶的话页顶就藏在菜单后面
+        // ——用户 2026-10-09 报的「切换到第 n 页，n 的顶部被菜单栏挡住」就是它
+        { x: panRef.current.x, y: insetTop - pageTop(clampPage(n), h) },
         viewSizeRef.current.w,
         stripHeight(h, pageCount),
         containerW,
-        containerH
+        containerH,
+        insetTop,
+        insetBottom
       )
     )
   }
@@ -1417,13 +1448,16 @@ export default function ScoreReader() {
     const h = viewSizeRef.current.h
     if (!(h > 0)) return
     panQueueRef.current?.cancel()
+    const [insetTop, insetBottom] = panInsets()
     commitPanIfMoved(
       clampPan(
         { x: panRef.current.x, y: panRef.current.y - dir * h },
         viewSizeRef.current.w,
         stripHeight(h, pageCount),
         containerW,
-        containerH
+        containerH,
+        insetTop,
+        insetBottom
       )
     )
   }
@@ -1603,13 +1637,16 @@ export default function ScoreReader() {
     const h = Math.max(1, Math.round(aspect * containerW * s1))
     applyZoom(s1)
     panQueueRef.current?.cancel()
+    const [insetTop, insetBottom] = panInsets()
     commitPanIfMoved(
       clampPan(
         { x: containerW / 2 - cx * k, y: containerH / 2 - cy * k },
         w,
         ud ? stripHeight(h, pageCount) : h,
         containerW,
-        containerH
+        containerH,
+        insetTop,
+        insetBottom
       )
     )
   }
@@ -1747,6 +1784,7 @@ export default function ScoreReader() {
       // ⚠️ 这里**不走合帧队列**：缩放本身每 move 就改一次状态、必然渲染一次，
       // 合帧省不下任何东西，却会让平移比缩放晚一拍落地（这一帧里内容按旧位移显示新尺寸）。
       // 与 applyZoom 同一次事件里落地 ⇒ 同一次渲染带上两者（与从前完全一致）。
+      const [insetTop, insetBottom] = panInsets()
       commitPanIfMoved(
         clampPan(
           {
@@ -1756,7 +1794,9 @@ export default function ScoreReader() {
           w,
           modeRef.current === 'ud' ? stripHeight(h, pageCount) : h,
           containerW,
-          containerH
+          containerH,
+          insetTop,
+          insetBottom
         )
       )
       return
@@ -1772,13 +1812,16 @@ export default function ScoreReader() {
       // 上下模式：拖动**永远**是在滚动（竖条比视口高，纵向一定有可滚的余地）；
       // 左右模式下未放大时内容不宽于视口，横向那一项本来就是空操作。
       // 走合帧队列：touchmove 的密度按屏幕刷新率来，逐条 setData 会把链路压满（见 pan-queue）
+      const [insetTop, insetBottom] = panInsets()
       panTo(
         clampPan(
           { x: d.x + dx, y: d.y + dy },
           viewSize.w,
           contentHRef.current,
           containerW,
-          containerH
+          containerH,
+          insetTop,
+          insetBottom
         )
       )
     }
@@ -1972,22 +2015,24 @@ export default function ScoreReader() {
    * 给个明确在加载的信号，别让人以为卡住了。
    */
   const renderedPages = new Set(Object.values(layerSlot).filter((p): p is number => p !== null))
-  const pending = pendingPages(
-    ud ? -pan.y : (clamp(page, 1, Math.max(pageCount, 1)) - 1) * boxH,
-    boxH,
-    ud ? containerH : boxH,
+  /** 竖条模式的视口状态（基准线 = 菜单栏下沿 + 可用高内缩，见 lib/strip.ts 的 stripViewport） */
+  const udView = stripViewport({
+    panY: pan.y,
+    pageH: boxH,
     pageCount,
-    renderedPages
-  )
+    containerH,
+    insetTop: barH.top,
+    insetBottom: barH.bottom,
+  })
+  /** 判据的基准：竖条 = 基准线在条内的位置；左右 = 当前页页首（退化成只看这一页） */
+  const viewScroll = ud ? udView.scroll : (clamp(page, 1, Math.max(pageCount, 1)) - 1) * boxH
+  /** 可用视口高：竖条按工具条内缩；左右 = 一页高 */
+  const viewH = ud ? udView.usableH : boxH
+  const pending = pendingPages(viewScroll, boxH, viewH, pageCount, renderedPages)
   // 给后台写帧用的两份镜像：**渲染期同步写**（晚一拍就可能在「已经可见」的块上写内容，
   // 而那正是要防的事）。layerSlot 是显示真值，visible 与加载圈同一判据（visibleRange）。
   layerSlotRef.current = layerSlot
-  visibleRef.current = visibleRange(
-    ud ? -pan.y : (clamp(page, 1, Math.max(pageCount, 1)) - 1) * boxH,
-    boxH,
-    ud ? containerH : boxH,
-    pageCount
-  )
+  visibleRef.current = visibleRange(viewScroll, boxH, viewH, pageCount)
 
   /**
    * 上下模式：**视口里露出来、但还没有帧的页，直接排一次后台渲染**（走 `bg: true` 的

@@ -8,6 +8,9 @@ import { clamp } from './geometry'
  *
  * 「页高」统一取**当前页**的实测高度（同一份谱子的扫描页尺寸一致）；真遇到逐页不同高的
  * 谱子，页间会有一处小接缝——换成逐页累积的话，滚动位置会在新页加载完时跳动，不划算。
+ *
+ * ⚠️ 「视口顶边在哪一页」这个判据**不是**从屏幕顶算的，而是从**菜单栏下沿**算的
+ * （见 `stripViewport`）：工具条悬浮在谱面之上会盖住内容。
  */
 
 /** 竖条总高 */
@@ -30,10 +33,44 @@ export function pageFromScroll(scroll: number, pageH: number, pageCount: number)
 }
 
 /**
+ * 竖条模式的视口状态。**基准线 = 菜单栏下沿**，可用高按工具条内缩。
+ *
+ * 为什么不是屏幕顶边（用户 2026-10-09 报）：工具条（顶栏/底栏）悬浮在谱面之上、会盖住
+ * 内容，于是按屏幕顶判「这是第几页」时，页顶对齐屏幕顶的那一页有一截藏在菜单后面——
+ * 跳到第 n 页看不到 n 的顶部；滚到条首/条尾时，第 1 页的顶与末页的底也**永远**压在
+ * 菜单下面（滚到头都露不出来）。基准线放到工具条下沿、可用高内缩之后，三件事一起对齐：
+ * 「第几页」的判据、跳页的落点、能滚到的两端。
+ *
+ * - `scroll`：基准线落在条内的位置（原来的 `-panY` 是「屏幕顶边落在条内的位置」）；
+ * - `usableH`：可用视口高（容器高减去上下工具条）——`visibleRange`/`pendingPages` 吃它；
+ * - `maxScroll`：能滚到的最大 `scroll`（到它时条尾正好贴着下工具条，末页接管页号）。
+ *
+ * 全零内缩时退化成从前：`scroll = -panY`、`usableH = containerH`、`maxScroll = 条高 − 容器高`。
+ */
+export function stripViewport(args: {
+  /** 内容框的纵向平移（= pan.y；内容上移为负） */
+  panY: number
+  pageH: number
+  pageCount: number
+  containerH: number
+  /** 上下工具条的**实测**高度（= 可用视口的上下内缩） */
+  insetTop: number
+  insetBottom: number
+}): { scroll: number; usableH: number; maxScroll: number } {
+  const usableH = Math.max(0, args.containerH - args.insetTop - args.insetBottom)
+  return {
+    scroll: args.insetTop - args.panY,
+    usableH,
+    maxScroll: Math.max(0, stripHeight(args.pageH, args.pageCount) - usableH),
+  }
+}
+
+/**
  * 视口里**还没渲染出来**的页（给它们画加载圆圈，用户 2026-10-09 定）。
  *
- * - `scroll`：视口顶边在条内的位置（= −pan.y；左右模式传「当前页的页首」即可，退化成只看这一页）；
- * - `viewportH`：视口高（左右模式传页高 ⇒ 只判当前页）；
+ * - `scroll`：**基准线**在条内的位置（竖条模式由 `stripViewport` 给，= 菜单栏下沿；
+ *   左右模式传「当前页的页首」即可，退化成只看这一页）；
+ * - `viewportH`：可用视口高（竖条模式由 `stripViewport` 给；左右模式传页高 ⇒ 只判当前页）；
  * - `rendered`：已经有画布放着内容的页（作者：`layerSlot` 的值集合）。
  *
  * 这些页是「用户看得见、但还没有内容」——空白与「这页本来就白」在屏幕上分不开，

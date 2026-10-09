@@ -5,6 +5,7 @@ import {
   pageTop,
   pendingPages,
   stripHeight,
+  stripViewport,
   visibleRange,
 } from './strip'
 
@@ -34,6 +35,47 @@ describe('竖条几何', () => {
     expect(pageFromScroll(-300, 500, 4)).toBe(1)
     expect(pageFromScroll(99999, 500, 4)).toBe(4)
     expect(pageFromScroll(0, 0, 4)).toBe(1)
+  })
+})
+
+describe('stripViewport（基准线 = 菜单栏下沿）', () => {
+  const base = { pageH: 500, pageCount: 4, containerH: 800, insetTop: 44, insetBottom: 34 }
+
+  it('基准线在条内的位置 = 上内缩 − 平移：页顶对齐菜单栏下沿时为 0', () => {
+    expect(stripViewport({ ...base, panY: 0 }).scroll).toBe(44) // 页顶对齐屏幕顶 ⇒ 基准线落在页内 44 处
+    expect(stripViewport({ ...base, panY: 44 }).scroll).toBe(0) // 页顶对齐菜单栏下沿 ⇒ 基准线正是页首
+    expect(stripViewport({ ...base, panY: -956 }).scroll).toBe(1000) // 滚到第 3 页页首
+  })
+
+  it('可用高按工具条内缩；maxScroll 是「条尾贴上工具条」那一刻', () => {
+    const v = stripViewport({ ...base, panY: 0 })
+    expect(v.usableH).toBe(722) // 800 − 44 − 34
+    expect(v.maxScroll).toBe(1278) // 条高 2000 − 722：再往下滚条尾就撞底栏了
+  })
+
+  it('内缩全零时退化成从前（屏幕顶边、整屏高、条高−容器高）', () => {
+    const v = stripViewport({
+      pageH: 500,
+      pageCount: 4,
+      containerH: 800,
+      insetTop: 0,
+      insetBottom: 0,
+      panY: -300,
+    })
+    expect(v).toEqual({ scroll: 300, usableH: 800, maxScroll: 1200 })
+  })
+
+  it('条比可用视口还矮 ⇒ maxScroll 为 0（判据里不该出现负数）', () => {
+    expect(
+      stripViewport({
+        pageH: 500,
+        pageCount: 1,
+        containerH: 800,
+        insetTop: 44,
+        insetBottom: 34,
+        panY: 0,
+      }).maxScroll
+    ).toBe(0)
   })
 })
 
