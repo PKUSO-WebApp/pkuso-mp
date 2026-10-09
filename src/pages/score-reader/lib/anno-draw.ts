@@ -67,6 +67,26 @@ export function strokeHitByPoint(
   return false
 }
 
+/**
+ * 一串触点扫过的笔迹删除：命中**任一**触点即整条删掉（并集），返回剩下的笔迹。
+ *
+ * ⚠️ 触点必须**成组**一次过滤。若逐点各调一次 `strokeHitByPoint` 再串行改数据，每次改都
+ * 从同一份输入算出 next ⇒ 后一次把前一次的结果盖掉，最后只剩最后一个触点的效果。
+ * 橡皮擦落笔时画布 rect 要异步取，等待期间攒下的触点就得这样成组补擦（见 index.tsx 的 beginErase）。
+ *
+ * `points` 已是**画布像素**坐标（client 坐标减画布 rect，换算在调用方）。
+ */
+export function eraseStrokesAt(
+  strokes: AnnoStroke[],
+  points: Array<{ x: number; y: number }>,
+  radius: number,
+  w: number,
+  h: number
+): AnnoStroke[] {
+  if (points.length === 0) return strokes
+  return strokes.filter((s) => !points.some((p) => strokeHitByPoint(s, p.x, p.y, radius, w, h)))
+}
+
 /** 点到线段的距离（两端点都退化成一个点时就是点距） */
 function distToSegment(
   px: number,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AnnoStroke } from '@/lib/annotation'
-import { drawPolylineOn, drawStrokeOn, strokeHitByPoint } from './anno-draw'
+import { drawPolylineOn, drawStrokeOn, eraseStrokesAt, strokeHitByPoint } from './anno-draw'
 
 /** 假 2D 上下文：只记调用顺序，够验「画到哪、什么样式」 */
 function fakeCtx() {
@@ -176,5 +176,73 @@ describe('strokeHitByPoint（橡皮擦命中）', () => {
 
   it('空笔迹不算命中（历史数据里可能有）', () => {
     expect(strokeHitByPoint(line([]), 10, 10, 20, W, H)).toBe(false)
+  })
+})
+
+describe('eraseStrokesAt（一串触点扫过的整条删除）', () => {
+  const W = 100
+  const H = 200
+  const line = (points: [number, number][]): AnnoStroke => ({
+    color: '#000',
+    width: 0.01,
+    points,
+  })
+  // 上边一条（y=20）、下边一条（y=160），都横跨 x∈[10,20]
+  const top = line([
+    [0.1, 0.1],
+    [0.2, 0.1],
+  ])
+  const bottom = line([
+    [0.1, 0.8],
+    [0.2, 0.8],
+  ])
+
+  it('多个触点是一次**并集**：各点各命中一条，两条都得删', () => {
+    // 逐点串行改数据的实现只会剩最后一个点的效果（上边那条活下来）⇒ 这条用例会红
+    const kept = eraseStrokesAt(
+      [top, bottom],
+      [
+        { x: 15, y: 20 },
+        { x: 15, y: 160 },
+      ],
+      4,
+      W,
+      H
+    )
+    expect(kept).toEqual([])
+  })
+
+  it('顺序反过来也一样（并集与触点先后无关）', () => {
+    const kept = eraseStrokesAt(
+      [top, bottom],
+      [
+        { x: 15, y: 160 },
+        { x: 15, y: 20 },
+      ],
+      4,
+      W,
+      H
+    )
+    expect(kept).toEqual([])
+  })
+
+  it('空触点列表什么都不删（原样返回，连数组都不是新的）', () => {
+    const strokes = [top, bottom]
+    expect(eraseStrokesAt(strokes, [], 4, W, H)).toBe(strokes)
+  })
+
+  it('没被扫到的笔迹原样留下且顺序不变', () => {
+    const untouched = line([
+      [0.6, 0.6],
+      [0.7, 0.6],
+    ])
+    const kept = eraseStrokesAt([top, untouched, bottom], [{ x: 15, y: 20 }], 4, W, H)
+    expect(kept).toEqual([untouched, bottom])
+    expect(kept[0]).toBe(untouched) // 不重建对象，只筛掉命中的
+  })
+
+  it('单点只删它自己扫到的那条', () => {
+    const kept = eraseStrokesAt([top, bottom], [{ x: 15, y: 20 }], 4, W, H)
+    expect(kept).toEqual([bottom])
   })
 })

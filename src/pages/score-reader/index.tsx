@@ -51,7 +51,7 @@ import {
   visibleRange,
 } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
-import { drawStrokeOn, strokeHitByPoint, styleFor } from './lib/anno-draw'
+import { drawStrokeOn, eraseStrokesAt, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
 import { saveOriginalPdf, userDataRoot, type FsLike } from './lib/pdf-save'
 import {
@@ -236,7 +236,7 @@ export default function ScoreReader() {
   const [penColor, setPenColor] = useState<string>(PEN_COLORS[0])
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS[0])
   const [annos, setAnnos] = useState<AnnoDoc>({})
-  /** 画笔 / 橡皮擦（橡皮擦按**整条**删除，见 eraseAtPoint + strokeHitByPoint） */
+  /** 画笔 / 橡皮擦（橡皮擦按**整条**删除，见 eraseAtPoints + eraseStrokesAt） */
   const [eraserOn, setEraserOn] = useState(false)
   /**
    * 撤销栈：**一步 = 一次操作**（画一笔 / 擦掉若干笔），记该页「操作前」的笔迹。
@@ -282,6 +282,12 @@ export default function ScoreReader() {
   /** 橡皮擦：本段手势是否在擦、擦之前那页的笔迹（抬手时并成**一步**记进撤销栈） */
   const erasingRef = useRef(false)
   const erasedRef = useRef<AnnoStroke[] | null>(null)
+  /**
+   * 落擦的**待落点**与等待期间的触点（见 beginErase）：画布 rect 是异步取回的，取到之前
+   * 一律不擦——拿着上一段手势的 rect 算坐标，擦掉的是别处的笔迹。
+   */
+  const eraseSeedRef = useRef<{ clientX: number; clientY: number } | null>(null)
+  const erasePendingRef = useRef<Array<{ clientX: number; clientY: number }>>([])
   const fileUrlRef = useRef('')
   /**
    * 页图本地记账的键：**与入口无关**（fileId + 页号）。绝不能用 URL 当键——`urls[0]` 是
@@ -963,7 +969,8 @@ export default function ScoreReader() {
       const busy = Boolean(inflightRef.current || queuedRef.current)
       const go = predrawGo({
         // 正在落笔/落擦：预绘制画完会 setLayerSlot ⇒ 触发批注层重绘 ⇒ 正画着的那一页闪一下
-        drawing: drawingRef.current || erasingRef.current,
+        // （落擦的 rect 等待期也算「手势已经开始」，见 beginErase）
+        drawing: drawingRef.current || erasingRef.current || eraseSeedRef.current !== null,
         zoom: zoomRef.current,
         pinching: Boolean(pinchRef.current),
         animating: Boolean(turnRef.current?.frame()),
@@ -1518,6 +1525,8 @@ export default function ScoreReader() {
     strokeSeedRef.current = null
     strokeLayerRef.current = null
     erasedRef.current = null
+    eraseSeedRef.current = null
+    erasePendingRef.current = []
   }
 
   /**
@@ -1541,12 +1550,18 @@ export default function ScoreReader() {
     cancelStroke()
     const lane = laneUnderPoint(touch.clientY)
     if (!lane) return
-    strokeSeedRef.current = { x: touch.clientX, y: touch.clientY }
+    // 种子对象**同时是这段手势的身份**：下面按引用比对，判断 rect 回来时这段手势还在不在
+    // （抬起 / 转双指 / 换册 / 又落了一笔都会把它换掉或清掉）
+    const seed = { x: touch.clientX, y: touch.clientY }
+    strokeSeedRef.current = seed
     strokeLayerRef.current = lane.layer
     strokePageRef.current = lane.page
     void (async () => {
       try {
         const { node, left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[lane.layer])
+        // ⚠️ 先确认这段手势没被取代再写 rect：两次节点查询的返回顺序没有保证，晚到的那次
+        // 会把**后一段手势**的 rect 覆盖成自己的（那块画布可能在别的位置）⇒ 坐标全错位
+        if (strokeSeedRef.current !== seed) return
         overlayRectRef.current = { left, top }
         // ⚠️ 这里**只取 ctx，绝不重设画布尺寸**：重设 = 清屏，而补画是异步的（要等节点查询）
         // ⇒ 一落笔整页笔迹先消失、几十~几百毫秒后才回来，反复落笔就是「批注时笔迹闪」。
@@ -1560,8 +1575,7 @@ export default function ScoreReader() {
         cancelStroke()
         return
       }
-      const seed = strokeSeedRef.current
-      if (!seed) return // 手指已抬起或已转双指
+      if (strokeSeedRef.current !== seed) return // 手指已抬起 / 已转双指 / 已换册
       strokeSeedRef.current = null
       drawingRef.current = true
       strokePtsRef.current = [pointOf(seed.x, seed.y)]
@@ -1584,38 +1598,62 @@ export default function ScoreReader() {
     ctx.stroke()
   }
 
-  /** 落擦：和落笔一样先定死「擦哪一页、哪一块画布」（坐标要按那块画布的 rect 算） */
+  /**
+   * 落擦：和落笔一样先定死「擦哪一页、哪一块画布」（坐标要按那块画布的 rect 算）。
+   *
+   * ⚠️ 与落笔**同形**：rect 取到之前不置 `erasingRef`。rect 是异步取回的，而它在两段手势
+   * 之间会变（工具条显隐、UD 里滚动都挪动画布）——从前这里同步置位，于是 rect 回来之前的
+   * 那几个 move 拿着**上一段手势的 rect** 算坐标，擦掉的是别处的笔迹（还照样进撤销栈）。
+   * 等待期间到达的触点攒进 erasePendingRef，rect 到手后连同起点一并补擦。
+   */
   const beginErase = (touch: { clientX: number; clientY: number }) => {
     cancelStroke()
     const lane = laneUnderPoint(touch.clientY)
     if (!lane) return
     strokeLayerRef.current = lane.layer
     strokePageRef.current = lane.page
-    erasingRef.current = true
+    const seed = { clientX: touch.clientX, clientY: touch.clientY }
+    eraseSeedRef.current = seed
     void (async () => {
       try {
         const { left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[lane.layer])
+        // 同 beginStroke：先确认这段手势还在，别把**后一段**手势的 rect 覆盖成自己的
+        if (eraseSeedRef.current !== seed) return
         overlayRectRef.current = { left, top }
       } catch {
         cancelStroke()
+        return
       }
+      if (eraseSeedRef.current !== seed) return // 手指已抬起 / 已转双指 / 已换册：整段作废
+      eraseSeedRef.current = null
+      erasingRef.current = true
+      const pending = erasePendingRef.current
+      erasePendingRef.current = []
+      eraseAtPoints([seed, ...pending])
     })()
   }
 
   /**
    * 橡皮擦：手指划过的笔迹**整条删掉**（不做逐点擦除——那会把笔迹切碎、也没法撤销）。
-   * 命中判据见 lib/anno-draw.ts 的 strokeHitByPoint。
+   * 命中判据见 lib/anno-draw.ts 的 eraseStrokesAt / strokeHitByPoint。
+   *
+   * 收**一组**触点而不是一个：rect 等待期攒下的触点要一次补擦，且必须成组过滤——逐点各
+   * 改一次数据的话，后一次会把前一次的结果盖掉（见 eraseStrokesAt 的注释）。
    */
-  const eraseAtPoint = (touch: { clientX: number; clientY: number }) => {
+  const eraseAtPoints = (touches: Array<{ clientX: number; clientY: number }>) => {
     const rect = overlayRectRef.current
     const { w, h } = viewSizeRef.current
     if (!rect || !(w > 0) || !(h > 0)) return
-    const px = touch.clientX - rect.left
-    const py = touch.clientY - rect.top
     const key = String(strokePageRef.current)
     const cur = annos[key] ?? []
     if (cur.length === 0) return
-    const kept = cur.filter((s) => !strokeHitByPoint(s, px, py, ERASER_RADIUS_PX, w, h))
+    const kept = eraseStrokesAt(
+      cur,
+      touches.map((touch) => ({ x: touch.clientX - rect.left, y: touch.clientY - rect.top })),
+      ERASER_RADIUS_PX,
+      w,
+      h
+    )
     if (kept.length === cur.length) return
     if (!erasedRef.current) erasedRef.current = cur // 本段手势擦掉之前的原样（抬手时记进撤销栈）
     persist({ ...annos, [key]: kept })
@@ -1661,7 +1699,9 @@ export default function ScoreReader() {
    */
   const resolveTouchEnd = (g: Drag, end?: { clientX: number; clientY: number }) => {
     if (isTap(g, Date.now())) {
-      // 灰带优先：菜单关着时上下两条灰带**任意位置**都只开关菜单，永不翻页/滚动
+      // 灰带优先：菜单关着时上下两条灰带**任意位置**的**点击**都只开关菜单，不翻页/不滚动。
+      // ⚠️ 只管点击——**滑动照常翻页**（见下面 swipeDir 那一段）：拇指在屏幕下沿横滑是最省力
+      // 的翻页姿势，灰带又是不可见的，在那里让手势静默失效会被读成「翻页失灵」（2026-10-09 定）。
       if (g.band) {
         setMenuOn((on) => !on)
         return
@@ -1682,6 +1722,7 @@ export default function ScoreReader() {
       return
     }
     if (ud) return // 上下模式的滑动就是滚动本身（移动阶段已经滚过了），抬手不再做别的
+    // 这里**刻意不查 g.band**：灰带只截点击，滑动照样翻页（理由见上面 isTap 分支的注释）
     if (!g.canTurn || !end) return
     const dir = swipeDir(g, end.clientX, end.clientY, swipeMinPx(containerW))
     if (dir === 0) return
@@ -1762,9 +1803,15 @@ export default function ScoreReader() {
       if (touch) drawLiveSegment(touch)
       return
     }
+    if (eraseSeedRef.current && e.touches.length === 1) {
+      // 落擦的 rect 还没回来：先攒着，别拿上一段手势的 rect 擦（见 beginErase）
+      const touch = e.touches[0]
+      if (touch) erasePendingRef.current.push({ clientX: touch.clientX, clientY: touch.clientY })
+      return
+    }
     if (erasingRef.current && e.touches.length === 1) {
       const touch = e.touches[0]
-      if (touch) eraseAtPoint(touch)
+      if (touch) eraseAtPoints([touch])
       return
     }
     const g = pinchRef.current
@@ -1859,6 +1906,10 @@ export default function ScoreReader() {
         strokeLayerRef.current = null
       }
       strokeSeedRef.current = null
+      // 落擦还没等到 rect 就抬手了：整段作废（与从前「点一下什么都没发生」一致）。
+      // 必须清掉——否则那个异步块回来时手指早已不在屏上，却照样开擦
+      eraseSeedRef.current = null
+      erasePendingRef.current = []
       // 分类只在「本段从单指开始、中途也没出现过第二指」时做（双指的残留手指会落在多指判定里）
       if (g && !multi) resolveTouchEnd(g, e.changedTouches[0])
     }
