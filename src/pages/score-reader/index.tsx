@@ -2149,30 +2149,31 @@ export default function ScoreReader() {
                 />
               ) : null
             )}
+            {/* 还没渲染出来的页：各自中心一个转圈。
+                ⚠️ 它们是**内容框的子节点**（内容坐标系），所以样式里**没有 `pan`**——
+                滚动时这几个节点的样式一个字节都不变，每帧只有内容框自己在动。
+                从前挂在 `#reader-stage` 上、坐标是舞台的（样式里必须加 `pan`）：
+                那既是「漏加 pan 就整片错位」这类 bug 的来源（2026-10-09 真机
+                「下面一片空白、连加载圈都没有」），也让每个圈的样式逐帧进 setData。
+                放内容框里这两件事一起没有了——坐标与画布同源，且逐帧零变化。
+                zIndex 5 > 画布的 1/3；DOM 上也排在画布与批注层之后（同级 z 靠后者在上）。 */}
+            {pending.map((p) => (
+              <View
+                key={`pending-${p}`}
+                className='absolute flex flex-row justify-center'
+                style={{
+                  left: '0px',
+                  // `pageTop` 只在竖条模式有意义（内容框 = 整条）；LR 的内容框只有一页高，
+                  // 圆圈该落在**这一页**（也就是内容框）的中心，取 0 而不是 (p-1)×页高
+                  top: `${(ud ? pageTop(p, boxH) : 0) + boxH / 2 - 20}px`,
+                  width: `${boxW}px`,
+                  zIndex: 5,
+                }}
+              >
+                <View className='score-reader-spinner h-8 w-8 rounded-full border-2' />
+              </View>
+            ))}
           </View>
-
-          {/* 还没渲染出来的页：各自中心一个转圈。
-              ⚠️ 这两层是 `#reader-stage` 的直接子节点（在内容框**外面**），坐标是**舞台**的
-              —— 所以必须把 `pan` 加上：`pageTop` 给的是内容坐标。漏了 `pan` 就等于「圆圈按
-              内容位置摆，却被当成屏幕位置用」，除第 1 页外全被 `overflow-hidden` 裁掉，
-              而且**恰好在用户最需要它的时候**（滚到第 4 页，第 5 页的圈被放到 4×页高之外）。
-              2026-10-09 真机「下面一片空白、连加载圈都没有」就是这个（评审抓出）。 */}
-          {pending.map((p) => (
-            <View
-              key={`pending-${p}`}
-              className='absolute flex flex-row justify-center'
-              style={{
-                left: `${pan.x}px`,
-                // `pageTop` 只在竖条模式有意义（内容框 = 整条）；LR 的内容框只有一页高，
-                // 圆圈该落在**这一页**（也就是内容框）的中心，取 0 而不是 (p-1)×页高
-                top: `${(ud ? pageTop(p, boxH) : 0) + pan.y + boxH / 2 - 20}px`,
-                width: `${boxW}px`,
-                zIndex: 5,
-              }}
-            >
-              <View className='score-reader-spinner h-8 w-8 rounded-full border-2' />
-            </View>
-          ))}
 
           {/* 页码徽标：**固定在屏幕右下角**（不随谱面拖动/缩放走）。
               曾经锚在谱面右下角 ⇒ 谱面在屏幕里垂直居中时它就落在屏幕中部，还会压住
