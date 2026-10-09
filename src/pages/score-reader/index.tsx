@@ -29,6 +29,7 @@ import type { SheetMusicFileRow } from '@/types/database'
 import type { CanvasCtx, CanvasNode, Drag, Job, Layer, Pan, Pinch, Stage } from './lib/types'
 import { frameInk, rasterDpr, sampleEdgeColors } from './lib/raster'
 import { clamp, clampPan, touchDist, touchMid } from './lib/geometry'
+import { createPanQueue, type PanQueue } from './lib/pan-queue'
 import {
   bandAt,
   penBarBottom,
@@ -163,6 +164,38 @@ export default function ScoreReader() {
   const [docTick, setDocTick] = useState(0)
   // 内容框位置：平移完全自己算（不用 scroll-view，双指手势才能锚定中点）
   const [pan, setPan] = useState<Pan>({ x: 0, y: 0 })
+  /**
+   * `pan` 的**同步镜像**：手势里读「现在在哪」的地方（起手基准、捏合锚点、按钮缩放锚点、
+   * 落笔判页）一律读它，别读渲染闭包里的 `pan`——平移合帧之后（见 lib/pan-queue.ts），
+   * 闭包值最多能差出一帧的位移，表现为「接着滑时画面先往回跳一下」。
+   * ⚠️ 所有平移写入都走下面几个口子；直接 setPan 会让镜像漂掉。
+   */
+  const panRef = useRef<Pan>(pan)
+  const commitPan = useCallback((p: Pan) => {
+    panRef.current = p
+    setPan(p)
+  }, [])
+  /** 与镜像逐值相同就不落地：坐标对象每次都是新造的，按对象判不出「没动」 */
+  const commitPanIfMoved = useCallback(
+    (p: Pan) => {
+      const cur = panRef.current
+      if (p.x !== cur.x || p.y !== cur.y) commitPan(p)
+    },
+    [commitPan]
+  )
+  /**
+   * 手势平移的**合帧队列**（见 lib/pan-queue.ts）：iOS 的 touchmove 几乎按屏幕刷新率直通，
+   * 每个 move 一次 setData 会把「逻辑层 → 视图层」压满——真机表现就是「一次长滑还行，
+   * 多次小幅滑动一顿一顿」（2026-10-09 iOS 反馈）。
+   */
+  const panQueueRef = useRef<PanQueue | null>(null)
+  // commit 用 commitPanIfMoved：手势把平移钳住不动时（左右模式横滑——内容定死在居中位、
+  // 竖条滚到两端）**一次渲染都不该发**，而那些恰恰是最常见的手势
+  if (!panQueueRef.current) panQueueRef.current = createPanQueue({ commit: commitPanIfMoved })
+  /** 手势中的平移：进队列（每帧最多落地一次，位置永远取最新） */
+  const panTo = useCallback((p: Pan) => panQueueRef.current?.push(p), [])
+  /** 把待落地的位移立刻补上：抬手 / 取消 / 读基准之前 */
+  const flushPan = useCallback(() => panQueueRef.current?.flush(), [])
   // 双缓冲：显示帧在 a 或 b，渲染永远渲到另一块，渲完换帧
   const [activeLayer, setActiveLayer] = useState<Layer>('a')
   // 正在滑出的那一块（翻页动画）；null = 没动画
@@ -1096,8 +1129,10 @@ export default function ScoreReader() {
   // 内容尺寸变了：位置重新钳制（缩放/翻页/转屏后不会拉出空白）。
   // 高度用 contentH：竖条模式下是整条的高度，不是一页高
   useEffect(() => {
-    setPan((prev) => clampPan(prev, viewSize.w, contentH, containerW, containerH))
-  }, [viewSize, contentH, containerW, containerH])
+    // 待落地的位移先补上再钳：钳制要按**最新**位置算，否则会「钳完旧值又被队列里的新值盖掉」
+    flushPan()
+    commitPanIfMoved(clampPan(panRef.current, viewSize.w, contentH, containerW, containerH))
+  }, [viewSize, contentH, containerW, containerH, commitPanIfMoved, flushPan])
 
   // 上下模式：页码跟着**滚动位置**走（视口顶边落在哪一页）——徽标、批注、预热窗口都吃它。
   // 左右模式没有这条：那里的页码是用户翻出来的，不是滚出来的。
@@ -1292,7 +1327,9 @@ export default function ScoreReader() {
           : 1
       )
       applyZoom(1)
-      setPan({ x: 0, y: 0 })
+      // 换册以复位为准：队列里可能还压着上一册的位移，先丢掉（否则它会在之后把画面挪走）
+      panQueueRef.current?.cancel()
+      commitPan({ x: 0, y: 0 })
       renderedZoomRef.current = 1
       aspectRef.current = 0
       // 页图预热泵：首帧仍走前台路径；泵由 doRender 的首个 setCurrent 启动——不与首帧
@@ -1336,6 +1373,7 @@ export default function ScoreReader() {
     }
   }, [
     applyZoom,
+    commitPan,
     fileId,
     invalidatePredraw,
     pageFileKey,
@@ -1361,9 +1399,11 @@ export default function ScoreReader() {
   const scrollToPage = (n: number) => {
     const h = viewSizeRef.current.h
     if (!(h > 0)) return
-    setPan((prev) =>
+    // 离散动作以自己为准：队列里压着的位移先丢掉，否则它会在之后盖掉这次滚动
+    panQueueRef.current?.cancel()
+    commitPanIfMoved(
       clampPan(
-        { x: prev.x, y: -pageTop(clampPage(n), h) },
+        { x: panRef.current.x, y: -pageTop(clampPage(n), h) },
         viewSizeRef.current.w,
         stripHeight(h, pageCount),
         containerW,
@@ -1376,9 +1416,10 @@ export default function ScoreReader() {
   const scrollByPage = (dir: 1 | -1) => {
     const h = viewSizeRef.current.h
     if (!(h > 0)) return
-    setPan((prev) =>
+    panQueueRef.current?.cancel()
+    commitPanIfMoved(
       clampPan(
-        { x: prev.x, y: prev.y - dir * h },
+        { x: panRef.current.x, y: panRef.current.y - dir * h },
         viewSizeRef.current.w,
         stripHeight(h, pageCount),
         containerW,
@@ -1452,8 +1493,9 @@ export default function ScoreReader() {
   const laneUnderPoint = (clientY: number): { page: number; layer: Layer } | null => {
     const h = viewSizeRef.current.h
     if (!(h > 0) || pageCount <= 0) return null
+    // 读同步镜像而不是渲染闭包：刚落完笔就滚一下再落笔时，闭包里的 pan 可能差一帧
     const p = ud
-      ? pageFromScroll(clientY - stageRectRef.current.top - pan.y, h, pageCount)
+      ? pageFromScroll(clientY - stageRectRef.current.top - panRef.current.y, h, pageCount)
       : pageRef.current
     const layer = ALL_LAYERS.find((l) => layerSlot[l] === p)
     return layer ? { page: p, layer } : null
@@ -1554,12 +1596,14 @@ export default function ScoreReader() {
       return
     }
     const k = s1 / zoom
-    const cx = containerW / 2 - pan.x
-    const cy = containerH / 2 - pan.y
+    // 锚点按**最新**位置算（同步镜像）；这是离散动作，队列里压着的位移先丢掉
+    const cx = containerW / 2 - panRef.current.x
+    const cy = containerH / 2 - panRef.current.y
     const w = Math.max(1, Math.round(containerW * s1))
     const h = Math.max(1, Math.round(aspect * containerW * s1))
     applyZoom(s1)
-    setPan(
+    panQueueRef.current?.cancel()
+    commitPanIfMoved(
       clampPan(
         { x: containerW / 2 - cx * k, y: containerH / 2 - cy * k },
         w,
@@ -1606,7 +1650,9 @@ export default function ScoreReader() {
     if (dir === 0) return
     if (blockedByEdgeGuard(g.relX, dir)) return
     // 回滚这次手势造成的平移：用户意图是翻页，不是把谱面挪走
-    setPan(
+    // （抬手已经 flush 过；这里再 cancel 一次是防御——队列里若还压着值，它会盖掉回滚）
+    panQueueRef.current?.cancel()
+    commitPanIfMoved(
       clampPan(
         { x: g.x, y: g.y },
         viewSizeRef.current.w,
@@ -1619,6 +1665,9 @@ export default function ScoreReader() {
   }
 
   const onTouchStart = (e: ITouchEvent) => {
+    // 起手先补上一段手势的最后一拍：合帧队列里可能还压着 ≤1 帧的位移，
+    // 下面两处的基准位置（drag / pinch 的 pan）读的是同步镜像，差一帧就是「接着滑时先往回跳一下」
+    flushPan()
     if (e.touches.length >= 2) {
       multiTouchRef.current = true
       cancelStroke()
@@ -1629,7 +1678,7 @@ export default function ScoreReader() {
       pinchRef.current = {
         dist: touchDist(e.touches),
         zoom,
-        pan,
+        pan: panRef.current,
         midX: mx - stageRectRef.current.left,
         midY: my - stageRectRef.current.top,
       }
@@ -1651,8 +1700,9 @@ export default function ScoreReader() {
     dragRef.current = {
       tx: touch.clientX,
       ty: touch.clientY,
-      x: pan.x,
-      y: pan.y,
+      // 基准读同步镜像（起手那一刻已经 flush 过，见 onTouchStart 开头）
+      x: panRef.current.x,
+      y: panRef.current.y,
       relX,
       relY,
       startAt: Date.now(),
@@ -1694,7 +1744,10 @@ export default function ScoreReader() {
       const w = Math.max(1, Math.round(containerW * next))
       const h = Math.max(1, Math.round(aspectRef.current * containerW * next))
       applyZoom(next)
-      setPan(
+      // ⚠️ 这里**不走合帧队列**：缩放本身每 move 就改一次状态、必然渲染一次，
+      // 合帧省不下任何东西，却会让平移比缩放晚一拍落地（这一帧里内容按旧位移显示新尺寸）。
+      // 与 applyZoom 同一次事件里落地 ⇒ 同一次渲染带上两者（与从前完全一致）。
+      commitPanIfMoved(
         clampPan(
           {
             x: mx - stageRectRef.current.left - (g.midX - g.pan.x) * k,
@@ -1717,8 +1770,9 @@ export default function ScoreReader() {
       // 判 tap 用的是**整段位移的最大值**，不是末点（横滑出去再滑回来会骗人）
       d.maxMove = Math.max(d.maxMove, Math.abs(dx), Math.abs(dy))
       // 上下模式：拖动**永远**是在滚动（竖条比视口高，纵向一定有可滚的余地）；
-      // 左右模式下未放大时内容不宽于视口，横向那一项本来就是空操作
-      setPan(
+      // 左右模式下未放大时内容不宽于视口，横向那一项本来就是空操作。
+      // 走合帧队列：touchmove 的密度按屏幕刷新率来，逐条 setData 会把链路压满（见 pan-queue）
+      panTo(
         clampPan(
           { x: d.x + dx, y: d.y + dy },
           viewSize.w,
@@ -1731,6 +1785,8 @@ export default function ScoreReader() {
   }
 
   const onTouchEnd = (e: ITouchEvent) => {
+    // 抬手先把合帧队列里最后一段位移补上：不补就是「手指停了，画面还差一截」
+    flushPan()
     if (e.touches.length === 0) {
       const g = dragRef.current
       dragRef.current = null
@@ -1771,6 +1827,8 @@ export default function ScoreReader() {
 
   // 触摸被系统打断：丢弃这一笔，别让 drawingRef 挂着招来飞线
   const onTouchCancel = () => {
+    // 平移照常补上最后一拍：被系统打断时画面停在手指最后的位置，比往回跳一帧好
+    flushPan()
     cancelStroke()
     dragRef.current = null
     multiTouchRef.current = false
@@ -1953,6 +2011,10 @@ export default function ScoreReader() {
     if (next === null) return
     fillLastRef.current = { page: next, at: Date.now() }
     runJobRef.current({ page: next, zoom: zoomRef.current, bg: true })
+    // ⚠️ deps 里的 `pending` 是**每帧新建的数组**，所以这条 effect 实际是「每次渲染都跑」。
+    // 2026-10-09 核过，结论是**不动它**：体只有几次比较与一次 filter（微秒级），真正会排
+    // 渲染那一步有「队列空着 + 真有页待渲染」两道闸；而「同一页 5 秒后可再试」这条语义
+    // 正是靠它顺带跑起来——改成稳定键就必须再补一个重试定时器，净增复杂度、白换风险。
   }, [ud, pending, idleTick, requestRender])
 
   /**
