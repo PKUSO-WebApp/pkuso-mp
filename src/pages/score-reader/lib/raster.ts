@@ -67,8 +67,17 @@ export function sampleEdgeColors(node: CanvasNode): { top: string; bottom: strin
     // 但仍远在页边留白里
     const inset = Math.max(2, Math.round(h * 0.01))
     const xs = [0.1, 0.3, 0.5, 0.7, 0.9].map((f) => Math.min(w - 1, Math.floor(f * w)))
-    const row = (y: number): ArrayLike<number>[] =>
-      xs.map((x) => ctx.getImageData(x, Math.min(h - 1, Math.max(0, y)), 1, 1).data)
+    // 一条边**读一整行再取 5 个点**（一次 getImageData），而不是每个点读一次：
+    // 每次 getImageData 都是一次同步的「把像素取回 JS」（WebKit 上是 GPU→CPU 读回），
+    // 点读 10 次就是 10 次开销，而整行也才 w 个像素。这里在**每次换页**都会走到
+    // （见 index.tsx 的 sampleBandColor），滚动中它正好落在手指按着的时刻。
+    const row = (y: number): ArrayLike<number>[] => {
+      const line = ctx.getImageData(0, Math.min(h - 1, Math.max(0, y)), w, 1).data
+      return xs.map((x) => {
+        const i = x * 4
+        return [line[i] ?? 0, line[i + 1] ?? 0, line[i + 2] ?? 0, line[i + 3] ?? 0]
+      })
+    }
     return { top: medianHex(row(inset)), bottom: medianHex(row(h - 1 - inset)) }
   } catch {
     return null

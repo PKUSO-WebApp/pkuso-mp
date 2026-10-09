@@ -13,6 +13,14 @@ import type { CanvasCtx, CanvasNode } from './types'
 const WHITE = [255, 255, 255, 255]
 const BLACK = [0, 0, 0, 255]
 
+/** 造一整行的 RGBA（w 个像素）：颜色给常量或「按 x 决定」的函数 */
+function rowOf(w: number, color: number[] | ((x: number) => number[])): number[] {
+  return Array.from({ length: w * 4 }, (_, i) => {
+    const c = typeof color === 'function' ? color(Math.floor(i / 4)) : color
+    return c[i % 4] ?? 0
+  })
+}
+
 /** 假 2D 上下文：setTransform/fillRect 记进 calls，getImageData 由用例提供 */
 function fakeCtx(getImageData?: CanvasCtx['getImageData']): {
   calls: string[]
@@ -125,15 +133,20 @@ describe('medianHex / sampleEdgeColors（灰带的纸色采样）', () => {
   })
 
   it('sampleEdgeColors 采的是**贴边两行**：离边 1% 页高（避开扫描压边），顶底各一条', () => {
-    const spy = vi.fn((_x: number, _y: number) => ({ data: [200, 200, 200, 255] }))
+    const spy = vi.fn((_x: number, _y: number, w: number) => ({
+      data: rowOf(w, [200, 200, 200, 255]),
+    }))
     const node: CanvasNode = {
       width: 1000,
       height: 2000,
       getContext: () => ({ ...fakeCtx().ctx, getImageData: spy }),
     }
     expect(sampleEdgeColors(node)).toEqual({ top: '#c8c8c8', bottom: '#c8c8c8' })
-    const ys = [...new Set(spy.mock.calls.map((c) => c[1]))].sort((a, b) => a - b)
-    expect(ys).toEqual([20, 1979]) // inset = max(2, 1% × 2000) = 20；底行是 h-1-inset
+    // 一条边**只读一次**（整行），不再是「5 个点各读一次」——这是这次改动本身
+    expect(spy.mock.calls).toEqual([
+      [0, 20, 1000, 1], // inset = max(2, 1% × 2000) = 20
+      [0, 1979, 1000, 1], // 底行 = h-1-inset
+    ])
   })
 
   it('顶边与底边各采各的（不是一条色用两遍）', () => {
@@ -143,10 +156,11 @@ describe('medianHex / sampleEdgeColors（灰带的纸色采样）', () => {
       height: 1000,
       getContext: () => ({
         ...fakeCtx().ctx,
-        getImageData: () => {
+        getImageData: (_x: number, _y: number, w: number) => {
           call += 1
-          if (call <= 5) return { data: call === 3 ? BLACK : WHITE } // 顶边：4 白 1 黑
-          return { data: BLACK } // 底边：全黑
+          // 顶边：5 个采样点里第 3 个是黑的（x = 0.5×1000 = 500）——中位数把它压掉
+          if (call === 1) return { data: rowOf(w, (x) => (x === 500 ? BLACK : WHITE)) }
+          return { data: rowOf(w, BLACK) } // 底边：整行全黑
         },
       }),
     }
