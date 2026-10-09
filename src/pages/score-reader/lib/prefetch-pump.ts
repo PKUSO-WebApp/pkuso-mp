@@ -82,9 +82,20 @@ export function createPrefetchPump(opts: {
   onFail?: (page: number, err: unknown) => void
   /** 队列排空（该抓的都抓过、没有在途）时回调一次——调用方拿它上报这一册的取图来源/失败数 */
   onIdle?: () => void
+  /**
+   * 网络探针：返回 false 时**一页都不派**。离线时进册不该派出一串必然失败的请求——
+   * 那既把错误表刷满，又白等一轮超时。联网后调用方再 `setCurrent` 一次即可重新起泵
+   * （`run()` 每次都会重新判）。
+   *
+   * ⚠️ 只在 `run()` 的**入口**判一次：中途掉线仍走既有的「失败即跳过」，不在这里
+   * 半路掐断（`getNetworkType` 在弱网下本来也说不准，而且半路退出会把在途请求留在
+   * 一个空转的循环里）。默认恒 true = 与从前完全一致。
+   */
+  isOnline?: () => boolean
 }): PrefetchPump {
   const total = Math.max(0, Math.floor(opts.total))
   const urlsFor = opts.urlsFor
+  const online = opts.isOnline ?? (() => true)
   const prefetchOne = opts.prefetchOne ?? ((url: string) => Taro.getImageInfo({ src: url }))
   const ahead = opts.priorityAhead ?? PRIORITY_AHEAD
   const behind = opts.priorityBehind ?? PRIORITY_BEHIND
@@ -139,6 +150,9 @@ export function createPrefetchPump(opts: {
 
   const run = async (): Promise<void> => {
     if (running || stopped) return
+    // 离线：一页都不派，**也不算排空**（`onIdle` 不响——那会让调用方把这一册结账上报了，
+    // 而其实什么都没抓）。联网后调用方再 setCurrent 一次，run() 重新进来即可。
+    if (!online()) return
     running = true
     const inFlight = new Set<Promise<void>>()
     let backfillInFlight = 0

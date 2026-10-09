@@ -174,6 +174,20 @@ function rememberFile(url: string, path: string): void {
 }
 
 /**
+ * 登记一条**上次会话留下、且已探活通过**的本地路径（跨会话复用的入口，见
+ * lib/page-file-store.ts）。与 `rememberFile` 共用同一份记账，区别只在来源：
+ * 那个是「刚下完」，这个是「以前下过、文件还在」。
+ */
+export function registerLocalFile(key: string, path: string): void {
+  rememberFile(key, path)
+}
+
+/** 读一条记账（写跨会话账时要把整册快照出来）。`undefined` = 没下过 / 已被判定失效 */
+export function localFileFor(key: string): string | undefined {
+  return fileCache.get(key)
+}
+
+/**
  * 本会话对「小程序图片层还能不能用」的判定：判过一次就不再每页白撞它一遍。
  *
  * ⚠️ **真正的「失败前判断」做不到** —— 判断本身就是一次取图，没有别的信息源（微信也没给

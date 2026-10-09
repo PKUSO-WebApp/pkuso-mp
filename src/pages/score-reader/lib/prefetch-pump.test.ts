@@ -265,3 +265,80 @@ describe('createPrefetchPump', () => {
     expect(started).toEqual([1, 2, 3, 4, 5])
   })
 })
+
+describe('离线闸门（isOnline）', () => {
+  it('离线时一页都不抓，且**不算排空**（onIdle 不响）', async () => {
+    const calls: number[] = []
+    let idle = 0
+    const pump = createPrefetchPump({
+      total: 5,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: async (url) => {
+        calls.push(Number(url))
+      },
+      isOnline: () => false,
+      onIdle: () => {
+        idle += 1
+      },
+    })
+    pump.setCurrent(2)
+    await flush()
+    expect(calls).toEqual([])
+    // 关键：onIdle 会让调用方把这一册「结账」上报（且只报一次）——什么都没抓时绝不能响
+    expect(idle).toBe(0)
+    // 也**没有**把页标记成抓过：联网后仍要抓它（标记 attempted 就等于永久放弃这一页）
+    expect(pump.isDone(2)).toBe(false)
+  })
+
+  it('离线进册后网络恢复：再 setCurrent 一次就把整册补上', async () => {
+    const calls: number[] = []
+    let online = false
+    const pump = createPrefetchPump({
+      total: 4,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: async (url) => {
+        calls.push(Number(url))
+      },
+      isOnline: () => online,
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(calls).toEqual([])
+    online = true
+    pump.setCurrent(1) // 网络恢复的信号（阅读器在 onReconnect 里这么调）
+    await flush()
+    expect(calls).toEqual([1, 2, 3, 4])
+  })
+
+  it('联网后中途掉线：按既有「失败即跳过」处理，不半路掐断', async () => {
+    // 入口判一次 ⇒ 已经在跑的循环不受影响（半路退出会把在途请求留在空转的循环里）
+    let online = true
+    const calls: number[] = []
+    const pump = createPrefetchPump({
+      total: 3,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: async (url) => {
+        calls.push(Number(url))
+        online = false // 第一页抓到一半掉线
+      },
+      isOnline: () => online,
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(calls).toEqual([1, 2, 3])
+  })
+
+  it('不注入 isOnline 时行为与从前完全一致（照抓）', async () => {
+    const calls: number[] = []
+    const pump = createPrefetchPump({
+      total: 2,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: async (url) => {
+        calls.push(Number(url))
+      },
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(calls).toEqual([1, 2])
+  })
+})

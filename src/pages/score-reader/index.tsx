@@ -58,13 +58,17 @@ import {
   isImageLayerBroken,
   loadPageImage,
   loadPageImageWithRetry,
+  localFileFor,
   paintPageImage,
   prefetchPageImage,
+  registerLocalFile,
   resetPageImageStrategy,
   PAGE_IMAGE_RETRY_DELAYS_MS,
   type LoadedPageImage,
   type PageImageError,
 } from './lib/page-image'
+import { loadAliveAlbum, pageFileStore, saveAlbum } from './lib/page-file-store'
+import { isOnline, onReconnect } from './lib/net-status'
 import {
   createPageTurn,
   turnDirFor,
@@ -298,6 +302,11 @@ export default function ScoreReader() {
   const pageFileKey = useCallback((n: number) => `${fileId}#${n}`, [fileId])
   /** 页图预热泵：以当前页为中心的窗口预热（见 lib/prefetch-pump.ts） */
   const prefetchPumpRef = useRef<PrefetchPump | null>(null)
+  /**
+   * 把**当前这一册**的本地文件记账落盘（跨会话复用，见 lib/page-file-store.ts）。
+   * 换册时被下一册覆写，所以调用点（unload / 翻页防抖）不必自己记是哪一册。
+   */
+  const flushAlbumFiles = useRef<() => void>(() => {})
   // —— 邻居帧 / 预绘制（见 lib/predraw.ts、doPredraw / promoteFrame）——
   /**
    * 每块画布「现在放着哪一页」的记账。**铁律**：决定要写某块位图的那一刻就把这一笔清掉，
@@ -426,6 +435,8 @@ export default function ScoreReader() {
   // 退出页面即停泵、停动画、停预绘制——后台抓取/计时器不该在页面销毁后继续
   useUnload(() => {
     prefetchPumpRef.current?.stop()
+    // 离开页面前把这一册的本地记账落盘（这一册下次进册才可能整册命中）
+    flushAlbumFiles.current()
     reportPageSource()
     turnRef.current?.stop()
     if (predrawTimerRef.current) clearTimeout(predrawTimerRef.current)
@@ -1295,6 +1306,9 @@ export default function ScoreReader() {
   const load = useCallback(async () => {
     let finalUrl = ''
     let imagePageTotal = 0
+    // 上一册的本地记账先落盘（换册 = 这一册的账到此为止；不落就整册白下）
+    flushAlbumFiles.current()
+    flushAlbumFiles.current = () => {}
     prefetchPumpRef.current?.stop()
     prefetchPumpRef.current = null
     // 取图策略（图片层 / downloadFile 兜底）的判定也跟着复位：换册=换了网络场景，
@@ -1373,10 +1387,38 @@ export default function ScoreReader() {
       viaTallyRef.current = { file: 0, image: 0, download: 0 }
       prefetchFailRef.current = 0
       pageSourceSentRef.current = false
+      // **跨会话复用**（见 lib/page-file-store.ts）：把上次留下的本地文件逐条探活后登记回
+      // 记账——文件还在的页，泵与前台都会直接命中，一次网络都不用（`via: file`）。
+      // 刻意**不 await 在首帧之前**：它只决定「要不要重下」，而首帧等不起这一轮探活；
+      // 泵那边靠 `adopt` 排队（见 prefetchOne），所以不会出现「探活还没完就重下」。
+      const adopt = loadAliveAlbum(fileId, imagePageTotal, pageFileStore(), Date.now())
+        .then((paths) => {
+          paths.forEach((path, i) => {
+            if (path) registerLocalFile(pageFileKey(i + 1), path)
+          })
+        })
+        // 探活本身不该抛（Storage/FS 的每个调用点都各自 try 过）——真抛了也必须兜住：
+        // `prefetchOne` 在它上面 await，一拒就是**整册**每页都按「失败即跳过」处理，
+        // 结果是一个静默的「预下载全废」。宁可按「什么都没探到」继续。
+        .catch(() => {})
+      // 记账落盘：换册 / 泵排空 / 离开页面 / 翻页防抖四处调它（见 flushAlbumFiles）
+      flushAlbumFiles.current = () => {
+        const snapshot = Array.from(
+          { length: imagePageTotal },
+          (_, i) => localFileFor(pageFileKey(i + 1)) ?? ''
+        )
+        saveAlbum(fileId, snapshot, pageFileStore(), Date.now())
+      }
       prefetchPumpRef.current = createPrefetchPump({
         total: imagePageTotal,
         urlsFor: (n) => pageImageUrls(fileUrlRef.current, n),
-        prefetchOne: (url, pageNo) => prefetchPageImage(url, { key: pageFileKey(pageNo) }),
+        prefetchOne: async (url, pageNo) => {
+          // 探活没完之前不下手：否则会把「本地其实已经有」的页又下一遍
+          await adopt
+          return prefetchPageImage(url, { key: pageFileKey(pageNo) })
+        },
+        // 离线不派请求（见 lib/net-status.ts）：一进册就没网时不该刷一屏失败
+        isOnline,
         windowAhead: imagePageTotal,
         windowBehind: imagePageTotal,
         // 预下载是后台行为，失败不给用户弹东西——那它失败了就没人知道，所以这里上报。
@@ -1391,7 +1433,11 @@ export default function ScoreReader() {
             })
           }
         },
-        onIdle: reportPageSource,
+        onIdle: () => {
+          // 泵排空 = 这一册的本地文件齐了：立刻落盘（此刻落，下次进册就是整册命中）
+          flushAlbumFiles.current()
+          reportPageSource()
+        },
       })
       setDocTick((tick) => tick + 1)
     } catch (err) {
@@ -1502,6 +1548,25 @@ export default function ScoreReader() {
   useEffect(() => {
     if (fileId && pageCount > 0) Taro.setStorageSync(lastPageKey(fileId), String(page))
   }, [fileId, page, pageCount])
+
+  /**
+   * 本地记账的防抖落盘：翻页后静置 2 秒写一次。
+   *
+   * 为什么还要这一处（`onIdle`/`useUnload` 已经覆盖了大多数情形）：用户翻着翻着被系统杀掉
+   * 进程时，`useUnload` **不会触发**，那一册的记账就整册丢了（白下一次）。2 秒静置既避开
+   * 连续翻页时的反复序列化，又让「读到哪、下到哪」基本追上。
+   */
+  useEffect(() => {
+    if (docTick <= 0 || !fileId) return
+    const timer = setTimeout(() => flushAlbumFiles.current(), 2000)
+    return () => clearTimeout(timer)
+  }, [page, docTick, fileId])
+
+  /**
+   * 网络恢复：把泵叫醒。离线时进册泵一页都没派（见 lib/prefetch-pump.ts 的 isOnline），
+   * 而 `setCurrent` 正是「重新起泵」的信号（它内部会 `void run()`）。
+   */
+  useEffect(() => onReconnect(() => prefetchPumpRef.current?.setCurrent(pageRef.current)), [])
 
   /**
    * 触点 → **页内归一化坐标**（0~1，相对这一页的内框）。
