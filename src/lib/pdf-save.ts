@@ -16,6 +16,9 @@
  * - **文件名 = `{曲子}_{声部}_{文件名}.pdf`** ⇒ 交付时给人看的就是这个名字。
  */
 
+import { rewriteTo } from './supabase-entry'
+import { downloadInChunks, type RangedFs } from './ranged-download'
+
 /** `wx.env.USER_DATA_PATH`：Taro 的类型里没有它（只有 wx 上有），按仓内既有做法从全局取 */
 export function userDataRoot(): string | null {
   try {
@@ -84,6 +87,79 @@ export type FsLike = {
     fail?: (e: { errMsg?: string }) => void
   }): void
   readdir(o: { dirPath: string; success: (res: { files: string[] }) => void; fail?: () => void }): void
+  // —— 以下只被分片下载用（见 lib/ranged-download.ts）——
+  stat(o: {
+    path: string
+    success: (res: { stats?: { size?: number } }) => void
+    fail?: () => void
+  }): void
+  readFile(o: {
+    filePath: string
+    success: (res: { data: string | ArrayBuffer }) => void
+    fail?: (e: { errMsg?: string }) => void
+  }): void
+  writeFile(o: {
+    filePath: string
+    data: ArrayBuffer
+    success?: () => void
+    fail?: (e: { errMsg?: string }) => void
+  }): void
+  appendFile(o: {
+    filePath: string
+    data: ArrayBuffer
+    success?: () => void
+    fail?: (e: { errMsg?: string }) => void
+  }): void
+  copyFile(o: {
+    srcPath: string
+    destPath: string
+    success?: () => void
+    fail?: (e: { errMsg?: string }) => void
+  }): void
+}
+
+/** `FsLike` → 分片下载要的那套 Promise 接口（形状不同，转一层） */
+function rangedFsOf(fs: FsLike): RangedFs {
+  const fail = (what: string) => (e?: { errMsg?: string }) =>
+    new Error(e?.errMsg ?? `${what} failed`)
+  return {
+    size: (path) =>
+      new Promise((resolve) => {
+        try {
+          fs.stat({ path, success: (res) => resolve(res?.stats?.size ?? 0), fail: () => resolve(0) })
+        } catch {
+          resolve(0)
+        }
+      }),
+    read: (path) =>
+      new Promise((resolve, reject) => {
+        fs.readFile({
+          filePath: path,
+          success: (res) => resolve(res.data as ArrayBuffer),
+          fail: (e) => reject(fail('readFile')(e)),
+        })
+      }),
+    write: (path, data) =>
+      new Promise((resolve, reject) => {
+        fs.writeFile({ filePath: path, data, success: () => resolve(), fail: (e) => reject(fail('writeFile')(e)) })
+      }),
+    append: (path, data) =>
+      new Promise((resolve, reject) => {
+        fs.appendFile({ filePath: path, data, success: () => resolve(), fail: (e) => reject(fail('appendFile')(e)) })
+      }),
+    copy: (src, dest) =>
+      new Promise((resolve, reject) => {
+        fs.copyFile({ srcPath: src, destPath: dest, success: () => resolve(), fail: (e) => reject(fail('copyFile')(e)) })
+      }),
+    remove: (path) =>
+      new Promise((resolve) => {
+        try {
+          fs.unlink({ filePath: path, success: () => resolve(), fail: () => resolve() })
+        } catch {
+          resolve()
+        }
+      }),
+  }
 }
 
 /**
@@ -100,7 +176,11 @@ export const PDF_RETRY_DELAYS_MS = [500, 1000]
 export type SavePdfDeps = {
   root: string | null
   fs: FsLike | null
-  download: (url: string) => Promise<{ statusCode: number; tempFilePath: string }>
+  /** `header` 只被分片下载用（带 `Range`） */
+  download: (
+    url: string,
+    header?: Record<string, string>
+  ) => Promise<{ statusCode: number; tempFilePath: string }>
   /** 测试注入用；默认真等 */
   sleep?: (ms: number) => Promise<void>
 }
@@ -199,7 +279,19 @@ async function downloadWithRetry(
  * 也不会把一份名字更全的文件降级改名。
  */
 export async function ensureSavedPdf(
-  opts: { fileId: string; url: string; title?: string; section?: string; fileName: string },
+  opts: {
+    fileId: string
+    url: string
+    title?: string
+    section?: string
+    fileName: string
+    /**
+     * 期望的文件字节数（库里的 `file_size`）。**给了才走分片下载** —— 它既是分片的终止
+     * 条件，也是最后那道长度校验的依据；没有它就无法判断拼完的到底全不全，只好退回
+     * 单次下载（旧分享链接没有这个参数，属预期）。
+     */
+    expectedBytes?: number
+  },
   deps: SavePdfDeps
 ): Promise<SavePdfResult> {
   const { root, fs, download } = deps
@@ -214,6 +306,23 @@ export async function ensureSavedPdf(
   const first = found[0]
   if (first) return { path: `${dir}/${first}`, name: first, reused: true }
 
+  // **分片优先**：PDF 最大 30.7MB，而反代的响应上限约 4.5MB ⇒ 整份走反代必被拒。
+  // 分片后每片都在上限内，大文件也能吃到「境内」这条可靠性（反代侧不用改，它原样
+  // 转发 `Range` 并回传 `Content-Range`）。反代优先、直连兜底，两条都在候选里。
+  if (opts.expectedBytes && opts.expectedBytes > 0) {
+    const proxied = rewriteTo(opts.url, 'proxy')
+    const urls = proxied === opts.url ? [opts.url] : [proxied, opts.url]
+    await downloadInChunks(
+      { urls, dest: path, totalBytes: opts.expectedBytes },
+      {
+        fs: rangedFsOf(fs),
+        fetchRange: (url, range) => download(url, { Range: range }),
+        sleep: deps.sleep,
+      }
+    )
+    fs.unlink({ filePath: legacyPdfPath(root, opts.fileId) })
+    return { path, name, reused: false }
+  }
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
   const res = await downloadWithRetry(download, opts.url, sleep)
   // ⚠️ 非 200 的判断在**重试之外**：那是服务端明确拒绝（403/404…），再试几次也一样，

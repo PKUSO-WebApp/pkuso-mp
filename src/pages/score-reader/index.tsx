@@ -157,6 +157,8 @@ export default function ScoreReader() {
   // 旧入口（早先分享出去的链接）没有这两个参数，属预期。
   const presetTitle = router.params.title ? decodeURIComponent(router.params.title) : ''
   const presetSection = router.params.sec ? decodeURIComponent(router.params.sec) : ''
+  /** 文件字节数（库里 `file_size`）：只用它做分片下载的终止条件与长度校验 */
+  const presetBytes = Number(router.params.sz) || 0
 
   const [stage, setStage] = useState<Stage>('idle')
   /** 这份谱子没有页图（预渲染失败 / 还没跑迁移）：不在 App 里渲染，只引导「保存到…」 */
@@ -2048,6 +2050,7 @@ export default function ScoreReader() {
       title: presetTitle,
       section: presetSection,
       fileName: presetFileName,
+      expectedBytes: presetBytes,
     })
   }
 

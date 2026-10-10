@@ -48,6 +48,26 @@ function fakeFs(initial: string[] = []) {
       if (out.length > 0 || dirs.has(dirPath)) success({ files: out })
       else fail?.()
     },
+    // —— 下面五个只被分片下载用；这里给最小实现（分片本身的用例在 ranged-download.test.ts）——
+    stat({ path, success, fail }) {
+      if (files.has(path)) success({ stats: { size: 1 } })
+      else fail?.()
+    },
+    readFile({ success }) {
+      success({ data: new ArrayBuffer(1) })
+    },
+    writeFile({ filePath, success }) {
+      files.add(filePath)
+      success?.()
+    },
+    appendFile({ filePath, success }) {
+      files.add(filePath)
+      success?.()
+    },
+    copyFile({ destPath, success }) {
+      files.add(destPath)
+      success?.()
+    },
   }
   return { fs, files, dirs, calls }
 }

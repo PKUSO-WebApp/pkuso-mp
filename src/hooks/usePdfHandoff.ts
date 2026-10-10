@@ -13,6 +13,12 @@ export type PdfHandoffMeta = {
   title?: string
   section?: string
   fileName: string
+  /**
+   * 库里的 `file_size`。**给了才走分片下载**（见 lib/ranged-download.ts）——
+   * 它是分片的终止条件与长度校验依据。旧入口（早先分享出去的链接）没有这个参数 ⇒
+   * 退回单次下载，属预期。
+   */
+  expectedBytes?: number
 }
 
 /**
@@ -76,11 +82,19 @@ export function usePdfHandoff() {
     preparingRef.current = id
     try {
       const res = await ensureSavedPdf(
-        { fileId: id, url, title: m.title, section: m.section, fileName: m.fileName },
+        {
+          fileId: id,
+          url,
+          title: m.title,
+          section: m.section,
+          fileName: m.fileName,
+          expectedBytes: m.expectedBytes,
+        },
         {
           root: userDataRoot(),
           fs: (Taro.getFileSystemManager?.() as FsLike | undefined) ?? null,
-          download: (u) => Taro.downloadFile({ url: u }),
+          // 分片下载要带 `Range` 头；单次下载不传第二个参数（保持与从前完全一致）
+          download: (u, header) => Taro.downloadFile(header ? { url: u, header } : { url: u }),
         }
       )
       pdfRef.current = { fileId: id, path: res.path, name: res.name }

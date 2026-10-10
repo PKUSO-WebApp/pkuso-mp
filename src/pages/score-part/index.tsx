@@ -82,6 +82,8 @@ export default function ScorePart() {
       // （`{曲子}_{声部}_{文件名}.pdf`，见 lib/pdf-save.ts）。曲名就是本页已有的
       // `sheetTitle`（面包屑在用），声部在 `part` 里。缺了不影响功能——回退成
       // `{文件名}.pdf`。
+      // 文件字节数：阅读器只用它做**分片下载**的终止条件与长度校验（见 lib/ranged-download.ts）
+      f.file_size ? `sz=${f.file_size}` : '',
       sheetTitle ? `title=${encodeURIComponent(sheetTitle)}` : '',
       part?.section ? `sec=${encodeURIComponent(part.section)}` : '',
     ]
