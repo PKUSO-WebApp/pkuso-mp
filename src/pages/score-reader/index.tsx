@@ -19,6 +19,13 @@ import {
   type AnnoDoc,
   type AnnoStroke,
 } from '@/lib/annotation'
+import { markAnnoPending } from '@/lib/annotation-sync'
+import {
+  flushAnnotationSync,
+  scheduleAnnotationSync,
+  setAnnotationAdoptListener,
+  syncAnnotationFile,
+} from '@/lib/annotation-sync-runner'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { pageImageUrls } from '@/lib/score-page-image'
 import type { SheetMusicFileRow } from '@/types/database'
@@ -251,6 +258,14 @@ export default function ScoreReader() {
   const [penColor, setPenColor] = useState<string>(PEN_COLORS[0])
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS[0])
   const [annos, setAnnos] = useState<AnnoDoc>({})
+  /**
+   * 批注的同步镜像：**读-改-写**的调用点一律读它，不读 state。
+   *
+   * 云同步会从 React 之外把整份文档写进本地（别处改了同一册，落回本地时经
+   * annotation-sync-runner 的 adopt 通路）。那一刻闭包里的 `annos` 可能还是旧的，拿它
+   * 去 spread 再存，就把刚落地的内容覆盖回去了。渲染照旧读 state——要的就是重渲染。
+   */
+  const annosRef = useRef<AnnoDoc>({})
   /** 画笔 / 橡皮擦（橡皮擦按**整条**删除，见 eraseAtPoints + eraseStrokesAt） */
   const [eraserOn, setEraserOn] = useState(false)
   /**
@@ -445,6 +460,9 @@ export default function ScoreReader() {
 
   // 退出页面即停泵、停动画、停预绘制——后台抓取/计时器不该在页面销毁后继续
   useUnload(() => {
+    // 触发点 ②：把挂着的那次停笔防抖立刻发掉（最后一班车）。拿不到结果是有意的——
+    // 页面正在卸载，请求发不发得出去都无所谓，欠账有联网恢复那条路兜
+    if (fileId) flushAnnotationSync(fileId)
     prefetchPumpRef.current?.stop()
     // 离开页面前把这一册的本地记账落盘（这一册下次进册才可能整册命中）
     flushAlbumFiles.current()
@@ -512,9 +530,23 @@ export default function ScoreReader() {
     setZoom(v)
   }, [])
 
-  // 进入文件时载入本地批注
+  // 进入文件时载入本地批注，然后**先拉后推**地对一次账（触发点 ③）。
+  // 这一次同时是「上次进程被杀、那一册的欠账没推上去」的兜底：欠账由指纹推导，不靠内存。
   useEffect(() => {
-    if (fileId) setAnnos(loadAnnoDoc(fileId))
+    if (!fileId) return
+    const local = loadAnnoDoc(fileId)
+    annosRef.current = local
+    setAnnos(local)
+    // 全量扫描（④⑤）可能在我们开着的时候把这一册的内容落回本地——那条路要走同一个镜像，
+    // 否则画面停在旧内容上。这也是唯一需要「告诉阅读器」的通路：本册自己的同步拿得到返回值，
+    // 但别处的扫描拿不到。
+    setAnnotationAdoptListener((id, doc) => {
+      if (id !== fileId) return
+      annosRef.current = doc
+      setAnnos(doc)
+    })
+    void syncAnnotationFile(fileId)
+    return () => setAnnotationAdoptListener(null)
   }, [fileId])
 
   // 首次教程：等**首帧出来**再展示（一进页面就盖住加载过程，用户看不到自己在等什么），
@@ -1300,7 +1332,14 @@ export default function ScoreReader() {
 
   const persist = useCallback(
     (next: AnnoDoc) => {
+      annosRef.current = next
       setAnnos(next)
+      // 本地一改就两件事：记「可能有欠账」（离线改了 3 册然后被强杀，别的册只有靠它才会被扫到），
+      // 以及起一次停笔防抖（连续画十几笔只在停下时推一次，见 annotation-sync-runner）
+      if (fileId) {
+        markAnnoPending()
+        scheduleAnnotationSync(fileId)
+      }
       // 写不进去（存储满 / 单键超限）以前是**完全静默**的：画面照旧、退出重进才发现丢了，
       // 线上一条线索都没有（评审抓出）。每册每次会话只报一次——存储满会一直失败。
       if (fileId && !saveAnnoDoc(fileId, next) && !annoSaveFailRef.current) {
@@ -1704,7 +1743,7 @@ export default function ScoreReader() {
     const { w, h } = viewSizeRef.current
     if (!rect || !(w > 0) || !(h > 0)) return
     const key = String(strokePageRef.current)
-    const cur = annos[key] ?? []
+    const cur = annosRef.current[key] ?? []
     if (cur.length === 0) return
     const kept = eraseStrokesAt(
       cur,
@@ -1715,7 +1754,7 @@ export default function ScoreReader() {
     )
     if (kept.length === cur.length) return
     if (!erasedRef.current) erasedRef.current = cur // 本段手势擦掉之前的原样（抬手时记进撤销栈）
-    persist({ ...annos, [key]: kept })
+    persist({ ...annosRef.current, [key]: kept })
   }
 
   // 按钮缩放：以视口中心为锚（不然放大只会往右下长）
@@ -1949,10 +1988,10 @@ export default function ScoreReader() {
           // 落在**落笔时定死的那一页**上（见 strokePageRef）：画布就是那一页，坐标就是页内的，
           // 不需要任何跨页切分
           const key = String(strokePageRef.current)
-          const before = annos[key] ?? []
+          const before = annosRef.current[key] ?? []
           const stroke: AnnoStroke = { color: penColor, width: penWidth, points: pts }
           pushHistory(strokePageRef.current, before)
-          persist({ ...annos, [key]: [...before, stroke] })
+          persist({ ...annosRef.current, [key]: [...before, stroke] })
         }
         strokeLayerRef.current = null
       }
@@ -2003,7 +2042,7 @@ export default function ScoreReader() {
     const op = historyRef.current.pop()
     setUndoDepth(historyRef.current.length)
     if (!op) return
-    persist({ ...annos, [String(op.page)]: op.before })
+    persist({ ...annosRef.current, [String(op.page)]: op.before })
   }
 
   /**
@@ -2015,10 +2054,10 @@ export default function ScoreReader() {
    */
   const handleClear = () => {
     const key = String(page)
-    const before = annos[key] ?? []
+    const before = annosRef.current[key] ?? []
     if (before.length === 0) return // 没笔迹就没有可撤销的一步
     pushHistory(page, before)
-    persist({ ...annos, [key]: [] })
+    persist({ ...annosRef.current, [key]: [] })
   }
 
   const togglePen = () => {
