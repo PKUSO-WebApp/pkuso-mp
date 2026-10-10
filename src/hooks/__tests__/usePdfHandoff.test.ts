@@ -136,7 +136,23 @@ describe('usePdfHandoff：是否带有批注', () => {
     expect(order).toEqual(['sync', 'compose']) // 顺序也要对，不能只是都调了
   })
 
-  it('不带批注那条路**不**去同步（没必要多一次拉取）', async () => {
+  it('带批注那条把三段耗时报上来（真机没有 Network 面板，只能自己报）', async () => {
+    const { result } = renderHook(() => usePdfHandoff())
+    act(() => result.current.toggleAnno(true))
+    act(() => result.current.open(meta()))
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    const logged = reportClientError.mock.calls
+      .map((c) => c[0] as { event: string; detail: Record<string, number> })
+      .find((r) => r.event === 'score_reader_annotated_prepare')
+    expect(logged).toBeTruthy()
+    // 三段都在，且是数字（0 也可能是对的——测试里是瞬时的）
+    for (const k of ['totalMs', 'syncMs', 'composeMs', 'fetchMs']) {
+      expect(typeof logged?.detail[k]).toBe('number')
+    }
+  })
+
+  it('不带批注那条**不**去同步（没必要多一次拉取）', async () => {
     const { result } = renderHook(() => usePdfHandoff())
     act(() => result.current.open(meta()))
 

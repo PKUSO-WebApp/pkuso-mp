@@ -128,6 +128,11 @@ export function usePdfHandoff() {
     inFlightRef.current = reqKey
     setPreparing(true)
     let expectedBytes = m.expectedBytes
+    // 「带批注那份到底慢在哪」——**真机没有 Network 面板**，所以这段耗时只能自己报上来。
+    // 三段分开计：同步 / 云端合成 / 下载，缺一段就分不清是函数慢还是链路慢。
+    const t0 = Date.now()
+    let tSync = 0
+    let tCompose = 0
     try {
       let url = m.url()
       let fileName = m.fileName
@@ -136,8 +141,10 @@ export function usePdfHandoff() {
         // 那份批注，而本地刚画的还没推上去的话，产出的 PDF 就缺最新几笔——用户拿到的是
         // 「看起来对、其实少东西」的文件。这一步会带一次拉取 + 可能的推送。
         await syncAnnotationFile(id)
+        tSync = Date.now() - t0
         // 云端合成：这一步要走网络，所以「正在准备文件…」会停得比平时久
         const composed = await composeAnnotatedPdf(id)
+        tCompose = Date.now() - t0 - tSync
         url = composed.url
         // 签名 URL 的**长度只有服务端知道**（本地没有库里的 file_size 可比），
         // 所以分片下载的依据取响应里那个确切的字节数
@@ -167,6 +174,22 @@ export function usePdfHandoff() {
         }
       )
       if (seq !== seqRef.current) return // 用户已经改主意了：这一次的结果作废
+      if (anno) {
+        reportClientError({
+          event: 'score_reader_annotated_prepare',
+          level: 'warn',
+          message: `带批注准备 ${Date.now() - t0}ms（同步 ${tSync} / 合成 ${tCompose}）`,
+          detail: {
+            fileId: id,
+            totalMs: Date.now() - t0,
+            syncMs: tSync,
+            composeMs: tCompose,
+            fetchMs: Date.now() - t0 - tSync - tCompose,
+            bytes: expectedBytes ?? 0,
+            platform,
+          },
+        })
+      }
       pdfRef.current = { reqKey, fileId: id, path: res.path, name: res.name }
       setReadyId(reqKey)
     } catch (err) {
