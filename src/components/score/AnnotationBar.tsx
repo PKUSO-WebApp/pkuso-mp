@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
-import { View, Button, ScrollView } from '@tarojs/components'
+import { View, Button, ScrollView, Image } from '@tarojs/components'
 import { useT } from '@/i18n'
+import { useThemeContext } from '@/context/theme-context'
 import { PEN_COLORS, PEN_WIDTHS } from '@/lib/annotation'
+import penIcon from '@/assets/icons/pen.png'
+import penIconDark from '@/assets/icons/pen-dark.png'
+import eraserIcon from '@/assets/icons/eraser.png'
+import eraserIconDark from '@/assets/icons/eraser-dark.png'
+
+/** 工具按钮里的图标尺寸：与阅读器底栏那五个一致（素材统一 72×72，显示 18px） */
+const TOOL_ICON = 18
 
 type AnnotationBarProps = {
   color: string
@@ -34,6 +42,8 @@ export function AnnotationBar({
   onClear,
 }: AnnotationBarProps) {
   const { t } = useT()
+  const { mode } = useThemeContext()
+  const dark = mode === 'dark'
   const [confirmingClear, setConfirmingClear] = useState(false)
 
   useEffect(() => {
@@ -76,26 +86,34 @@ export function AnnotationBar({
       <ScrollView scrollX className='w-full'>
         <View className='inline-flex flex-row items-center px-3 py-2'>
           <View className='flex flex-row items-center'>
-            {/* 笔 / 擦：橡皮擦按整条删除，比「清空本页」好用（能只擦掉不想要的那几笔） */}
+            {/* 笔 / 擦：橡皮擦按整条删除，比「清空本页」好用（能只擦掉不想要的那几笔）。
+                用**图标**而不是文字（用户 2026-10-10 定）：这一栏在英文下比中文长得多
+                （实测约 546px vs 375px 屏宽），文字标签是溢出的主因；图标与语言无关。
+                形状仍是圆角按钮、保留选中态（它俩是二选一的开关，不像底栏那五个是纯动作）。
+                `ariaLabel` 仍走原 key —— 图标按钮没有可读的文字了。 */}
             <Button
-              className={`mr-2 rounded-full border px-3 py-1 text-xs ${
-                eraser
-                  ? 'border-border bg-card text-text'
-                  : 'border-primary bg-primary/10 text-text'
+              className={`mr-2 flex h-8 w-8 items-center justify-center rounded-full border p-0 ${
+                eraser ? 'border-border bg-card' : 'border-primary bg-primary/10'
               }`}
+              ariaLabel={t('scoreReader.pen')}
               onClick={() => onEraser(false)}
             >
-              {t('scoreReader.pen')}
+              <Image
+                src={dark ? penIconDark : penIcon}
+                style={{ width: `${TOOL_ICON}px`, height: `${TOOL_ICON}px` }}
+              />
             </Button>
             <Button
-              className={`mr-2 rounded-full border px-3 py-1 text-xs ${
-                eraser
-                  ? 'border-primary bg-primary/10 text-text'
-                  : 'border-border bg-card text-text'
+              className={`mr-2 flex h-8 w-8 items-center justify-center rounded-full border p-0 ${
+                eraser ? 'border-primary bg-primary/10' : 'border-border bg-card'
               }`}
+              ariaLabel={t('scoreReader.eraser')}
               onClick={() => onEraser(true)}
             >
-              {t('scoreReader.eraser')}
+              <Image
+                src={dark ? eraserIconDark : eraserIcon}
+                style={{ width: `${TOOL_ICON}px`, height: `${TOOL_ICON}px` }}
+              />
             </Button>
             {PEN_COLORS.map((c) => (
               <View
