@@ -131,6 +131,15 @@ type BgCtl = {
   fire: () => void
 }
 
+/** 屏幕宽度（同步、恒定；取不到返回 0，由调用方兜底） */
+function readScreenWidth(): number {
+  try {
+    return Taro.getWindowInfo?.()?.windowWidth ?? 0
+  } catch {
+    return 0
+  }
+}
+
 export default function ScoreReader() {
   const { t } = useT()
   const darkClass = useThemeClass()
@@ -2042,10 +2051,13 @@ export default function ScoreReader() {
   const [bottomPanel, setBottomPanel] = useState<ReaderPanel>('none')
   /**
    * 进度条轨道宽度：屏幕宽的 2/5（用户 2026-10-10 定，**不随页数增长**）。
-   * 舞台还没量到时 `containerW` 是 0 —— 那会让轨道宽度算成 0（「看不见的进度条」），
-   * 所以给一个按常见屏宽的兜底；`measureStage` 一回来就被真实值顶掉。
+   *
+   * ⚠️ 用**同步**的 `getWindowInfo().windowWidth`，**不用** `containerW` —— 后者是
+   * `createSelectorQuery` 量出来的；真机上两个气泡（页码条与缩放那排）被一起压窄，
+   * 就是那个测量值不可靠造成的。`getSystemInfoSync` 已被微信废弃（每次调用刷一条
+   * deprecation 告警），别换回去。
    */
-  const sliderW = Math.round((containerW > 0 ? containerW : 375) * 0.4)
+  const trackW = Math.round((readScreenWidth() || 375) * 0.4)
   /** 批注：从底栏点进来时先把气泡收掉（批注工具条是另一条悬浮层） */
   const penFromToolbar = () => {
     setBottomPanel('none')
@@ -2337,10 +2349,7 @@ export default function ScoreReader() {
             pageCount={pageCount}
             panel={bottomPanel}
             busy={handoff.busy}
-            slider={{
-              left: stageRectRef.current.left + Math.max(0, (containerW - sliderW) / 2),
-              width: sliderW,
-            }}
+            trackW={trackW}
             onPanel={setBottomPanel}
             onPen={penFromToolbar}
             onForward={openHandoff}
