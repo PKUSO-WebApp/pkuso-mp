@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadAnnoDoc, saveAnnoDoc, type AnnoDoc, type AnnoStroke } from './annotation'
-import { isAnnoPending, loadSyncBase, markAnnoPending, pageFingerprint, saveSyncBase } from './annotation-sync'
-import type { RemotePage } from './annotation-sync'
+import {
+  isAnnoPending,
+  loadSyncBase,
+  markAnnoPending,
+  loadMtime,
+  markLocalEdit,
+  pageFingerprint,
+  saveSyncBase,
+} from './annotation-sync'
 import {
   flushAnnotationSync,
   scheduleAnnotationSync,
@@ -17,7 +24,10 @@ const storage = new Map<string, unknown>()
 const { state, reports } = vi.hoisted(() => ({
   state: {
     userId: 'u1' as string | null,
-    rows: [] as RemotePage[],
+    // ⚠️ 形状必须是**数据库行**（`updated_at` 是 ISO 字符串），不是映射后的样子——
+    // 夹具要是给成映射后的，`updated_at` 就取不到值 ⇒ 一律当 0 ⇒ LWW 永远判给本地，
+    // 「判给云端」那条路永远走不到（本仓栽过这类夹具空转）
+    rows: [] as Array<{ page: number; strokes: AnnoStroke[]; updated_at: string }>,
     selectError: null as string | null,
     selectCalls: 0,
     upsertCalls: [] as Array<{ file_id: string; user_id: string; page: number; strokes: unknown }>,
@@ -79,7 +89,11 @@ const stroke = (x: number): AnnoStroke => ({
   ],
 })
 const docWith = (pages: Record<string, AnnoStroke[]>): AnnoDoc => pages
-const remoteRow = (page: number, strokes: AnnoStroke[]): RemotePage => ({ page, strokes })
+const remoteRow = (page: number, strokes: AnnoStroke[], updatedAtMs = 0) => ({
+  page,
+  strokes,
+  updated_at: new Date(updatedAtMs).toISOString(),
+})
 
 const seeded = (fileId: string, doc: AnnoDoc) => {
   saveAnnoDoc(fileId, doc)
@@ -153,13 +167,36 @@ describe('syncAnnotationFile：先拉后推', () => {
     expect(loadSyncBase('f1', 'u1')['1']).toBe(pageFingerprint(theirs))
   })
 
-  it('两边都改过 ⇒ 冲突：不上传、不覆盖，只上报一条', async () => {
+  it('两边都改过 ⇒ LWW 判给本地（缺 mtime 时偏本地）：推上去，冲突也上报', async () => {
     const base = [stroke(0.5)]
     const mine = [stroke(0.1)]
     const theirs = [stroke(0.9)]
     seeded('f1', docWith({ '1': mine }))
     seedBase('f1', docWith({ '1': base }))
-    state.rows = [remoteRow(1, theirs)]
+    state.rows = [remoteRow(1, theirs, Date.now())] // 远端那行看着很新，但本机无从比较
+
+    const result = await syncAnnotationFile('f1')
+
+    expect(result.conflicts).toBe(1)
+    expect(result.pushed).toBe(1)
+    expect(state.upsertCalls.map((c) => c.page)).toEqual([1])
+    expect(loadAnnoDoc('f1')['1']).toEqual(mine) // 本地原样（判给它了）
+    // 关键：**基线推进了**。不推进的话这一页会永久卡住（这次推上去、下次又判冲突）
+    expect(loadSyncBase('f1', 'u1')['1']).toBe(pageFingerprint(mine))
+    const logged = reports.filter((r) => r.event === 'score_reader_annotation_conflict')
+    expect(logged).toHaveLength(1)
+    expect(logged[0].message).toContain('本地')
+  })
+
+  it('两边都改过、云端那一行更晚 ⇒ 判给云端：落回本地、不上传', async () => {
+    const base = [stroke(0.5)]
+    const mine = [stroke(0.1)]
+    const theirs = [stroke(0.9)]
+    seeded('f1', docWith({ '1': mine }))
+    seedBase('f1', docWith({ '1': base }))
+    // 本机这一页的改动时刻记在记账里（1000）；远端那行比它晚（5000）
+    markLocalEdit('f1', ['1'], 1000)
+    state.rows = [remoteRow(1, theirs, 5000)]
 
     let adopted: AnnoDoc | null = null
     setAnnotationAdoptListener((_id, doc) => {
@@ -168,13 +205,14 @@ describe('syncAnnotationFile：先拉后推', () => {
 
     const result = await syncAnnotationFile('f1')
 
-    expect(result.conflicts).toBe(1)
-    expect(result.pushed).toBe(0)
+    expect(result.adopted).toBe(1)
     expect(state.upsertCalls).toEqual([])
-    expect(loadAnnoDoc('f1')['1']).toEqual(mine) // 本地原样
-    expect(adopted).toBeNull() // 没有 adopt 通路被触发
-    // 冲突页的基线**不动**：它仍是旧基线，所以下次还能认出来
-    expect(loadSyncBase('f1', 'u1')['1']).toBe(pageFingerprint(base))
+    expect(loadAnnoDoc('f1')['1']).toEqual(theirs)
+    expect(adopted?.['1']).toEqual(theirs)
+    expect(loadSyncBase('f1', 'u1')['1']).toBe(pageFingerprint(theirs))
+    // 落回本地之后，这一页的「本地改动时刻」必须**跟着变成服务端那一行的时刻**
+    // （内容就是从它来的）。不跟着变的话，下次再冲突会拿一个陈旧时刻去比、判错方向。
+    expect(loadMtime('f1', 'u1')['1']).toBe(5000)
     expect(reports.some((r) => r.event === 'score_reader_annotation_conflict')).toBe(true)
   })
 

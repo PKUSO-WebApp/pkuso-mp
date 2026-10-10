@@ -22,7 +22,7 @@ import {
   type AnnoStroke,
   type AnnoTool,
 } from '@/lib/annotation'
-import { markAnnoPending } from '@/lib/annotation-sync'
+import { markAnnoPending, markLocalEdit } from '@/lib/annotation-sync'
 import {
   flushAnnotationSync,
   scheduleAnnotationSync,
@@ -1350,6 +1350,14 @@ export default function ScoreReader() {
 
   const persist = useCallback(
     (next: AnnoDoc) => {
+      const prev = annosRef.current
+      // 这一页的**本地改动时刻**（LWW 裁决用）：比引用而不是比内容——每次改动都新建数组，
+      // 所以引用不等就是改过，O(页数) 且不必逐点比。删掉的页（清空后不再有键）也算改过。
+      const changed = Object.keys(next).filter((k) => next[k] !== prev[k])
+      for (const k of Object.keys(prev)) {
+        if (!(k in next)) changed.push(k)
+      }
+      if (changed.length > 0) markLocalEdit(fileId, changed, Date.now())
       annosRef.current = next
       setAnnos(next)
       // 本地一改就两件事：记「可能有欠账」（离线改了 3 册然后被强杀，别的册只有靠它才会被扫到），

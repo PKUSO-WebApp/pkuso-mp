@@ -19,12 +19,15 @@ vi.mock('@tarojs/taro', () => ({
 const { t } = vi.hoisted(() => ({ t: (k: string) => k }))
 vi.mock('@/i18n', () => ({ useT: () => ({ t, locale: 'zh-CN', setLocale: vi.fn() }) }))
 
-const { ensureSavedPdf, composeAnnotatedPdf, reportClientError, handOffPdf } = vi.hoisted(() => ({
-  ensureSavedPdf: vi.fn(),
-  composeAnnotatedPdf: vi.fn(),
-  reportClientError: vi.fn(),
-  handOffPdf: vi.fn(),
-}))
+const { ensureSavedPdf, composeAnnotatedPdf, reportClientError, handOffPdf, syncAnnotationFile, order } =
+  vi.hoisted(() => ({
+    ensureSavedPdf: vi.fn(),
+    composeAnnotatedPdf: vi.fn(),
+    reportClientError: vi.fn(),
+    handOffPdf: vi.fn(),
+    syncAnnotationFile: vi.fn(),
+    order: [] as string[],
+  }))
 
 vi.mock('@/lib/pdf-save', () => ({
   ensureSavedPdf,
@@ -34,6 +37,7 @@ vi.mock('@/lib/annotated-pdf', async () => {
   const actual = await vi.importActual<typeof import('@/lib/annotated-pdf')>('@/lib/annotated-pdf')
   return { ...actual, composeAnnotatedPdf }
 })
+vi.mock('@/lib/annotation-sync-runner', () => ({ syncAnnotationFile }))
 vi.mock('@/lib/pdf-handoff', () => ({
   handoffKindsFor: () => ['favorites', 'chat', 'app'],
   handOffPdf,
@@ -71,6 +75,20 @@ beforeEach(() => {
   })
   reportClientError.mockReset()
   handOffPdf.mockReset().mockResolvedValue(undefined)
+  order.length = 0
+  syncAnnotationFile.mockReset().mockImplementation(async () => {
+    order.push('sync')
+    return { status: 'ok', pushed: 0, adopted: 0, conflicts: 0 }
+  })
+  composeAnnotatedPdf.mockImplementation(async () => {
+    order.push('compose')
+    return {
+      url: 'https://x.supabase.co/storage/v1/object/sign/anno.pdf?token=t',
+      bytes: 4321,
+      annotatedPages: 2,
+      drawnStrokes: 7,
+    }
+  })
 })
 
 afterEach(() => {
@@ -106,6 +124,24 @@ describe('usePdfHandoff：是否带有批注', () => {
     // ⚠️ 必须 force：本地那个路径是固定的，不强制的话**新合成的那份根本不会被下载**，
     // 交出去的是上一次的旧内容（用户又多画了几笔也照样是旧的）
     expect(last.force).toBe(true)
+  })
+
+  it('⚠️ 合成之前必须**先同步**：函数读的是服务端那份，本地没推上去就会少画几笔', async () => {
+    const { result } = renderHook(() => usePdfHandoff())
+    act(() => result.current.toggleAnno(true))
+    act(() => result.current.open(meta()))
+
+    await waitFor(() => expect(composeAnnotatedPdf).toHaveBeenCalled())
+    expect(syncAnnotationFile).toHaveBeenCalledWith('f1')
+    expect(order).toEqual(['sync', 'compose']) // 顺序也要对，不能只是都调了
+  })
+
+  it('不带批注那条路**不**去同步（没必要多一次拉取）', async () => {
+    const { result } = renderHook(() => usePdfHandoff())
+    act(() => result.current.open(meta()))
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(syncAnnotationFile).not.toHaveBeenCalled()
   })
 
   it('⚠️ 带批注那份走**另一个记账键**：先存了原件，再拨开关不能复用原件', async () => {

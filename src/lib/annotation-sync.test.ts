@@ -102,7 +102,7 @@ describe('planSync', () => {
   const baseWith = (page: number, strokes: AnnoStroke[]): SyncBase => ({ [String(page)]: fp(strokes) })
 
   it('只有本地变（远端 == 基线）⇒ 上传', () => {
-    const plan = planSync(doc({ '1': L }), baseWith(1, R), [{ page: 1, strokes: R }])
+    const plan = planSync(doc({ '1': L }), baseWith(1, R), [{ page: 1, strokes: R, updatedAt: 0 }])
     expect(plan.toPush.map((p) => p.page)).toEqual([1])
     expect(plan.toPush[0].strokes).toEqual(L)
     expect(plan.toAdopt).toEqual([])
@@ -110,24 +110,52 @@ describe('planSync', () => {
   })
 
   it('只有远端变（本地 == 基线）⇒ 落回本地', () => {
-    const plan = planSync(doc({ '1': L }), baseWith(1, L), [{ page: 1, strokes: R }])
+    const plan = planSync(doc({ '1': L }), baseWith(1, L), [{ page: 1, strokes: R, updatedAt: 0 }])
     expect(plan.toAdopt.map((p) => p.page)).toEqual([1])
     expect(plan.toAdopt[0].strokes).toEqual(R)
     expect(plan.toPush).toEqual([])
   })
 
-  it('两边都变 ⇒ 冲突，既不上传也不落地', () => {
+  it('两边都变 ⇒ 按 LWW 裁决：本地那次改动更晚 ⇒ 判给本地（上传）', () => {
     const other = [stroke(0.5)]
-    const plan = planSync(doc({ '1': L }), baseWith(1, other), [{ page: 1, strokes: R }])
+    const remote = [{ page: 1, strokes: R, updatedAt: 1000 }]
+    const plan = planSync(doc({ '1': L }), baseWith(1, other), remote, { '1': 2000 })
+
+    expect(plan.conflicts).toEqual([1]) // 仍然上报（诊断/对账用）
+    expect(plan.toPush.map((p) => p.page)).toEqual([1])
+    expect(plan.lwwRemote).toEqual([])
+  })
+
+  it('两边都变 ⇒ 云端那行更晚 ⇒ 判给云端（落回本地）', () => {
+    const other = [stroke(0.5)]
+    const remote = [{ page: 1, strokes: R, updatedAt: 5000 }]
+    const plan = planSync(doc({ '1': L }), baseWith(1, other), remote, { '1': 2000 })
+
     expect(plan.conflicts).toEqual([1])
-    expect(plan.toPush).toEqual([])
-    expect(plan.toAdopt).toEqual([])
+    expect(plan.toAdopt.map((p) => p.page)).toEqual([1])
+    expect(plan.lwwRemote).toEqual([1])
+  })
+
+  it('时刻相等 ⇒ 判给本地（用户正看着本机这份）', () => {
+    const other = [stroke(0.5)]
+    const remote = [{ page: 1, strokes: R, updatedAt: 3000 }]
+    const plan = planSync(doc({ '1': L }), baseWith(1, other), remote, { '1': 3000 })
+    expect(plan.toPush.map((p) => p.page)).toEqual([1])
+  })
+
+  it('⚠️ 缺 mtime（改动发生在本机制之前）⇒ 判给本地：否则旧数据会永久卡在冲突里', () => {
+    const other = [stroke(0.5)]
+    // 远端那一行看起来很新（比如刚从另一台设备推上来），但本地无从比较 —— 仍判本地，
+    // 不然「推不上去、也不自愈」那种僵局解不开
+    const remote = [{ page: 1, strokes: R, updatedAt: Date.now() }]
+    const plan = planSync(doc({ '1': L }), baseWith(1, other), remote)
+    expect(plan.toPush.map((p) => p.page)).toEqual([1])
   })
 
   it('两边一致 ⇒ inSync（哪怕基线是别的、或压根没有基线）', () => {
-    const plan = planSync(doc({ '1': L }), baseWith(1, R), [{ page: 1, strokes: L }])
+    const plan = planSync(doc({ '1': L }), baseWith(1, R), [{ page: 1, strokes: L, updatedAt: 0 }])
     expect(plan.inSync.map((p) => p.page)).toEqual([1])
-    const noBase = planSync(doc({ '1': L }), {}, [{ page: 1, strokes: L }])
+    const noBase = planSync(doc({ '1': L }), {}, [{ page: 1, strokes: L, updatedAt: 0 }])
     expect(noBase.inSync.map((p) => p.page)).toEqual([1])
   })
 
@@ -135,17 +163,17 @@ describe('planSync', () => {
     const push = planSync(doc({ '1': L }), {}, [])
     expect(push.toPush.map((p) => p.page)).toEqual([1])
 
-    const adopt = planSync(doc({}), {}, [{ page: 1, strokes: R }])
+    const adopt = planSync(doc({}), {}, [{ page: 1, strokes: R, updatedAt: 0 }])
     expect(adopt.toAdopt.map((p) => p.page)).toEqual([1])
   })
 
   it('没有基线、两边都有内容且不同 ⇒ 冲突（不敢猜谁新）', () => {
-    const plan = planSync(doc({ '1': L }), {}, [{ page: 1, strokes: R }])
+    const plan = planSync(doc({ '1': L }), {}, [{ page: 1, strokes: R, updatedAt: 0 }])
     expect(plan.conflicts).toEqual([1])
   })
 
   it('本地整页擦空也要推（擦除是「这一页少了几笔」，不是删除操作）', () => {
-    const plan = planSync(doc({ '1': [] }), baseWith(1, L), [{ page: 1, strokes: L }])
+    const plan = planSync(doc({ '1': [] }), baseWith(1, L), [{ page: 1, strokes: L, updatedAt: 0 }])
     expect(plan.toPush.map((p) => p.page)).toEqual([1])
     expect(plan.toPush[0].strokes).toEqual([])
   })
@@ -167,8 +195,8 @@ describe('planSync', () => {
       doc({ '1': L, '2': L }),
       { '1': fp(L), '3': fp(L) },
       [
-        { page: 2, strokes: L },
-        { page: 3, strokes: R },
+        { page: 2, strokes: L, updatedAt: 0 },
+        { page: 3, strokes: R, updatedAt: 0 },
       ]
     )
     // 1：本地有内容且 == 基线，远端「没有行」= 空 ⇒ 远端变了（L → 空）、本地没变 ⇒ 落回本地（清掉）

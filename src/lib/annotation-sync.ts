@@ -24,7 +24,12 @@ import { compactStroke, type AnnoDoc, type AnnoStroke } from './annotation'
 export type SyncBase = Record<string, string>
 
 /** 服务端一行的形态（查询回来的原始行） */
-export type RemotePage = { page: number; strokes: AnnoStroke[] }
+export type RemotePage = {
+  page: number
+  strokes: AnnoStroke[]
+  /** 服务端那一行的 `updated_at`（epoch ms）。**由触发器盖章**，客户端的钟伪造不了它 */
+  updatedAt: number
+}
 
 export const annoSyncKey = (fileId: string) => `score-annotation-sync:${fileId}`
 
@@ -79,10 +84,15 @@ export type SyncPlan = {
   toPush: Array<{ page: number; strokes: AnnoStroke[]; fp: string }>
   /** 远端改过、本地没动 ⇒ 落回本地 */
   toAdopt: Array<{ page: number; strokes: AnnoStroke[]; fp: string }>
-  /** 两边都改过 ⇒ 两边都不动，只上报 */
+  /**
+   * 两边都改过的页。**它们已按 LWW 裁决完**（见 planSync），列在这里只为上报与对账——
+   * 不再有「悬着不动」的页（那种页会永久卡住：推不上去、也不自愈）。
+   */
   conflicts: number[]
   /** 已经一致（含「碰巧改成同一份」）⇒ 把基线推到当前指纹即可 */
   inSync: Array<{ page: number; fp: string }>
+  /** 冲突里判给**远端**的那些页（诊断用：判给本地的没在这里） */
+  lwwRemote: number[]
 }
 
 /** 页码的键可能是别人写坏的值；只接受 >=1 的整数，其余当不存在 */
@@ -100,11 +110,18 @@ function toPage(key: string): number | null {
  * 基线**缺失**（这一页从没同步过：功能上线前画的、或离线画的）时只能靠「哪边是空的」判：
  * 一边空一边有内容，方向是明确的；两边都有内容而内容不同，无从判断谁新谁旧 —— 算冲突。
  */
-export function planSync(local: AnnoDoc, base: SyncBase, remote: RemotePage[]): SyncPlan {
+export function planSync(
+  local: AnnoDoc,
+  base: SyncBase,
+  remote: RemotePage[],
+  mtime: Record<string, number> = {}
+): SyncPlan {
   const remoteMap = new Map<number, AnnoStroke[]>()
+  const remoteAt = new Map<number, number>()
   for (const row of remote) {
     if (!Number.isInteger(row.page) || row.page < 1) continue
     remoteMap.set(row.page, Array.isArray(row.strokes) ? row.strokes : [])
+    remoteAt.set(row.page, Number.isFinite(row.updatedAt) ? row.updatedAt : 0)
   }
 
   const pages = new Set<number>()
@@ -118,7 +135,7 @@ export function planSync(local: AnnoDoc, base: SyncBase, remote: RemotePage[]): 
   }
   for (const p of remoteMap.keys()) pages.add(p)
 
-  const plan: SyncPlan = { toPush: [], toAdopt: [], conflicts: [], inSync: [] }
+  const plan: SyncPlan = { toPush: [], toAdopt: [], conflicts: [], inSync: [], lwwRemote: [] }
   for (const page of [...pages].sort((x, y) => x - y)) {
     const key = String(page)
     const localStrokes = local[key] ?? []
@@ -137,9 +154,31 @@ export function planSync(local: AnnoDoc, base: SyncBase, remote: RemotePage[]): 
       else plan.conflicts.push(page)
       continue
     }
-    if (r === b) plan.toPush.push({ page, strokes: localStrokes, fp: l })
-    else if (l === b) plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r })
-    else plan.conflicts.push(page)
+    if (r === b) {
+      plan.toPush.push({ page, strokes: localStrokes, fp: l })
+      continue
+    }
+    if (l === b) {
+      plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r })
+      continue
+    }
+    // 两边都动过 ⇒ **LWW**（用户 2026-10-10 定，暂时）：比「本地这一页最后改动的时间」
+    // 与「服务端那一行的 updated_at」。相等时判给本地——用户在看着本机这份。
+    //
+    // ⚠️ 从前这里是「两边都不动」，而那样**会永久卡住**：基线不动 ⇒ 每次同步都判出同一个
+    // 冲突 ⇒ 本地改动永远推不上去，也不自愈（实测形态：某页连报 5 次冲突，合成带批注的
+    // PDF 时函数读到的是服务端那份旧内容）。
+    //
+    // ⚠️ 缺 mtime（= 这一页的改动发生在本机制之前）时判给**本地**：无从比较时偏向
+    // 「用户手上这份」，而且这样旧数据第一次同步就能解开僵局。
+    const localAt = mtime[key] ?? Number.POSITIVE_INFINITY
+    plan.conflicts.push(page)
+    if (localAt >= (remoteAt.get(page) ?? 0)) {
+      plan.toPush.push({ page, strokes: localStrokes, fp: l })
+    } else {
+      plan.lwwRemote.push(page)
+      plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r })
+    }
   }
   return plan
 }
@@ -152,7 +191,15 @@ export function planSync(local: AnnoDoc, base: SyncBase, remote: RemotePage[]): 
  * 当成没有基线之后，同一份本地内容会被判成「本地有、远端空」⇒ 推给当前账号，
  * 两边都不丢。
  */
-export type SyncRecord = { userId: string; base: SyncBase }
+export type SyncRecord = {
+  userId: string
+  base: SyncBase
+  /**
+   * 每页**本地内容**最后改动的时间（设备时钟，epoch ms）。**只用于冲突时的 LWW 裁决**，
+   * 不参与「有没有欠账」的判定（那个仍然只看内容指纹）。缺 = 这次改动发生在本机制之前。
+   */
+  mtime?: Record<string, number>
+}
 
 export function loadSyncBase(fileId: string, userId: string): SyncBase {
   try {
@@ -173,10 +220,57 @@ export function loadSyncBase(fileId: string, userId: string): SyncBase {
   }
 }
 
-/** 写基线失败（存储满）只会让下次多推一遍，不影响正确性，故只回布尔不抛 */
-export function saveSyncBase(fileId: string, userId: string, base: SyncBase): boolean {
+function readRecord(fileId: string): SyncRecord | null {
   try {
-    const record: SyncRecord = { userId, base }
+    const raw = Taro.getStorageSync(annoSyncKey(fileId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return parsed as SyncRecord
+  } catch {
+    return null
+  }
+}
+
+/** 取这一册每页本地改动的时刻（给 LWW 用）。换账号一律当没有——与服务端那行对不上 */
+export function loadMtime(fileId: string, userId: string): Record<string, number> {
+  const record = readRecord(fileId)
+  if (!record || record.userId !== userId) return {}
+  const raw = record.mtime
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v
+  }
+  return out
+}
+
+/**
+ * 记「这一页的本地内容刚被改过」。**没有记账就什么都不做**——第一次同步会建它；
+ * 而在那之前发生的改动本来就无从比较，LWW 会按「缺 mtime ⇒ 判给本地」处理。
+ */
+export function markLocalEdit(fileId: string, pages: string[], now: number): void {
+  if (pages.length === 0) return
+  const record = readRecord(fileId)
+  if (!record || typeof record.userId !== 'string') return
+  const mtime = { ...(record.mtime ?? {}) }
+  for (const page of pages) mtime[page] = now
+  try {
+    Taro.setStorageSync(annoSyncKey(fileId), JSON.stringify({ ...record, mtime }))
+  } catch {
+    // 写不进去只是 LWW 少一条依据，不影响别的
+  }
+}
+
+/** 写基线失败（存储满）只会让下次多推一遍，不影响正确性，故只回布尔不抛 */
+export function saveSyncBase(
+  fileId: string,
+  userId: string,
+  base: SyncBase,
+  mtime: Record<string, number> = {}
+): boolean {
+  try {
+    const record: SyncRecord = { userId, base, mtime }
     Taro.setStorageSync(annoSyncKey(fileId), JSON.stringify(record))
     return true
   } catch {
