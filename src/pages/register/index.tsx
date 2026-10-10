@@ -26,7 +26,16 @@ function getCurrentYear(): number {
 
 const YEAR_OPTIONS = Array.from({ length: 8 }, (_, i) => String(getCurrentYear() - i))
 
-function getSeasonOptions(t: TFn) {
+/**
+ * 季节滚轮：**显示用本地化标签，存库恒为规范值「春/秋」**。
+ *
+ * `profiles.join_date` 受 DB CHECK 约束，只接受「YYYY春/YYYY秋」——把这里的标签
+ * （英文环境是 Spring/Fall）直接拼进 join_date 会被库拒，整次注册以 500 收场。
+ * 与 `profile-info` 页同样的分工；展示侧由 `translateJoinDate` 还原成本地化文案。
+ */
+const SEASON_VALUES = ['春', '秋'] as const
+
+function getSeasonLabels(t: TFn) {
   return [t('register.seasonSpring'), t('register.seasonFall')] as const
 }
 
@@ -43,7 +52,6 @@ export default function RegisterPage() {
     }
   })
 
-  const [wechatCode, setWechatCode] = useState('')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState(() => {
     const routerEmail = Taro.getCurrentInstance().router?.params?.email
@@ -78,23 +86,6 @@ export default function RegisterPage() {
     }
   }, [ready, user])
 
-  // 静默获取微信 code（wx.login 不需要用户授权）
-  useEffect(() => {
-    let cancelled = false
-    const fetchCode = async () => {
-      try {
-        const loginRes = await Taro.login()
-        if (!cancelled) setWechatCode(loginRes.code ?? '')
-      } catch {
-        // 静默失败，提交时会提示
-      }
-    }
-    void fetchCode()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   const handleSubmit = async () => {
     if (submittingRef.current || submitting) return
     setErrorMsg(null)
@@ -128,20 +119,29 @@ export default function RegisterPage() {
       return
     }
 
-    if (!wechatCode) {
-      setErrorMsg(t('register.wechatBindFailed'))
-      return
-    }
-
     submittingRef.current = true
     setSubmitting(true)
     try {
-      const joinDate = `${YEAR_OPTIONS[yearIndex]}${getSeasonOptions(t)[seasonIndex]}`
+      // 每次提交现取 code：wx.login 的 code 是一次性的（且 5 分钟过期），上一次提交会把它
+      // 消耗掉——沿用同一个 code 重试，微信侧必定回错误码，用户看到的还是那句「提交失败」。
+      let code = ''
+      try {
+        const loginRes = await Taro.login()
+        code = loginRes.code ?? ''
+      } catch {
+        // 取不到就落到下面的「微信授权失败，请重试」
+      }
+      if (!code) {
+        setErrorMsg(t('register.wechatBindFailed'))
+        return
+      }
+
+      const joinDate = `${YEAR_OPTIONS[yearIndex]}${SEASON_VALUES[seasonIndex]}`
       const instrument = getInstrumentOptions(t)[instrumentIndex]
 
       const { data, error } = await invokeFunction(supabase, 'register-with-wechat', {
         body: {
-          code: wechatCode,
+          code,
           full_name: fullName.trim(),
           email: email.trim().toLowerCase(),
           instrument,
@@ -292,7 +292,7 @@ export default function RegisterPage() {
             </Picker>
             <Picker
               mode='selector'
-              range={getSeasonOptions(t) as unknown as string[]}
+              range={getSeasonLabels(t) as unknown as string[]}
               value={seasonIndex ?? 0}
               onChange={(e) => {
                 setErrorMsg(null)
@@ -305,7 +305,7 @@ export default function RegisterPage() {
                   className={`text-sm ${seasonIndex !== null ? 'text-text' : 'text-text-muted'}`}
                 >
                   {seasonIndex !== null
-                    ? getSeasonOptions(t)[seasonIndex]
+                    ? getSeasonLabels(t)[seasonIndex]
                     : t('register.seasonPlaceholder')}
                 </Text>
                 <Text className='text-xs text-text-muted'>▼</Text>
