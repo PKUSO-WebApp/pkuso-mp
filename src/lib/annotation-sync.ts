@@ -63,7 +63,8 @@ export function pageFingerprint(strokes: AnnoStroke[]): string {
     const c = compactStroke(stroke)
     // 零点的笔迹不渲染、也不该参与判定：让它与「没有这一笔」等价
     if (c.points.length === 0) continue
-    push(`${c.color}|${c.width}|`)
+    // alpha 也在内：只在颜色/线宽/点上相同的荧光笔与画笔不是同一份内容
+    push(`${c.color}|${c.width}|${c.alpha ?? 1}|`)
     for (const p of c.points) push(`${p[0]},${p[1]};`)
     push('\n')
   }

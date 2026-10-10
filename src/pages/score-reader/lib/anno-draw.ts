@@ -6,11 +6,25 @@ import type { CanvasCtx } from './types'
  * 画布当前像素尺寸换算——这样同一份笔迹在任意缩放/像素比下都能对上位置。
  */
 
-export function styleFor(ctx: CanvasCtx, color: string, width: number, w: number): void {
+/**
+ * 线宽 / 颜色 / 不透明度。
+ *
+ * ⚠️ `globalAlpha` **每次都要显式写**（不写就沿用上一次的值）。荧光笔的不透明度是画在
+ * 批注层这块**透明画布**上的：它与谱面（下面那块画布）之间是普通的 alpha 合成，
+ * 于是纸色照样透出来 —— 那就是荧光笔的样子，不需要 `globalCompositeOperation`。
+ */
+export function styleFor(
+  ctx: CanvasCtx,
+  color: string,
+  width: number,
+  w: number,
+  alpha = 1
+): void {
   ctx.strokeStyle = color
   ctx.lineWidth = Math.max(1, width * w)
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
+  ctx.globalAlpha = alpha
 }
 
 /** 归一化点序列 → 画布像素折线 */
@@ -20,10 +34,11 @@ export function drawPolylineOn(
   color: string,
   width: number,
   w: number,
-  h: number
+  h: number,
+  alpha = 1
 ): void {
   if (pts.length === 0) return
-  styleFor(ctx, color, width, w)
+  styleFor(ctx, color, width, w, alpha)
   ctx.beginPath()
   pts.forEach(([x, y], i) => {
     const px = x * w
@@ -35,7 +50,7 @@ export function drawPolylineOn(
 }
 
 export function drawStrokeOn(ctx: CanvasCtx, stroke: AnnoStroke, w: number, h: number): void {
-  drawPolylineOn(ctx, stroke.points, stroke.color, stroke.width, w, h)
+  drawPolylineOn(ctx, stroke.points, stroke.color, stroke.width, w, h, stroke.alpha ?? 1)
 }
 
 /**

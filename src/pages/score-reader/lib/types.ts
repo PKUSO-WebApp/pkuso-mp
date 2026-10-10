@@ -34,6 +34,8 @@ export type CanvasCtx = {
   lineWidth: number
   lineCap: string
   lineJoin: string
+  /** 荧光笔靠它半透明（见 anno-draw 的 styleFor）；画笔恒为 1 */
+  globalAlpha: number
 }
 export type CanvasNode = {
   width: number

@@ -77,6 +77,14 @@ describe('pageFingerprint', () => {
     expect(pageFingerprint([raw])).toBe(pageFingerprint([{ ...raw, points: [[0.1235, 0.5], [0.2, 0.6]] }]))
   })
 
+  it('只有不透明度不同也算改过（荧光笔与画笔不是同一份内容）', () => {
+    const pen = [{ ...stroke(0.1), alpha: undefined }]
+    const marker = [{ ...stroke(0.1), alpha: 0.5 }]
+    expect(pageFingerprint(pen)).not.toBe(pageFingerprint(marker))
+    // 缺省与显式 1 等价：旧数据没有这个字段，不能因为补了默认值就被判成「改过」
+    expect(pageFingerprint([{ ...stroke(0.1), alpha: 1 }])).toBe(pageFingerprint(pen))
+  })
+
   it('空页 / 没有笔迹 / 零点的笔迹，指纹都是 EMPTY_FP', () => {
     expect(pageFingerprint([])).toBe(EMPTY_FP)
     expect(pageFingerprint([{ color: '#111827', width: 0.004, points: [] }])).toBe(EMPTY_FP)
