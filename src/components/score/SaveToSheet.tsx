@@ -1,5 +1,6 @@
 import { View, Text } from '@tarojs/components'
 import { useT } from '@/i18n'
+import { YesNoSwitch } from '@/components/ui/YesNoSwitch'
 import { Z_SHEET } from '@/pages/score-reader/lib/layout'
 import type { HandoffKind } from '@/lib/pdf-handoff'
 
@@ -23,6 +24,9 @@ export function SaveToSheet({
   labels,
   ready,
   busy,
+  withAnno,
+  preparing,
+  onAnno,
   onPick,
   onClose,
 }: {
@@ -31,6 +35,12 @@ export function SaveToSheet({
   /** 本地那份 PDF 是否已就绪（就绪前所有出口都不可点） */
   ready: boolean
   busy: boolean
+  /** 「是否带有批注？」：开了走云端合成（见 lib/annotated-pdf） */
+  withAnno: boolean
+  /** 正在备文件（含云端合成）：这期间**不许拨**——换了选择就要重新备一份，
+   *  半途改主意既没有意义，也会让「面板上那份到底是哪个」变得含糊 */
+  preparing: boolean
+  onAnno: (v: boolean) => void
   onPick: (kind: HandoffKind) => void
   onClose: () => void
 }) {
@@ -50,6 +60,17 @@ export function SaveToSheet({
           标题这种不动作的东西只会制造歧义。
           「正在准备文件…」只在**未就绪**时出现（那是状态不是标题，且是暂态）。
         */}
+        {/* 「是否带有批注？」（左「是」右「否」）。拨它要**重新备一份文件**（带批注那份是
+            云端合成的另一个文件），所以备文件期间这个开关是禁用的——见 usePdfHandoff */}
+        <View className='flex flex-row items-center justify-between border-b border-border px-4 py-3'>
+          <Text className='text-sm text-text'>{t('common.saveTo.withAnno')}</Text>
+          <YesNoSwitch
+            value={withAnno}
+            disabled={busy || preparing}
+            ariaLabel={t('common.saveTo.withAnno')}
+            onChange={onAnno}
+          />
+        </View>
         {!ready ? (
           <View className='border-b border-border px-4 py-3'>
             <Text className='block text-center text-xs text-text-subtle'>
