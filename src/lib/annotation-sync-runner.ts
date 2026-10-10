@@ -6,6 +6,7 @@ import {
   clearAnnoPending,
   isAnnoPending,
   listAnnotatedFileIds,
+  loadMtime,
   loadSyncBase,
   planSync,
   saveSyncBase,
@@ -87,11 +88,16 @@ async function currentUserId(): Promise<string | null> {
 
 async function fetchRemotePages(fileId: string): Promise<RemotePage[]> {
   // 不按 user_id 过滤：RLS 已经只给本人可见，多带一个条件只是重复一遍策略
-  const { data, error } = await supabase.from(TABLE).select('page, strokes').eq('file_id', fileId)
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('page, strokes, updated_at')
+    .eq('file_id', fileId)
   if (error) throw new Error(error.message)
   return (data ?? []).map((row) => ({
     page: row.page as number,
     strokes: (Array.isArray(row.strokes) ? row.strokes : []) as unknown as AnnoStroke[],
+    // 服务端盖章的时刻（触发器写的），LWW 拿它跟本机那一页的改动时刻比
+    updatedAt: Date.parse(String(row.updated_at ?? '')) || 0,
   }))
 }
 
@@ -152,17 +158,23 @@ export async function syncAnnotationFile(fileId: string): Promise<SyncResult> {
     const local = loadAnnoDoc(fileId)
     // 基线按账号隔离：换账号后当成没有基线（否则新账号拉回空集会被判成「远端删了」而抹掉本地）
     const base = loadSyncBase(fileId, userId)
+    const mtime = loadMtime(fileId, userId)
     const remote = await fetchRemotePages(fileId)
-    const plan = planSync(local, base, remote)
+    const plan = planSync(local, base, remote, mtime)
 
     const nextBase = { ...base }
+    const nextMtime = { ...mtime }
     for (const item of plan.inSync) nextBase[String(item.page)] = item.fp
 
     if (plan.toAdopt.length > 0) {
       const doc: AnnoDoc = { ...local }
+      const at = new Map(remote.map((r) => [r.page, r.updatedAt]))
       for (const item of plan.toAdopt) {
         doc[String(item.page)] = item.strokes
         nextBase[String(item.page)] = item.fp
+        // 落回本地之后，这一页的「本地改动时刻」就是**服务端那一行的时刻**：内容来自它。
+        // 不记的话，下次再冲突时本机这一页会拿一个陈旧的时刻去比，判错方向。
+        nextMtime[String(item.page)] = at.get(item.page) ?? 0
       }
       saveAnnoDoc(fileId, doc)
       adoptListener?.(fileId, doc)
@@ -189,16 +201,17 @@ export async function syncAnnotationFile(fileId: string): Promise<SyncResult> {
       }
     }
     // 基线要落盘，包括「推到一半失败」的情况：已经推上去的那些页必须记住，否则每次重推
-    saveSyncBase(fileId, userId, nextBase)
+    saveSyncBase(fileId, userId, nextBase, nextMtime)
 
     for (const page of plan.conflicts) {
       // message 里带页码 ⇒ 指纹（event + message）逐页不同，同一页的冲突按仓里既有的
       // 5 分钟窗口去重，不会每次同步都刷一条
+      const wonBy = plan.lwwRemote.includes(page) ? 'remote' : 'local'
       reportClientError({
         event: 'score_reader_annotation_conflict',
         level: 'warn',
-        message: `批注冲突（本地与云端都改过，两边都不动）file ${fileId} page ${page}`,
-        detail: { fileId, page },
+        message: `批注冲突（两边都改过，按 LWW 判给${wonBy === 'local' ? '本地' : '云端'}）file ${fileId} page ${page}`,
+        detail: { fileId, page, wonBy },
       })
     }
 

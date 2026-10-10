@@ -4,6 +4,7 @@ import { useT } from '@/i18n'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { ensureSavedPdf, userDataRoot, type FsLike } from '@/lib/pdf-save'
 import { AnnotatedPdfError, composeAnnotatedPdf } from '@/lib/annotated-pdf'
+import { syncAnnotationFile } from '@/lib/annotation-sync-runner'
 import { handOffPdf, handoffKindsFor, type HandoffKind } from '@/lib/pdf-handoff'
 
 export type PdfHandoffMeta = {
@@ -131,6 +132,10 @@ export function usePdfHandoff() {
       let url = m.url()
       let fileName = m.fileName
       if (anno) {
+        // ⚠️ **先同步再把批注烧进去**（用户 2026-10-10 实测提出）：合成函数读的是**服务端**
+        // 那份批注，而本地刚画的还没推上去的话，产出的 PDF 就缺最新几笔——用户拿到的是
+        // 「看起来对、其实少东西」的文件。这一步会带一次拉取 + 可能的推送。
+        await syncAnnotationFile(id)
         // 云端合成：这一步要走网络，所以「正在准备文件…」会停得比平时久
         const composed = await composeAnnotatedPdf(id)
         url = composed.url
