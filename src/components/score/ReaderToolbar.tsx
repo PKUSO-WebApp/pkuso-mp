@@ -29,8 +29,15 @@ const ICON = 18
  * `busy` 时的半透明是另一回事（那是「点不动」，不是「选中」），保留。
  */
 const BTN_SIZE = 44
-/** ± 按钮宽度：**必须定宽**，轨道的左端才是可算的常量（见 TRACK_LEFT） */
+/** ± 按钮的边长：**宽高都要给**（只定宽 = 椭圆，真机反馈过），且轨道的左端要靠它算成常量 */
 const STEP_W = 30
+/**
+ * ± 按钮的样式（形状与配色）。**尺寸不走类**：类里的 `px` 会被 Taro 转成 rpx，
+ * 写 `h-[30px]` 到这里会变成 15px。所以边长用内联样式给（`ROUND_SIZE`）。
+ */
+const ROUND_BTN = 'flex items-center justify-center rounded-full border border-border bg-card p-0 text-sm text-text'
+/** ± 的边长（px）。宽高都给才是正圆；也决定了 `TRACK_LEFT` 这个常量 */
+const ROUND_SIZE = { width: `${STEP_W}px`, height: `${STEP_W}px` }
 const CARD_PAD = 12
 const GAP = 12
 /** 底栏按钮行的左右内边距 */
@@ -160,9 +167,11 @@ export function ReaderToolbar({
                 justifyContent: 'center',
               }}
             >
+              {/* ⚠️ 宽**和高都要给**：只定宽的话高度由 py + 行高撑出（≈21px），
+                  `rounded-full` 出来的是椭圆而不是圆（真机反馈「形状很奇怪」） */}
               <Button
-                className='rounded-full border border-border bg-card py-0.5 text-center text-sm text-text'
-                style={{ width: `${STEP_W}px` }}
+                className={ROUND_BTN}
+                style={ROUND_SIZE}
                 disabled={pageCount <= 0 || shown <= 1}
                 onClick={() => onJump(shown - 1)}
               >
@@ -194,8 +203,8 @@ export function ReaderToolbar({
                 />
               </View>
               <Button
-                className='rounded-full border border-border bg-card py-0.5 text-center text-sm text-text'
-                style={{ width: `${STEP_W}px`, marginLeft: `${GAP}px` }}
+                className={ROUND_BTN}
+                style={{ ...ROUND_SIZE, marginLeft: `${GAP}px` }}
                 disabled={pageCount <= 0 || shown >= pageCount}
                 onClick={() => onJump(shown + 1)}
               >
@@ -235,13 +244,16 @@ export function ReaderToolbar({
         <View style={{ position: 'relative' }}>
           {panel === 'zoom' ? (
             <View style={{ position: 'absolute', left: '0px', bottom: `${BTN_SIZE}px` }}>
+              {/* ⚠️ 这一张**不套 `cardStyle`**：那条宽度是按进度条轨道算的（≈234px），
+                  而这里的内容只有「− 100% 适配 +」≈190px ⇒ 两边各剩一大块空白（真机反馈）。
+                  改成按内容收缩：`absolute` 且不给 right/width ⇒ 宽度由内容决定。 */}
               <View
-                className='flex flex-row items-center justify-center rounded-2xl border border-border bg-surface'
-                style={cardStyle}
+                className='flex flex-row items-center rounded-2xl border border-border bg-surface'
+                style={{ marginBottom: '8px', padding: `10px ${CARD_PAD}px` }}
               >
                 <Button
-                  className='rounded-full border border-border bg-card py-0.5 text-center text-sm text-text'
-                  style={{ width: `${STEP_W}px` }}
+                  className={ROUND_BTN}
+                  style={ROUND_SIZE}
                   ariaLabel={t('scoreReader.zoomOut')}
                   onClick={() => onZoom('out')}
                 >
@@ -255,16 +267,16 @@ export function ReaderToolbar({
                   {Math.round(zoom * 100)}%
                 </Text>
                 <Button
-                  className='rounded-full border border-border bg-card px-3 py-0.5 text-sm text-text'
-                  style={{ marginLeft: `${GAP}px` }}
+                  className='flex items-center justify-center rounded-full border border-border bg-card px-3 p-0 text-sm text-text'
+                  style={{ marginLeft: `${GAP}px`, height: `${STEP_W}px` }}
                   ariaLabel={t('scoreReader.zoomReset')}
                   onClick={() => onZoom('fit')}
                 >
                   {t('scoreReader.zoomReset')}
                 </Button>
                 <Button
-                  className='rounded-full border border-border bg-card py-0.5 text-center text-sm text-text'
-                  style={{ width: `${STEP_W}px`, marginLeft: `${GAP}px` }}
+                  className={ROUND_BTN}
+                  style={{ ...ROUND_SIZE, marginLeft: `${GAP}px` }}
                   ariaLabel={t('scoreReader.zoomIn')}
                   onClick={() => onZoom('in')}
                 >

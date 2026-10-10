@@ -37,8 +37,8 @@ export const common = {
   },
   saveTo: {
     title: 'Save to…',
-    favorites: 'WeChat Favorites',
-    chat: 'Send to a chat',
+    favorites: 'Add to…',
+    chat: 'Send to…',
     app: 'Open in another app',
     disk: 'Save to computer',
     preparing: 'Preparing file…',

@@ -42,7 +42,7 @@ export const common = {
   saveTo: {
     title: '保存到…',
     favorites: '收藏到微信',
-    chat: '转发给好友',
+    chat: '发送到…',
     app: '用其他应用打开',
     disk: '保存到电脑',
     preparing: '正在准备文件…',

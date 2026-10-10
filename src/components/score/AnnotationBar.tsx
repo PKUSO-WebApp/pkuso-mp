@@ -7,6 +7,8 @@ import penIcon from '@/assets/icons/pen.png'
 import penIconDark from '@/assets/icons/pen-dark.png'
 import eraserIcon from '@/assets/icons/eraser.png'
 import eraserIconDark from '@/assets/icons/eraser-dark.png'
+import undoIcon from '@/assets/icons/undo-2.png'
+import undoIconDark from '@/assets/icons/undo-2-dark.png'
 
 /** 工具按钮里的图标尺寸：与阅读器底栏那五个一致（素材统一 72×72，显示 18px） */
 const TOOL_ICON = 18
@@ -133,12 +135,17 @@ export function AnnotationBar({
           {PEN_WIDTHS.map(widthDot)}
           {/* 这一页没有任何笔迹时**根本不渲染**撤销（用户 2026-10-08 定）：一个点不动的
             按钮只会让人以为坏了。清空仍保留（它有二次确认，不会误触） */}
+          {/* 撤销：图标（`undo-2`）。文案仍留着做 `ariaLabel` —— 图标按钮没有可读文字了 */}
           {canUndo ? (
             <Button
-              className='ml-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
+              className='ml-2 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card p-0'
+              ariaLabel={t('scoreReader.undo')}
               onClick={onUndo}
             >
-              {t('scoreReader.undo')}
+              <Image
+                src={dark ? undoIconDark : undoIcon}
+                style={{ width: `${TOOL_ICON}px`, height: `${TOOL_ICON}px` }}
+              />
             </Button>
           ) : null}
           <Button
