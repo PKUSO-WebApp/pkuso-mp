@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   displayPdfName,
   ensureSavedPdf,
+  PDF_RETRY_DELAYS_MS,
   legacyPdfPath,
   MAX_NAME_CHARS,
   savedPdfDir,
@@ -234,5 +235,48 @@ describe('userDataRoot', () => {
     } finally {
       g.wx = saved
     }
+  })
+})
+
+describe('PDF 下载的退避重试', () => {
+  const base = () => {
+    const download = vi.fn()
+    const { fs } = fakeFs()
+    return { download, deps: { root: '/usr', fs, download, sleep: async () => {} } as EnsureDeps }
+  }
+
+  it('网络失败一次后成功：重试一次，最终落盘成功', async () => {
+    const t = base()
+    t.download
+      .mockRejectedValueOnce(new Error('downloadFile:fail errcode:-101 ERR_CONNECTION_RESET'))
+      .mockResolvedValueOnce({ statusCode: 200, tempFilePath: '/tmp/x.pdf' })
+    const res = await ensureSavedPdf(opts(), t.deps)
+    expect(res.reused).toBe(false)
+    expect(t.download).toHaveBeenCalledTimes(2)
+  })
+
+  it('一直失败：试满次数后抛出**最后一次**的错误（而不是第一次的）', async () => {
+    const t = base()
+    t.download
+      .mockRejectedValueOnce(new Error('第一次'))
+      .mockRejectedValueOnce(new Error('第二次'))
+      .mockRejectedValueOnce(new Error('第三次'))
+    await expect(ensureSavedPdf(opts(), t.deps)).rejects.toThrow('第三次')
+    expect(t.download).toHaveBeenCalledTimes(1 + PDF_RETRY_DELAYS_MS.length)
+  })
+
+  it('⚠️ 非 200 是服务端明确拒绝 —— **不重试**，一次就失败', async () => {
+    // 「重试一切失败」看似更稳，实则把 403/404 也重试三遍：白等两秒、白占额度
+    const t = base()
+    t.download.mockResolvedValue({ statusCode: 403, tempFilePath: '/tmp/x.pdf' })
+    await expect(ensureSavedPdf(opts(), t.deps)).rejects.toThrow('HTTP 403')
+    expect(t.download).toHaveBeenCalledTimes(1)
+  })
+
+  it('一次就成：不重试', async () => {
+    const t = base()
+    t.download.mockResolvedValue({ statusCode: 200, tempFilePath: '/tmp/x.pdf' })
+    await ensureSavedPdf(opts(), t.deps)
+    expect(t.download).toHaveBeenCalledTimes(1)
   })
 })

@@ -86,10 +86,23 @@ export type FsLike = {
   readdir(o: { dirPath: string; success: (res: { files: string[] }) => void; fail?: () => void }): void
 }
 
+/**
+ * 下载失败后的退避重试间隔（数组长度 = 重试次数）。
+ *
+ * 与页图那条路同一套数值与理由（见阅读器 `page-image.ts` 的 PAGE_IMAGE_RETRY_DELAYS_MS）：
+ * 跨境**直连**（storage 恒走直连，见 lib/supabase-entry.ts）在传输中途被重置是常见的瞬时
+ * 失败，退避一拍再来基本就好。PDF 是全 App 最大的文件（均 2.4MB、最大 30.7MB，页图只有
+ * ~500KB）⇒ 它是最容易撞上这条的那个，而这条路**此前一次重试都没有**
+ * （线上实证：2026-10-09 与 10-10 各一次 iOS `errno -101 ERR_CONNECTION_RESET`）。
+ */
+export const PDF_RETRY_DELAYS_MS = [500, 1000]
+
 export type SavePdfDeps = {
   root: string | null
   fs: FsLike | null
   download: (url: string) => Promise<{ statusCode: number; tempFilePath: string }>
+  /** 测试注入用；默认真等 */
+  sleep?: (ms: number) => Promise<void>
 }
 
 export type SavePdfResult = {
@@ -157,6 +170,27 @@ function saveTo(fs: FsLike, tempFilePath: string, filePath: string): Promise<voi
 }
 
 /**
+ * 带退避重试的下载：只在**网络层失败**时重试（`downloadFile` 抛出来的那些错误）。
+ * 试满仍失败则抛**最后一次**的错误（最早的往往只是一个已被覆盖的瞬时失败）。
+ */
+async function downloadWithRetry(
+  download: NonNullable<SavePdfDeps['download']>,
+  url: string,
+  sleep: (ms: number) => Promise<void>
+): Promise<{ statusCode: number; tempFilePath: string }> {
+  let lastErr: unknown = null
+  for (let attempt = 0; attempt <= PDF_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await download(url)
+    } catch (err) {
+      lastErr = err
+      if (attempt < PDF_RETRY_DELAYS_MS.length) await sleep(PDF_RETRY_DELAYS_MS[attempt] ?? 1000)
+    }
+  }
+  throw lastErr ?? new Error('download failed')
+}
+
+/**
  * 保证本地有一份这份谱的 PDF，返回它的路径与交付用文件名。
  *
  * 复用判据是**文件在不在**（不是内存记账——冷启动后记账是空的，会让每次进册都重下一遍）：
@@ -180,7 +214,10 @@ export async function ensureSavedPdf(
   const first = found[0]
   if (first) return { path: `${dir}/${first}`, name: first, reused: true }
 
-  const res = await download(opts.url)
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  const res = await downloadWithRetry(download, opts.url, sleep)
+  // ⚠️ 非 200 的判断在**重试之外**：那是服务端明确拒绝（403/404…），再试几次也一样，
+  // 重试它只会白等两秒、白占额度。重试只该针对网络层失败（如 ERR_CONNECTION_RESET）。
   if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}`)
   await mkdirp(fs, dir)
   await saveTo(fs, res.tempFilePath, path)
