@@ -1,14 +1,27 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  __resetRangedProxyForTest,
+  DIRECT_LEG_TIMEOUT_MS,
   displayPdfName,
   ensureSavedPdf,
   PDF_RETRY_DELAYS_MS,
   legacyPdfPath,
   MAX_NAME_CHARS,
+  PROXY_LEG_TIMEOUT_MS,
   savedPdfDir,
   userDataRoot,
   type FsLike,
 } from './pdf-save'
+
+// 桩成「配了反代」：默认环境里没有反代域名，`rewriteTo` 会原样返回 ⇒
+// 「反代那条腿」这件事在用例里根本不存在，相关行为也就验不出东西。
+// （`vi.mock` 会被提升到 import 之前，所以工厂里引用的东西必须走 `vi.hoisted`。）
+const { rewriteToMock } = vi.hoisted(() => ({
+  rewriteToMock: vi.fn((url: string, _entry?: string) => url),
+}))
+vi.mock('@/lib/supabase-entry', () => ({
+  rewriteTo: (url: string, entry: string) => rewriteToMock(url, entry),
+}))
 
 /**
  * 内存版 FileSystemManager。
@@ -125,7 +138,13 @@ const opts = (over: Partial<EnsureOpts> = {}): EnsureOpts => ({
 })
 
 function deps(files: string[] = [], over: Partial<EnsureDeps> = {}) {
-  const download = vi.fn(async () => ({ statusCode: 200, tempFilePath: '/tmp/x.pdf' }))
+  // 形参要与 SavePdfDeps.download 对齐（分片那条路会传 header 与逐腿的超时）
+  const download = vi.fn(
+    async (_url: string, _header?: Record<string, string>, _timeoutMs?: number) => ({
+      statusCode: 200,
+      tempFilePath: '/tmp/x.pdf',
+    })
+  )
   const { fs, files: store, dirs, calls } = fakeFs(files)
   return {
     download,
@@ -227,6 +246,69 @@ describe('ensureSavedPdf', () => {
     // 分片是从**已有文件的长度**续传的：不先删就会拿旧长度当起点，拼出一份坏文件
     expect(un).toBeLessThan(firstWrite)
     expect(t.files.get(res.path)?.byteLength).toBe(4)
+  })
+
+  it('⚠️ 反代腿拿到**短**超时、直连腿拿到长的（同一类故障在下载上曾贵 7.5 倍）', async () => {
+    __resetRangedProxyForTest()
+    rewriteToMock.mockReset().mockReturnValue('https://proxy.example/a.pdf')
+
+    const t = deps()
+    const seen: Array<{ url: string; timeoutMs?: number }> = []
+    t.download.mockImplementation(
+      async (url: string, _header?: Record<string, string>, timeoutMs?: number) => {
+        seen.push({ url, timeoutMs })
+        if (String(url).includes('proxy.example')) return { statusCode: 500, tempFilePath: '' }
+        t.files.set('/tmp/chunk', new Uint8Array(4).fill(7))
+        return { statusCode: 206, tempFilePath: '/tmp/chunk' }
+      }
+    )
+    await ensureSavedPdf(opts({ expectedBytes: 4 }), t.deps)
+
+    expect(seen.find((c) => c.url.includes('proxy.example'))?.timeoutMs).toBe(PROXY_LEG_TIMEOUT_MS)
+    expect(seen.find((c) => c.url === 'https://x/a.pdf')?.timeoutMs).toBe(DIRECT_LEG_TIMEOUT_MS)
+    // 这两个数是**决定**（用户 2026-10-11 定：反代 10 秒足够盖棺定论），不是实现细节
+    expect(PROXY_LEG_TIMEOUT_MS).toBe(10_000)
+    expect(DIRECT_LEG_TIMEOUT_MS).toBe(60_000)
+    expect(PROXY_LEG_TIMEOUT_MS).toBeLessThan(DIRECT_LEG_TIMEOUT_MS)
+
+    __resetRangedProxyForTest()
+  })
+
+  it('⚠️ 反代腿失败即**记住**：下一次下载先走直连，而反代仍在候选里兜底', async () => {
+    __resetRangedProxyForTest()
+    rewriteToMock.mockReset().mockReturnValue('https://proxy.example/a.pdf')
+
+    const chunkOk = (t: ReturnType<typeof deps>) => {
+      t.files.set('/tmp/chunk', new Uint8Array(4).fill(7))
+      return { statusCode: 206, tempFilePath: '/tmp/chunk' }
+    }
+
+    // 第一次：反代腿失败、直连腿成功（真机实测就是这形态）
+    const first = deps()
+    const urls1: string[] = []
+    first.download.mockImplementation(async (url: string) => {
+      urls1.push(String(url))
+      return String(url).includes('proxy.example') ? { statusCode: 500, tempFilePath: '' } : chunkOk(first)
+    })
+    await ensureSavedPdf(opts({ expectedBytes: 4 }), first.deps)
+    expect(urls1[0]).toContain('proxy.example') // 反代优先
+    expect(urls1).toContain('https://x/a.pdf')
+
+    // 第二次：直连优先。让直连这次失败，看它会不会回落到反代 —— 回落到 ⇒ 候选没被删
+    const second = deps()
+    const urls2: string[] = []
+    second.download.mockImplementation(async (url: string) => {
+      urls2.push(String(url))
+      return String(url).includes('proxy.example')
+        ? chunkOk(second)
+        : { statusCode: 500, tempFilePath: '' }
+    })
+    await ensureSavedPdf(opts({ expectedBytes: 4 }), second.deps)
+
+    expect(urls2[0]).toBe('https://x/a.pdf')
+    expect(urls2).toContain('https://proxy.example/a.pdf')
+
+    __resetRangedProxyForTest()
   })
 
   it('force：目录里那些**别的名字**的旧文件也清掉（不然它们白占 200MB 配额）', async () => {
@@ -399,7 +481,7 @@ describe('分片下载那条路（给了 expectedBytes）', () => {
       return { statusCode: 206, tempFilePath: '/tmp/chunk' }
     })
     await ensureSavedPdf(opts({ expectedBytes: 4 }), t.deps)
-    expect(t.download).toHaveBeenCalledWith(expect.any(String), { Range: 'bytes=0-3' })
+    expect(t.download).toHaveBeenCalledWith(expect.any(String), { Range: 'bytes=0-3' }, expect.any(Number))
 
     const t2 = deps()
     t2.download.mockResolvedValue({ statusCode: 200, tempFilePath: '/tmp/x.pdf' })

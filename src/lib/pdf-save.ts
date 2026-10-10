@@ -17,7 +17,7 @@
  */
 
 import { rewriteTo } from './supabase-entry'
-import { downloadInChunks, type RangedFs } from './ranged-download'
+import { downloadInChunks, type DownloadLeg, type RangedFs } from './ranged-download'
 
 /** `wx.env.USER_DATA_PATH`：Taro 的类型里没有它（只有 wx 上有），按仓内既有做法从全局取 */
 export function userDataRoot(): string | null {
@@ -173,13 +173,50 @@ function rangedFsOf(fs: FsLike): RangedFs {
  */
 export const PDF_RETRY_DELAYS_MS = [500, 1000]
 
+/**
+ * 反代那条腿的超时：它该快，慢了就是不通，没必要占着用户等待
+ * （与 `lib/page-image` 的 `PROXY_LEG_TIMEOUT_MS` 同一个理由，同一个值）。
+ *
+ * 实测依据（2026-10-10，真机 `score_reader_annotated_prepare`）：一次「带批注」的准备里
+ * 同步 0.6s、合成 4.3s、**下载 62.6s** —— 而 62.6 ≈ `downloadFile` 的默认 60s 超时 + 直连
+ * 成功的 2.5s ⇒ 60 秒全是**在反代那条腿上干等**。给它一个短超时，代价就压到 15 秒以内。
+ */
+export const PROXY_LEG_TIMEOUT_MS = 10000
+/** 直连那条腿要容得下跨境那一跳，沿用 `downloadFile` 的默认量级 */
+export const DIRECT_LEG_TIMEOUT_MS = 60000
+
+/**
+ * 本会话里「带 `Range` 的下载走反代」是否已被判死。**判一次就记住**
+ * （与 `lib/page-image` 的「图片层坏了判一次全会话记住」同款）。
+ *
+ * 判据是「这份下载最后用的是另一条腿」，只**换顺序**、不删候选：反代仍在里面兜底，
+ * 所以「只能走反代的人」不受影响，只是要多付一次直连腿的超时。
+ */
+let rangedProxyDead = false
+
+/** 仅供测试：会话级判定复位 */
+export function __resetRangedProxyForTest(): void {
+  rangedProxyDead = false
+}
+
+/** 分片下载的候选腿。反代腿带短超时；判死过就把它挪到后面（**不删**） */
+function rangedLegs(url: string): DownloadLeg[] {
+  const direct: DownloadLeg = { url, timeoutMs: DIRECT_LEG_TIMEOUT_MS, label: 'direct' }
+  const proxied = rewriteTo(url, 'proxy')
+  if (proxied === url) return [direct]
+  const proxy: DownloadLeg = { url: proxied, timeoutMs: PROXY_LEG_TIMEOUT_MS, label: 'proxy' }
+  return rangedProxyDead ? [direct, proxy] : [proxy, direct]
+}
+
 export type SavePdfDeps = {
   root: string | null
   fs: FsLike | null
-  /** `header` 只被分片下载用（带 `Range`） */
+  /** `header` / `timeoutMs` 只被分片下载用（带 `Range`；超时逐腿给） */
   download: (
     url: string,
-    header?: Record<string, string>
+    header?: Record<string, string>,
+    /** 这条腿的超时（见 DownloadLeg）。不传 = 交给平台默认（`downloadFile` 是 60s） */
+    timeoutMs?: number
   ) => Promise<{ statusCode: number; tempFilePath: string }>
   /** 测试注入用；默认真等 */
   sleep?: (ms: number) => Promise<void>
@@ -334,16 +371,17 @@ export async function ensureSavedPdf(
   // 分片后每片都在上限内，大文件也能吃到「境内」这条可靠性（反代侧不用改，它原样
   // 转发 `Range` 并回传 `Content-Range`）。反代优先、直连兜底，两条都在候选里。
   if (opts.expectedBytes && opts.expectedBytes > 0) {
-    const proxied = rewriteTo(opts.url, 'proxy')
-    const urls = proxied === opts.url ? [opts.url] : [proxied, opts.url]
-    await downloadInChunks(
-      { urls, dest: path, totalBytes: opts.expectedBytes },
+    const legs = rangedLegs(opts.url)
+    const usedLeg = await downloadInChunks(
+      { legs, dest: path, totalBytes: opts.expectedBytes },
       {
         fs: rangedFsOf(fs),
-        fetchRange: (url, range) => download(url, { Range: range }),
+        fetchRange: (url, range, timeoutMs) => download(url, { Range: range }, timeoutMs),
         sleep: deps.sleep,
       }
     )
+    // 反代排在第一位却没被用上 ⇒ 它这次是失败的（超时/报错），记住它、下次先走直连
+    if (legs[0] && legs[0].url !== usedLeg && legs[0].url !== opts.url) rangedProxyDead = true
     fs.unlink({ filePath: legacyPdfPath(root, opts.fileId) })
     return { path, name, reused: false }
   }
