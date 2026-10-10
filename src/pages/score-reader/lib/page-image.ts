@@ -123,8 +123,13 @@ export type PageImageDeps = {
    * **集体失联**（前台按新键查全 miss，回落到图片层「远端 URL」那条腿——正是整册预下载要
    * 规避的东西），而泵又因为已把那些页标记成 attempted 不会重下 ⇒ 本会话里这批文件作废。
    * （评审 2026-10-09 抓出。）
+   *
+   * ⚠️ **它是必填的，而不是「可选 + 兜底」**：兜底值只能是 `urls[0]`，正是上面那个错误答案；
+   * 而可选就意味着「某个调用点忘了传」不会有任何提示——2026-10-10 实测的形态就是预绘制那条
+   * 路径漏传，于是**整册已在本地也永远命不中第 0 档**、每次都要真走一次网络。改成必填之后，
+   * 漏传是**编译错误**。
    */
-  key?: string
+  key: string
 }
 
 function defaultDownloadFile(url: string, timeoutMs: number) {
@@ -218,8 +223,8 @@ export function isImageLayerBroken(): boolean {
  * （`downloadFile` 的临时文件是另一个池子，4GB 预算 + 平台 LRU）。
  * 流量不增反降：健康设备上 `getImageInfo` 本来也是把整张下回来。
  */
-export function prefetchPageImage(url: string, deps: PageImageDeps = {}): Promise<unknown> {
-  return warmPageImageFile(url, deps.key ?? url, deps.downloadFile ?? defaultDownloadFile)
+export function prefetchPageImage(url: string, deps: PageImageDeps): Promise<unknown> {
+  return warmPageImageFile(url, deps.key, deps.downloadFile ?? defaultDownloadFile)
 }
 
 /** 把一页图下进本地记账（不画，只为让它进缓存）；已有记账就不重复下。`key` 见 PageImageDeps */
@@ -279,7 +284,7 @@ async function loadOnePageImageFromFile(
 export async function loadPageImage(
   node: CanvasNode,
   urls: string[],
-  deps: PageImageDeps = {}
+  deps: PageImageDeps
 ): Promise<LoadedPageImage> {
   if (typeof node.createImage !== 'function') {
     throw new Error('canvas node 不支持 createImage（无法显示页图）')
@@ -289,8 +294,8 @@ export async function loadPageImage(
   let lastErr: PageImageError | null = null
   // 第 0 档（**主路径**）：本地文件 —— 整册预下载的产物。命中时压根不问图片层，
   // 「远端 URL 交给图片层」那类故障（iOS 必现，见文件头）在正常使用中不会出现。
-  // 记账键与入口解耦：入口一翻转 `urls[0]` 就变了，用它当键会让整册预下载的文件集体失联
-  const key = deps.key ?? urls[0]
+  // 记账键与入口解耦（见 PageImageDeps.key：入口一翻转 `urls[0]` 就变）
+  const key = deps.key
   const cached = fileCache.get(key)
   if (cached) {
     try {
@@ -376,9 +381,9 @@ export async function loadPageImageWithRetry(
   opts: {
     delaysMs?: readonly number[]
     sleep?: (ms: number) => Promise<void>
-    /** 透传给 loadPageImage（测试注入 downloadFile 用） */
-    deps?: PageImageDeps
-  } = {}
+    /** 透传给 loadPageImage（记账键是必填的，见 PageImageDeps.key） */
+    deps: PageImageDeps
+  }
 ): Promise<LoadedPageImage> {
   const delays = opts.delaysMs ?? PAGE_IMAGE_RETRY_DELAYS_MS
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))

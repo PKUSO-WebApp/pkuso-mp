@@ -59,7 +59,7 @@ import {
   visibleRange,
 } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
-import { drawStrokeOn, eraseStrokesAt, styleFor } from './lib/anno-draw'
+import { drawPolylineOn, drawStrokeOn, eraseStrokesAt } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
 import {
   isImageLayerBroken,
@@ -952,7 +952,13 @@ export default function ScoreReader() {
         const { node } = await queryCanvasNode(CANVAS_SEL[layer])
         if (stale()) return fallback()
         const img = await Promise.race([
-          loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target)),
+          // ⚠️ `key` 必须传（与前台那条完全一致）：不传时 page-image 退化成拿 `urls[0]`
+          // 当记账键，而整册预下载用的键是 `fileId#页号` ⇒ **即使整册已经在本地，预绘制也
+          // 永远命不中第 0 档**、每次都要真走一次网络（先撞反代那道 Referer 门的 403，
+          // 再换直连）。实测来源：2026-10-10 开发者工具 Network 里的那条 p5.jpg 403。
+          loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target), {
+            key: pageFileKey(target),
+          }),
           ctl.wait.then(() => null),
         ])
         if (!img || stale()) return fallback()
@@ -1012,7 +1018,7 @@ export default function ScoreReader() {
         return fallback()
       }
     },
-    [pageCount, promoteFrame, queryCanvasNode]
+    [pageCount, promoteFrame, queryCanvasNode, pageFileKey]
   )
 
   /**
@@ -1629,6 +1635,9 @@ export default function ScoreReader() {
   }
 
   const cancelStroke = () => {
+    // 画了一半就被打断（转双指 / 系统打断 / 收起批注）：把那条线从画面上抹掉。
+    // 必须在清 ref 之前调——重画要用到「画在哪一页、哪一块」
+    if (drawingRef.current) repaintLiveStroke(null)
     drawingRef.current = false
     erasingRef.current = false
     strokePtsRef.current = []
@@ -1692,20 +1701,48 @@ export default function ScoreReader() {
     })()
   }
 
-  const drawLiveSegment = (touch: { clientX: number; clientY: number }) => {
+  /**
+   * 把**正在画的这一笔**按落定后的样子画出来：清屏 → 重画这一页已落定的笔迹 → 画整条在画的线。
+   *
+   * ⚠️ 为什么整条重画，而不是「每来一个触点就 stroke 一小段」（从前的做法）：分段描边会
+   * **自己叠自己**——相邻两段在共享端点处重叠，圆头笔帽又加重它，而半透明的荧光笔叠一次
+   * 就深一层 ⇒ 一条线越画越深，松手后整条重画一次又突然变浅（真机反馈：一个笔迹在画的
+   * 过程中不该有两个样子）。整条一笔画出来的路径与**落定后**的绘制路径完全同形，中途就与
+   * 松手之后一致。
+   *
+   * `live` 传 null = 只画已落定的（撤掉一条画了一半就被打断的线时用）。
+   *
+   * 代价是每个触点重画一遍这一页的笔迹。可接受：**擦除那条路早就是这个量级**——
+   * `eraseAtPoints` 每个触点都 `persist` 一次，而它会把三块批注层整页重画；这里只重画一块。
+   * 另外 `paintLane` 在落笔期间**故意不碰**这块画布（见那里的注释），所以这段期间的画面
+   * 本来就只由这里维护。
+   */
+  const repaintLiveStroke = (live: [number, number][] | null) => {
     const ctx = overlayCtxRef.current
-    const pts = strokePtsRef.current
-    if (!ctx) return
-    const p = pointOf(touch.clientX, touch.clientY)
-    const prev = pts[pts.length - 1]
-    pts.push(p)
-    if (!prev) return
+    if (!ctx || !strokeLayerRef.current) return
     const { w, h } = viewSizeRef.current
-    styleFor(ctx, penColor, brushWidth, w, tool === 'highlighter' ? HIGHLIGHTER_ALPHA : 1)
-    ctx.beginPath()
-    ctx.moveTo(prev[0] * w, prev[1] * h)
-    ctx.lineTo(p[0] * w, p[1] * h)
-    ctx.stroke()
+    if (!(w > 0) || !(h > 0)) return
+    ctx.clearRect(0, 0, w, h)
+    for (const s of annosRef.current[String(strokePageRef.current)] ?? []) {
+      drawStrokeOn(ctx, s, w, h)
+    }
+    if (live && live.length > 0) {
+      drawPolylineOn(
+        ctx,
+        live,
+        penColor,
+        brushWidth,
+        w,
+        h,
+        tool === 'highlighter' ? HIGHLIGHTER_ALPHA : 1
+      )
+    }
+  }
+
+  const drawLiveSegment = (touch: { clientX: number; clientY: number }) => {
+    if (!overlayCtxRef.current) return
+    strokePtsRef.current.push(pointOf(touch.clientX, touch.clientY))
+    repaintLiveStroke(strokePtsRef.current)
   }
 
   /**

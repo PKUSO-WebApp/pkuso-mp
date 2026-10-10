@@ -27,8 +27,9 @@ export const scoreReader = {
   tutorialPrev: '上一页',
   tutorialNext: '下一页',
   tutorialMenuZone: '菜单',
-  tutorialSwipeHint: '左滑 = 下一页，右滑 = 上一页',
-  tutorialScrollHint: '上下拖动 = 滚动；点上下方 = 上/下一页',
+  // 文案里用「\n」分段：教程按它在分号处换行（两条规则各自一行，也才不会被 LR 的分隔线穿过）
+  tutorialSwipeHint: '左滑 = 下一页\n右滑 = 上一页',
+  tutorialScrollHint: '上下拖动 = 滚动\n点上下方 = 上/下一页',
   tutorialDismiss: '知道了',
   /**
    * 教程蒙层里那条「菜单里有什么」的图例（复刻底栏五个按钮，见 ReaderTutorial 的 MenuLegend）。
