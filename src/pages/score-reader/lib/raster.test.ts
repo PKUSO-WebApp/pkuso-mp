@@ -28,6 +28,7 @@ function fakeCtx(getImageData?: CanvasCtx['getImageData']): {
 } {
   const calls: string[] = []
   const ctx: CanvasCtx = {
+    globalAlpha: 1,
     setTransform: (...a: number[]) => calls.push(`setTransform(${a.join(',')})`),
     fillRect: (...a: number[]) => calls.push(`fillRect(${a.join(',')})`),
     getImageData:

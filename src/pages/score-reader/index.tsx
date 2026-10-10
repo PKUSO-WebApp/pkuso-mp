@@ -12,12 +12,15 @@ import { SaveToSheet } from '@/components/score/SaveToSheet'
 import { usePdfHandoff } from '@/hooks/usePdfHandoff'
 // 顶栏图标（Lucide 系列，72×72 PNG；暗色用 -dark 变体）
 import {
+  HIGHLIGHTER_ALPHA,
   PEN_COLORS,
   PEN_WIDTHS,
+  effectiveWidth,
   loadAnnoDoc,
   saveAnnoDoc,
   type AnnoDoc,
   type AnnoStroke,
+  type AnnoTool,
 } from '@/lib/annotation'
 import { markAnnoPending } from '@/lib/annotation-sync'
 import {
@@ -266,8 +269,17 @@ export default function ScoreReader() {
    * 去 spread 再存，就把刚落地的内容覆盖回去了。渲染照旧读 state——要的就是重渲染。
    */
   const annosRef = useRef<AnnoDoc>({})
-  /** 画笔 / 橡皮擦（橡皮擦按**整条**删除，见 eraseAtPoints + eraseStrokesAt） */
-  const [eraserOn, setEraserOn] = useState(false)
+  /**
+   * 当前工具：画笔 / 荧光笔 / 橡皮擦（橡皮擦按**整条**删除，见 eraseAtPoints + eraseStrokesAt）。
+   * 三选一而不是两个布尔——「笔和擦同时开着」这种状态本来就不该存在。
+   */
+  const [tool, setTool] = useState<AnnoTool>('pen')
+  /**
+   * 真正落到笔迹上的线宽。粗细是**两支笔共用一份状态**的，而画笔画不出 16‰ 以上，
+   * 所以从荧光笔切回画笔时按 8‰ 兜底（见 effectiveWidth）——落笔与实时笔迹都用它，
+   * 免得「显示 8‰、画出来 32‰」。
+   */
+  const brushWidth = effectiveWidth(tool, penWidth)
   /**
    * 撤销栈：**一步 = 一次操作**（画一笔 / 擦掉若干笔），记该页「操作前」的笔迹。
    * 早先的撤销是「删掉当前页最后一笔」——有了橡皮擦就不能那样了：擦完再点撤销会删掉一笔
@@ -1328,7 +1340,7 @@ export default function ScoreReader() {
     // 换页 / 切模式 / 换册都会改它，少一个就会出现「切换模式后批注层还留在旧位置」
     if (docTick > 0) void redrawOverlay()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docTick, page, viewSize, annos, gestureTick, layerSlot, eraserOn, penOn])
+  }, [docTick, page, viewSize, annos, gestureTick, layerSlot, tool, penOn])
 
   const persist = useCallback(
     (next: AnnoDoc) => {
@@ -1689,7 +1701,7 @@ export default function ScoreReader() {
     pts.push(p)
     if (!prev) return
     const { w, h } = viewSizeRef.current
-    styleFor(ctx, penColor, penWidth, w)
+    styleFor(ctx, penColor, brushWidth, w, tool === 'highlighter' ? HIGHLIGHTER_ALPHA : 1)
     ctx.beginPath()
     ctx.moveTo(prev[0] * w, prev[1] * h)
     ctx.lineTo(p[0] * w, p[1] * h)
@@ -1865,7 +1877,7 @@ export default function ScoreReader() {
     const touch = e.touches[0]
     if (!touch) return
     if (penOn) {
-      if (eraserOn) beginErase(touch)
+      if (tool === 'eraser') beginErase(touch)
       else beginStroke(touch)
       return
     }
@@ -1989,7 +2001,13 @@ export default function ScoreReader() {
           // 不需要任何跨页切分
           const key = String(strokePageRef.current)
           const before = annosRef.current[key] ?? []
-          const stroke: AnnoStroke = { color: penColor, width: penWidth, points: pts }
+          // 荧光笔固定半透明；画笔不写这个字段（旧数据也没有，两边都按 1 读）
+          const stroke: AnnoStroke = {
+            color: penColor,
+            width: brushWidth,
+            points: pts,
+            alpha: tool === 'highlighter' ? HIGHLIGHTER_ALPHA : undefined,
+          }
           pushHistory(strokePageRef.current, before)
           persist({ ...annosRef.current, [key]: [...before, stroke] })
         }
@@ -2437,8 +2455,8 @@ export default function ScoreReader() {
             <AnnotationBar
               color={penColor}
               width={penWidth}
-              eraser={eraserOn}
-              onEraser={setEraserOn}
+              tool={tool}
+              onTool={setTool}
               // 撤销按钮只在「栈顶那一步的页**正显示在屏幕上**」时给：撤销弹的是全局栈顶，
               // 从前只看栈深 ⇒ 在没笔迹的页上点它会**静默改掉别页的笔迹**（评审抓出）。
               // 现在每次按下都必然看得见效果。

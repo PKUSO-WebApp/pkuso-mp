@@ -246,3 +246,64 @@ describe('eraseStrokesAt（一串触点扫过的整条删除）', () => {
     expect(kept).toEqual([bottom])
   })
 })
+
+/**
+ * 荧光笔靠 `globalAlpha` 半透明。⚠️ 它是**有状态**的：谁最后写谁说了算 ——
+ * 画完荧光笔再画画笔，若画笔不显式写回 1，那支画笔就也是半透明的（真机上是
+ * 「画完荧光笔之后笔全变淡了」）。所以这条用例同时钉住两个方向。
+ */
+describe('不透明度（荧光笔）', () => {
+  function alphaCtx() {
+    const alphas: number[] = []
+    let current = 1
+    const ctx = {
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      stroke: () => {},
+      strokeStyle: '',
+      lineWidth: 0,
+      lineCap: '',
+      lineJoin: '',
+      get globalAlpha() {
+        return current
+      },
+      set globalAlpha(v: number) {
+        current = v
+        alphas.push(v)
+      },
+    }
+    return { alphas, ctx }
+  }
+
+  const strokeOf = (extra: Partial<AnnoStroke>): AnnoStroke => ({
+    color: '#f5a524',
+    width: 0.016,
+    points: [
+      [0.1, 0.1],
+      [0.2, 0.2],
+    ],
+    ...extra,
+  })
+
+  it('带 alpha 的笔迹按它画，画完 globalAlpha 就是那个值', () => {
+    const { alphas, ctx } = alphaCtx()
+    drawStrokeOn(ctx as never, strokeOf({ alpha: 0.5 }), 100, 100)
+    expect(alphas).toEqual([0.5])
+    expect(ctx.globalAlpha).toBe(0.5)
+  })
+
+  it('画笔笔迹（没有 alpha 字段）画完必须是 1，不能沿用上一笔的 0.5', () => {
+    const { alphas, ctx } = alphaCtx()
+    drawStrokeOn(ctx as never, strokeOf({ alpha: 0.5 }), 100, 100)
+    drawStrokeOn(ctx as never, strokeOf({}), 100, 100)
+    expect(alphas).toEqual([0.5, 1])
+  })
+
+  it('整页重画时逐笔各写各的（顺序无关，最后一笔说了算）', () => {
+    const { ctx } = alphaCtx()
+    const strokes = [strokeOf({}), strokeOf({ alpha: 0.5 }), strokeOf({})]
+    strokes.forEach((s) => drawStrokeOn(ctx as never, s, 100, 100))
+    expect(ctx.globalAlpha).toBe(1)
+  })
+})

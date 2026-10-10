@@ -30,6 +30,18 @@ export const scoreReader = {
   tutorialSwipeHint: '左滑 = 下一页，右滑 = 上一页',
   tutorialScrollHint: '上下拖动 = 滚动；点上下方 = 上/下一页',
   tutorialDismiss: '知道了',
+  /**
+   * 教程蒙层里那条「菜单里有什么」的图例（复刻底栏五个按钮，见 ReaderTutorial 的 MenuLegend）。
+   * **不复用** pageJump / zoomPanel / modeSwitch 那几个：那些是 ariaLabel，为了无障碍可以写长，
+   * 而这里的每个词要挤进屏宽的 1/5。文案本身也改过（「切换翻页方式」→「翻页」）。
+   */
+  tutorialMenuPage: '跳页',
+  tutorialMenuZoom: '缩放',
+  tutorialMenuAnno: '批注',
+  tutorialMenuSave: '保存',
+  tutorialMenuMode: '翻页',
+  /** 荧光笔（批注栏第三支工具） */
+  highlighter: '荧光笔',
   /** 底栏第一个按钮（book-open）：开页码/进度条气泡 */
   zoomPanel: '缩放',
   /** 底栏第五个按钮：图标显示的是**点下去会变成什么** */

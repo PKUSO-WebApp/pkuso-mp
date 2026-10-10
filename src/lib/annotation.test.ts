@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Taro from '@tarojs/taro'
 import {
+  HIGHLIGHTER_ALPHA,
+  HIGHLIGHTER_WIDTHS,
+  PEN_MAX_WIDTH,
+  PEN_WIDTHS,
   annoStorageKey,
   compactDoc,
   compactStroke,
+  effectiveWidth,
   loadAnnoDoc,
   saveAnnoDoc,
+  widthsFor,
   type AnnoDoc,
 } from './annotation'
 
@@ -163,5 +169,34 @@ describe('annotation compaction', () => {
   it('坏条目降级为空数组', () => {
     storage.set(annoStorageKey('bad'), JSON.stringify({ '1': 'junk' }))
     expect(loadAnnoDoc('bad')).toEqual({ '1': [] })
+  })
+})
+
+describe('笔刷档位', () => {
+  it('档位按工具分：画笔两档、荧光笔五档', () => {
+    expect(widthsFor('pen')).toBe(PEN_WIDTHS)
+    expect(widthsFor('eraser')).toBe(PEN_WIDTHS)
+    expect(widthsFor('highlighter')).toBe(HIGHLIGHTER_WIDTHS)
+    expect(HIGHLIGHTER_WIDTHS).toEqual([0.004, 0.008, 0.016, 0.024, 0.032])
+  })
+
+  it('画笔超过 8‰ 按 8‰ 兜底（从荧光笔切回来时选中的档位不在画笔里）', () => {
+    expect(effectiveWidth('pen', 0.032)).toBe(PEN_MAX_WIDTH)
+    expect(effectiveWidth('eraser', 0.024)).toBe(PEN_MAX_WIDTH)
+    // 没超的一律原样，包括画笔自己的两档
+    expect(effectiveWidth('pen', 0.004)).toBe(0.004)
+    expect(effectiveWidth('pen', 0.008)).toBe(0.008)
+  })
+
+  it('荧光笔不做兜底：32‰ 是它自己的档位', () => {
+    expect(effectiveWidth('highlighter', 0.032)).toBe(0.032)
+  })
+
+  it('兜底值必须真的落在画笔的档位里（否则选中态会一个都圈不上）', () => {
+    expect(PEN_WIDTHS).toContain(effectiveWidth('pen', 999))
+  })
+
+  it('荧光笔固定 50% 不透明', () => {
+    expect(HIGHLIGHTER_ALPHA).toBe(0.5)
   })
 })

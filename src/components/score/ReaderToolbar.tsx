@@ -19,18 +19,24 @@ import chevronsUDDark from '@/assets/icons/chevrons-up-down-dark.png'
 /** 底栏上方那个气泡此刻开的是哪一个（同时只能开一个） */
 export type ReaderPanel = 'none' | 'page' | 'zoom'
 
-const ICON = 18
 /**
- * 每个按钮是**方形热区**（44px 见方 = 舒适的最小点击尺寸），图标居中，**无底无框**
+ * 底栏的尺寸整体放大 25%（用户 2026-10-10 定：初版偏小）。**改这里就够了** ——
+ * 底下所有尺寸都由这几个常量推出来，包括 `TRACK_LEFT`（页码气泡要贴屏幕左沿）与
+ * `cardWidthOf`，各写一份数就会漂移。
+ */
+const SCALE = 1.25
+const ICON = 18 * SCALE
+/**
+ * 每个按钮是**方形热区**（见 SCALE，44px 的 1.25 倍），图标居中，**无底无框**
  * （用户 2026-10-10 定：不要圆角矩形按钮）。整个方形都响应点击。
  *
  * 因此按钮**没有激活态外观**——底色/边框正是被去掉的东西。状态在别处照样看得见：
  * 面板开着时它就在按钮正上方，批注开着时上方会出现整条批注工具条。
  * `busy` 时的半透明是另一回事（那是「点不动」，不是「选中」），保留。
  */
-const BTN_SIZE = 44
+const BTN_SIZE = 44 * SCALE
 /** ± 按钮的边长：**宽高都要给**（只定宽 = 椭圆，真机反馈过），且轨道的左端要靠它算成常量 */
-const STEP_W = 30
+const STEP_W = 30 * SCALE
 /**
  * ± 按钮的样式（形状与配色）。**尺寸不走类**：类里的 `px` 会被 Taro 转成 rpx，
  * 写 `h-[30px]` 到这里会变成 15px。所以边长用内联样式给（`ROUND_SIZE`）。
@@ -38,10 +44,10 @@ const STEP_W = 30
 const ROUND_BTN = 'flex items-center justify-center rounded-full border border-border bg-card p-0 text-sm text-text'
 /** ± 的边长（px）。宽高都给才是正圆；也决定了 `TRACK_LEFT` 这个常量 */
 const ROUND_SIZE = { width: `${STEP_W}px`, height: `${STEP_W}px` }
-const CARD_PAD = 12
-const GAP = 12
+const CARD_PAD = 12 * SCALE
+const GAP = 12 * SCALE
 /** 底栏按钮行的左右内边距 */
-const BAR_PAD = 8
+const BAR_PAD = 8 * SCALE
 /**
  * 轨道左端在**屏幕坐标**里的位置 —— 一个**常量**，不是量出来的。
  *
@@ -54,7 +60,7 @@ const TRACK_LEFT = CARD_PAD + STEP_W + GAP
 /** 卡片宽度：全由常量与轨道宽算出，不靠内容撑（内容撑宽 + 居中在真机上出过偏差） */
 const cardWidthOf = (trackW: number) => trackW + (STEP_W + GAP) * 2 + CARD_PAD * 2
 /** 缩放百分比文字的定宽：不定的话 100% → 95% 会让整排按钮跟着挪（真机反馈） */
-const PCT_W = 46
+const PCT_W = 46 * SCALE
 
 /**
  * 阅读器底栏：五个图标按钮 + 它们各自的气泡。
@@ -148,8 +154,8 @@ export function ReaderToolbar({
   const frac = sliderFracOf(shown, pageCount)
   const cardStyle = {
     width: `${cardWidthOf(trackW)}px`,
-    marginBottom: '8px',
-    padding: `10px ${CARD_PAD}px`,
+    marginBottom: `${8 * SCALE}px`,
+    padding: `${10 * SCALE}px ${CARD_PAD}px`,
   }
   const cellStyle = { width: `${BTN_SIZE}px`, height: `${BTN_SIZE}px` }
 
@@ -181,24 +187,26 @@ export function ReaderToolbar({
                   左端 = TRACK_LEFT（常量）⇒ 触点到页码是一步纯换算 */}
               <View
                 className='relative flex flex-row items-center'
-                style={{ width: `${trackW}px`, height: '28px', marginLeft: `${GAP}px` }}
+                style={{ width: `${trackW}px`, height: `${28 * SCALE}px`, marginLeft: `${GAP}px` }}
                 onTouchStart={onSlideStart}
                 onTouchMove={onSlideMove}
                 onTouchEnd={onSlideEnd}
                 onTouchCancel={onSlideEnd}
               >
-                <View className='h-1 w-full rounded-full bg-border' />
+                {/* 轨道与滑块也按 SCALE 走。⚠️ 基数是 **2px** 不是类名 h-1 那个数：
+                    类里的 px 会被 pxtransform 转成 rpx（375 屏上 4rpx = 2px），而内联 px 不转 */}
+                <View className='w-full rounded-full bg-border' style={{ height: `${2 * SCALE}px` }} />
                 <View
-                  className='absolute left-0 h-1 rounded-full bg-primary'
-                  style={{ width: `${frac * trackW}px` }}
+                  className='absolute left-0 rounded-full bg-primary'
+                  style={{ width: `${frac * trackW}px`, height: `${2 * SCALE}px` }}
                 />
                 <View
                   className='absolute rounded-full border-2 border-primary bg-card'
                   style={{
                     left: `${frac * trackW}px`,
-                    width: '14px',
-                    height: '14px',
-                    marginLeft: '-7px',
+                    width: `${14 * SCALE}px`,
+                    height: `${14 * SCALE}px`,
+                    marginLeft: `${-7 * SCALE}px`,
                   }}
                 />
               </View>
@@ -249,7 +257,7 @@ export function ReaderToolbar({
                   改成按内容收缩：`absolute` 且不给 right/width ⇒ 宽度由内容决定。 */}
               <View
                 className='flex flex-row items-center rounded-2xl border border-border bg-surface'
-                style={{ marginBottom: '8px', padding: `10px ${CARD_PAD}px` }}
+                style={{ marginBottom: `${8 * SCALE}px`, padding: `${10 * SCALE}px ${CARD_PAD}px` }}
               >
                 <Button
                   className={ROUND_BTN}

@@ -6,6 +6,14 @@ export type AnnoStroke = {
   /** 线宽（相对页面宽度的归一化值） */
   width: number
   points: [number, number][]
+  /**
+   * 不透明度。**缺省 = 1（普通画笔）**——旧数据没有这个字段，按 1 读即可，
+   * 所以加它不需要迁移。荧光笔恒为 `HIGHLIGHTER_ALPHA`。
+   *
+   * 它参与内容指纹（见 annotation-sync 的 pageFingerprint）：只在颜色/线宽/点上
+   * 相同的两支笔不可能是同一份内容，指纹必须能分辨。
+   */
+  alpha?: number
 }
 
 /** 一个文件的全部批注：page(字符串页码) → 笔迹数组 */
@@ -56,8 +64,42 @@ export function compactDoc(doc: AnnoDoc): AnnoDoc {
 
 export const PEN_COLORS = ['#e5484d', '#2f6fed', '#111827', '#f5a524'] as const
 
-/** 线宽两档（相对页宽归一化，1× 页面约 1.4px / 2.8px） */
+/** 当前用哪支笔。橡皮擦也在里面：它和两支笔互斥，属于同一个「当前工具」 */
+export type AnnoTool = 'pen' | 'highlighter' | 'eraser'
+
+/**
+ * 荧光笔的不透明度，固定 —— **不给用户调节入口**（用户 2026-10-10 定）：涂色深浅不是
+ * 他要调的东西，多一个滑杆只多一件事要想。
+ */
+export const HIGHLIGHTER_ALPHA = 0.5
+
+/** 画笔线宽两档（相对页宽归一化，1× 页面约 1.4px / 2.8px） */
 export const PEN_WIDTHS = [0.004, 0.008] as const
+
+/**
+ * 荧光笔五档。粗的三档（16/24/32‰）**只给荧光笔**（用户 2026-10-10 定）：
+ * 涂色本来就要整条盖住，而画笔那么粗只会糊。
+ */
+export const HIGHLIGHTER_WIDTHS = [0.004, 0.008, 0.016, 0.024, 0.032] as const
+
+/** 画笔能用的最粗一档 —— 比它粗的一律按它兜底（见 effectiveWidth） */
+export const PEN_MAX_WIDTH = 0.008
+
+/** 当前工具能选的线宽档位 */
+export function widthsFor(tool: AnnoTool): readonly number[] {
+  return tool === 'highlighter' ? HIGHLIGHTER_WIDTHS : PEN_WIDTHS
+}
+
+/**
+ * 真正落到笔迹上的线宽。
+ *
+ * 粗细是**两支笔共用一份状态**的（切工具时不用记两套选择），而画笔画不出 16‰ 以上
+ * ⇒ 从荧光笔切回画笔时，选中的档位可能不在画笔的档位里。**按 8‰ 兜底**（用户 2026-10-10 定）。
+ * 显示选中态的那一圈也要用它，否则会出现「一个档位都没选中」。
+ */
+export function effectiveWidth(tool: AnnoTool, width: number): number {
+  return tool === 'highlighter' ? width : Math.min(width, PEN_MAX_WIDTH)
+}
 
 export function loadAnnoDoc(fileId: string): AnnoDoc {
   try {
