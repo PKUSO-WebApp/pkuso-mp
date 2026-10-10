@@ -177,6 +177,12 @@ export function usePdfHandoff() {
               ...(header ? { header } : {}),
               ...(timeoutMs ? { timeout: timeoutMs } : {}),
             }),
+          // 探针要能**掐掉输的那条**：`Taro.downloadFile` 返回的是 Promise & DownloadTask，
+          // 所以 `abort()` 直接就在这个对象上（见 lib/ranged-download 的 raceLegs）
+          cancellableDownload: (u, header, timeoutMs) => {
+            const task = Taro.downloadFile({ url: u, header, timeout: timeoutMs })
+            return { result: task, cancel: () => task.abort?.() }
+          },
         }
       )
       if (seq !== seqRef.current) return // 用户已经改主意了：这一次的结果作废

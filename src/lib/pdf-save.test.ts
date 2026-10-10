@@ -248,6 +248,132 @@ describe('ensureSavedPdf', () => {
     expect(t.files.get(res.path)?.byteLength).toBe(4)
   })
 
+  it('⚠️ 探针：两条腿**并行**试一片，先成功的决定整份走哪条（不猜超时）', async () => {
+    __resetRangedProxyForTest()
+    rewriteToMock.mockReset().mockReturnValue('https://proxy.example/a.pdf')
+
+    const t = deps()
+    const probes: string[] = []
+    const probeRanges: string[] = []
+    /** 反代腿慢、直连腿快 —— 探针应当等直连，并把反代那条掐掉 */
+    const cancelled: string[] = []
+    t.deps.cancellableDownload = (url: string, header: Record<string, string>) => {
+      probes.push(String(url))
+      probeRanges.push(header.Range)
+      const isProxy = String(url).includes('proxy.example')
+      return {
+        // 反代腿永远不回（黑洞的形态）：探针只能等直连那条
+        result: isProxy
+          ? new Promise(() => {})
+          : Promise.resolve({ statusCode: 206, tempFilePath: 'd' }),
+        cancel: () => void cancelled.push(String(url)),
+      }
+    }
+    // 真下载：只让直连腿成功（证明整份确实走了探针选出的那条）
+    const usedUrls: string[] = []
+    t.download.mockImplementation(async (url: string) => {
+      usedUrls.push(String(url))
+      if (String(url).includes('proxy.example')) return { statusCode: 500, tempFilePath: '' }
+      t.files.set('/tmp/chunk', new Uint8Array(4).fill(7))
+      return { statusCode: 206, tempFilePath: '/tmp/chunk' }
+    })
+
+    await ensureSavedPdf(opts({ expectedBytes: 4 }), t.deps)
+
+    // 两条腿都发了探针，且探的是同一段（真实字节，不是 1 字节的往返）
+    expect(probes.filter((u) => u.includes('proxy.example'))).toHaveLength(1)
+    expect(probes.filter((u) => u === 'https://x/a.pdf')).toHaveLength(1)
+    // 探的是**真实的一段字节**（64KB），不是 1 字节的往返（实测数据见 PROBE_BYTES 的注释）
+    expect(probeRanges).toEqual(['bytes=0-65535', 'bytes=0-65535'])
+    // 慢的那条被掐掉
+    expect(cancelled.some((u) => u.includes('proxy.example'))).toBe(true)
+    // 真下载先走探针选出的直连
+    expect(usedUrls[0]).toBe('https://x/a.pdf')
+
+    __resetRangedProxyForTest()
+  })
+
+  it('⚠️ 两条腿的探针都失败 ⇒ **退回原来的候选腿**（不能变成空腿去下）', async () => {
+    __resetRangedProxyForTest()
+    rewriteToMock.mockReset().mockReturnValue('https://proxy.example/a.pdf')
+
+    const t = deps()
+    t.deps.cancellableDownload = () => ({
+      result: Promise.resolve({ statusCode: 500, tempFilePath: '' }),
+      cancel: () => {},
+    })
+    const usedUrls: string[] = []
+    t.download.mockImplementation(async (url: string) => {
+      usedUrls.push(String(url))
+      if (String(url).includes('proxy.example')) return { statusCode: 500, tempFilePath: '' }
+      t.files.set('/tmp/chunk', new Uint8Array(4).fill(7))
+      return { statusCode: 206, tempFilePath: '/tmp/chunk' }
+    })
+
+    await ensureSavedPdf(opts({ expectedBytes: 4 }), t.deps)
+
+    // 探针没选出胜者 ⇒ 退回「反代优先」的老候选，逐片那套照常兜住
+    expect(usedUrls[0]).toContain('proxy.example')
+    expect(usedUrls).toContain('https://x/a.pdf')
+
+    __resetRangedProxyForTest()
+  })
+
+  it('探针**每次会话只做一次**：第二次下载直接用上次选出的腿', async () => {
+    __resetRangedProxyForTest()
+    rewriteToMock.mockReset().mockReturnValue('https://proxy.example/a.pdf')
+
+    const mk = () => {
+      const t = deps()
+      const probes: string[] = []
+      t.deps.cancellableDownload = (url: string) => {
+        probes.push(String(url))
+        return {
+          result: Promise.resolve(
+            String(url).includes('proxy.example')
+              ? { statusCode: 500 as number, tempFilePath: '' }
+              : { statusCode: 206, tempFilePath: 'd' }
+          ),
+          cancel: () => {},
+        }
+      }
+      t.download.mockImplementation(async (url: string) => {
+        if (String(url).includes('proxy.example')) return { statusCode: 500, tempFilePath: '' }
+        t.files.set('/tmp/chunk', new Uint8Array(4).fill(7))
+        return { statusCode: 206, tempFilePath: '/tmp/chunk' }
+      })
+      return { t, probes }
+    }
+
+    const first = mk()
+    await ensureSavedPdf(opts({ expectedBytes: 4 }), first.t.deps)
+    expect(first.probes.length).toBe(2) // 第一次：两条腿都探
+
+    const second = mk()
+    await ensureSavedPdf(opts({ expectedBytes: 4 }), second.t.deps)
+    expect(second.probes.length).toBe(0) // 第二次：不再探
+
+    __resetRangedProxyForTest()
+  })
+
+  it('没有可中止下载的注入（老调用方）⇒ 跳过探针，退回按顺序试腿', async () => {
+    __resetRangedProxyForTest()
+    rewriteToMock.mockReset().mockReturnValue('https://proxy.example/a.pdf')
+
+    const t = deps() // 不给 cancellableDownload
+    const usedUrls: string[] = []
+    t.download.mockImplementation(async (url: string) => {
+      usedUrls.push(String(url))
+      if (String(url).includes('proxy.example')) return { statusCode: 500, tempFilePath: '' }
+      t.files.set('/tmp/chunk', new Uint8Array(4).fill(7))
+      return { statusCode: 206, tempFilePath: '/tmp/chunk' }
+    })
+    await ensureSavedPdf(opts({ expectedBytes: 4 }), t.deps)
+    expect(usedUrls[0]).toContain('proxy.example') // 老取向：反代优先
+
+    __resetRangedProxyForTest()
+  })
+
   it('⚠️ 反代腿拿到**短**超时、直连腿拿到长的（同一类故障在下载上曾贵 7.5 倍）', async () => {
     __resetRangedProxyForTest()
     rewriteToMock.mockReset().mockReturnValue('https://proxy.example/a.pdf')
