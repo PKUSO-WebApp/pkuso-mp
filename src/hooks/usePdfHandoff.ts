@@ -169,8 +169,14 @@ export function usePdfHandoff() {
         {
           root: userDataRoot(),
           fs: (Taro.getFileSystemManager?.() as FsLike | undefined) ?? null,
-          // 分片下载要带 `Range` 头；单次下载不传第二个参数（保持与从前完全一致）
-          download: (u, header) => Taro.downloadFile(header ? { url: u, header } : { url: u }),
+          // 分片下载要带 `Range` 头与**逐腿的超时**（见 DownloadLeg）；单次下载两个都不传
+          // （保持与从前完全一致 —— 那时它交给平台的默认超时）
+          download: (u, header, timeoutMs) =>
+            Taro.downloadFile({
+              url: u,
+              ...(header ? { header } : {}),
+              ...(timeoutMs ? { timeout: timeoutMs } : {}),
+            }),
         }
       )
       if (seq !== seqRef.current) return // 用户已经改主意了：这一次的结果作废

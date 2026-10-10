@@ -36,11 +36,24 @@ export type RangeResponse = { statusCode: number; tempFilePath: string }
 
 export type RangedDeps = {
   fs: RangedFs
-  /** 发一个带 Range 头的下载。**抛错 = 网络层失败**（如 ERR_CONNECTION_RESET） */
-  fetchRange: (url: string, range: string) => Promise<RangeResponse>
+  /**
+   * 发一个带 Range 头的下载。**抛错 = 网络层失败**（如 ERR_CONNECTION_RESET）。
+   * `timeoutMs` 由调用方按**腿**给（见 DownloadLeg）。
+   */
+  fetchRange: (url: string, range: string, timeoutMs: number) => Promise<RangeResponse>
   /** 测试注入用；默认真等 */
   sleep?: (ms: number) => Promise<void>
 }
+
+/**
+ * 一条下载腿，**带自己的超时**。
+ *
+ * 为什么必须逐腿给：反代那条腿在带 `Range` 的下载上会**干等满超时**才回退（真机实测
+ * `fetchMs` = 62.6 秒 ≈ `downloadFile` 的默认 60 秒 + 直连成功的 2.5 秒），而 `taroFetch`
+ * 那条路只用 8 秒就能判死 ⇒ 同一类故障，下载这条路上贵 7.5 倍。给它一个短超时，
+ * 代价就从「用户等一分钟」变成「等 15 秒」。
+ */
+export type DownloadLeg = { url: string; timeoutMs: number }
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
@@ -52,44 +65,69 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * - **5xx**（反代上游失败会回 502）⇒ 同样算可重试；
  * - **4xx** ⇒ 服务端明确说不行（不存在 / 无权限），立刻失败 —— 重试只是白等。
  */
+/**
+ * 取一片。返回**是哪条腿给的**——调用方据此记住「这份下载里谁通」。
+ *
+ * `preferred` 把它排到最前。⚠️ 没有它，一次「反代腿挂住」会按**片数**累乘：
+ * 30MB 的谱子 15 片 × 15 秒 ≈ 白等近四分钟。
+ * 它是**偏好**不是「判死」——首片就失败的那条腿不该被整份下载除名（网络会抖），
+ * 所以只调顺序、候选仍在。
+ */
 async function fetchRangeWithRetry(
-  urls: string[],
+  legs: DownloadLeg[],
   range: string,
-  deps: RangedDeps
-): Promise<RangeResponse> {
+  deps: RangedDeps,
+  preferred: string | null
+): Promise<{ res: RangeResponse; url: string }> {
   const sleep = deps.sleep ?? defaultSleep
+  const ordered = preferred
+    ? [...legs.filter((l) => l.url === preferred), ...legs.filter((l) => l.url !== preferred)]
+    : legs
   let lastErr: unknown = null
+  /**
+   * **4xx 的腿**：这条腿明确拒绝了，这一次下载里不再试它。
+   *
+   * ⚠️ 从前 4xx 是**直接抛穿整次下载**的（「服务端明确说不行，不重试」）。有了多条腿之后
+   * 这条前提不成立了：一条腿拒绝**不代表文件没了** —— 实测形态就有一种是「本机代理对那个
+   * 域名回 403」，而同一个 URL 的直连腿是好的。整次判死会让用户**压根拿不到文件**，
+   * 而正确做法是换腿。
+   */
+  const rejected = new Set<string>()
   for (let round = 0; round <= CHUNK_RETRY_DELAYS_MS.length; round += 1) {
-    for (const url of urls) {
+    for (const leg of ordered) {
+      if (rejected.has(leg.url)) continue
       try {
-        const res = await deps.fetchRange(url, range)
-        if (res.statusCode === 206 || res.statusCode === 200) return res
-        if (res.statusCode < 500) throw new Error(`HTTP ${res.statusCode}`)
+        const res = await deps.fetchRange(leg.url, range, leg.timeoutMs)
+        if (res.statusCode === 206 || res.statusCode === 200) return { res, url: leg.url }
         lastErr = new Error(`HTTP ${res.statusCode}`)
+        if (res.statusCode < 500) rejected.add(leg.url)
       } catch (err) {
-        // 4xx（含上面主动抛的那个）不重试
-        if (err instanceof Error && /^HTTP 4\d\d$/.test(err.message)) throw err
+        // 网络层失败（超时/连接重置）：**不判死**，下一轮还会再试它（网络会抖）
         lastErr = err
       }
     }
+    // 所有腿都被 4xx 拒了：再等下去也不会变，直接了结
+    if (rejected.size >= legs.length) break
     if (round < CHUNK_RETRY_DELAYS_MS.length) await sleep(CHUNK_RETRY_DELAYS_MS[round] ?? 1000)
   }
   throw lastErr ?? new Error('分片下载失败')
 }
 
 /**
- * 把 `urls[0]`（备选依次兜底）的内容按 `chunkBytes` 一片片取回，拼到 `dest`。
+ * 按 `chunkBytes` 一片片取回、拼到 `dest`，返回**最后用的是哪条腿**（调用方据此记住谁通）。
  *
  * `totalBytes` 是**期望总长**（来自库里的 `file_size`）。它既是循环的终止条件，也是最后
  * 校验的依据 —— 没有它就无法判断「拼完的到底全不全」。
  */
 export async function downloadInChunks(
-  opts: { urls: string[]; dest: string; totalBytes: number; chunkBytes?: number },
+  opts: { legs: DownloadLeg[]; dest: string; totalBytes: number; chunkBytes?: number },
   deps: RangedDeps
-): Promise<void> {
+): Promise<string> {
   const chunk = opts.chunkBytes ?? CHUNK_BYTES
-  const urls = opts.urls.filter(Boolean)
-  if (urls.length === 0) throw new Error('没有可用的下载地址')
+  const legs = opts.legs.filter((l) => l && l.url)
+  /** 这份下载里已经证明能通的那条腿（见 fetchRangeWithRetry） */
+  let preferred: string | null = null
+  if (legs.length === 0) throw new Error('没有可用的下载地址')
   if (!(opts.totalBytes > 0)) throw new Error('缺少文件总长，无法分片')
 
   // 每片至少该推进 1 字节，否则一定是异常（服务端反复回空片）
@@ -98,16 +136,18 @@ export async function downloadInChunks(
     // ⚠️ 每轮都**重新读磁盘上的实际长度**（不是内存里累加的）：任何一片的写入被吞掉、
     // 或上一次运行留下半份文件，都能从这里自愈
     const have = await deps.fs.size(opts.dest)
-    if (have >= opts.totalBytes) return finish(opts, deps)
+    if (have >= opts.totalBytes) return finish(opts, deps, preferred)
     const end = Math.min(have + chunk, opts.totalBytes) - 1
-    const res = await fetchRangeWithRetry(urls, `bytes=${have}-${end}`, deps)
+    const got = await fetchRangeWithRetry(legs, `bytes=${have}-${end}`, deps, preferred)
+    const res = got.res
+    preferred = got.url // 这一片是谁给的 ⇒ 下一片先试它（见 fetchRangeWithRetry）
     if (res.statusCode === 200) {
       // 服务端**忽略了 Range**、把整份都装在这一个临时文件里：直接复制过去。
       // （走 copyFile 而不是 readFile —— 30MB 读进 JS 内存对小程序的 isolate 是实打实的风险）
       // 先删目标：这里是**覆盖**语义，而 copyFile 在目标已存在时的行为各实现不一
       await deps.fs.remove(opts.dest)
       await deps.fs.copy(res.tempFilePath, opts.dest)
-      return finish(opts, deps)
+      return finish(opts, deps, preferred)
     }
     const buf = await deps.fs.read(res.tempFilePath)
     if (buf.byteLength === 0) {
@@ -128,11 +168,13 @@ export async function downloadInChunks(
 /** 收尾：总长不符就**整份删掉**（宁可让用户重下，也不能交出一份损坏的文件） */
 async function finish(
   opts: { dest: string; totalBytes: number },
-  deps: RangedDeps
-): Promise<void> {
+  deps: RangedDeps,
+  usedLeg: string | null
+): Promise<string> {
   const size = await deps.fs.size(opts.dest)
   if (size !== opts.totalBytes) {
     await deps.fs.remove(opts.dest)
     throw new Error(`分片长度不符：${size}/${opts.totalBytes}`)
   }
+  return usedLeg ?? ''
 }
