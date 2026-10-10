@@ -155,12 +155,17 @@ export default function ScorePart() {
                               {meta || t('scoreDetail.unknownSize')}
                             </Text>
                           </View>
-                          <Text
-                            className='mr-3 text-xs font-medium text-primary'
+                          {/* 「打开」也做成圆角按钮，与右边的 ✈ 同高同形（用户 2026-10-10 定）：
+                              两个都是动作，形状就该一样；靠颜色区分主次（打开=主色）。
+                              仍与左右两节点**平级**，不嵌套。 */}
+                          <View
+                            className='mr-2 flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
                             onClick={() => openFile(f)}
                           >
-                            {t('scoreDetail.open')}
-                          </Text>
+                            <Text className='text-xs font-medium text-primary'>
+                              {t('scoreDetail.open')}
+                            </Text>
+                          </View>
                           {/* 文件级「保存到…」：与阅读器顶栏同一个图标，两处一眼看得出是同一件事 */}
                           <View
                             className='flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
