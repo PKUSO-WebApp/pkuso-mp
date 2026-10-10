@@ -37,7 +37,7 @@ export const common = {
   },
   saveTo: {
     title: 'Save to…',
-    favorites: 'Add to…',
+    favorites: 'Add to Wechat Favorites',
     chat: 'Send to…',
     app: 'Open in another app',
     disk: 'Save to computer',
@@ -45,6 +45,11 @@ export const common = {
     cancel: 'Cancel',
     notReady: 'File not loaded yet',
     failed: 'Save failed: {error}',
+    withAnno: 'Include annotations?',
+    yes: 'Yes',
+    no: 'No',
+    noAnno: 'This score has no annotations yet',
+    annoSuffix: ' (annotated)',
   },
   error: {
     defaultTitle: 'Something went wrong',

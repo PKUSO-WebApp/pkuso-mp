@@ -1,5 +1,7 @@
-import { View, Text } from '@tarojs/components'
+import { View, Text, Switch } from '@tarojs/components'
 import { useT } from '@/i18n'
+import { useThemeContext } from '@/context/theme-context'
+import { THEME_PALETTE } from '@/lib/theme'
 import { Z_SHEET } from '@/pages/score-reader/lib/layout'
 import type { HandoffKind } from '@/lib/pdf-handoff'
 
@@ -23,6 +25,8 @@ export function SaveToSheet({
   labels,
   ready,
   busy,
+  withAnno,
+  onAnno,
   onPick,
   onClose,
 }: {
@@ -31,10 +35,14 @@ export function SaveToSheet({
   /** 本地那份 PDF 是否已就绪（就绪前所有出口都不可点） */
   ready: boolean
   busy: boolean
+  /** 「是否带有批注？」：开了走云端合成（见 lib/annotated-pdf） */
+  withAnno: boolean
+  onAnno: (v: boolean) => void
   onPick: (kind: HandoffKind) => void
   onClose: () => void
 }) {
   const { t } = useT()
+  const { mode } = useThemeContext()
   const canPick = ready && !busy
   return (
     // `fixed`（而不是 absolute）：两个宿主页面的根节点底衬垫不一样（声部页为 tabBar 留了
@@ -50,6 +58,25 @@ export function SaveToSheet({
           标题这种不动作的东西只会制造歧义。
           「正在准备文件…」只在**未就绪**时出现（那是状态不是标题，且是暂态）。
         */}
+        {/* 「是否带有批注？」：**开关左「是」右「否」**（用户 2026-10-10 定）——
+            于是「开」= 左侧被点亮，与大多数开关的直觉相反，但这是明确要求。
+            拨它要**重新备一份文件**（带批注那份是云端合成的另一个文件），
+            所以点完之后出口会短暂回到不可点（见 usePdfHandoff 的 toggleAnno）。 */}
+        <View className='flex flex-row items-center justify-between border-b border-border px-4 py-3'>
+          <Text className='text-sm text-text'>{t('common.saveTo.withAnno')}</Text>
+          <View className='flex flex-row items-center'>
+            <Text className='mr-2 text-sm text-text'>{t('common.saveTo.yes')}</Text>
+            {/* `color` 只能给字面色值（原生控件吃不到 CSS 变量）⇒ 取自 THEME_PALETTE，
+                那份值与 --color-primary 的同值关系由 theme.test.ts 守着 */}
+            <Switch
+              checked={withAnno}
+              disabled={busy}
+              color={THEME_PALETTE[mode].primary}
+              onChange={(e) => onAnno(Boolean(e.detail.value))}
+            />
+            <Text className='ml-2 text-sm text-text'>{t('common.saveTo.no')}</Text>
+          </View>
+        </View>
         {!ready ? (
           <View className='border-b border-border px-4 py-3'>
             <Text className='block text-center text-xs text-text-subtle'>
