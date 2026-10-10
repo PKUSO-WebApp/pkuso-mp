@@ -60,6 +60,60 @@ export type DownloadLeg = {
   label?: string
 }
 
+/** 一个**可中止**的下载（探针用：输了的那条要立刻掐掉） */
+export type CancellableFetch = {
+  result: Promise<RangeResponse>
+  cancel: () => void
+}
+
+/**
+ * **并行探两条腿**：先成功的胜出，其余立刻中止。都失败返回 null。
+ *
+ * 为什么是「竞一片真实的字节」而不是「量一个 1 字节的往返」：反代的优势是**境内带宽
+ * （吞吐）**，不是 1 字节的延迟。实测（2026-10-11，热点，两条腿都健康）——
+ * 1KB 时两条腿分别是 0.61s / 0.43s，但那只反映建连；到 256KB 才看得到 306KB/s vs 420KB/s。
+ * 只量延迟会在「跨境带宽塌陷但建连正常」的网络上选错腿。
+ *
+ * 为什么它能取代「猜一个超时」：腿不通的那一台**不会回**，于是胜出者必然是活得那条；
+ * 而两边都活时，胜出的是**实测更快**的那条。不需要预设任何界。
+ */
+export function raceLegs(
+  legs: DownloadLeg[],
+  start: (leg: DownloadLeg) => CancellableFetch
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (legs.length === 0) return resolve(null)
+    const started: Array<{ url: string; cancel: () => void }> = []
+    let failed = 0
+    let settled = false
+    const fail = () => {
+      failed += 1
+      if (!settled && failed === legs.length) {
+        settled = true
+        resolve(null)
+      }
+    }
+    for (const leg of legs) {
+      const handle = start(leg)
+      started.push({ url: leg.url, cancel: handle.cancel })
+      handle.result.then(
+        (res) => {
+          if (settled) return
+          if (res.statusCode === 206 || res.statusCode === 200) {
+            settled = true
+            // 输的那条立刻掐掉：不掐就要把整片探针字节传完，而探针的意义正是省掉无用的传输
+            for (const one of started) if (one.url !== leg.url) one.cancel()
+            resolve(leg.url)
+          } else {
+            fail()
+          }
+        },
+        () => fail()
+      )
+    }
+  })
+}
+
 /** 一条腿的一次尝试（诊断用：真机上没有网络面板，只能靠日志判「哪条腿通」） */
 type LegTrial = { label: string; ok: boolean; status: number | null; ms: number; err: string }
 

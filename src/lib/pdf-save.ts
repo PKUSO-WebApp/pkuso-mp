@@ -17,7 +17,7 @@
  */
 
 import { rewriteTo } from './supabase-entry'
-import { downloadInChunks, type DownloadLeg, type RangedFs } from './ranged-download'
+import { downloadInChunks, raceLegs, type DownloadLeg, type RangedFs } from './ranged-download'
 
 /** `wx.env.USER_DATA_PATH`：Taro 的类型里没有它（只有 wx 上有），按仓内既有做法从全局取 */
 export function userDataRoot(): string | null {
@@ -186,26 +186,69 @@ export const PROXY_LEG_TIMEOUT_MS = 10000
 export const DIRECT_LEG_TIMEOUT_MS = 60000
 
 /**
- * 本会话里「带 `Range` 的下载走反代」是否已被判死。**判一次就记住**
- * （与 `lib/page-image` 的「图片层坏了判一次全会话记住」同款）。
+ * 探针的大小：**64KB**。
  *
- * 判据是「这份下载最后用的是另一条腿」，只**换顺序**、不删候选：反代仍在里面兜底，
- * 所以「只能走反代的人」不受影响，只是要多付一次直连腿的超时。
+ * 实测（2026-10-11，热点，两条腿都健康；每档 4 次取平均）——
+ *
+ * | 切片 | proxy 首字节/传输 | direct 首字节/传输 |
+ * |---|---|---|
+ * | 32KB | 0.698 / 0.031 | 0.436 / 0.014 |
+ * | 64KB | 0.846 / 0.060 | 0.454 / 0.050 |
+ * | 256KB | 0.739 / 0.129 | 0.445 / 0.230 |
+ * | 1.79MB | 1.071 / 0.470 | 0.418 / 0.592 |
+ *
+ * 读出来的结论有两条，合起来决定取 64KB：
+ *
+ * 1. **探针在任何可接受的尺度下都主要在量首字节，不在量吞吐** —— 传输段到 64KB 只占 ~10%、
+ *    到 256KB 才 ~15%，而两档之间再加 192KB 买不到分辨力（256KB→1.79MB 的边际吞吐
+ *    proxy 4.5MB/s vs direct 4.2MB/s，基本持平）。所以「用更大的片来量吞吐」这个方向
+ *    在小尺度上是不成立的。
+ * 2. 它真正的职责是「**这条腿到底答不答**」（黑洞那条永远不回），而这件事 64KB 与 256KB
+ *    一样好。输家会被立刻中止 ⇒ 浪费约 30KB（256KB 时约 130KB）。
+ *
+ * 顺带记一笔（与探针无关但重要）：这条网络上 **反代的传输段反而更快**（1.79MB 时 0.470 vs
+ * 0.592），它是**输在首字节**（~0.7s vs ~0.44s）。所以「反代更快」这个判断**与文件大小有关**，
+ * 而小探针天然偏向首字节快的那条 —— 这是它的已知倾向，不是 bug。
  */
-let rangedProxyDead = false
+const PROBE_BYTES = 65536
+
+/**
+ * 本会话里**哪条腿被探针判定为快**（登录后整个会话复用，见 `probeLegs`）。
+ * 只**换顺序**、不删候选：另一条仍在里面兜底，所以「只能走反代的人」不受影响。
+ */
+let rangedPreferred: string | null = null
 
 /** 仅供测试：会话级判定复位 */
 export function __resetRangedProxyForTest(): void {
-  rangedProxyDead = false
+  rangedPreferred = null
 }
 
-/** 分片下载的候选腿。反代腿带短超时；判死过就把它挪到后面（**不删**） */
+/** 分片下载的候选腿：探针选出的排第一；还不知道时按老取向（反代优先） */
 function rangedLegs(url: string): DownloadLeg[] {
   const direct: DownloadLeg = { url, timeoutMs: DIRECT_LEG_TIMEOUT_MS, label: 'direct' }
   const proxied = rewriteTo(url, 'proxy')
   if (proxied === url) return [direct]
   const proxy: DownloadLeg = { url: proxied, timeoutMs: PROXY_LEG_TIMEOUT_MS, label: 'proxy' }
-  return rangedProxyDead ? [direct, proxy] : [proxy, direct]
+  if (rangedPreferred === direct.url) return [direct, proxy]
+  return [proxy, direct]
+}
+
+/**
+ * 并行探一次，按**实测**选腿（见 `raceLegs`）。只在「本次会话还没选过」且「有两条腿」
+ * 且「调用方提供了可中止的下载」时做；返回排好序的候选腿。
+ *
+ * ⚠️ 探针**只用来选路**，绝不替代逐片的失败回退：一条腿可能小片很快、大响应就崩
+ * （中间盒对「小请求放行、大响应掐断」是有先例的）。所以下面那套换腿逻辑一条都没删。
+ */
+async function probeLegs(legs: DownloadLeg[], deps: SavePdfDeps): Promise<DownloadLeg[]> {
+  if (legs.length < 2 || rangedPreferred || !deps.cancellableDownload) return legs
+  const probeRange = `bytes=0-${PROBE_BYTES - 1}`
+  const winner = await raceLegs(legs, (leg) =>
+    deps.cancellableDownload!(leg.url, { Range: probeRange }, leg.timeoutMs)
+  )
+  if (!winner) return legs // 两条都不通：交给逐片那套去报错
+  rangedPreferred = winner
+  return [...legs.filter((l) => l.url === winner), ...legs.filter((l) => l.url !== winner)]
 }
 
 export type SavePdfDeps = {
@@ -218,6 +261,15 @@ export type SavePdfDeps = {
     /** 这条腿的超时（见 DownloadLeg）。不传 = 交给平台默认（`downloadFile` 是 60s） */
     timeoutMs?: number
   ) => Promise<{ statusCode: number; tempFilePath: string }>
+  /**
+   * 起一个**可中止**的下载（**只给探针用**）。不提供 ⇒ 跳过探针，退回「按顺序试腿」。
+   * 单独一个口子而不是复用 `download`：中止要拿到 `DownloadTask` 本身。
+   */
+  cancellableDownload?: (
+    url: string,
+    header: Record<string, string>,
+    timeoutMs: number
+  ) => { result: Promise<{ statusCode: number; tempFilePath: string }>; cancel: () => void }
   /** 测试注入用；默认真等 */
   sleep?: (ms: number) => Promise<void>
 }
@@ -371,7 +423,7 @@ export async function ensureSavedPdf(
   // 分片后每片都在上限内，大文件也能吃到「境内」这条可靠性（反代侧不用改，它原样
   // 转发 `Range` 并回传 `Content-Range`）。反代优先、直连兜底，两条都在候选里。
   if (opts.expectedBytes && opts.expectedBytes > 0) {
-    const legs = rangedLegs(opts.url)
+    const legs = await probeLegs(rangedLegs(opts.url), deps)
     const usedLeg = await downloadInChunks(
       { legs, dest: path, totalBytes: opts.expectedBytes },
       {
@@ -380,8 +432,8 @@ export async function ensureSavedPdf(
         sleep: deps.sleep,
       }
     )
-    // 反代排在第一位却没被用上 ⇒ 它这次是失败的（超时/报错），记住它、下次先走直连
-    if (legs[0] && legs[0].url !== usedLeg && legs[0].url !== opts.url) rangedProxyDead = true
+    // 排第一却没被用上 ⇒ 它是失败的（超时/报错），记住真正通了的那条，下次先走它
+    if (legs.length > 1 && usedLeg && legs[0] && legs[0].url !== usedLeg) rangedPreferred = usedLeg
     fs.unlink({ filePath: legacyPdfPath(root, opts.fileId) })
     return { path, name, reused: false }
   }

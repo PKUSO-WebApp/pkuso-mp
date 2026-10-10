@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  raceLegs,
   CHUNK_BYTES,
   downloadInChunks,
   type RangeResponse,
@@ -103,6 +104,68 @@ const DEST = '/usr/a.pdf'
  * 多腿的取舍：这几条都是**实测逼出来的**（2026-10-10「准备带批注的 PDF 要等一分钟」）。
  * 共同前提：一条腿不通**不代表文件不在** —— 换腿就行，别把整次下载判死。
  */
+describe('raceLegs（并行探针）', () => {
+  const legA = { url: 'proxy', timeoutMs: 1000 }
+  const legB = { url: 'direct', timeoutMs: 1000 }
+
+  /** 造一个「多久之后回什么」的可中止下载桩 */
+  const starter = (plan: Record<string, { after: number; status: number | null }>) => {
+    const cancelled: string[] = []
+    const start = (leg: { url: string }) => {
+      const p = plan[leg.url]
+      return {
+        result: new Promise<{ statusCode: number; tempFilePath: string }>((resolve, reject) => {
+          const code = p.status
+          if (code === null) setTimeout(() => reject(new Error('timeout')), p.after)
+          else setTimeout(() => resolve({ statusCode: code, tempFilePath: 't' }), p.after)
+        }),
+        cancel: () => void cancelled.push(leg.url),
+      }
+    }
+    return { start, cancelled }
+  }
+
+  it('先成功的胜出，**输的那条立刻中止**（不掐就要把整片探针传完）', async () => {
+    const { start, cancelled } = starter({
+      proxy: { after: 50, status: 206 },
+      direct: { after: 200, status: 206 },
+    })
+    const winner = await raceLegs([legA, legB], start)
+    expect(winner).toBe('proxy')
+    expect(cancelled).toEqual(['direct'])
+  })
+
+  it('慢的那条先**失败**不算数：等快的那条成功', async () => {
+    const { start } = starter({
+      proxy: { after: 20, status: null }, // 立刻网络层失败
+      direct: { after: 120, status: 206 },
+    })
+    expect(await raceLegs([legA, legB], start)).toBe('direct')
+  })
+
+  it('非 2xx 也不算成功（403 之类）', async () => {
+    const { start } = starter({
+      proxy: { after: 20, status: 403 },
+      direct: { after: 120, status: 206 },
+    })
+    expect(await raceLegs([legA, legB], start)).toBe('direct')
+  })
+
+  it('两条都失败 ⇒ null（交给逐片那套去报错，不在这里吞掉）', async () => {
+    const { start } = starter({
+      proxy: { after: 20, status: null },
+      direct: { after: 30, status: null },
+    })
+    expect(await raceLegs([legA, legB], start)).toBeNull()
+  })
+
+  it('单腿：不中止任何东西，成功就返回它', async () => {
+    const { start, cancelled } = starter({ proxy: { after: 10, status: 206 } })
+    expect(await raceLegs([legA], start)).toBe('proxy')
+    expect(cancelled).toEqual([])
+  })
+})
+
 describe('多腿的取舍', () => {
   it('⚠️ 一条腿回 4xx ⇒ **换腿**，不是整次下载判死', async () => {
     const t = harness(300)
