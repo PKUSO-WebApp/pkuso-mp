@@ -2040,8 +2040,12 @@ export default function ScoreReader() {
 
   /** 底栏上方此刻开着哪个气泡（同时只能开一个） */
   const [bottomPanel, setBottomPanel] = useState<ReaderPanel>('none')
-  /** 进度条轨道宽度：屏幕宽的 2/5（用户 2026-10-10 定，**不随页数增长**） */
-  const sliderW = Math.round(containerW * 0.4)
+  /**
+   * 进度条轨道宽度：屏幕宽的 2/5（用户 2026-10-10 定，**不随页数增长**）。
+   * 舞台还没量到时 `containerW` 是 0 —— 那会让轨道宽度算成 0（「看不见的进度条」），
+   * 所以给一个按常见屏宽的兜底；`measureStage` 一回来就被真实值顶掉。
+   */
+  const sliderW = Math.round((containerW > 0 ? containerW : 375) * 0.4)
   /** 批注：从底栏点进来时先把气泡收掉（批注工具条是另一条悬浮层） */
   const penFromToolbar = () => {
     setBottomPanel('none')
@@ -2328,7 +2332,6 @@ export default function ScoreReader() {
           <ReaderToolbar
             dark={dark}
             ud={ud}
-            penOn={penOn}
             zoom={zoom}
             page={page}
             pageCount={pageCount}

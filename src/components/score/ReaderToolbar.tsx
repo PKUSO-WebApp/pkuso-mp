@@ -21,13 +21,31 @@ export type ReaderPanel = 'none' | 'page' | 'zoom'
 
 const ICON = 18
 /**
+ * 每个按钮是**方形热区**（44px 见方 = 舒适的最小点击尺寸），图标居中，**无底无框**
+ * （用户 2026-10-10 定：不要圆角矩形按钮）。整个方形都响应点击。
+ *
+ * 因此按钮**没有激活态外观**——底色/边框正是被去掉的东西。状态在别处照样看得见：
+ * 面板开着时它就在按钮正上方，批注开着时上方会出现整条批注工具条。
+ * `busy` 时的半透明是另一回事（那是「点不动」，不是「选中」），保留。
+ */
+const BTN_SIZE = 44
+
+/**
+ * 气泡卡片的宽度**显式算出来**，不靠内容撑。
+ *
+ * 踩过的坑（真机反馈「靠左 + 太窄 + 页码只看得见半个」）：卡片原来是「由内容撑宽 +
+ * 外层 `items-center` 居中」——而弹性列默认 `align-items: stretch`，那条居中类一旦
+ * 没生效，卡片与行内容就一起贴左，文字也会被挤掉。宽度自己算 + `margin: auto` 居中，
+ * 这两件事就都不依赖类的编译结果了。
+ */
+const CARD_PAD = 12
+const cardWidthOf = (trackW: number) => trackW + STEP_W * 2 + CARD_PAD * 2
+/**
  * 进度条两侧 ± 按钮的宽度：**必须定宽**。轨道是靠「两侧等宽 + 卡片居中」才正好落在
  * 屏幕中央的，而 `slider.left` 正是按居中去算的（见 index.tsx 传给本组件的 slider）——
  * ± 宽度不等，算出来的轨道左端就是错的，拖到哪都差几像素。
  */
 const STEP_W = 30
-const BTN = 'flex flex-row items-center justify-center rounded-full border'
-
 /**
  * 阅读器底栏：五个图标按钮 + 它们各自的气泡。
  *
@@ -45,7 +63,6 @@ const BTN = 'flex flex-row items-center justify-center rounded-full border'
 export function ReaderToolbar({
   dark,
   ud,
-  penOn,
   zoom,
   page,
   pageCount,
@@ -61,7 +78,6 @@ export function ReaderToolbar({
 }: {
   dark: boolean
   ud: boolean
-  penOn: boolean
   zoom: number
   page: number
   pageCount: number
@@ -111,9 +127,6 @@ export function ReaderToolbar({
     if (p != null) onJump(p)
   }
 
-  const btn = (active: boolean) =>
-    `${BTN} ${active ? 'border-primary bg-primary/10' : 'border-border bg-card'}`
-
   const icon = (src: string, srcDark: string) => (
     <Image src={dark ? srcDark : src} style={{ width: `${ICON}px`, height: `${ICON}px` }} />
   )
@@ -124,9 +137,18 @@ export function ReaderToolbar({
     <>
       {/* 页码气泡：位置**居中**、轨道宽度固定（页数越多每格越小，见 sliderFracOf） */}
       {panel === 'page' ? (
-        <View className='absolute left-0 right-0 flex flex-col items-center' style={{ bottom: '100%' }}>
-          <View className='mb-2 rounded-2xl border border-border bg-surface px-3 py-2.5'>
-            <View className='flex flex-row items-center'>
+        <View style={{ position: 'absolute', left: '0px', right: '0px', bottom: '100%' }}>
+          <View
+            className='rounded-2xl border border-border bg-surface'
+            style={{
+              width: `${cardWidthOf(slider.width)}px`,
+              marginLeft: 'auto',
+              marginRight: 'auto',
+              marginBottom: '8px',
+              padding: `10px ${CARD_PAD}px`,
+            }}
+          >
+            <View style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
               <Button
                 className='rounded-full border border-border bg-card py-0.5 text-center text-sm text-text'
                 style={{ width: `${STEP_W}px` }}
@@ -178,8 +200,17 @@ export function ReaderToolbar({
 
       {/* 缩放气泡 */}
       {panel === 'zoom' ? (
-        <View className='absolute left-0 right-0 flex flex-col items-center' style={{ bottom: '100%' }}>
-          <View className='mb-2 flex flex-row items-center rounded-2xl border border-border bg-surface px-3 py-2.5'>
+        <View style={{ position: 'absolute', left: '0px', right: '0px', bottom: '100%' }}>
+          <View
+            className='flex flex-row items-center justify-center rounded-2xl border border-border bg-surface'
+            style={{
+              width: `${cardWidthOf(slider.width)}px`,
+              marginLeft: 'auto',
+              marginRight: 'auto',
+              marginBottom: '8px',
+              padding: `10px ${CARD_PAD}px`,
+            }}
+          >
             <Button
               className='rounded-full border border-border bg-card px-3 py-0.5 text-sm text-text'
               ariaLabel={t('scoreReader.zoomOut')}
@@ -207,30 +238,34 @@ export function ReaderToolbar({
       ) : null}
 
       {/* 五个按钮：等距铺开。每个都是独立的圆角按钮（与原来顶栏那排同一套形状） */}
-      <View className='flex flex-row items-center justify-between px-5 py-2'>
+      <View className='flex flex-row items-center justify-between px-2'>
         <View
-          className={`${btn(panel === 'page')} px-2.5 py-1.5`}
+          className='flex flex-row items-center justify-center'
+          style={{ width: `${BTN_SIZE}px`, height: `${BTN_SIZE}px` }}
           ariaLabel={t('scoreReader.pageJump')}
           onClick={() => onPanel(panel === 'page' ? 'none' : 'page')}
         >
           {icon(bookOpenIcon, bookOpenIconDark)}
         </View>
         <View
-          className={`${btn(panel === 'zoom')} px-2.5 py-1.5`}
+          className='flex flex-row items-center justify-center'
+          style={{ width: `${BTN_SIZE}px`, height: `${BTN_SIZE}px` }}
           ariaLabel={t('scoreReader.zoomPanel')}
           onClick={() => onPanel(panel === 'zoom' ? 'none' : 'zoom')}
         >
           {icon(zoomInIcon, zoomInIconDark)}
         </View>
         <View
-          className={`${btn(penOn)} px-2.5 py-1.5`}
+          className='flex flex-row items-center justify-center'
+          style={{ width: `${BTN_SIZE}px`, height: `${BTN_SIZE}px` }}
           ariaLabel={t('scoreReader.annotation')}
           onClick={onPen}
         >
           {icon(pencilLineIcon, pencilLineIconDark)}
         </View>
         <View
-          className={`${btn(false)} px-2.5 py-1.5 ${busy ? 'opacity-50' : ''}`}
+          className={`flex flex-row items-center justify-center ${busy ? 'opacity-50' : ''}`}
+          style={{ width: `${BTN_SIZE}px`, height: `${BTN_SIZE}px` }}
           ariaLabel={t('common.saveTo.title')}
           onClick={onForward}
         >
@@ -238,7 +273,8 @@ export function ReaderToolbar({
         </View>
         {/* 图标显示的是**点下去会变成什么**：UD 时给左右箭头（点了就横着翻） */}
         <View
-          className={`${btn(false)} px-2.5 py-1.5`}
+          className='flex flex-row items-center justify-center'
+          style={{ width: `${BTN_SIZE}px`, height: `${BTN_SIZE}px` }}
           ariaLabel={t('scoreReader.modeSwitch')}
           onClick={onMode}
         >
