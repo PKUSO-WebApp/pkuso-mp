@@ -302,6 +302,16 @@ export async function ensureSavedPdf(
      * 拿旧长度当起点拼新内容会得到一份坏文件。
      */
     force?: boolean
+    /**
+     * **只走直连**，不试反代那条腿。
+     *
+     * 给**签名 URL** 用（云端合成出来的带批注 PDF）：实测签名 URL 经反代**会挂满**
+     * `Taro.downloadFile` 的默认 60 秒超时，然后才轮到直连成功 —— 用户白等一分钟。
+     * 判据：函数返回后**整整 60.2 秒**客户端才发出下载请求，而那 60 秒里服务端
+     * **一条记录都没有**（反代那条腿根本没把请求转出去）。同一时期公开 URL 的反代腿是
+     * **快速失败**的，所以这不是「反代不通」，是「反代处理签名 URL 这个形态不通」。
+     */
+    directOnly?: boolean
   },
   deps: SavePdfDeps
 ): Promise<SavePdfResult> {
@@ -334,7 +344,8 @@ export async function ensureSavedPdf(
   // 分片后每片都在上限内，大文件也能吃到「境内」这条可靠性（反代侧不用改，它原样
   // 转发 `Range` 并回传 `Content-Range`）。反代优先、直连兜底，两条都在候选里。
   if (opts.expectedBytes && opts.expectedBytes > 0) {
-    const proxied = rewriteTo(opts.url, 'proxy')
+    // 签名 URL 不试反代（见 directOnly 的注释）：那条腿会挂满 60 秒超时才轮到直连
+    const proxied = opts.directOnly ? opts.url : rewriteTo(opts.url, 'proxy')
     const urls = proxied === opts.url ? [opts.url] : [proxied, opts.url]
     await downloadInChunks(
       { urls, dest: path, totalBytes: opts.expectedBytes },

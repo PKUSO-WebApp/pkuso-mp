@@ -105,6 +105,7 @@ describe('usePdfHandoff：是否带有批注', () => {
     expect(savedCall().fileId).toBe('f1')
     expect(savedCall().url).toContain('/public/')
     expect(savedCall().force).toBe(false) // 原件那份不需要重下
+    expect(savedCall().directOnly).toBe(false) // 公开 URL 两条腿都留着
   })
 
   it('拨到「是」：调合成、用签名 URL 与产物字节数下载，文件名带后缀', async () => {
@@ -124,6 +125,8 @@ describe('usePdfHandoff：是否带有批注', () => {
     // ⚠️ 必须 force：本地那个路径是固定的，不强制的话**新合成的那份根本不会被下载**，
     // 交出去的是上一次的旧内容（用户又多画了几笔也照样是旧的）
     expect(last.force).toBe(true)
+    // 签名 URL 不能走反代：那条腿会挂满 60 秒超时（实测）
+    expect(last.directOnly).toBe(true)
   })
 
   it('⚠️ 合成之前必须**先同步**：函数读的是服务端那份，本地没推上去就会少画几笔', async () => {

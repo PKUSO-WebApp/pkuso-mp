@@ -10,6 +10,14 @@ import {
   type FsLike,
 } from './pdf-save'
 
+// 桩成「配了反代」：默认环境里没有反代域名，`rewriteTo` 会原样返回 ⇒
+// 「反代那条腿」这件事在用例里根本不存在，`directOnly` 也就验不出东西。
+// （`vi.mock` 会被提升到 import 之前，所以工厂里引用的东西必须走 `vi.hoisted`。）
+const { rewriteToMock } = vi.hoisted(() => ({ rewriteToMock: vi.fn() }))
+vi.mock('@/lib/supabase-entry', () => ({
+  rewriteTo: (url: string, entry: string) => rewriteToMock(url, entry),
+}))
+
 /**
  * 内存版 FileSystemManager。
  *
@@ -369,6 +377,37 @@ describe('PDF 下载的退避重试', () => {
     t.download.mockResolvedValue({ statusCode: 200, tempFilePath: '/tmp/x.pdf' })
     await ensureSavedPdf(opts(), t.deps)
     expect(t.download).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('签名 URL 不走反代（directOnly）', () => {
+  const signed = 'https://x.supabase.co/storage/v1/object/sign/b/p.pdf?token=t'
+
+  const run = async (over: Record<string, unknown>) => {
+    const t = deps()
+    t.download.mockImplementation(async () => {
+      t.files.set('/tmp/chunk', new Uint8Array(4).fill(7))
+      return { statusCode: 206, tempFilePath: '/tmp/chunk' }
+    })
+    await ensureSavedPdf(opts({ expectedBytes: 4, url: signed, ...over }), t.deps)
+    return t
+  }
+
+  it('默认（公开 URL）：反代优先，直连兜底——两条腿都在候选里', async () => {
+    rewriteToMock.mockReset().mockReturnValue('https://proxy.example/p.pdf?token=t')
+    const t = await run({})
+    expect(rewriteToMock).toHaveBeenCalledWith(signed, 'proxy')
+    const calls = t.download.mock.calls as unknown as Array<[string]>
+    expect(calls[0][0]).toBe('https://proxy.example/p.pdf?token=t')
+  })
+
+  it('⚠️ directOnly：**一次都不碰反代**（实测签名 URL 经反代会挂满 60 秒超时）', async () => {
+    rewriteToMock.mockReset().mockReturnValue('https://proxy.example/p.pdf?token=t')
+    const t = await run({ directOnly: true })
+    expect(rewriteToMock).not.toHaveBeenCalled()
+    const calls = t.download.mock.calls as unknown as Array<[string]>
+    expect(calls[0][0]).toBe(signed)
+    expect(calls.every((c) => String(c[0]).startsWith('https://x.supabase.co'))).toBe(true)
   })
 })
 

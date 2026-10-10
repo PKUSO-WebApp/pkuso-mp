@@ -158,6 +158,8 @@ export function usePdfHandoff() {
           expectedBytes,
           // 云端刚重新合成过 ⇒ 本地那份按定义已经过期，必须重下（见 EnsureSavedPdf 的 force）
           force: anno,
+          // 合成产物是**签名 URL**：那条腿走反代会挂满 60 秒超时（见 directOnly 的注释）
+          directOnly: anno,
         },
         {
           root: userDataRoot(),
