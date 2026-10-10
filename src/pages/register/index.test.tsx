@@ -13,6 +13,8 @@ import Register from './index'
 const route: { params: Record<string, string> } = { params: {} }
 
 const mocks = vi.hoisted(() => ({
+  // 词表由用例切换：注册页的入团时间曾经把「本地化文案」当值写库，只有 en 环境才暴露
+  locale: 'zh-CN' as 'zh-CN' | 'en',
   login: vi.fn(async () => ({ code: 'WXCODE-1' })),
   showToast: vi.fn(),
   navigateTo: vi.fn(),
@@ -96,14 +98,15 @@ vi.mock('@/lib/supabase', () => ({
   },
 }))
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
+  const zhMod = await import('@/i18n/messages/zh-CN')
+  const enMod = await import('@/i18n/messages/en')
+  const dicts: Record<string, unknown> = { 'zh-CN': zhMod.zhCN, en: enMod.en }
   const get = (k: string, p?: Record<string, unknown>): string => {
     const val = k
       .split('.')
       .reduce<unknown>(
         (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
+        dicts[mocks.locale]
       )
     let s = typeof val === 'string' ? val : k
     if (p)
@@ -113,7 +116,7 @@ vi.mock('@/i18n', async () => {
   return {
     useT: () => ({
       t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
+      locale: mocks.locale,
       setLocale: vi.fn(),
     }),
     useNavTitle: vi.fn(),
@@ -137,7 +140,20 @@ async function fillValidForm() {
   fireEvent.click(screen.getByText('我已阅读并同意'))
 }
 
+/** 同上，但界面处于英文环境（标签与占位符都取 en 词表） */
+async function fillValidFormEn() {
+  typeInto('Enter your real name', 'Lisa Chen')
+  typeInto('name@example.com', 'Lisa@Example.COM')
+  fireEvent.click(screen.getByText('Select section'))
+  typeInto('e.g. School of Economics', 'School of Economics')
+  fireEvent.click(screen.getByText('Year'))
+  fireEvent.click(screen.getByText('Semester'))
+  fireEvent.click(screen.getByText('Enrolled'))
+  fireEvent.click(screen.getByText('I have read and agree to'))
+}
+
 beforeEach(() => {
+  mocks.locale = 'zh-CN'
   route.params = {}
   mocks.invoke.mockResolvedValue({ data: { access_token: 'at', refresh_token: 'rt' }, error: null })
   mocks.setSession.mockResolvedValue({ error: null })
@@ -205,6 +221,62 @@ describe('注册页', () => {
     // 声部取自 INSTRUMENT_ORDER 第 0 项、入团时间是「年份 + 学期」拼出来的
     expect(typeof opts.body.instrument).toBe('string')
     expect(String(opts.body.join_date)).toMatch(/^\d{4}(春|秋)$/)
+  })
+
+  it('英文环境提交：界面照旧显示 Spring，写库的是规范值「YYYY春/秋」', async () => {
+    mocks.locale = 'en'
+    render(<Register />)
+    await waitFor(() => expect(screen.getByText('Submit')).toBeTruthy())
+    await fillValidFormEn()
+
+    // 显示侧仍是本地化文案——别为了写库把展示也改成「春」
+    expect(screen.getByText('Spring')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Submit'))
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(1))
+    const [, opts] = mocks.invoke.mock.calls[0] as unknown as [
+      string,
+      { body: Record<string, unknown> },
+    ]
+    // 库里只接受「YYYY春/YYYY秋」：en 下若把 Spring 拼进去，会被 CHECK 约束拒掉、整次注册 500
+    expect(opts.body.join_date).toBe(`${new Date().getFullYear()}春`)
+  })
+
+  it('提交失败后重试：重新取 wx.login 的 code，不复用上一次那个', async () => {
+    // 微信 code 是一次性的：沿用同一个 code 重试会被 code2session 拒掉，
+    // 用户看到的还是那句「提交失败」——第一次修的就是这个（服务端 401）
+    mocks.login
+      .mockResolvedValueOnce({ code: 'WXCODE-1' })
+      .mockResolvedValueOnce({ code: 'WXCODE-2' })
+    mocks.invoke
+      .mockResolvedValueOnce({ data: { error: 'profile update failed' }, error: null })
+      .mockResolvedValueOnce({ data: { access_token: 'at', refresh_token: 'rt' }, error: null })
+
+    render(<Register />)
+    await waitFor(() => expect(screen.getByText('提交')).toBeTruthy())
+    await fillValidForm()
+
+    fireEvent.click(screen.getByText('提交'))
+    await waitFor(() => expect(screen.getByText('提交失败，请稍后重试')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('提交'))
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(2))
+
+    const codes = mocks.invoke.mock.calls.map(
+      (call) => (call as unknown as [string, { body: { code: string } }])[1].body.code
+    )
+    expect(codes).toEqual(['WXCODE-1', 'WXCODE-2'])
+  })
+
+  it('wx.login 取不到 code：提示微信授权失败，不发请求', async () => {
+    mocks.login.mockRejectedValueOnce(new Error('login:fail'))
+    render(<Register />)
+    await waitFor(() => expect(screen.getByText('提交')).toBeTruthy())
+    await fillValidForm()
+    fireEvent.click(screen.getByText('提交'))
+
+    await waitFor(() => expect(screen.getByText('微信授权失败，请重试')).toBeTruthy())
+    expect(mocks.invoke).not.toHaveBeenCalled()
   })
 
   it('后端说微信已绑定：显示对应文案，不建会话', async () => {
