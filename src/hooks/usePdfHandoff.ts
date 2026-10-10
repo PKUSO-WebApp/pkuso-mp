@@ -104,7 +104,9 @@ export function usePdfHandoff() {
       reportClientError({
         event: 'score_reader_pdf_save_failed',
         message: msg,
-        detail: { fileId: id, kind: 'prepare', platform },
+        // `bytes` 一并上报：>0 说明走的是**分片**那条路，0 说明退回了单次下载 ——
+        // 下次再报错时，这两条路径的失败原因完全不同，先把路分清楚再查
+        detail: { fileId: id, kind: 'prepare', platform, bytes: m.expectedBytes ?? 0 },
       })
       void Taro.showToast({ title: t('common.saveTo.failed', { error: msg }), icon: 'none' })
     } finally {
@@ -142,7 +144,7 @@ export function usePdfHandoff() {
         reportClientError({
           event: 'score_reader_pdf_save_failed',
           message: msg,
-          detail: { fileId: pdf.fileId, kind, platform },
+          detail: { fileId: pdf.fileId, kind, platform, bytes: meta?.expectedBytes ?? 0 },
         })
         void Taro.showToast({ title: t('common.saveTo.failed', { error: msg }), icon: 'none' })
       })

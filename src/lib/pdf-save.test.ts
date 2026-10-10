@@ -10,11 +10,24 @@ import {
   type FsLike,
 } from './pdf-save'
 
-/** 内存版 FileSystemManager：只实现这个模块用到的五件事 */
+/**
+ * 内存版 FileSystemManager。
+ *
+ * ⚠️ 它**必须像真机一样要求「父目录先存在」**：曾经这里只往集合里加路径、从不检查父目录，
+ * 于是「分片那条路忘了 mkdir」这个 bug 一路测到了线上（dev.184 的 iOS 上报：
+ * `writeFile:fail no such file or directory`）。**夹具比现实宽松，现实里的约束就测不到。**
+ */
 function fakeFs(initial: string[] = []) {
-  const files = new Set(initial)
+  const files = new Map<string, Uint8Array>()
   const dirs = new Set<string>()
   const calls: string[] = []
+  const parentOf = (p: string) => p.slice(0, p.lastIndexOf('/'))
+  // 预置的文件意味着它的目录也在（否则连"复用"那批用例都建不起来）
+  for (const f of initial) {
+    files.set(f, new Uint8Array(1))
+    dirs.add(parentOf(f))
+  }
+  const noDir = (p: string) => !dirs.has(parentOf(p)) && parentOf(p) !== ''
   const fs: FsLike = {
     access({ path, success, fail }) {
       calls.push(`access:${path}`)
@@ -27,7 +40,11 @@ function fakeFs(initial: string[] = []) {
         fail({ errMsg: 'file already exists' })
         return
       }
-      files.add(filePath)
+      if (noDir(filePath)) {
+        fail({ errMsg: `no such file or directory, open '${filePath}'` })
+        return
+      }
+      files.set(filePath, new Uint8Array(1))
       success()
     },
     unlink({ filePath, success, fail }) {
@@ -44,28 +61,51 @@ function fakeFs(initial: string[] = []) {
     readdir({ dirPath, success, fail }) {
       calls.push(`readdir:${dirPath}`)
       const prefix = `${dirPath}/`
-      const out = [...files].filter((f) => f.startsWith(prefix)).map((f) => f.slice(prefix.length))
+      const out = [...files.keys()].filter((f) => f.startsWith(prefix)).map((f) => f.slice(prefix.length))
       if (out.length > 0 || dirs.has(dirPath)) success({ files: out })
       else fail?.()
     },
-    // —— 下面五个只被分片下载用；这里给最小实现（分片本身的用例在 ranged-download.test.ts）——
+    // —— 以下五个只被分片下载用。同样要求父目录存在 ——
     stat({ path, success, fail }) {
-      if (files.has(path)) success({ stats: { size: 1 } })
+      const f = files.get(path)
+      if (f) success({ stats: { size: f.byteLength } })
       else fail?.()
     },
-    readFile({ success }) {
-      success({ data: new ArrayBuffer(1) })
+    readFile({ filePath, success, fail }) {
+      const f = files.get(filePath)
+      if (f) success({ data: f.slice().buffer })
+      else fail?.({ errMsg: `no such file ${filePath}` })
     },
-    writeFile({ filePath, success }) {
-      files.add(filePath)
+    writeFile({ filePath, data, success, fail }) {
+      calls.push(`write:${filePath}`)
+      if (noDir(filePath)) {
+        fail?.({ errMsg: `no such file or directory, open '${filePath}'` })
+        return
+      }
+      files.set(filePath, new Uint8Array(data.slice(0)))
       success?.()
     },
-    appendFile({ filePath, success }) {
-      files.add(filePath)
+    appendFile({ filePath, data, success, fail }) {
+      calls.push(`append:${filePath}`)
+      const prev = files.get(filePath)
+      if (!prev) {
+        fail?.({ errMsg: `no such file ${filePath}` })
+        return
+      }
+      const next = new Uint8Array(prev.byteLength + data.byteLength)
+      next.set(prev, 0)
+      next.set(new Uint8Array(data), prev.byteLength)
+      files.set(filePath, next)
       success?.()
     },
-    copyFile({ destPath, success }) {
-      files.add(destPath)
+    copyFile({ srcPath, destPath, success, fail }) {
+      calls.push(`copy:${srcPath}->${destPath}`)
+      const src = files.get(srcPath)
+      if (!src || noDir(destPath)) {
+        fail?.({ errMsg: 'no such file or directory' })
+        return
+      }
+      files.set(destPath, src.slice())
       success?.()
     },
   }
@@ -298,5 +338,41 @@ describe('PDF 下载的退避重试', () => {
     t.download.mockResolvedValue({ statusCode: 200, tempFilePath: '/tmp/x.pdf' })
     await ensureSavedPdf(opts(), t.deps)
     expect(t.download).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('分片下载那条路（给了 expectedBytes）', () => {
+  it('⚠️ 先建目录、再写分片 —— 少这一步真机就报 no such file or directory', async () => {
+    // 线上实证（dev.184，iOS）：分片那条路**没有建目标目录**（mkdirp 只写在单次下载那条路上），
+    // 于是 writeFile 直接报 `no such file or directory, open 'wxfile://usr/pkuso-score/<id>/…'`。
+    // 而当时的夹具从不要求父目录存在，所以这个 bug 一路测到了线上。
+    const t = deps()
+    const bytes = new Uint8Array(4).fill(7)
+    t.download.mockImplementation(async () => {
+      t.files.set('/tmp/chunk', bytes)
+      return { statusCode: 206, tempFilePath: '/tmp/chunk' }
+    })
+    const res = await ensureSavedPdf(opts({ expectedBytes: 4 }), t.deps)
+    expect(res.reused).toBe(false)
+    expect(t.files.get(res.path)?.byteLength).toBe(4)
+    const mk = t.calls.indexOf('mkdir:/usr/pkuso-score/f1')
+    expect(mk).toBeGreaterThanOrEqual(0)
+    expect(mk).toBeLessThan(t.calls.indexOf(`write:${res.path}`))
+  })
+
+  it('分片请求带 Range 头；没给 expectedBytes 时退回单次下载', async () => {
+    const t = deps()
+    const bytes = new Uint8Array(4).fill(7)
+    t.download.mockImplementation(async () => {
+      t.files.set('/tmp/chunk', bytes)
+      return { statusCode: 206, tempFilePath: '/tmp/chunk' }
+    })
+    await ensureSavedPdf(opts({ expectedBytes: 4 }), t.deps)
+    expect(t.download).toHaveBeenCalledWith(expect.any(String), { Range: 'bytes=0-3' })
+
+    const t2 = deps()
+    t2.download.mockResolvedValue({ statusCode: 200, tempFilePath: '/tmp/x.pdf' })
+    await ensureSavedPdf(opts(), t2.deps)
+    expect(t2.download).toHaveBeenCalledWith('https://x/a.pdf') // 不带 header 的那个分支
   })
 })

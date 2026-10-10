@@ -305,6 +305,11 @@ export async function ensureSavedPdf(
   const found = await listPdfs(fs, dir)
   const first = found[0]
   if (first) return { path: `${dir}/${first}`, name: first, reused: true }
+  // ⚠️ 目录要在**两条路之前**建好。分片那条是**直接往 dest 写**的（不经过 saveFile），
+  // 少这一步 writeFile 就报 `no such file or directory` —— 线上实证：dev.184 的 iOS 上报
+  // 正是 `writeFile:fail no such file or directory, open 'wxfile://usr/pkuso-score/<id>/…'`。
+  // 原来只在单次下载那条路上 mkdirp，分片那条路因此从没建过目录。
+  await mkdirp(fs, dir)
 
   // **分片优先**：PDF 最大 30.7MB，而反代的响应上限约 4.5MB ⇒ 整份走反代必被拒。
   // 分片后每片都在上限内，大文件也能吃到「境内」这条可靠性（反代侧不用改，它原样
@@ -328,7 +333,6 @@ export async function ensureSavedPdf(
   // ⚠️ 非 200 的判断在**重试之外**：那是服务端明确拒绝（403/404…），再试几次也一样，
   // 重试它只会白等两秒、白占额度。重试只该针对网络层失败（如 ERR_CONNECTION_RESET）。
   if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}`)
-  await mkdirp(fs, dir)
   await saveTo(fs, res.tempFilePath, path)
   // 老版本的路径（根下 `pkuso-score-<id>.pdf`）已经没人读：清掉它，别白占 200MB 配额
   // （失败无所谓——它只是垃圾，不是错误）
