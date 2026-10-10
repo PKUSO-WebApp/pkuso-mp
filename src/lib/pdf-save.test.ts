@@ -206,6 +206,37 @@ describe('ensureSavedPdf', () => {
     expect(t.download).not.toHaveBeenCalled()
   })
 
+  // ⚠️ 用**分片**那条路来验「先删」：单次下载那条 `saveTo` 自己也会先删目标文件，
+  // 于是「删没删」这个断言在那边永远成立、验不出东西（本仓栽过这类「夹具空转」）。
+  // 分片那条路不经过 saveTo，删它只可能来自 force 这一处。
+  it('⚠️ force：本地已有也**必须重下**，且旧文件要在写入**之前**删掉', async () => {
+    const stale = '/usr/pkuso-score/f1/肖五_第一小提琴_小提琴1.pdf'
+    const t = deps([stale])
+    t.download.mockImplementation(async () => {
+      t.files.set('/tmp/chunk', new Uint8Array(4).fill(7))
+      return { statusCode: 206, tempFilePath: '/tmp/chunk' }
+    })
+
+    const res = await ensureSavedPdf(opts({ force: true, expectedBytes: 4 }), t.deps)
+
+    expect(res.reused).toBe(false)
+    expect(t.download).toHaveBeenCalled()
+    const un = t.calls.indexOf(`unlink:${stale}`)
+    const firstWrite = t.calls.findIndex((c) => c.startsWith('write:') || c.startsWith('copy:'))
+    expect(un).toBeGreaterThanOrEqual(0)
+    // 分片是从**已有文件的长度**续传的：不先删就会拿旧长度当起点，拼出一份坏文件
+    expect(un).toBeLessThan(firstWrite)
+    expect(t.files.get(res.path)?.byteLength).toBe(4)
+  })
+
+  it('force：目录里那些**别的名字**的旧文件也清掉（不然它们白占 200MB 配额）', async () => {
+    const other = '/usr/pkuso-score/f1/旧曲名_弦乐_小提琴1.pdf'
+    const t = deps([other])
+    await ensureSavedPdf(opts({ force: true }), t.deps)
+
+    expect(t.calls).toContain(`unlink:${other}`)
+  })
+
   it('名字对不上但目录里有别的 pdf（曲名改过 / 缺参数）：复用旧的，不重下也不改名', async () => {
     const old = '/usr/pkuso-score/f1/红旗颂_弦乐_小提琴1.pdf'
     const t = deps([old])

@@ -151,6 +151,8 @@ export function usePdfHandoff() {
           section: m.section,
           fileName,
           expectedBytes,
+          // 云端刚重新合成过 ⇒ 本地那份按定义已经过期，必须重下（见 EnsureSavedPdf 的 force）
+          force: anno,
         },
         {
           root: userDataRoot(),
