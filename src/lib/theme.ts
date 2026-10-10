@@ -37,18 +37,12 @@ export type ThemePalette = {
   tabInactive: string
   /** tabBar 未读红点（= --color-danger token 对应值） */
   tabDot: string
-  /**
-   * 原生控件的「开」色（`<Switch>` 的 `color`）。**只因为它吃不到 CSS 变量**才在这里
-   * 再写一份——能用 className 的地方一律用 `bg-primary` 这类语义类。
-   */
-  primary: string
 }
 
 /** 各字段对应的 app.css 语义 token（改色时两边一起改；`theme.test.ts` 守着这层对应）：
  *  windowBg → --color-page-bg            navBg / tabBg → --color-surface
  *  tabBorder → --color-border            tabActive → --color-text
  *  tabInactive → --color-text-muted      tabDot → --color-danger
- *  primary → --color-primary（原生 Switch 的「开」色）
  *  navFront 是例外：原生导航栏前景固定取纯黑/纯白（不跟 --color-text 走）。
  *  另：windowBg 还必须等于 src/theme.json 的暗/亮 backgroundColor——两者不同的话，
  *  下拉回弹会露出色带。 */
@@ -62,7 +56,6 @@ export const THEME_PALETTE: Record<ThemeMode, ThemePalette> = {
     tabActive: '#18181b',
     tabInactive: '#71717a',
     tabDot: '#dc2626',
-    primary: '#18181b',
   },
   dark: {
     windowBg: '#09090b',
@@ -73,7 +66,6 @@ export const THEME_PALETTE: Record<ThemeMode, ThemePalette> = {
     tabActive: '#f4f4f5',
     tabInactive: '#a1a1aa',
     tabDot: '#f87171',
-    primary: '#f4f4f5',
   },
 }
 

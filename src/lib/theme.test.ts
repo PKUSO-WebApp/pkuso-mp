@@ -62,7 +62,6 @@ const MAPPING = {
   tabActive: 'color-text',
   tabInactive: 'color-text-muted',
   tabDot: 'color-danger',
-  primary: 'color-primary',
 } as const
 
 describe('token 解析器自证', () => {
@@ -78,7 +77,7 @@ describe('token 解析器自证', () => {
 describe('THEME_PALETTE 与 app.css token 一一对应', () => {
   for (const mode of ['light', 'dark'] as const) {
     const tokens = mode === 'light' ? light : dark
-    it(`${mode}：8 个字段与对应 token 同值`, () => {
+    it(`${mode}：7 个字段与对应 token 同值`, () => {
       const palette = THEME_PALETTE[mode] as Record<string, string>
       for (const [field, token] of Object.entries(MAPPING)) {
         expect(palette[field], `${mode}.${field} 应等于 --${token}`).toBe(tokens.get(token))

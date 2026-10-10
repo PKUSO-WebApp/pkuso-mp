@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
-import { View, Text, Textarea, ScrollView, Button } from '@tarojs/components'
+import { View, Text, Textarea, ScrollView } from '@tarojs/components'
 import { FormField } from '@/components/ui/FormFields'
+import { YesNoSwitch } from '@/components/ui/YesNoSwitch'
 import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { useT, useNavTitle } from '@/i18n'
@@ -58,18 +59,12 @@ export default function FeedbackPage() {
         <View className='px-4'>
           <View className='mt-3 flex items-center justify-between'>
             <Text className='text-xs text-text-muted'>{t('profile.feedback.anonymousLabel')}</Text>
-            <Button
-              className={`relative h-7 w-12 rounded-full border-0 p-0 ${
-                isAnonymous ? 'bg-primary' : 'bg-muted'
-              }`}
-              onClick={() => setIsAnonymous(!isAnonymous)}
-            >
-              <View
-                className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-all ${
-                  isAnonymous ? 'left-[calc(100%-1.75rem)]' : 'left-0.5'
-                }`}
-              />
-            </Button>
+            <YesNoSwitch
+              value={isAnonymous}
+              disabled={submitting}
+              ariaLabel={t('profile.feedback.anonymousLabel')}
+              onChange={setIsAnonymous}
+            />
           </View>
           <FormField boxClass='mt-3 w-full overflow-hidden rounded-xl border border-border bg-muted'>
             <Textarea

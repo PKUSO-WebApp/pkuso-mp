@@ -1,5 +1,8 @@
 // 公共文案（跨页面复用：按钮、加载态等）
 export const common = {
+  /** 二态开关两侧的两个字（见 components/ui/YesNoSwitch） */
+  yes: '是',
+  no: '否',
   appName: '北京大学学生交响乐团',
   actions: {
     save: '保存',
@@ -49,10 +52,8 @@ export const common = {
     cancel: '取消',
     notReady: '文件尚未加载完成',
     failed: '保存失败：{error}',
-    /** 「是否带有批注？」那个开关（左「是」右「否」） */
+    /** 「是否带有批注？」那个开关（左「是」右「否」，见 components/ui/YesNoSwitch） */
     withAnno: '是否带有批注？',
-    yes: '是',
-    no: '否',
     /** 打开开关但这份谱一笔都没画过：这是**预期内**的一种，不当失败报 */
     noAnno: '这份谱还没有批注',
     /** 带批注那份的文件名后缀——同一次会话里两份可能都存过，名字必须能分辨 */

@@ -178,6 +178,32 @@ describe('usePdfHandoff：是否带有批注', () => {
     expect(handed.path).not.toContain('anno')
   })
 
+  it('备文件期间 preparing 为真（面板据此禁用开关），结束后放下', async () => {
+    let resolveSaved: (v: unknown) => void = () => {}
+    ensureSavedPdf.mockReturnValue(new Promise((r) => (resolveSaved = r)))
+
+    const { result } = renderHook(() => usePdfHandoff())
+    expect(result.current.preparing).toBe(false)
+
+    act(() => result.current.open(meta()))
+    await waitFor(() => expect(result.current.preparing).toBe(true))
+
+    await act(async () => {
+      resolveSaved({ path: 'wxfile://usr/f1.pdf', name: 'f1.pdf', reused: false })
+    })
+    await waitFor(() => expect(result.current.preparing).toBe(false))
+  })
+
+  it('备文件失败也要放下 preparing（否则开关永久卡死，改不回原件）', async () => {
+    ensureSavedPdf.mockRejectedValue(new Error('boom'))
+
+    const { result } = renderHook(() => usePdfHandoff())
+    act(() => result.current.open(meta()))
+
+    await waitFor(() => expect(reportClientError).toHaveBeenCalled())
+    expect(result.current.preparing).toBe(false)
+  })
+
   it('这份谱没有批注：给一句人话、**不当失败上报**（那是预期内的一种）', async () => {
     const { AnnotatedPdfError } = await vi.importActual<typeof import('@/lib/annotated-pdf')>(
       '@/lib/annotated-pdf'

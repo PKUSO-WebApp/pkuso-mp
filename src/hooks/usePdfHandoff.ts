@@ -54,6 +54,11 @@ export function usePdfHandoff() {
   const [sheetOn, setSheetOn] = useState(false)
   const [busy, setBusy] = useState(false)
   /**
+   * 正在备文件（含云端合成那一段网络）。面板上的开关用它禁用——换了选择就得重新备一份，
+   * 半途改主意既没有意义，也会让「面板上那份到底是哪个」变得含糊。
+   */
+  const [preparing, setPreparing] = useState(false)
+  /**
    * 「是否带有批注？」。开了就走 Edge Function 在云端把批注烧进 PDF（带网络往返，
    * 面板上会多显示一会儿「正在准备文件…」），关着就是原样那份 PDF。
    *
@@ -120,6 +125,7 @@ export function usePdfHandoff() {
     if (inFlightRef.current === reqKey) return
     const seq = ++seqRef.current
     inFlightRef.current = reqKey
+    setPreparing(true)
     let expectedBytes = m.expectedBytes
     try {
       let url = m.url()
@@ -176,6 +182,8 @@ export function usePdfHandoff() {
       }
     } finally {
       if (inFlightRef.current === reqKey) inFlightRef.current = null
+      // 只有**最新**那一次结束才解除：被顶掉的那次不该把「还在备」的旗子放下来
+      if (seq === seqRef.current) setPreparing(false)
     }
   }
 
@@ -232,5 +240,18 @@ export function usePdfHandoff() {
       .finally(() => setBusy(false))
   }
 
-  return { sheetOn, ready, busy, kinds, labels, platform, withAnno, toggleAnno, open, close, pick }
+  return {
+    sheetOn,
+    ready,
+    busy,
+    preparing,
+    kinds,
+    labels,
+    platform,
+    withAnno,
+    toggleAnno,
+    open,
+    close,
+    pick,
+  }
 }

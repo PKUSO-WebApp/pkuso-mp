@@ -1,5 +1,7 @@
 // 公共文案（跨页面复用：按钮、加载态等）
 export const common = {
+  yes: 'Yes',
+  no: 'No',
   appName: 'PKUSO',
   actions: {
     save: 'Save',
@@ -46,8 +48,6 @@ export const common = {
     notReady: 'File not loaded yet',
     failed: 'Save failed: {error}',
     withAnno: 'Include annotations?',
-    yes: 'Yes',
-    no: 'No',
     noAnno: 'This score has no annotations yet',
     annoSuffix: ' (annotated)',
   },

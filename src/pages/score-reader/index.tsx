@@ -2517,6 +2517,7 @@ export default function ScoreReader() {
             ready={handoff.ready}
             busy={handoff.busy}
             withAnno={handoff.withAnno}
+            preparing={handoff.preparing}
             onAnno={handoff.toggleAnno}
             onPick={handoff.pick}
             onClose={handoff.close}
