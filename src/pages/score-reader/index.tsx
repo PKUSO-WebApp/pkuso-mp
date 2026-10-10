@@ -2206,6 +2206,11 @@ export default function ScoreReader() {
             触摸只挂在这一层：工具条/工具栏上的点击不该被当成起笔 */}
         <View
           id='reader-stage'
+          // ⚠️ `zIndex: 0` 是**有意的**：`position: absolute` + `z-index: auto` **不构成层叠
+          // 上下文**，于是里面画布的 z 序（1/3/5）会"逃逸"到页面根，直接和工具条（12）比大小。
+          // 真机反馈过「UD 模式下内容把底栏整个盖住」——那正是这层关系出问题的形态。
+          // 给它一个显式 z 之后，舞台里的东西整体就是**一层**，工具条/徽标/教程/面板都在它之上，
+          // 层序变成确定的，不再依赖"每个画布的 z 恰好比工具条小"这种默契。
           className='absolute inset-0 overflow-hidden'
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
@@ -2214,7 +2219,12 @@ export default function ScoreReader() {
           // 舞台底色 = 采样到的**纸色**：谱面比屏幕矮时（A4 比例的手机屏必然如此）上下会
           // 各留一段，之前露的是页面底色（浅灰）——那道「乐谱与灰带之间的距离」就是它。
           // 与灰带同色之后整屏连成一片，看起来就是一整张谱子
-          style={{ backgroundColor: bandColor?.top }}
+          // ⚠️ `zIndex: 0` 是**有意的**：`position: absolute` + `z-index: auto` **不构成层叠
+          // 上下文**，于是里面画布的 z 序（1/3/5）会"逃逸"到页面根，直接和工具条（12）比大小。
+          // 真机反馈过「UD 模式下内容把底栏整个盖住」——那正是这层关系出问题的形态。
+          // 给它一个显式 z 之后，舞台里的东西整体就是**一层**，工具条/徽标/教程/面板都在它之上，
+          // 层序变成确定的，不再依赖"每个画布的 z 恰好比工具条小"这种默契。
+          style={{ zIndex: 0, backgroundColor: bandColor?.top }}
         >
           <View
             className='absolute'
