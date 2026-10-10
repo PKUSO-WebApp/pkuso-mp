@@ -24,16 +24,6 @@ export const scoreReader = {
   /** 带页码：UD 下「本页」歧义（见 AnnotationBar 的 clearPage） */
   clear: '清空第 {page} 页',
   clearConfirm: '确认？',
-  /** 「保存到…」：把这份谱的 PDF 交给用户能看见的地方（见 lib/pdf-handoff.ts） */
-  saveTo: '保存到…',
-  saveToFavorites: '收藏到微信',
-  saveToChat: '转发给好友',
-  saveToApp: '用其他应用打开',
-  saveToDisk: '保存到电脑',
-  savePreparing: '正在准备文件…',
-  saveCancel: '取消',
-  nativeNotReady: '文件尚未加载完成',
-  saveFailed: '保存失败：{error}',
   tutorialPrev: '上一页',
   tutorialNext: '下一页',
   tutorialMenuZone: '菜单',

@@ -35,6 +35,17 @@ export const common = {
     exiting: 'Exiting…',
     loading: 'Loading…',
   },
+  saveTo: {
+    title: 'Save to…',
+    favorites: 'WeChat Favorites',
+    chat: 'Send to a chat',
+    app: 'Open in another app',
+    disk: 'Save to computer',
+    preparing: 'Preparing file…',
+    cancel: 'Cancel',
+    notReady: 'File not loaded yet',
+    failed: 'Save failed: {error}',
+  },
   error: {
     defaultTitle: 'Something went wrong',
     copySuccess: 'Error info copied',

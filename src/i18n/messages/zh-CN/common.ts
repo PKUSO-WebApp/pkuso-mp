@@ -35,6 +35,21 @@ export const common = {
     exiting: '退出中…',
     loading: '加载中…',
   },
+  /**
+   * 「保存到…」：把文件交给用户能看见的地方。**共用组件**（阅读器顶栏 + 声部页文件行），
+   * 所以放在 common 而不是某一页的命名空间里。落点与平台能力见 src/lib/pdf-handoff.ts。
+   */
+  saveTo: {
+    title: '保存到…',
+    favorites: '收藏到微信',
+    chat: '转发给好友',
+    app: '用其他应用打开',
+    disk: '保存到电脑',
+    preparing: '正在准备文件…',
+    cancel: '取消',
+    notReady: '文件尚未加载完成',
+    failed: '保存失败：{error}',
+  },
   error: {
     defaultTitle: '页面出错了',
     copySuccess: '已复制错误信息',

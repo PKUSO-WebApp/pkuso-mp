@@ -8,6 +8,7 @@ import { useThemeClass, useThemeContext } from '@/context/theme-context'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
 import { ReaderTutorial } from '@/components/score/ReaderTutorial'
 import { SaveToSheet } from '@/components/score/SaveToSheet'
+import { usePdfHandoff } from '@/hooks/usePdfHandoff'
 // 顶栏图标（Lucide 系列，72×72 PNG；暗色用 -dark 变体）
 import pencilLine from '@/assets/icons/pencil-line.png'
 import pencilLineDark from '@/assets/icons/pencil-line-dark.png'
@@ -52,8 +53,6 @@ import {
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawStrokeOn, eraseStrokesAt, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
-import { ensureSavedPdf, userDataRoot, type FsLike } from './lib/pdf-save'
-import { handOffPdf, handoffKindsFor, type HandoffKind } from './lib/pdf-handoff'
 import {
   isImageLayerBroken,
   loadPageImage,
@@ -1314,10 +1313,6 @@ export default function ScoreReader() {
     // 上一册的本地记账先落盘（换册 = 这一册的账到此为止；不落就整册白下）
     flushAlbumFiles.current()
     flushAlbumFiles.current = () => {}
-    // 上一册的本地 PDF 记账作废（键是 fileId，但路径与交付名都是这一册的）——
-    // 留着它会让下一次「保存到…」把**上一册的 PDF**交出去
-    pdfRef.current = null
-    setPdfReady(false)
     prefetchPumpRef.current?.stop()
     prefetchPumpRef.current = null
     // 取图策略（图片层 / downloadFile 兜底）的判定也跟着复位：换册=换了网络场景，
@@ -2046,114 +2041,23 @@ export default function ScoreReader() {
     if (next) setMenuOn(true)
   }
 
-  const [handoffBusy, setHandoffBusy] = useState(false)
-  const [saveSheetOn, setSaveSheetOn] = useState(false)
-  /** 本地那份 PDF 是否已就绪（面板据此决定能不能点）——`pdfRef` 是它的同步判据 */
-  const [pdfReady, setPdfReady] = useState(false)
   /**
-   * 这份谱的本地 PDF（`ensureSavedPdf` 的结果）。
+   * 「保存到…」（共用逻辑见 hooks/usePdfHandoff）：把这份谱的 **PDF** 交给用户能看见的
+   * 地方（收藏 / 聊天 / 系统 / 电脑磁盘）。小程序自己写不了用户可见的目录，所以
+   * 「用户知道文件在哪」的唯一解是**把文件送出去**（见 lib/pdf-handoff.ts）。
    *
-   * ⚠️ 必须**提前备好**、点击时只读它：微信要求 `addFileToFavorites` / `shareFileMessage`
-   * / `saveFileToDisk` **在用户点击的同步调用栈里**发起，否则报
-   * `can only be invoked by user TAP gesture`（2026-10-10 真机报错）。而备好它必然要
-   * `await`（探活 + 可能下载 30MB）——那一步只能挪到点击**之前**。
+   * `url` 传**取值函数**而不是值：`fileUrlRef` 是 ref，渲染期读会拿到空串。
    */
-  const pdfRef = useRef<{ path: string; name: string } | null>(null)
-  const pdfPreparingRef = useRef(false)
-
-  /** 备好本地 PDF（幂等：会话内只做一次；换册时由 load() 清空） */
-  const preparePdf = async () => {
-    if (pdfRef.current || pdfPreparingRef.current) return
-    // 只认 load() 成功后写入的真实文件 URL（拿不到就别下——下到别的谱子上更糟）
-    const target = fileUrlRef.current
-    if (!target) {
-      void Taro.showToast({ title: t('scoreReader.nativeNotReady'), icon: 'none' })
-      return
-    }
-    pdfPreparingRef.current = true
-    try {
-      const res = await ensureSavedPdf(
-        {
-          fileId,
-          url: target,
-          title: presetTitle,
-          section: presetSection,
-          fileName: presetFileName,
-        },
-        {
-          root: userDataRoot(),
-          fs: (Taro.getFileSystemManager?.() as FsLike | undefined) ?? null,
-          download: (url) => Taro.downloadFile({ url }),
-        }
-      )
-      pdfRef.current = { path: res.path, name: res.name }
-      setPdfReady(true)
-    } catch (err) {
-      const msg = describeError(err)
-      reportClientError({
-        event: 'score_reader_pdf_save_failed',
-        message: msg,
-        detail: { fileId, kind: 'prepare' },
-      })
-      void Taro.showToast({ title: t('scoreReader.saveFailed', { error: msg }), icon: 'none' })
-    } finally {
-      pdfPreparingRef.current = false
-    }
-  }
-
-  /**
-   * 点了某个出口：把这份谱的 PDF 交给用户能看见的地方（收藏 / 聊天 / 系统 / 电脑磁盘）。
-   *
-   * 为什么不是「下载到小程序里」：小程序写不了用户可见或可指定的目录（手机端沙盒 +
-   * Android 11 分区存储，平台红线）——存进沙盒的结果只有一句「已下载」，用户手里没有
-   * 任何实物。所以「用户知道文件在哪」的唯一解是**把文件送出去**，见 lib/pdf-handoff.ts。
-   *
-   * ⚠️⚠️ **从这里到 `handOffPdf(...)` 之间一行 `await` 都不能有**：微信要求这几个 API 在
-   * 用户点击的同步调用栈里发起。`handOffPdf` 虽是 async，但函数体在第一个 await 之前是
-   * 同步执行的——底层 wx API 就在这一拍里被调用，手势上下文还在。插进任何异步都会让它
-   * 变成 `can only be invoked by user TAP gesture`。
-   */
-  const handlePick = (kind: HandoffKind) => {
-    const pdf = pdfRef.current
-    if (!pdf || handoffBusy) return
-    setSaveSheetOn(false)
-    setHandoffBusy(true)
-    void handOffPdf(kind, pdf)
-      .catch((err) => {
-        const msg = describeError(err)
-        // 这条路径失败常常意味着「本地那份没了」：清掉记账，下次点会重新备一份
-        pdfRef.current = null
-        setPdfReady(false)
-        reportClientError({
-          event: 'score_reader_pdf_save_failed',
-          message: msg,
-          detail: { fileId, kind },
-        })
-        void Taro.showToast({ title: t('scoreReader.saveFailed', { error: msg }), icon: 'none' })
-      })
-      .finally(() => setHandoffBusy(false))
-  }
-
-  /**
-   * 打开出口面板。**只列这台设备真有的出口**（PC 才加「保存到电脑」）——
-   * 给了按钮再报「此 API 不可用」是拿用户当调试器。同时开始备 PDF（面板会显示「准备中」）。
-   */
-  const openSaveSheet = () => {
-    if (handoffBusy) return
-    setSaveSheetOn(true)
-    void preparePdf()
-  }
-
-  /** 这台设备上真有的出口（PC 才多一个「保存到电脑」）。判据见 lib/pdf-handoff.ts */
-  const handoffKinds = handoffKindsFor(
-    (Taro.getDeviceInfo?.() as { platform?: string } | undefined)?.platform
-  )
-  const saveLabels: Record<HandoffKind, string> = {
-    favorites: t('scoreReader.saveToFavorites'),
-    chat: t('scoreReader.saveToChat'),
-    app: t('scoreReader.saveToApp'),
-    disk: t('scoreReader.saveToDisk'),
-  }
+  const handoff = usePdfHandoff()
+  /** 顶栏那个按钮要开的是**这一册**（元数据在 open 时给，见 usePdfHandoff 的注释） */
+  const openHandoff = () =>
+    handoff.open({
+      fileId,
+      url: () => fileUrlRef.current,
+      title: presetTitle,
+      section: presetSection,
+      fileName: presetFileName,
+    })
 
   // 「还没画出一帧」就一直显示 —— 判据是**首帧真的换帧**（stage 到 ready），而不是
   // 「画布尺寸有没有值」：图片模式下 `setViewSize` 发生在绘制**之前**，按尺寸判会让
@@ -2260,9 +2164,9 @@ export default function ScoreReader() {
           <Text className='flex-1 text-xs text-text-muted'>{t('scoreReader.noImages')}</Text>
           <View
             className='ml-3 shrink-0 rounded-full border border-border bg-card px-3 py-1'
-            onClick={openSaveSheet}
+            onClick={openHandoff}
           >
-            <Text className='text-xs text-text'>{t('scoreReader.saveTo')}</Text>
+            <Text className='text-xs text-text'>{t('common.saveTo.title')}</Text>
           </View>
         </View>
       ) : stage === 'error' && message ? (
@@ -2433,8 +2337,8 @@ export default function ScoreReader() {
             <Text className='mr-3 text-xs text-text-muted'>{Math.round(zoom * 100)}%</Text>
             <View
               className='mr-2 flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
-              ariaLabel={t('scoreReader.saveTo')}
-              onClick={openSaveSheet}
+              ariaLabel={t('common.saveTo.title')}
+              onClick={openHandoff}
             >
               <Image
                 src={dark ? forwardIconDark : forwardIcon}
@@ -2578,14 +2482,14 @@ export default function ScoreReader() {
         {/* 首次教程蒙层：放在最后 ⇒ 压在所有工具条之上（z 也最高）。
             它是 #reader-stage 的兄弟节点，触摸不会冒泡进舞台状态机 */}
         {tutorialOn ? <ReaderTutorial mode={mode} onClose={dismissTutorial} /> : null}
-        {saveSheetOn ? (
+        {handoff.sheetOn ? (
           <SaveToSheet
-            kinds={handoffKinds}
-            labels={saveLabels}
-            ready={pdfReady}
-            busy={handoffBusy}
-            onPick={handlePick}
-            onClose={() => setSaveSheetOn(false)}
+            kinds={handoff.kinds}
+            labels={handoff.labels}
+            ready={handoff.ready}
+            busy={handoff.busy}
+            onPick={handoff.pick}
+            onClose={handoff.close}
           />
         ) : null}
       </View>

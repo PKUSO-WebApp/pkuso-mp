@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { View, Text, ScrollView } from '@tarojs/components'
+import { View, Text, ScrollView, Image } from '@tarojs/components'
 import Taro, { useDidShow, useRouter } from '@tarojs/taro'
 import { useT, useNavTitle } from '@/i18n'
-import { useThemeClass } from '@/context/theme-context'
+import { useThemeClass, useThemeContext } from '@/context/theme-context'
 import { supabase } from '@/lib/supabase'
 import { ListState } from '@/components/ui/ListState'
 import { translateInstrument } from '@/lib/instrument-i18n'
+import { usePdfHandoff } from '@/hooks/usePdfHandoff'
+import { SaveToSheet } from '@/components/score/SaveToSheet'
+import forwardIcon from '@/assets/icons/forward.png'
+import forwardIconDark from '@/assets/icons/forward-dark.png'
 import { compareFiles } from '@/lib/sheet-music-sort'
 import { formatFileSize } from '@/lib/format'
 import { pageImageUrls } from '@/lib/score-page-image'
@@ -19,11 +23,15 @@ export default function ScorePart() {
   const { t } = useT()
   useNavTitle('scorePart.navTitle')
   const darkClass = useThemeClass()
+  const { mode } = useThemeContext()
+  const dark = mode === 'dark'
   const router = useRouter()
   const partId = router.params.part_id ?? ''
   const sheetTitle = router.params.sheet ? decodeURIComponent(router.params.sheet) : ''
 
   const [part, setPart] = useState<PartWithFiles | null>(null)
+  /** 「保存到…」：共用逻辑见 hooks/usePdfHandoff（阅读器顶栏用的是同一份） */
+  const handoff = usePdfHandoff()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -94,7 +102,7 @@ export default function ScorePart() {
 
   return (
     <View
-      className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+      className={`${darkClass} relative flex h-full min-h-0 flex-col bg-page-bg`}
       style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
     >
       {/* 面包屑：曲名 / 声部名（曲名点击返回曲目详情） */}
@@ -133,20 +141,48 @@ export default function ScorePart() {
                       return (
                         <View
                           key={f.id}
-                          className={`flex flex-row items-center justify-between py-3${
+                          className={`flex flex-row items-center py-3${
                             i === 0 ? '' : ' border-t border-border'
                           }`}
-                          onClick={() => openFile(f)}
                         >
-                          <View className='flex-1 pr-3'>
+                          {/* ⚠️ 三个**兄弟**节点，不是一个可点行里嵌一个按钮：小程序端
+                              `bindtap` 会冒泡，而 Taro 不保证把 `stopPropagation` 映射成
+                              `catchtap` ⇒ 靠「不嵌套」保证点 ✈ 不会顺手把阅读器也打开。
+                              左侧整块（含文件名与元信息）仍是「打开」，只是多了独立的「打开」二字。 */}
+                          <View className='flex-1 pr-3' onClick={() => openFile(f)}>
                             <Text className='block text-sm text-text'>{f.file_name}</Text>
                             <Text className='mt-0.5 block text-xs text-text-muted'>
                               {meta || t('scoreDetail.unknownSize')}
                             </Text>
                           </View>
-                          <Text className='text-xs font-medium text-primary'>
+                          <Text
+                            className='mr-3 text-xs font-medium text-primary'
+                            onClick={() => openFile(f)}
+                          >
                             {t('scoreDetail.open')}
                           </Text>
+                          {/* 文件级「保存到…」：与阅读器顶栏同一个图标，两处一眼看得出是同一件事 */}
+                          <View
+                            className='flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
+                            ariaLabel={t('common.saveTo.title')}
+                            onClick={() =>
+                              handoff.open({
+                                fileId: f.id,
+                                url: () =>
+                                  supabase.storage
+                                    .from('sheet-music')
+                                    .getPublicUrl(f.storage_path).data.publicUrl,
+                                title: sheetTitle,
+                                section: part.section,
+                                fileName: f.file_name,
+                              })
+                            }
+                          >
+                            <Image
+                              src={dark ? forwardIconDark : forwardIcon}
+                              style={{ width: '16px', height: '16px' }}
+                            />
+                          </View>
                         </View>
                       )
                     })}
@@ -157,6 +193,16 @@ export default function ScorePart() {
           </ListState>
         </View>
       </ScrollView>
+      {handoff.sheetOn ? (
+        <SaveToSheet
+          kinds={handoff.kinds}
+          labels={handoff.labels}
+          ready={handoff.ready}
+          busy={handoff.busy}
+          onPick={handoff.pick}
+          onClose={handoff.close}
+        />
+      ) : null}
     </View>
   )
 }
