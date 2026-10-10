@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { View, Text, ScrollView, Image } from '@tarojs/components'
+import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow, useRouter } from '@tarojs/taro'
 import { useT, useNavTitle } from '@/i18n'
-import { useThemeClass, useThemeContext } from '@/context/theme-context'
+import { useThemeClass } from '@/context/theme-context'
 import { supabase } from '@/lib/supabase'
 import { ListState } from '@/components/ui/ListState'
 import { translateInstrument } from '@/lib/instrument-i18n'
-import { usePdfHandoff } from '@/hooks/usePdfHandoff'
-import { SaveToSheet } from '@/components/score/SaveToSheet'
-import forwardIcon from '@/assets/icons/forward.png'
-import forwardIconDark from '@/assets/icons/forward-dark.png'
 import { compareFiles } from '@/lib/sheet-music-sort'
 import { formatFileSize } from '@/lib/format'
 import { pageImageUrls } from '@/lib/score-page-image'
@@ -23,15 +19,11 @@ export default function ScorePart() {
   const { t } = useT()
   useNavTitle('scorePart.navTitle')
   const darkClass = useThemeClass()
-  const { mode } = useThemeContext()
-  const dark = mode === 'dark'
   const router = useRouter()
   const partId = router.params.part_id ?? ''
   const sheetTitle = router.params.sheet ? decodeURIComponent(router.params.sheet) : ''
 
   const [part, setPart] = useState<PartWithFiles | null>(null)
-  /** 「保存到…」：共用逻辑见 hooks/usePdfHandoff（阅读器顶栏用的是同一份） */
-  const handoff = usePdfHandoff()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -74,8 +66,8 @@ export default function ScorePart() {
     // 预取第一页：跳转动画 + 页面初始化期间图就在下载（缓存由小程序图片层负责）。
     // 失败静默 —— 真进到阅读器时还会再拉一次。
     if (f.page_count && f.page_count > 0) {
-      const pdfUrl = supabase.storage.from('sheet-music').getPublicUrl(f.storage_path).data
-        .publicUrl
+      const pdfUrl = supabase.storage.from('sheet-music').getPublicUrl(f.storage_path)
+        .data.publicUrl
       // 预取只试第一个候选（当前生效入口优先）——失败无所谓，真进阅读器还会再拉
       void Taro.getImageInfo({ src: pageImageUrls(pdfUrl, 1)[0] }).catch(() => {})
     }
@@ -139,55 +131,23 @@ export default function ScorePart() {
                         f.page_count != null ? t('scoreDetail.pages', { n: f.page_count }) : ''
                       const meta = [sizeText, pagesText].filter(Boolean).join(' · ')
                       return (
+                        // 打开与「保存到…」两枚按钮都去掉了，改成与**声部行**同款的右箭头
+                        // （用户 2026-10-10 定）：整行可点即进阅读器，右侧一个 › 示意。
+                        // 这也顺带取消了文件级的「保存到…」入口 —— 要存 PDF 进阅读器再点转发。
                         <View
                           key={f.id}
-                          className={`flex flex-row items-center py-3${
+                          className={`flex flex-row items-center justify-between py-3${
                             i === 0 ? '' : ' border-t border-border'
                           }`}
+                          onClick={() => openFile(f)}
                         >
-                          {/* ⚠️ 三个**兄弟**节点，不是一个可点行里嵌一个按钮：小程序端
-                              `bindtap` 会冒泡，而 Taro 不保证把 `stopPropagation` 映射成
-                              `catchtap` ⇒ 靠「不嵌套」保证点 ✈ 不会顺手把阅读器也打开。
-                              左侧整块（含文件名与元信息）仍是「打开」，只是多了独立的「打开」二字。 */}
-                          <View className='flex-1 pr-3' onClick={() => openFile(f)}>
+                          <View className='flex-1 pr-3'>
                             <Text className='block text-sm text-text'>{f.file_name}</Text>
                             <Text className='mt-0.5 block text-xs text-text-muted'>
                               {meta || t('scoreDetail.unknownSize')}
                             </Text>
                           </View>
-                          {/* 「打开」也做成圆角按钮，与右边的 ✈ 同高同形（用户 2026-10-10 定）：
-                              两个都是动作，形状就该一样；靠颜色区分主次（打开=主色）。
-                              仍与左右两节点**平级**，不嵌套。 */}
-                          <View
-                            className='mr-2 flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
-                            onClick={() => openFile(f)}
-                          >
-                            <Text className='text-xs font-medium text-primary'>
-                              {t('scoreDetail.open')}
-                            </Text>
-                          </View>
-                          {/* 文件级「保存到…」：与阅读器顶栏同一个图标，两处一眼看得出是同一件事 */}
-                          <View
-                            className='flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
-                            ariaLabel={t('common.saveTo.title')}
-                            onClick={() =>
-                              handoff.open({
-                                fileId: f.id,
-                                url: () =>
-                                  supabase.storage
-                                    .from('sheet-music')
-                                    .getPublicUrl(f.storage_path).data.publicUrl,
-                                title: sheetTitle,
-                                section: part.section,
-                                fileName: f.file_name,
-                              })
-                            }
-                          >
-                            <Image
-                              src={dark ? forwardIconDark : forwardIcon}
-                              style={{ width: '16px', height: '16px' }}
-                            />
-                          </View>
+                          <Text className='text-lg text-text-muted'>›</Text>
                         </View>
                       )
                     })}
@@ -198,16 +158,6 @@ export default function ScorePart() {
           </ListState>
         </View>
       </ScrollView>
-      {handoff.sheetOn ? (
-        <SaveToSheet
-          kinds={handoff.kinds}
-          labels={handoff.labels}
-          ready={handoff.ready}
-          busy={handoff.busy}
-          onPick={handoff.pick}
-          onClose={handoff.close}
-        />
-      ) : null}
     </View>
   )
 }
