@@ -952,7 +952,13 @@ export default function ScoreReader() {
         const { node } = await queryCanvasNode(CANVAS_SEL[layer])
         if (stale()) return fallback()
         const img = await Promise.race([
-          loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target)),
+          // ⚠️ `key` 必须传（与前台那条完全一致）：不传时 page-image 退化成拿 `urls[0]`
+          // 当记账键，而整册预下载用的键是 `fileId#页号` ⇒ **即使整册已经在本地，预绘制也
+          // 永远命不中第 0 档**、每次都要真走一次网络（先撞反代那道 Referer 门的 403，
+          // 再换直连）。实测来源：2026-10-10 开发者工具 Network 里的那条 p5.jpg 403。
+          loadPageImage(node as CanvasNode, pageImageUrls(fileUrlRef.current, target), {
+            key: pageFileKey(target),
+          }),
           ctl.wait.then(() => null),
         ])
         if (!img || stale()) return fallback()
@@ -1012,7 +1018,7 @@ export default function ScoreReader() {
         return fallback()
       }
     },
-    [pageCount, promoteFrame, queryCanvasNode]
+    [pageCount, promoteFrame, queryCanvasNode, pageFileKey]
   )
 
   /**

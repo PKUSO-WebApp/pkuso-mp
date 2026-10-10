@@ -69,6 +69,7 @@ describe('loadPageImage 主路径（小程序图片层）', () => {
   it('第一条失败、第二条成功 ⇒ 正常返回，不当失败', async () => {
     const [proxy, direct] = freshUrls()
     const img = await loadPageImage(fakeNode([{ errMsg: 'proxy 502' }, 'ok']), [proxy, direct], {
+      key: proxy,
       downloadFile: downloadNever,
     })
     expect(img.width).toBe(10)
@@ -81,6 +82,7 @@ describe('loadPageImage 主路径（小程序图片层）', () => {
       fakeNode([{ errMsg: 'proxy 502' }, { errMsg: 'direct 502' }, 'ok']),
       [proxy, direct],
       {
+        key: proxy,
         downloadFile: async (url) => {
           files.push(url)
           return { statusCode: 200, tempFilePath: 'wxfile://tmp/p1.jpg' }
@@ -98,6 +100,7 @@ describe('loadPageImage 主路径（小程序图片层）', () => {
       fakeNode([{ errMsg: 'x' }, { errMsg: 'x' }, 'ok']),
       [proxy, direct],
       {
+        key: proxy,
         downloadFile: async (url) => {
           files.push(url)
           return url === proxy
@@ -119,12 +122,12 @@ describe('loadPageImage 主路径（小程序图片层）', () => {
         return { statusCode: 200, tempFilePath: `wxfile://tmp/once-${downloads}.jpg` }
       },
     }
-    await loadPageImage(fakeNode([{ errMsg: 'x' }, 'ok']), [proxy], deps)
+    await loadPageImage(fakeNode([{ errMsg: 'x' }, 'ok']), [proxy], { key: proxy, ...deps })
     expect(downloads).toBe(1)
     // 第二次：第 0 档命中本地记账（**不走图片层**——node 只给了一个 'ok'，要是先去图片层
     // 就画到远端 URL 上了），直接画本地那份
     const second = fakeNode(['ok'])
-    await loadPageImage(second, [proxy], deps)
+    await loadPageImage(second, [proxy], { key: proxy, ...deps })
     expect(downloads).toBe(1)
     expect(second.srcs).toEqual(['wxfile://tmp/once-1.jpg'])
   })
@@ -138,6 +141,7 @@ describe('loadPageImage 的失败信息（诊断用）', () => {
         fakeNode([{ errMsg: 'proxy 502' }, { errMsg: 'direct 502' }]),
         [proxy, direct],
         {
+          key: proxy,
           downloadFile: async () => ({ statusCode: 403, tempFilePath: '' }),
         }
       )
@@ -154,7 +158,7 @@ describe('loadPageImage 的失败信息（诊断用）', () => {
   it('onerror 不带可用文案时不虚构：那一条在 trace 里就是光秃秃的「页图加载失败」', async () => {
     const [proxy] = freshUrls()
     const err = await fail(
-      loadPageImage(fakeNode([undefined]), [proxy], { downloadFile: downloadNever })
+      loadPageImage(fakeNode([undefined]), [proxy], { key: proxy, downloadFile: downloadNever })
     )
     expect(err.errMsg).toBeUndefined()
     expect(err.trace?.split(' | ')[0]).toBe('image#0 页图加载失败')
@@ -166,6 +170,7 @@ describe('loadPageImage 的失败信息（诊断用）', () => {
       fakeNode([{ errMsg: '' }, { errMsg: '' }, 'ok']),
       [proxy, direct],
       {
+        key: proxy,
         downloadFile: async () => ({ statusCode: 200, tempFilePath: 'wxfile://tmp/ok.jpg' }),
       }
     )
@@ -180,31 +185,31 @@ describe('取图策略的判定（判一次、本会话记住）', () => {
     const [proxy] = freshUrls()
     const deps = { downloadFile: okDownload }
     const first = fakeNode([{ errMsg: 'boom' }, 'ok'])
-    await loadPageImage(first, [proxy], deps)
+    await loadPageImage(first, [proxy], { key: proxy, ...deps })
     expect(first.srcs).toEqual([proxy, 'wxfile://tmp/once.jpg'])
     expect(isImageLayerBroken()).toBe(true)
 
     const second = fakeNode(['ok'])
-    await loadPageImage(second, [proxy], deps)
+    await loadPageImage(second, [proxy], { key: proxy, ...deps })
     expect(second.srcs).toEqual(['wxfile://tmp/once.jpg']) // 只画本地那份，没试远端
   })
 
   it('两条路都失败 ⇒ 不下结论（可能只是网络），下一次仍然先试图片层', async () => {
     const [proxy] = freshUrls()
     await fail(
-      loadPageImage(fakeNode([{ errMsg: 'boom' }]), [proxy], { downloadFile: downloadNever })
+      loadPageImage(fakeNode([{ errMsg: 'boom' }]), [proxy], { key: proxy, downloadFile: downloadNever })
     )
     expect(isImageLayerBroken()).toBe(false)
 
     const next = fakeNode(['ok'])
-    await loadPageImage(next, [proxy], { downloadFile: downloadNever })
+    await loadPageImage(next, [proxy], { key: proxy, downloadFile: downloadNever })
     expect(next.srcs).toEqual([proxy])
   })
 
   it('复位之后重新判：换册 / 点「重试」不该永远锁在兜底那条路上', async () => {
     const [proxy] = freshUrls()
     const deps = { downloadFile: okDownload }
-    await loadPageImage(fakeNode([{ errMsg: 'boom' }, 'ok']), [proxy], deps)
+    await loadPageImage(fakeNode([{ errMsg: 'boom' }, 'ok']), [proxy], { key: proxy, ...deps })
     expect(isImageLayerBroken()).toBe(true)
 
     resetPageImageStrategy()
@@ -212,7 +217,7 @@ describe('取图策略的判定（判一次、本会话记住）', () => {
     // （那是**缓存命中**，不是「图片层坏了」的结论，复位不该、也没法把它赶走）
     const [fresh] = freshUrls()
     const again = fakeNode(['ok'])
-    await loadPageImage(again, [fresh], deps)
+    await loadPageImage(again, [fresh], { key: fresh, ...deps })
     expect(again.srcs).toEqual([fresh]) // 又从图片层开始试
   })
 
@@ -227,12 +232,12 @@ describe('取图策略的判定（判一次、本会话记住）', () => {
     }
     // 全新会话、图片层健康：从前这条路会走 getImageInfo（图片层），现在必须走下载
     expect(isImageLayerBroken()).toBe(false)
-    await prefetchPageImage(proxy, deps)
+    await prefetchPageImage(proxy, { key: proxy, ...deps })
     expect(files).toEqual([proxy])
-    await prefetchPageImage(proxy, deps) // 已记账 ⇒ 不再下
+    await prefetchPageImage(proxy, { key: proxy, ...deps }) // 已记账 ⇒ 不再下
     expect(files).toEqual([proxy])
     const [other] = freshUrls()
-    await prefetchPageImage(other, deps) // 没记过 ⇒ 下它
+    await prefetchPageImage(other, { key: other, ...deps }) // 没记过 ⇒ 下它
     expect(files).toEqual([proxy, other])
   })
 
@@ -262,23 +267,23 @@ describe('取图策略的判定（判一次、本会话记住）', () => {
     const deps = {
       downloadFile: async () => ({ statusCode: 200, tempFilePath: 'wxfile://tmp/pre-1.jpg' }),
     }
-    await prefetchPageImage(proxy, deps)
+    await prefetchPageImage(proxy, { key: proxy, ...deps })
     const node = fakeNode(['ok']) // 图片层"可用"，但压根不该被问到
-    await loadPageImage(node, [proxy, direct], deps)
+    await loadPageImage(node, [proxy, direct], { key: proxy, ...deps })
     expect(node.srcs).toEqual(['wxfile://tmp/pre-1.jpg'])
   })
 })
 
 describe('loadPageImageWithRetry（失败退避重试）', () => {
   const noWait = () => Promise.resolve()
-  const deps = { downloadFile: downloadNever }
+  const deps = { downloadFile: downloadNever } // 键在各调用点给（每次都是新的一页）
 
   it('默认配置：首次 + 两次重试 = 3 次尝试，抛的是最后一次的错误', async () => {
     const err = await fail(
       loadPageImageWithRetry(
         fakeNode([{ errMsg: 'first' }, { errMsg: 'second' }, { errMsg: 'third' }]),
         [freshUrls()[0]],
-        { sleep: noWait, deps }
+        { sleep: noWait, deps: { key: freshUrls()[0], ...deps } }
       )
     )
     expect(PAGE_IMAGE_RETRY_DELAYS_MS).toEqual([500, 1000])
@@ -291,7 +296,7 @@ describe('loadPageImageWithRetry（失败退避重试）', () => {
       [freshUrls()[0]],
       {
         sleep: noWait,
-        deps,
+        deps: { key: freshUrls()[0], ...deps },
       }
     )
     expect(img.width).toBe(10)
@@ -305,7 +310,7 @@ describe('loadPageImageWithRetry（失败退避重试）', () => {
           slept.push(ms)
           return Promise.resolve()
         },
-        deps,
+        deps: { key: freshUrls()[0], ...deps },
       })
     )
     expect(slept).toEqual([500, 1000]) // 两次重试各等一拍，第三次失败后不再等
