@@ -266,6 +266,9 @@ describe('ensureSavedPdf', () => {
 
     expect(seen.find((c) => c.url.includes('proxy.example'))?.timeoutMs).toBe(PROXY_LEG_TIMEOUT_MS)
     expect(seen.find((c) => c.url === 'https://x/a.pdf')?.timeoutMs).toBe(DIRECT_LEG_TIMEOUT_MS)
+    // 这两个数是**决定**（用户 2026-10-11 定：反代 10 秒足够盖棺定论），不是实现细节
+    expect(PROXY_LEG_TIMEOUT_MS).toBe(10_000)
+    expect(DIRECT_LEG_TIMEOUT_MS).toBe(60_000)
     expect(PROXY_LEG_TIMEOUT_MS).toBeLessThan(DIRECT_LEG_TIMEOUT_MS)
 
     __resetRangedProxyForTest()

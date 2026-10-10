@@ -53,7 +53,40 @@ export type RangedDeps = {
  * 那条路只用 8 秒就能判死 ⇒ 同一类故障，下载这条路上贵 7.5 倍。给它一个短超时，
  * 代价就从「用户等一分钟」变成「等 15 秒」。
  */
-export type DownloadLeg = { url: string; timeoutMs: number }
+export type DownloadLeg = {
+  url: string
+  timeoutMs: number
+  /** 诊断标签（`proxy` / `direct`）。**只进日志**，不参与任何判定 */
+  label?: string
+}
+
+/** 一条腿的一次尝试（诊断用：真机上没有网络面板，只能靠日志判「哪条腿通」） */
+type LegTrial = { label: string; ok: boolean; status: number | null; ms: number; err: string }
+
+/**
+ * 把这几条腿的结果打**一行**到 console。
+ *
+ * 存在的理由很具体（用户 2026-10-11 提出）：真机验收时**没有网络面板**，
+ * 而「反代那条腿在用户所在网络上到底通不通」是判读一切超时的前提。
+ * 按 (腿, 首次结果) 归并，不让分片把日志刷成几十行。
+ */
+function logLegs(trials: LegTrial[]): void {
+  if (trials.length === 0) return
+  const byLabel = new Map<string, { first: LegTrial; n: number }>()
+  for (const t of trials) {
+    const hit = byLabel.get(t.label)
+    if (hit) hit.n += 1
+    else byLabel.set(t.label, { first: t, n: 1 })
+  }
+  const parts = [...byLabel.entries()].map(([label, { first, n }]) => {
+    const how = first.ok
+      ? `✓ ${first.status} ${first.ms}ms`
+      : `✗ ${first.status ?? first.err} ${first.ms}ms`
+    return `${label} ${how}${n > 1 ? ` ×${n}` : ''}`
+  })
+  // eslint-disable-next-line no-console
+  console.log(`[pkuso] 下载腿：${parts.join(' | ')}`)
+}
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
@@ -77,7 +110,8 @@ async function fetchRangeWithRetry(
   legs: DownloadLeg[],
   range: string,
   deps: RangedDeps,
-  preferred: string | null
+  preferred: string | null,
+  trials: LegTrial[]
 ): Promise<{ res: RangeResponse; url: string }> {
   const sleep = deps.sleep ?? defaultSleep
   const ordered = preferred
@@ -96,13 +130,30 @@ async function fetchRangeWithRetry(
   for (let round = 0; round <= CHUNK_RETRY_DELAYS_MS.length; round += 1) {
     for (const leg of ordered) {
       if (rejected.has(leg.url)) continue
+      const t0 = Date.now()
+      const label = leg.label ?? leg.url
       try {
         const res = await deps.fetchRange(leg.url, range, leg.timeoutMs)
-        if (res.statusCode === 206 || res.statusCode === 200) return { res, url: leg.url }
+        const ok = res.statusCode === 206 || res.statusCode === 200
+        trials.push({
+          label,
+          ok,
+          status: res.statusCode,
+          ms: Date.now() - t0,
+          err: ok ? '' : `HTTP ${res.statusCode}`,
+        })
+        if (ok) return { res, url: leg.url }
         lastErr = new Error(`HTTP ${res.statusCode}`)
         if (res.statusCode < 500) rejected.add(leg.url)
       } catch (err) {
         // 网络层失败（超时/连接重置）：**不判死**，下一轮还会再试它（网络会抖）
+        trials.push({
+          label,
+          ok: false,
+          status: null,
+          ms: Date.now() - t0,
+          err: err instanceof Error ? err.message : String(err),
+        })
         lastErr = err
       }
     }
@@ -127,18 +178,21 @@ export async function downloadInChunks(
   const legs = opts.legs.filter((l) => l && l.url)
   /** 这份下载里已经证明能通的那条腿（见 fetchRangeWithRetry） */
   let preferred: string | null = null
+  /** 每条腿试过什么（出去时打一行日志，见 logLegs） */
+  const trials: LegTrial[] = []
   if (legs.length === 0) throw new Error('没有可用的下载地址')
   if (!(opts.totalBytes > 0)) throw new Error('缺少文件总长，无法分片')
 
   // 每片至少该推进 1 字节，否则一定是异常（服务端反复回空片）
   const maxRounds = Math.ceil(opts.totalBytes / chunk) + 4
+  try {
   for (let round = 0; round < maxRounds; round += 1) {
     // ⚠️ 每轮都**重新读磁盘上的实际长度**（不是内存里累加的）：任何一片的写入被吞掉、
     // 或上一次运行留下半份文件，都能从这里自愈
     const have = await deps.fs.size(opts.dest)
     if (have >= opts.totalBytes) return finish(opts, deps, preferred)
     const end = Math.min(have + chunk, opts.totalBytes) - 1
-    const got = await fetchRangeWithRetry(legs, `bytes=${have}-${end}`, deps, preferred)
+    const got = await fetchRangeWithRetry(legs, `bytes=${have}-${end}`, deps, preferred, trials)
     const res = got.res
     preferred = got.url // 这一片是谁给的 ⇒ 下一片先试它（见 fetchRangeWithRetry）
     if (res.statusCode === 200) {
@@ -163,6 +217,9 @@ export async function downloadInChunks(
   }
   await deps.fs.remove(opts.dest)
   throw new Error('分片轮数异常（文件长度没有推进）')
+  } finally {
+    logLegs(trials) // 成与不成都要打：判读超时全靠它
+  }
 }
 
 /** 收尾：总长不符就**整份删掉**（宁可让用户重下，也不能交出一份损坏的文件） */

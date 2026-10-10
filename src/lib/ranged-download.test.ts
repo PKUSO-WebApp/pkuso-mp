@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   CHUNK_BYTES,
   downloadInChunks,
@@ -147,6 +147,33 @@ describe('多腿的取舍', () => {
     )
     expect(t.seenTimeout.get('proxy')).toBe(15000)
     expect(t.seenTimeout.get('direct')).toBe(60000)
+  })
+
+  it('⚠️ 把两条腿的结果打**一行**日志（真机没有网络面板，判读超时全靠它）', async () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const t = harness(300)
+      t.failNext(1) // 反代腿网络层失败 ⇒ 直连腿接手
+      await downloadInChunks(
+        {
+          legs: [
+            { url: 'proxy', timeoutMs: 10000, label: 'proxy' },
+            { url: 'direct', timeoutMs: 60000, label: 'direct' },
+          ],
+          dest: DEST,
+          totalBytes: 300,
+        },
+        t.deps
+      )
+      const line = spy.mock.calls
+        .map((c) => String(c[0]))
+        .find((l) => l.includes('下载腿'))
+      expect(line).toBeTruthy()
+      expect(line).toContain('proxy ✗')
+      expect(line).toContain('direct ✓ 206')
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('⚠️ 记住这份下载里哪条腿通：首片换了腿之后，第二片**先试通的那条**（否则按片数累乘）', async () => {

@@ -181,7 +181,7 @@ export const PDF_RETRY_DELAYS_MS = [500, 1000]
  * 同步 0.6s、合成 4.3s、**下载 62.6s** —— 而 62.6 ≈ `downloadFile` 的默认 60s 超时 + 直连
  * 成功的 2.5s ⇒ 60 秒全是**在反代那条腿上干等**。给它一个短超时，代价就压到 15 秒以内。
  */
-export const PROXY_LEG_TIMEOUT_MS = 15000
+export const PROXY_LEG_TIMEOUT_MS = 10000
 /** 直连那条腿要容得下跨境那一跳，沿用 `downloadFile` 的默认量级 */
 export const DIRECT_LEG_TIMEOUT_MS = 60000
 
@@ -201,10 +201,10 @@ export function __resetRangedProxyForTest(): void {
 
 /** 分片下载的候选腿。反代腿带短超时；判死过就把它挪到后面（**不删**） */
 function rangedLegs(url: string): DownloadLeg[] {
-  const direct: DownloadLeg = { url, timeoutMs: DIRECT_LEG_TIMEOUT_MS }
+  const direct: DownloadLeg = { url, timeoutMs: DIRECT_LEG_TIMEOUT_MS, label: 'direct' }
   const proxied = rewriteTo(url, 'proxy')
   if (proxied === url) return [direct]
-  const proxy: DownloadLeg = { url: proxied, timeoutMs: PROXY_LEG_TIMEOUT_MS }
+  const proxy: DownloadLeg = { url: proxied, timeoutMs: PROXY_LEG_TIMEOUT_MS, label: 'proxy' }
   return rangedProxyDead ? [direct, proxy] : [proxy, direct]
 }
 
