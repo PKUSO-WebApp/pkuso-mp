@@ -8,7 +8,7 @@ export const scoreReader = {
   zoomOut: '缩小',
   zoomReset: '适配',
   retry: '重试',
-  /** 没有页图（预渲染失败 / 还没跑迁移）：App 里渲染不了，引导「原生打开」 */
+  /** 没有页图（预渲染失败 / 还没跑迁移）：App 里渲染不了，引导「保存到…」 */
   noImages: '这份谱子还没有页图',
   // 首帧落地之前**只有这一个**状态词（原来的下载中/解析中/渲染中三档已合并）：
   // 用户反馈「加载中转完还显示渲染中」像是卡住了，而这三档对用户没有可操作的信息
@@ -24,12 +24,14 @@ export const scoreReader = {
   /** 带页码：UD 下「本页」歧义（见 AnnotationBar 的 clearPage） */
   clear: '清空第 {page} 页',
   clearConfirm: '确认？',
-  openNative: '原生打开',
+  /** 「保存到…」：把这份谱的 PDF 交给用户能看见的地方（见 lib/pdf-handoff.ts） */
+  saveTo: '保存到…',
+  saveToFavorites: '收藏到微信',
+  saveToChat: '转发给好友',
+  saveToApp: '用其他应用打开',
+  saveToDisk: '保存到电脑',
   nativeNotReady: '文件尚未加载完成',
-  downloadFailed: '打开失败：{error}',
-  download: '下载',
-  downloading: '下载中…',
-  downloadSaved: '已保存',
+  saving: '处理中…',
   saveFailed: '保存失败：{error}',
   tutorialPrev: '上一页',
   tutorialNext: '下一页',

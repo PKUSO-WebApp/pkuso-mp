@@ -10,10 +10,8 @@ import { ReaderTutorial } from '@/components/score/ReaderTutorial'
 // 顶栏图标（Lucide 系列，72×72 PNG；暗色用 -dark 变体）
 import pencilLine from '@/assets/icons/pencil-line.png'
 import pencilLineDark from '@/assets/icons/pencil-line-dark.png'
-import openExternal from '@/assets/icons/square-arrow-out-up-right.png'
-import openExternalDark from '@/assets/icons/square-arrow-out-up-right-dark.png'
-import download from '@/assets/icons/download.png'
-import downloadDark from '@/assets/icons/download-dark.png'
+import forwardIcon from '@/assets/icons/forward.png'
+import forwardIconDark from '@/assets/icons/forward-dark.png'
 import {
   PEN_COLORS,
   PEN_WIDTHS,
@@ -53,7 +51,8 @@ import {
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawStrokeOn, eraseStrokesAt, styleFor } from './lib/anno-draw'
 import { lastPageKey } from './lib/last-page'
-import { saveOriginalPdf, userDataRoot, type FsLike } from './lib/pdf-save'
+import { ensureSavedPdf, userDataRoot, type FsLike } from './lib/pdf-save'
+import { handOffPdf, handoffKindsFor, type HandoffKind } from './lib/pdf-handoff'
 import {
   isImageLayerBroken,
   loadPageImage,
@@ -146,9 +145,14 @@ export default function ScoreReader() {
   const presetStoragePath = router.params.sp ? decodeURIComponent(router.params.sp) : ''
   const presetPageCount = Number(router.params.pc) || 0
   const presetFileName = router.params.fn ? decodeURIComponent(router.params.fn) : ''
+  // 曲名与声部：**只**用于「保存到…」拼交付文件名（`{曲子}_{声部}_{文件名}.pdf`）。
+  // 缺了不影响任何功能——拼不出来就退回 `{文件名}.pdf`（见 lib/pdf-save.ts 的 displayPdfName）。
+  // 旧入口（早先分享出去的链接）没有这两个参数，属预期。
+  const presetTitle = router.params.title ? decodeURIComponent(router.params.title) : ''
+  const presetSection = router.params.sec ? decodeURIComponent(router.params.sec) : ''
 
   const [stage, setStage] = useState<Stage>('idle')
-  /** 这份谱子没有页图（预渲染失败 / 还没跑迁移）：不在 App 里渲染，只引导「原生打开」 */
+  /** 这份谱子没有页图（预渲染失败 / 还没跑迁移）：不在 App 里渲染，只引导「保存到…」 */
   const [noImages, setNoImages] = useState(false)
   /**
    * 翻页模式：`lr` 左右翻页 / `ud` 上下滚动（见 lib/reader-mode.ts）。记住用户的选择。
@@ -1356,7 +1360,7 @@ export default function ScoreReader() {
       // 这里**绝不能回填**它（曾经 admin/score_manager 打开时写总页数 ⇒ 没有页图的老文件
       // 被标成「有页图」，阅读器进来却找不到页图）。由 web 端在上传（预渲染页图那一次）写入。
       //
-      // 没有页图的（预渲染失败、或还没跑迁移）⇒ 不在 App 里渲染，直接引导「原生打开」。
+      // 没有页图的（预渲染失败、或还没跑迁移）⇒ 不在 App 里渲染，直接引导「保存到…」。
       // 这是拿掉 pdf.js 运行时（分包里 1.6MB）之后唯一的代价：这类文件交给系统阅读器。
       if (!(imagePageTotal > 0)) {
         setNoImages(true)
@@ -2037,83 +2041,80 @@ export default function ScoreReader() {
     if (next) setMenuOn(true)
   }
 
-  // 下载到本地并用微信原生文档查看器打开（showMenu 附带转发/用其他应用打开）
-  const [nativeBusy, setNativeBusy] = useState(false)
-  const openNative = async () => {
-    if (nativeBusy) return
+  const [handoffBusy, setHandoffBusy] = useState(false)
+  /**
+   * 「保存到…」：把这份谱的 **PDF** 交给用户能看见的地方（收藏 / 聊天 / 系统 / 电脑磁盘）。
+   *
+   * 为什么不是「下载到小程序里」：小程序写不了用户可见或可指定的目录（手机端沙盒 +
+   * Android 11 分区存储，平台红线）——存进沙盒的结果只有一句「已下载」，用户手里没有
+   * 任何实物。所以「用户知道文件在哪」的唯一解是**把文件送出去**，见 lib/pdf-handoff.ts。
+   *
+   * 四步：算名字 → 保证本地有这份 PDF（lib/pdf-save.ts，已有就复用）→ 交给出口 → 报错上报。
+   */
+  const saveTo = async (kind: HandoffKind) => {
+    if (handoffBusy) return
     // 只认 load() 成功后写入的真实文件 URL（拿不到就别下——下到别的谱子上更糟）
     const target = fileUrlRef.current
     if (!target) {
       void Taro.showToast({ title: t('scoreReader.nativeNotReady'), icon: 'none' })
       return
     }
-    setNativeBusy(true)
+    setHandoffBusy(true)
+    void Taro.showLoading({ title: t('scoreReader.saving'), mask: true })
     try {
-      const res = await Taro.downloadFile({ url: target })
-      if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}`)
-      await Taro.openDocument({ filePath: res.tempFilePath, showMenu: true })
-    } catch (err) {
-      const msg = describeError(err)
-      // 下载走裸 Taro.downloadFile（绕过 taroFetch）：失败只在 toast 里闪一下，库里没有
-      reportClientError({
-        event: 'score_reader_native_open_failed',
-        message: msg,
-        detail: { fileId },
-      })
-      void Taro.showToast({
-        title: t('scoreReader.downloadFailed', { error: msg }),
-        icon: 'none',
-      })
-    } finally {
-      setNativeBusy(false)
-    }
-  }
-
-  // 顶栏「下载」：把**原始 PDF** 存到本地（只落盘，不打开）。与「原生打开」的分工见
-  // lib/pdf-save.ts —— 那个把文件交给系统应用，这个让用户拿到文件本身。
-  const [downloadBusy, setDownloadBusy] = useState(false)
-  const downloadPdf = async () => {
-    if (downloadBusy) return
-    const target = fileUrlRef.current
-    if (!target) {
-      void Taro.showToast({ title: t('scoreReader.nativeNotReady'), icon: 'none' })
-      return
-    }
-    setDownloadBusy(true)
-    void Taro.showLoading({ title: t('scoreReader.downloading'), mask: true })
-    try {
-      const { path } = await saveOriginalPdf(
-        { fileId, url: target },
+      const { path, name } = await ensureSavedPdf(
+        {
+          fileId,
+          url: target,
+          title: presetTitle,
+          section: presetSection,
+          fileName: presetFileName,
+        },
         {
           root: userDataRoot(),
           fs: (Taro.getFileSystemManager?.() as FsLike | undefined) ?? null,
           download: (url) => Taro.downloadFile({ url }),
         }
       )
-      // PC（Windows/macOS）再导出一份到磁盘。手机**没有**这个接口，文件只落在小程序本地
-      // ——要让文件出小程序得走「原生打开」的系统菜单（用其他应用打开 / 转发）。
-      // saveFileToDisk 是 PC 专有 API，类型里未必有 ⇒ 显式收窄后可选调用
-      const platform = (Taro.getDeviceInfo?.() as { platform?: string } | undefined)?.platform
-      const saveToDisk = (
-        Taro as unknown as { saveFileToDisk?: (o: { filePath: string }) => Promise<unknown> }
-      ).saveFileToDisk
-      if ((platform === 'windows' || platform === 'mac') && saveToDisk) {
-        await saveToDisk({ filePath: path })
-      }
+      await handOffPdf(kind, { path, name })
       Taro.hideLoading()
-      void Taro.showToast({ title: t('scoreReader.downloadSaved'), icon: 'success' })
     } catch (err) {
       Taro.hideLoading()
       const msg = describeError(err)
       reportClientError({
         event: 'score_reader_pdf_save_failed',
         message: msg,
-        detail: { fileId },
+        detail: { fileId, kind },
       })
       void Taro.showToast({ title: t('scoreReader.saveFailed', { error: msg }), icon: 'none' })
     } finally {
-      setDownloadBusy(false)
+      setHandoffBusy(false)
     }
+  }
+
+  /**
+   * 出口面板。**只列这台设备真有的出口**（PC 才加「保存到电脑」）——
+   * 给了按钮再报「此 API 不可用」是拿用户当调试器。
+   */
+  const showSaveMenu = () => {
+    if (handoffBusy) return
+    const kinds = handoffKindsFor(
+      (Taro.getDeviceInfo?.() as { platform?: string } | undefined)?.platform
+    )
+    const labels: Record<HandoffKind, string> = {
+      favorites: t('scoreReader.saveToFavorites'),
+      chat: t('scoreReader.saveToChat'),
+      app: t('scoreReader.saveToApp'),
+      disk: t('scoreReader.saveToDisk'),
+    }
+    Taro.showActionSheet({ itemList: kinds.map((k) => labels[k]) })
+      .then((res) => {
+        const kind = kinds[res.tapIndex]
+        if (kind) void saveTo(kind)
+      })
+      .catch(() => {
+        // 用户取消（errMsg: showActionSheet:fail cancel）：不是错误，什么都不做
+      })
   }
 
   // 「还没画出一帧」就一直显示 —— 判据是**首帧真的换帧**（stage 到 ready），而不是
@@ -2216,14 +2217,14 @@ export default function ScoreReader() {
     >
       {noImages ? (
         // 没有页图：App 里没有可渲染的东西（pdf.js 运行时已拿掉，见文件头的注释）。
-        // 给一条真出口 —— 「原生打开」交给系统阅读器，功能上仍看得到这份谱子
+        // 给一条真出口 —— 「保存到…」把 PDF 交给用户能看见的地方，功能上仍拿得到这份谱子
         <View className='flex flex-row items-center justify-between px-4 py-2'>
           <Text className='flex-1 text-xs text-text-muted'>{t('scoreReader.noImages')}</Text>
           <View
             className='ml-3 shrink-0 rounded-full border border-border bg-card px-3 py-1'
-            onClick={() => void openNative()}
+            onClick={showSaveMenu}
           >
-            <Text className='text-xs text-text'>{t('scoreReader.openNative')}</Text>
+            <Text className='text-xs text-text'>{t('scoreReader.saveTo')}</Text>
           </View>
         </View>
       ) : stage === 'error' && message ? (
@@ -2372,7 +2373,7 @@ export default function ScoreReader() {
           ) : null}
         </View>
 
-        {/* 顶栏（悬浮）：页码 / 缩放 / 下载 / 原生打开 / 批注 / 教程。
+        {/* 顶栏（悬浮）：页码 / 缩放 / 保存到… / 批注 / 教程。
             菜单关着时 visibility:hidden + pointer-events:none —— 隐藏但**保留布局盒子**
             （于是高度随时量得到），触摸则穿透到谱面。
             非批注时半透明灰底（谱面透出，示意菜单已打开），批注时回到不透明 */}
@@ -2394,21 +2395,11 @@ export default function ScoreReader() {
             <Text className='mr-3 text-xs text-text-muted'>{Math.round(zoom * 100)}%</Text>
             <View
               className='mr-2 flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
-              ariaLabel={t('scoreReader.download')}
-              onClick={() => void downloadPdf()}
+              ariaLabel={t('scoreReader.saveTo')}
+              onClick={showSaveMenu}
             >
               <Image
-                src={dark ? downloadDark : download}
-                style={{ width: '18px', height: '18px' }}
-              />
-            </View>
-            <View
-              className='mr-2 flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
-              ariaLabel={t('scoreReader.openNative')}
-              onClick={() => void openNative()}
-            >
-              <Image
-                src={dark ? openExternalDark : openExternal}
+                src={dark ? forwardIconDark : forwardIcon}
                 style={{ width: '18px', height: '18px' }}
               />
             </View>

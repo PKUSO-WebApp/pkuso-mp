@@ -78,6 +78,12 @@ export default function ScorePart() {
       `sp=${encodeURIComponent(f.storage_path)}`,
       f.page_count ? `pc=${f.page_count}` : '',
       `fn=${encodeURIComponent(f.file_name)}`,
+      // 曲名与声部：阅读器**只**用它们拼「保存到…」的交付文件名
+      // （`{曲子}_{声部}_{文件名}.pdf`，见 lib/pdf-save.ts）。曲名就是本页已有的
+      // `sheetTitle`（面包屑在用），声部在 `part` 里。缺了不影响功能——回退成
+      // `{文件名}.pdf`。
+      sheetTitle ? `title=${encodeURIComponent(sheetTitle)}` : '',
+      part?.section ? `sec=${encodeURIComponent(part.section)}` : '',
     ]
       .filter(Boolean)
       .join('&')

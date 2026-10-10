@@ -1,9 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
-import { savedPdfPath, saveOriginalPdf, userDataRoot, type FsLike } from './pdf-save'
+import {
+  displayPdfName,
+  ensureSavedPdf,
+  legacyPdfPath,
+  MAX_NAME_CHARS,
+  savedPdfDir,
+  userDataRoot,
+  type FsLike,
+} from './pdf-save'
 
-/** 内存版 FileSystemManager：只实现这个模块用到的三件事 */
+/** 内存版 FileSystemManager：只实现这个模块用到的五件事 */
 function fakeFs(initial: string[] = []) {
   const files = new Set(initial)
+  const dirs = new Set<string>()
   const calls: string[] = []
   const fs: FsLike = {
     access({ path, success, fail }) {
@@ -13,7 +22,6 @@ function fakeFs(initial: string[] = []) {
     },
     saveFile({ tempFilePath, filePath, success, fail }) {
       calls.push(`save:${tempFilePath}->${filePath}`)
-      // 目标已存在时按微信的语义报错（由 saveTo 的 unlink-重试路径兜住）
       if (files.has(filePath)) {
         fail({ errMsg: 'file already exists' })
         return
@@ -27,92 +35,190 @@ function fakeFs(initial: string[] = []) {
       if (success) success()
       else fail?.()
     },
+    mkdir({ dirPath, success }) {
+      calls.push(`mkdir:${dirPath}`)
+      dirs.add(dirPath)
+      success?.()
+    },
+    readdir({ dirPath, success, fail }) {
+      calls.push(`readdir:${dirPath}`)
+      const prefix = `${dirPath}/`
+      const out = [...files].filter((f) => f.startsWith(prefix)).map((f) => f.slice(prefix.length))
+      if (out.length > 0 || dirs.has(dirPath)) success({ files: out })
+      else fail?.()
+    },
   }
-  return { fs, files, calls }
+  return { fs, files, dirs, calls }
 }
 
-const deps = (over: Partial<Parameters<typeof saveOriginalPdf>[1]> = {}) => {
+type EnsureOpts = Parameters<typeof ensureSavedPdf>[0]
+type EnsureDeps = Parameters<typeof ensureSavedPdf>[1]
+
+const opts = (over: Partial<EnsureOpts> = {}): EnsureOpts => ({
+  fileId: 'f1',
+  url: 'https://x/a.pdf',
+  title: '肖五',
+  section: '第一小提琴',
+  fileName: '小提琴1.pdf',
+  ...over,
+})
+
+function deps(files: string[] = [], over: Partial<EnsureDeps> = {}) {
   const download = vi.fn(async () => ({ statusCode: 200, tempFilePath: '/tmp/x.pdf' }))
-  const { fs, files, calls } = fakeFs()
+  const { fs, files: store, dirs, calls } = fakeFs(files)
   return {
     download,
-    fs,
-    files,
+    files: store,
+    dirs,
     calls,
-    deps: { root: '/usr', fs, download, ...over } as Parameters<typeof saveOriginalPdf>[1],
+    deps: { root: '/usr', fs, download, ...over } as EnsureDeps,
   }
 }
 
-describe('savedPdfPath', () => {
-  it('按册固定（同名 = 同一册），路径在给定的根目录下', () => {
-    expect(savedPdfPath('/usr', 'file-1')).toBe('/usr/pkuso-score-file-1.pdf')
-    expect(savedPdfPath('/usr', 'file-1')).toBe(savedPdfPath('/usr', 'file-1'))
+describe('displayPdfName', () => {
+  it('三件齐全：{曲子}_{声部}_{文件名}.pdf', () => {
+    expect(displayPdfName({ title: '肖五', section: '第一小提琴', fileName: '小提琴1.pdf' })).toBe(
+      '肖五_第一小提琴_小提琴1.pdf'
+    )
+  })
+
+  it('⚠️ file_name 库里自带 .pdf：剥掉再拼，绝不出现 .pdf.pdf', () => {
+    const name = displayPdfName({ title: '肖五', section: '圆号', fileName: 'F调圆号3.pdf' })
+    expect(name).toBe('肖五_圆号_F调圆号3.pdf')
+    expect(name.match(/\.pdf/g)).toHaveLength(1)
+  })
+
+  it('大写后缀同样剥掉', () => {
+    expect(displayPdfName({ fileName: '长号2.PDF' })).toBe('长号2.pdf')
+  })
+
+  it('缺参数逐级省略（旧入口拿不到曲名/声部）', () => {
+    expect(displayPdfName({ section: '弦乐', fileName: '小提琴1.pdf' })).toBe('弦乐_小提琴1.pdf')
+    expect(displayPdfName({ fileName: '小提琴1.pdf' })).toBe('小提琴1.pdf')
+  })
+
+  it('名字里的路径分隔符与保留字符被替掉（否则会写出目录外）', () => {
+    const name = displayPdfName({
+      title: 'a/b\\c:d*e?f"g<h>i|j',
+      section: '弦乐',
+      fileName: 'x.pdf',
+    })
+    expect(name).toBe('a b c d e f g h i j_弦乐_x.pdf')
+    expect(name).not.toMatch(/[\\/:*?"<>|]/)
+  })
+
+  it('空白压成一个空格、首尾去掉', () => {
+    expect(displayPdfName({ title: '  红 旗   颂 ', fileName: ' a.pdf ' })).toBe('红 旗 颂_a.pdf')
+  })
+
+  it('全空时给一个兜底名，而不是 ".pdf"', () => {
+    expect(displayPdfName({ fileName: '' })).toBe('score.pdf')
+    expect(displayPdfName({ fileName: '.pdf' })).toBe('score.pdf')
+  })
+
+  it('超长截断（不含 .pdf 后缀的那部分）', () => {
+    const name = displayPdfName({ title: 'x'.repeat(500), fileName: 'a.pdf' })
+    expect(name).toBe(`${'x'.repeat(MAX_NAME_CHARS)}.pdf`)
   })
 })
 
-describe('saveOriginalPdf', () => {
-  it('本地没有就下载并落盘', async () => {
+describe('ensureSavedPdf', () => {
+  it('本地没有就下载并落盘，路径带交付名', async () => {
     const t = deps()
-    const res = await saveOriginalPdf({ fileId: 'f1', url: 'https://x/a.pdf' }, t.deps)
-    expect(res).toEqual({ path: '/usr/pkuso-score-f1.pdf', reused: false })
-    expect(t.files.has('/usr/pkuso-score-f1.pdf')).toBe(true)
+    const res = await ensureSavedPdf(opts(), t.deps)
+    expect(res).toEqual({
+      path: '/usr/pkuso-score/f1/肖五_第一小提琴_小提琴1.pdf',
+      name: '肖五_第一小提琴_小提琴1.pdf',
+      reused: false,
+    })
+    expect(t.files.has(res.path)).toBe(true)
     expect(t.download).toHaveBeenCalledWith('https://x/a.pdf')
+    expect(t.calls).toContain('mkdir:/usr/pkuso-score/f1')
   })
 
-  it('本地已有就**不再下载**（判据是文件在不在，不是内存记账）', async () => {
-    const { fs, files, calls } = fakeFs(['/usr/pkuso-score-f1.pdf'])
-    const download = vi.fn()
-    const res = await saveOriginalPdf(
-      { fileId: 'f1', url: 'https://x/a.pdf' },
-      { root: '/usr', fs, download }
-    )
+  it('本地已有同名的就**不再下载**（判据是文件在不在，不是内存记账）', async () => {
+    const path = '/usr/pkuso-score/f1/肖五_第一小提琴_小提琴1.pdf'
+    const t = deps([path])
+    const res = await ensureSavedPdf(opts(), t.deps)
     expect(res.reused).toBe(true)
-    expect(download).not.toHaveBeenCalled()
-    expect(files.has('/usr/pkuso-score-f1.pdf')).toBe(true)
-    expect(calls).toEqual(['access:/usr/pkuso-score-f1.pdf'])
+    expect(res.path).toBe(path)
+    expect(t.download).not.toHaveBeenCalled()
+  })
+
+  it('名字对不上但目录里有别的 pdf（曲名改过 / 缺参数）：复用旧的，不重下也不改名', async () => {
+    const old = '/usr/pkuso-score/f1/红旗颂_弦乐_小提琴1.pdf'
+    const t = deps([old])
+    const res = await ensureSavedPdf(opts(), t.deps)
+    expect(res).toEqual({ path: old, name: '红旗颂_弦乐_小提琴1.pdf', reused: true })
+    expect(t.download).not.toHaveBeenCalled()
+    expect(t.calls.some((c) => c.startsWith('save:'))).toBe(false)
+  })
+
+  it('目录里有非 pdf 的文件时不误判（readdir 结果是过滤过的）', async () => {
+    const t = deps(['/usr/pkuso-score/f1/notes.txt'])
+    const res = await ensureSavedPdf(opts(), t.deps)
+    expect(res.reused).toBe(false)
+    expect(t.download).toHaveBeenCalled()
   })
 
   it('非 200 直接失败，不留半截文件', async () => {
-    const download = vi.fn(async () => ({ statusCode: 403, tempFilePath: '/tmp/x.pdf' }))
-    const { fs, files } = fakeFs()
-    await expect(
-      saveOriginalPdf({ fileId: 'f1', url: 'u' }, { root: '/usr', fs, download })
-    ).rejects.toThrow('HTTP 403')
-    expect(files.size).toBe(0)
+    const t = deps([], {
+      download: vi.fn(async () => ({ statusCode: 403, tempFilePath: '/tmp/x.pdf' })),
+    } as Partial<EnsureDeps>)
+    await expect(ensureSavedPdf(opts(), t.deps)).rejects.toThrow('HTTP 403')
+    expect(t.files.size).toBe(0)
   })
 
   it('目标已存在但 access 没看见（竞态）：删掉再存一次', async () => {
-    const { fs, files, calls } = fakeFs(['/usr/pkuso-score-f1.pdf'])
-    // 让 access 报「不存在」，模拟竞态下的一瞬
-    const raceFs: FsLike = { ...fs, access: ({ fail }) => fail() }
-    const download = vi.fn(async () => ({ statusCode: 200, tempFilePath: '/tmp/x.pdf' }))
-    const res = await saveOriginalPdf(
-      { fileId: 'f1', url: 'u' },
-      { root: '/usr', fs: raceFs, download }
-    )
+    const path = '/usr/pkuso-score/f1/肖五_第一小提琴_小提琴1.pdf'
+    const base = fakeFs([path])
+    // readdir 也「看不见」它，模拟竞态下的一瞬
+    const raceFs: FsLike = {
+      ...base.fs,
+      access: ({ fail }) => fail(),
+      readdir: ({ fail }) => fail?.(),
+    }
+    const res = await ensureSavedPdf(opts(), { root: '/usr', fs: raceFs, download: vi.fn(async () => ({ statusCode: 200, tempFilePath: '/tmp/x.pdf' })) })
     expect(res.reused).toBe(false)
-    expect(files.has('/usr/pkuso-score-f1.pdf')).toBe(true)
-    expect(calls.some((c) => c.startsWith('unlink:'))).toBe(true)
+    expect(base.files.has(path)).toBe(true)
+    expect(base.calls.some((c) => c.startsWith('unlink:'))).toBe(true)
+  })
+
+  it('成功落盘后清掉迁移前的老路径（别白占 200MB 配额）', async () => {
+    const legacy = legacyPdfPath('/usr', 'f1')
+    const t = deps([legacy])
+    await ensureSavedPdf(opts(), t.deps)
+    expect(t.files.has(legacy)).toBe(false)
+    expect(t.calls).toContain(`unlink:${legacy}`)
   })
 
   it('下载本身失败：错误往外抛，不静默成功', async () => {
-    const download = vi.fn(async () => {
-      throw new Error('downloadFile:fail timeout')
-    })
-    const { fs } = fakeFs()
-    await expect(
-      saveOriginalPdf({ fileId: 'f1', url: 'u' }, { root: '/usr', fs, download })
-    ).rejects.toThrow('timeout')
+    const t = deps([], {
+      download: vi.fn(async () => {
+        throw new Error('downloadFile:fail timeout')
+      }),
+    } as Partial<EnsureDeps>)
+    await expect(ensureSavedPdf(opts(), t.deps)).rejects.toThrow('timeout')
   })
 
   it('拿不到 USER_DATA_PATH / FileSystemManager：报错，不假装存好了', async () => {
     const t = deps()
-    await expect(
-      saveOriginalPdf({ fileId: 'f1', url: 'u' }, { ...t.deps, root: null })
-    ).rejects.toThrow('USER_DATA_PATH')
-    await expect(
-      saveOriginalPdf({ fileId: 'f1', url: 'u' }, { ...t.deps, fs: null })
-    ).rejects.toThrow('FileSystemManager')
+    await expect(ensureSavedPdf(opts(), { ...t.deps, root: null })).rejects.toThrow(
+      'USER_DATA_PATH'
+    )
+    await expect(ensureSavedPdf(opts(), { ...t.deps, fs: null })).rejects.toThrow(
+      'FileSystemManager'
+    )
+  })
+})
+
+describe('路径规则', () => {
+  it('目录按 fileId（幂等判据），与显示名解耦', () => {
+    expect(savedPdfDir('/usr', 'file-1')).toBe('/usr/pkuso-score/file-1')
+  })
+
+  it('老路径仍是根下的 pkuso-score-<id>.pdf（只为清掉它）', () => {
+    expect(legacyPdfPath('/usr', 'file-1')).toBe('/usr/pkuso-score-file-1.pdf')
   })
 })
 
