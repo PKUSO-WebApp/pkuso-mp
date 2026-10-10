@@ -5,7 +5,7 @@
  * 灰带与工具条的实际高度。各写一份魔法数就会漂移（「线画在 25%、判定在 28%」这类）。
  *
  * ⚠️ **尺寸一律实测，不写死**：视口用 `measureStage` 量到的 `containerW/H`；
- * 工具条高度在 `measureStage` 里连 `#reader-topbar` / `#reader-bottombar` 一起量
+ * 工具条高度在 `measureStage` 里量 `#reader-bottombar`（顶栏已去掉 ⇒ `top` 恒为 0）
  * （见 index.tsx），量到什么用什么。理由：微信的系统字体大小会改工具条高度，
  * 写死常量在大字体机型上会让灰带与工具条错位、点击分区也跟着偏。
  * 需要内联 px 的地方（className 里的 px 会被 pxtransform 转 rpx）用**量到的数**。
@@ -69,6 +69,28 @@ export const Z_TUTORIAL = 60
 export const Z_SHEET = 70
 
 export const SAFE_BOTTOM = 'env(safe-area-inset-bottom)'
+
+/**
+ * 进度条：页码 → 滑块位置的比例（0~1），以及反过来。
+ *
+ * **轨道的宽度是固定的**（屏幕宽的 2/5），不随页数增长——页数越多，每一页占的比例越小。
+ * 所以 `n` 页时步长是 `1/(n-1)`：第 1 页贴左端、第 n 页贴右端（而不是 `1/n`，
+ * 那会让末页永远差一格、拖到头也到不了最后一页）。
+ *
+ * 两个函数互逆（用例钉住「拖到某处再读回来还是那一页」）；单页册恒为 1 / 0。
+ */
+export function sliderFracOf(page: number, pageCount: number): number {
+  if (pageCount <= 1) return 0
+  const p = Math.min(Math.max(Math.round(page), 1), pageCount)
+  return (p - 1) / (pageCount - 1)
+}
+
+/** 轨道上的触点位置（相对轨道左端的 px，允许越界）→ 页码（1~pageCount，四舍五入） */
+export function pageFromSliderX(x: number, trackW: number, pageCount: number): number {
+  if (pageCount <= 1 || !(trackW > 0)) return 1
+  const frac = Math.min(1, Math.max(0, x / trackW))
+  return Math.min(pageCount, Math.max(1, Math.round(frac * (pageCount - 1)) + 1))
+}
 
 /**
  * 批注工具条的底边 = 底栏的实测高度（它已经含安全区，别再叠加一次）。

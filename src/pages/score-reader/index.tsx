@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Taro, { useDidShow, useRouter, useUnload } from '@tarojs/taro'
-import { View, Canvas, Image, Input, Button, Text } from '@tarojs/components'
+import { View, Canvas, Text } from '@tarojs/components'
 import type { ITouchEvent } from '@tarojs/components'
 import { supabase } from '@/lib/supabase'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass, useThemeContext } from '@/context/theme-context'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
+import { ReaderToolbar, type ReaderPanel } from '@/components/score/ReaderToolbar'
 import { ReaderTutorial } from '@/components/score/ReaderTutorial'
 import { SaveToSheet } from '@/components/score/SaveToSheet'
 import { usePdfHandoff } from '@/hooks/usePdfHandoff'
 // 顶栏图标（Lucide 系列，72×72 PNG；暗色用 -dark 变体）
-import pencilLine from '@/assets/icons/pencil-line.png'
-import pencilLineDark from '@/assets/icons/pencil-line-dark.png'
-import forwardIcon from '@/assets/icons/forward.png'
-import forwardIconDark from '@/assets/icons/forward-dark.png'
 import {
   PEN_COLORS,
   PEN_WIDTHS,
@@ -37,6 +34,7 @@ import {
   zoneOnAxis,
   ZONE_SPLITS_UD,
   Z_PAGE_BADGE,
+  SAFE_BOTTOM,
   Z_STATUS,
   Z_TOOLBAR,
 } from './lib/layout'
@@ -210,8 +208,6 @@ export default function ScoreReader() {
   // 正在滑出的那一块（翻页动画）；null = 没动画
   const [turn, setTurn] = useState<TurnFrame | null>(null)
   // 页码输入框：编辑期间用本地文本，不被 page 的 clamp 回写打断
-  const [pageInput, setPageInput] = useState('1')
-  const [pageEditing, setPageEditing] = useState(false)
   // 双指手势结束计数：手势中批注层不重画，结束时补一次
   const [gestureTick, setGestureTick] = useState(0)
   // 控制菜单（顶栏 / 底栏 / 批注条）默认隐藏：沉浸式阅读，点谱面中间唤出
@@ -544,22 +540,24 @@ export default function ScoreReader() {
   }
 
   /**
-   * 量视口、屏幕位置与工具条高度（报错条显隐会改视口高度，故跟着重量）。
+   * 量视口、屏幕位置与底栏高度（报错条显隐会改视口高度，故跟着重量）。
    *
-   * 工具条**始终挂载**（菜单关着时 `visibility: hidden`——布局盒子还在，量得到高度），
-   * 所以灰带的视觉高度与点击命中永远等于真实工具条高度，系统字体调大也不会错位。
+   * 底栏**始终挂载**（菜单关着时 `visibility: hidden`——布局盒子还在，量得到高度），
+   * 所以内容内缩与「点下边缘唤菜单」的命中区永远等于真实底栏高度，系统字体调大也不会错位。
+   *
+   * ⚠️ **顶栏已去掉**（2026-10-10）：`barH.top` 因此恒为 0 —— 顶部不再有内缩，也不再
+   * 有「点最上沿唤菜单」的命中区（上一条灰带随之消失）。别把 `top > 0` 当必要条件写回来：
+   * 那会让 `barH` 永远不更新，内缩与命中区一起失效。
    */
   const measureStage = useCallback(() => {
     type Rect = { left?: number; top?: number; width?: number; height?: number } | null
     Taro.createSelectorQuery()
       .select('#reader-stage')
       .boundingClientRect()
-      .select('#reader-topbar')
-      .boundingClientRect()
       .select('#reader-bottombar')
       .boundingClientRect()
       .exec((res) => {
-        const [stageRect, topBar, bottomBar] = (res ?? []) as Rect[]
+        const [stageRect, bottomBar] = (res ?? []) as Rect[]
         if (stageRect) {
           if (stageRect.left !== undefined && stageRect.top !== undefined) {
             stageRectRef.current = { left: stageRect.left, top: stageRect.top }
@@ -567,10 +565,9 @@ export default function ScoreReader() {
           if (stageRect.width && stageRect.width > 0) setContainerW(stageRect.width)
           if (stageRect.height && stageRect.height > 0) setContainerH(stageRect.height)
         }
-        const top = Math.round(topBar?.height ?? 0)
         const bottom = Math.round(bottomBar?.height ?? 0)
-        if (top > 0 && bottom > 0) {
-          setBarH((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }))
+        if (bottom > 0) {
+          setBarH((prev) => (prev.top === 0 && prev.bottom === bottom ? prev : { top: 0, bottom }))
         }
       })
   }, [])
@@ -1530,24 +1527,6 @@ export default function ScoreReader() {
     setPage(target)
   }
 
-  const commitPageInput = () => {
-    setPageEditing(false)
-    const raw = pageInput.trim()
-    const n = Number(raw)
-    if (!raw || pageCount <= 0 || !Number.isFinite(n)) {
-      setPageInput(String(page))
-      return
-    }
-    const target = clampPage(n)
-    setPageInput(String(target))
-    gotoPage(target)
-  }
-
-  // 页码回填：仅在非编辑态跟随（编辑中回写会把用户刚敲的数字冲掉）
-  useEffect(() => {
-    if (!pageEditing) setPageInput(String(page))
-  }, [page, pageEditing])
-
   // 书签：翻到哪页就记哪页，下次进来接着读
   useEffect(() => {
     if (fileId && pageCount > 0) Taro.setStorageSync(lastPageKey(fileId), String(page))
@@ -2059,6 +2038,22 @@ export default function ScoreReader() {
       fileName: presetFileName,
     })
 
+  /** 底栏上方此刻开着哪个气泡（同时只能开一个） */
+  const [bottomPanel, setBottomPanel] = useState<ReaderPanel>('none')
+  /** 进度条轨道宽度：屏幕宽的 2/5（用户 2026-10-10 定，**不随页数增长**） */
+  const sliderW = Math.round(containerW * 0.4)
+  /** 批注：从底栏点进来时先把气泡收掉（批注工具条是另一条悬浮层） */
+  const penFromToolbar = () => {
+    setBottomPanel('none')
+    togglePen()
+  }
+  /** 缩放气泡的三个动作（按钮只报「哪一种」，具体换算留在页面里） */
+  const handleZoom = (kind: 'in' | 'out' | 'fit') => {
+    if (kind === 'in') zoomAtCenter(zoom + 0.25)
+    else if (kind === 'out') zoomAtCenter(zoom - 0.25)
+    else zoomAtCenter(1)
+  }
+
   // 「还没画出一帧」就一直显示 —— 判据是**首帧真的换帧**（stage 到 ready），而不是
   // 「画布尺寸有没有值」：图片模式下 `setViewSize` 发生在绘制**之前**，按尺寸判会让
   // 提示在画面出来之前就消失（真机反馈：第一次「进度走完但没渲染出来」、第二次
@@ -2315,144 +2310,41 @@ export default function ScoreReader() {
           ) : null}
         </View>
 
-        {/* 顶栏（悬浮）：页码 / 缩放 / 保存到… / 批注 / 教程。
+        {/* 底栏（悬浮）：五个图标按钮 + 各自的气泡（见 components/score/ReaderToolbar）。
+            **顶栏整块去掉**（用户 2026-10-10 定）：页码与缩放搬进气泡，批注与「保存到…」
+            成了按钮，教程只剩「首次进入 / 切模式自动弹」。
             菜单关着时 visibility:hidden + pointer-events:none —— 隐藏但**保留布局盒子**
-            （于是高度随时量得到），触摸则穿透到谱面。
-            非批注时半透明灰底（谱面透出，示意菜单已打开），批注时回到不透明 */}
-        <View
-          id='reader-topbar'
-          className={`absolute left-0 right-0 top-0 flex flex-row items-center justify-between border-b border-border px-4 py-2 ${
-            'bg-surface' // 菜单打开时**不透明**（用户 2026-10-08 定：完全遮蔽，不要半透明）
-          }`}
-          style={{
-            zIndex: Z_TOOLBAR,
-            visibility: menuOn ? 'visible' : 'hidden',
-            pointerEvents: menuOn ? 'auto' : 'none',
-          }}
-        >
-          <Text className='text-xs text-text-muted'>
-            {pageCount > 0 ? t('scoreReader.pageOf', { page, total: pageCount }) : statusText}
-          </Text>
-          <View className='flex flex-row items-center'>
-            <Text className='mr-3 text-xs text-text-muted'>{Math.round(zoom * 100)}%</Text>
-            <View
-              className='mr-2 flex flex-row items-center justify-center rounded-full border border-border bg-card px-2.5 py-1.5'
-              ariaLabel={t('common.saveTo.title')}
-              onClick={openHandoff}
-            >
-              <Image
-                src={dark ? forwardIconDark : forwardIcon}
-                style={{ width: '18px', height: '18px' }}
-              />
-            </View>
-            <View
-              className={`flex flex-row items-center justify-center rounded-full border px-2.5 py-1.5 ${
-                penOn ? 'border-primary bg-primary/10' : 'border-border bg-card'
-              }`}
-              ariaLabel={t('scoreReader.annotation')}
-              onClick={togglePen}
-            >
-              <Image
-                src={dark ? pencilLineDark : pencilLine}
-                style={{ width: '18px', height: '18px' }}
-              />
-            </View>
-            {/* 教程入口：批注按钮右边的小问号，随时可再唤出用法说明 */}
-            <View
-              className='ml-2 flex flex-row items-center justify-center rounded-full border border-border bg-card'
-              style={{ width: '32px', height: '32px' }}
-              ariaLabel={t('scoreReader.tutorialOpen')}
-              onClick={() => setTutorialOn(true)}
-            >
-              {/* 「?」是文字不是图标，墨色走 --color-icon-ink（与两张图标 PNG 的笔画色逐值相同） */}
-              <Text className='text-sm text-icon-ink'>?</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* 底栏（悬浮）：翻页（< x/n > 紧贴页码两侧）/ 跳页 / 缩放 */}
+            （`measureStage` 要量它的高度：内容内缩与「点下边缘唤菜单」的命中区都取它） */}
         <View
           id='reader-bottombar'
-          className={`absolute bottom-0 left-0 right-0 flex flex-row items-center justify-between border-t border-border px-3 py-2 ${
-            'bg-surface' // 菜单打开时**不透明**（用户 2026-10-08 定：完全遮蔽，不要半透明）
-          }`}
+          className='absolute bottom-0 left-0 right-0 border-t border-border bg-surface'
           style={{
             zIndex: Z_TOOLBAR,
-            paddingBottom: 'calc(8px + env(safe-area-inset-bottom))',
+            paddingBottom: SAFE_BOTTOM,
             visibility: menuOn ? 'visible' : 'hidden',
             pointerEvents: menuOn ? 'auto' : 'none',
           }}
         >
-          <View className='flex flex-row items-center'>
-            <Button
-              className='rounded-full border border-border bg-card px-3.5 py-1 text-xs text-text'
-              disabled={page <= 1}
-              onClick={() => gotoPage(page - 1)}
-            >
-              {'<'}
-            </Button>
-            <View className='mx-2 flex flex-row items-center'>
-              <View className='overflow-hidden rounded border border-border bg-card'>
-                {/* 菜单关着时**不挂载 `Input`**：`input` 是小程序的**原生组件**，由原生层
-                    渲染，父级的 visibility:hidden 在 iOS 上盖不住它（真机反馈：菜单关着
-                    仍能看到这个框/框里的数字）。关着时用同尺寸的空 View 占位——
-                    `measureStage` 只取底栏的**高度**，所以灰带高度与点击命中不受影响。 */}
-                {menuOn ? (
-                  <Input
-                    className='h-8 w-12 bg-transparent text-center text-xs text-text'
-                    type='number'
-                    placeholder={t('scoreReader.pageJump')}
-                    value={pageCount > 0 ? pageInput : ''}
-                    onFocus={() => setPageEditing(true)}
-                    onInput={(e) => setPageInput(e.detail.value)}
-                    onBlur={commitPageInput}
-                    onConfirm={commitPageInput}
-                  />
-                ) : (
-                  <View className='h-8 w-12' />
-                )}
-              </View>
-              <Text className='ml-1 text-xs text-text-muted'>/ {pageCount || '-'}</Text>
-            </View>
-            <Button
-              className='rounded-full border border-border bg-card px-3.5 py-1 text-xs text-text'
-              disabled={pageCount <= 0 || page >= pageCount}
-              onClick={() => gotoPage(page + 1)}
-            >
-              {'>'}
-            </Button>
-          </View>
-          <View className='flex flex-row items-center'>
-            {/* 翻页模式切换：夹在「翻页」与「缩放」两组中间。
-                按钮显示的是**当前**模式（LR / UD），点一下切到另一种；切换即弹该模式的教程 */}
-            <Button
-              className='mr-2 rounded-full border border-primary bg-primary/10 px-3 py-1 text-xs text-text'
-              onClick={switchMode}
-            >
-              {t(ud ? 'scoreReader.modeUd' : 'scoreReader.modeLr')}
-            </Button>
-            <Button
-              className='mr-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
-              onClick={() => zoomAtCenter(zoom - 0.25)}
-            >
-              −
-            </Button>
-            <Button
-              className='mr-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
-              // 以视口中心为锚回到 100%：已经在 100% 时这个换算正好是恒等（点它不该把谱面
-              // 甩到上边界、顶到 header 底下——真机反馈的 bug）；放大时则是「围绕当前视线缩小」，
-              // 而不是跳回页首
-              onClick={() => zoomAtCenter(1)}
-            >
-              {t('scoreReader.zoomReset')}
-            </Button>
-            <Button
-              className='rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
-              onClick={() => zoomAtCenter(zoom + 0.25)}
-            >
-              +
-            </Button>
-          </View>
+          <ReaderToolbar
+            dark={dark}
+            ud={ud}
+            penOn={penOn}
+            zoom={zoom}
+            page={page}
+            pageCount={pageCount}
+            panel={bottomPanel}
+            busy={handoff.busy}
+            slider={{
+              left: stageRectRef.current.left + Math.max(0, (containerW - sliderW) / 2),
+              width: sliderW,
+            }}
+            onPanel={setBottomPanel}
+            onPen={penFromToolbar}
+            onForward={openHandoff}
+            onMode={switchMode}
+            onZoom={handleZoom}
+            onJump={gotoPage}
+          />
         </View>
 
         {/* 批注工具条：悬浮在底栏之上（位置取底栏的**实测**高度——它已含安全区，不重复叠加） */}

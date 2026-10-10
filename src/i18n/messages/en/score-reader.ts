@@ -26,7 +26,6 @@ export const scoreReader = {
   tutorialSwipeHint: 'Swipe left = next page, right = previous',
   tutorialScrollHint: 'Drag up / down to scroll; tap top / bottom for one page',
   tutorialDismiss: 'Got it',
-  tutorialOpen: 'How to use',
-  modeLr: 'LR',
-  modeUd: 'UD',
+  zoomPanel: 'Zoom',
+  modeSwitch: 'Switch paging mode',
 }

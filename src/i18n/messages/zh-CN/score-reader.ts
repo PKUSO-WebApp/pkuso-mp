@@ -30,8 +30,8 @@ export const scoreReader = {
   tutorialSwipeHint: '左滑 = 下一页，右滑 = 上一页',
   tutorialScrollHint: '上下拖动 = 滚动；点上下方 = 上/下一页',
   tutorialDismiss: '知道了',
-  tutorialOpen: '使用说明',
-  /** 底栏的模式切换按钮：显示**当前**模式 */
-  modeLr: 'LR',
-  modeUd: 'UD',
+  /** 底栏第一个按钮（book-open）：开页码/进度条气泡 */
+  zoomPanel: '缩放',
+  /** 底栏第五个按钮：图标显示的是**点下去会变成什么** */
+  modeSwitch: '切换翻页方式',
 }

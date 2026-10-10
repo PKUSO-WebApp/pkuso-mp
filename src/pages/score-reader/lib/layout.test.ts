@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   bandAt,
+  pageFromSliderX,
   penBarBottom,
+  sliderFracOf,
   SAFE_BOTTOM,
   zoneFor,
   zoneOnAxis,
@@ -92,5 +94,42 @@ describe('层级与安全区', () => {
   it('批注工具条叠在底栏之上：用底栏的实测高度（不重复叠安全区），没量到才用安全区兜底', () => {
     expect(penBarBottom(78)).toBe('78px')
     expect(penBarBottom(0)).toBe(SAFE_BOTTOM)
+  })
+})
+
+describe('sliderFracOf / pageFromSliderX（进度条）', () => {
+  it('两端贴边：第 1 页在 0，末页在 1（步长是 1/(n-1)，不是 1/n）', () => {
+    expect(sliderFracOf(1, 10)).toBe(0)
+    expect(sliderFracOf(10, 10)).toBe(1)
+    expect(sliderFracOf(5, 9)).toBeCloseTo(0.5)
+  })
+
+  it('⭐ 互逆：拖到某页的位置再读回来，还是那一页（每一页都不差）', () => {
+    const W = 200
+    for (const n of [2, 3, 7, 34]) {
+      for (let p = 1; p <= n; p += 1) {
+        expect(pageFromSliderX(sliderFracOf(p, n) * W, W, n)).toBe(p)
+      }
+    }
+  })
+
+  it('触点越界一律钳到两端（拖出轨道不产生非法页码）', () => {
+    expect(pageFromSliderX(-50, 200, 10)).toBe(1)
+    expect(pageFromSliderX(9999, 200, 10)).toBe(10)
+  })
+
+  it('单页册 / 没量到宽度：恒为第 1 页，不除零', () => {
+    expect(pageFromSliderX(100, 200, 1)).toBe(1)
+    expect(pageFromSliderX(100, 0, 10)).toBe(1)
+    expect(sliderFracOf(1, 1)).toBe(0)
+  })
+
+  it('页数越多每级越小：同样的宽度下，34 页走一格比 7 页短', () => {
+    const W = 200
+    const step7 = sliderFracOf(2, 7) * W - sliderFracOf(1, 7) * W
+    const step34 = sliderFracOf(2, 34) * W - sliderFracOf(1, 34) * W
+    expect(step34).toBeLessThan(step7)
+    expect(step7).toBeCloseTo(W / 6)
+    expect(step34).toBeCloseTo(W / 33)
   })
 })
