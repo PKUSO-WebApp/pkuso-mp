@@ -291,6 +291,17 @@ export async function ensureSavedPdf(
      * 单次下载（旧分享链接没有这个参数，属预期）。
      */
     expectedBytes?: number
+    /**
+     * **强制重下**：跳过「本地已有就复用」那两步，并且先删掉旧文件。
+     *
+     * 云端合成的「带批注」那份每次都是新结果，可本地那个路径是固定的（按 fileId 分目录、
+     * 文件名也一样）⇒ 不强制的话，**新合成的那份根本不会被下载**，交出去的是上一次的
+     * 旧内容（用户又多画了几笔也照样是旧的）。这不是「浪费一次下载」，是交付错的东西。
+     *
+     * ⚠️ 必须先删：分片那条路是**从已有文件的长度续传**的（见 ranged-download），
+     * 拿旧长度当起点拼新内容会得到一份坏文件。
+     */
+    force?: boolean
   },
   deps: SavePdfDeps
 ): Promise<SavePdfResult> {
@@ -301,10 +312,18 @@ export async function ensureSavedPdf(
   const name = displayPdfName(opts)
   const dir = savedPdfDir(root, opts.fileId)
   const path = `${dir}/${name}`
-  if (await hasFile(fs, path)) return { path, name, reused: true }
-  const found = await listPdfs(fs, dir)
-  const first = found[0]
-  if (first) return { path: `${dir}/${first}`, name: first, reused: true }
+  if (opts.force) {
+    // 删掉旧的（含目录里可能存在的别的名字）：失败无所谓，它只是要被替换掉的垃圾
+    fs.unlink({ filePath: path })
+    for (const stale of await listPdfs(fs, dir)) {
+      if (stale !== name) fs.unlink({ filePath: `${dir}/${stale}` })
+    }
+  } else {
+    if (await hasFile(fs, path)) return { path, name, reused: true }
+    const found = await listPdfs(fs, dir)
+    const first = found[0]
+    if (first) return { path: `${dir}/${first}`, name: first, reused: true }
+  }
   // ⚠️ 目录要在**两条路之前**建好。分片那条是**直接往 dest 写**的（不经过 saveFile），
   // 少这一步 writeFile 就报 `no such file or directory` —— 线上实证：dev.184 的 iOS 上报
   // 正是 `writeFile:fail no such file or directory, open 'wxfile://usr/pkuso-score/<id>/…'`。

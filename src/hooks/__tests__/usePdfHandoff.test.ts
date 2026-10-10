@@ -86,6 +86,7 @@ describe('usePdfHandoff：是否带有批注', () => {
     expect(composeAnnotatedPdf).not.toHaveBeenCalled()
     expect(savedCall().fileId).toBe('f1')
     expect(savedCall().url).toContain('/public/')
+    expect(savedCall().force).toBe(false) // 原件那份不需要重下
   })
 
   it('拨到「是」：调合成、用签名 URL 与产物字节数下载，文件名带后缀', async () => {
@@ -102,6 +103,9 @@ describe('usePdfHandoff：是否带有批注', () => {
     // 字节数取服务端给的那个确切值，分片下载才有依据
     expect(last.expectedBytes).toBe(4321)
     expect(String(last.fileName)).toContain('common.saveTo.annoSuffix')
+    // ⚠️ 必须 force：本地那个路径是固定的，不强制的话**新合成的那份根本不会被下载**，
+    // 交出去的是上一次的旧内容（用户又多画了几笔也照样是旧的）
+    expect(last.force).toBe(true)
   })
 
   it('⚠️ 带批注那份走**另一个记账键**：先存了原件，再拨开关不能复用原件', async () => {
