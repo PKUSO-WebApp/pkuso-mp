@@ -39,6 +39,7 @@ export const common = {
     defaultTitle: '页面出错了',
     copySuccess: '已复制错误信息',
     copyFailed: '复制失败',
+    copyTruncated: '已复制（内容过长，已截断）',
     copyButton: '复制错误信息',
     hint: '请把复制的信息发送给乐团管理员，以便尽快修复问题。',
   },

@@ -65,6 +65,8 @@ export const Z_PAGE_BADGE = 5
 export const Z_STATUS = 9
 export const Z_TOOLBAR = 12
 export const Z_TUTORIAL = 60
+/** 「保存到…」面板：压在工具条（12）与教程（60）之上——它出现时那两者都该让位 */
+export const Z_SHEET = 70
 
 export const SAFE_BOTTOM = 'env(safe-area-inset-bottom)'
 

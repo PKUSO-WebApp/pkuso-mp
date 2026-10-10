@@ -39,6 +39,7 @@ export const common = {
     defaultTitle: 'Something went wrong',
     copySuccess: 'Error info copied',
     copyFailed: 'Copy failed',
+    copyTruncated: 'Copied (truncated: too long)',
     copyButton: 'Copy Error Info',
     hint: 'Send the copied info to the orchestra admin for a quick fix.',
   },
