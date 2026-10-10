@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { View, Button } from '@tarojs/components'
+import { View, Button, ScrollView } from '@tarojs/components'
 import { useT } from '@/i18n'
 import { PEN_COLORS, PEN_WIDTHS } from '@/lib/annotation'
 
@@ -67,61 +67,74 @@ export function AnnotationBar({
   )
 
   return (
-    <View className='flex flex-row items-center justify-between border-t border-border bg-surface px-3 py-2'>
-      <View className='flex flex-row items-center'>
-        {/* 笔 / 擦：橡皮擦按整条删除，比「清空本页」好用（能只擦掉不想要的那几笔） */}
-        <Button
-          className={`mr-2 rounded-full border px-3 py-1 text-xs ${
-            eraser ? 'border-border bg-card text-text' : 'border-primary bg-primary/10 text-text'
-          }`}
-          onClick={() => onEraser(false)}
-        >
-          {t('scoreReader.pen')}
-        </Button>
-        <Button
-          className={`mr-2 rounded-full border px-3 py-1 text-xs ${
-            eraser ? 'border-primary bg-primary/10 text-text' : 'border-border bg-card text-text'
-          }`}
-          onClick={() => onEraser(true)}
-        >
-          {t('scoreReader.eraser')}
-        </Button>
-        {PEN_COLORS.map((c) => (
-          <View
-            key={c}
-            className={`mr-2 h-7 w-7 rounded-full ${
-              color === c ? 'border-2 border-primary' : 'border border-border'
-            }`}
-            style={{ background: c }}
-            onClick={() => onColor(c)}
-          />
-        ))}
-      </View>
-      <View className='flex flex-row items-center'>
-        {PEN_WIDTHS.map(widthDot)}
-        {/* 这一页没有任何笔迹时**根本不渲染**撤销（用户 2026-10-08 定）：一个点不动的
+    // 外层给边框与底色，**内层横向可滚**：英文文案比中文长得多（实测约 546px vs 375px 屏宽），
+    // 硬排会把右侧的「清空」整个挤出屏幕。全部换成图标能省一截，但即便全图标化在 375px 上
+    // 仍有 ≈412px —— 所以「不裁切」这件事只能靠可滚来保证（也顺便对所有语言、以后加控件免疫）。
+    // `inline-flex`（而不是 flex）是横向滚动的关键：行要**收缩到内容宽度**才会撑出滚动区；
+    // 用普通 flex 会被父容器压到同宽，内容反而被裁掉。
+    <View className='border-t border-border bg-surface'>
+      <ScrollView scrollX className='w-full'>
+        <View className='inline-flex flex-row items-center px-3 py-2'>
+          <View className='flex flex-row items-center'>
+            {/* 笔 / 擦：橡皮擦按整条删除，比「清空本页」好用（能只擦掉不想要的那几笔） */}
+            <Button
+              className={`mr-2 rounded-full border px-3 py-1 text-xs ${
+                eraser
+                  ? 'border-border bg-card text-text'
+                  : 'border-primary bg-primary/10 text-text'
+              }`}
+              onClick={() => onEraser(false)}
+            >
+              {t('scoreReader.pen')}
+            </Button>
+            <Button
+              className={`mr-2 rounded-full border px-3 py-1 text-xs ${
+                eraser
+                  ? 'border-primary bg-primary/10 text-text'
+                  : 'border-border bg-card text-text'
+              }`}
+              onClick={() => onEraser(true)}
+            >
+              {t('scoreReader.eraser')}
+            </Button>
+            {PEN_COLORS.map((c) => (
+              <View
+                key={c}
+                className={`mr-2 h-7 w-7 rounded-full ${
+                  color === c ? 'border-2 border-primary' : 'border border-border'
+                }`}
+                style={{ background: c }}
+                onClick={() => onColor(c)}
+              />
+            ))}
+          </View>
+          <View className='ml-3 flex flex-row items-center'>
+            {PEN_WIDTHS.map(widthDot)}
+            {/* 这一页没有任何笔迹时**根本不渲染**撤销（用户 2026-10-08 定）：一个点不动的
             按钮只会让人以为坏了。清空仍保留（它有二次确认，不会误触） */}
-        {canUndo ? (
-          <Button
-            className='ml-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
-            onClick={onUndo}
-          >
-            {t('scoreReader.undo')}
-          </Button>
-        ) : null}
-        <Button
-          className={`ml-2 rounded-full border px-3 py-1 text-xs ${
-            confirmingClear
-              ? 'border-danger bg-danger text-danger-foreground'
-              : 'border-border bg-card text-text'
-          }`}
-          onClick={handleClear}
-        >
-          {confirmingClear
-            ? t('scoreReader.clearConfirm')
-            : t('scoreReader.clear', { page: clearPage })}
-        </Button>
-      </View>
+            {canUndo ? (
+              <Button
+                className='ml-2 rounded-full border border-border bg-card px-3 py-1 text-xs text-text'
+                onClick={onUndo}
+              >
+                {t('scoreReader.undo')}
+              </Button>
+            ) : null}
+            <Button
+              className={`ml-2 rounded-full border px-3 py-1 text-xs ${
+                confirmingClear
+                  ? 'border-danger bg-danger text-danger-foreground'
+                  : 'border-border bg-card text-text'
+              }`}
+              onClick={handleClear}
+            >
+              {confirmingClear
+                ? t('scoreReader.clearConfirm')
+                : t('scoreReader.clear', { page: clearPage })}
+            </Button>
+          </View>
+        </View>
+      </ScrollView>
     </View>
   )
 }

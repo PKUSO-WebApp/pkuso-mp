@@ -2025,7 +2025,7 @@ export default function ScoreReader() {
     multiTouchRef.current = false
     const next = !penOn
     setPenOn(next)
-    // 进批注必须把菜单打开：顶栏的「批注」按钮是它唯一的出口，菜单关着就出不来了
+    // 进批注必须把菜单打开：底栏那个铅笔按钮是它唯一的出口，菜单关着就出不来了
     if (next) setMenuOn(true)
   }
 
@@ -2038,7 +2038,10 @@ export default function ScoreReader() {
    */
   const handoff = usePdfHandoff()
   /** 顶栏那个按钮要开的是**这一册**（元数据在 open 时给，见 usePdfHandoff 的注释） */
-  const openHandoff = () =>
+  const openHandoff = () => {
+    // 「保存到…」也是底栏五个之一 ⇒ 开它就收掉另外两个（同 openPanel 的互斥理由）
+    setBottomPanel('none')
+    setPenOn(false)
     handoff.open({
       fileId,
       url: () => fileUrlRef.current,
@@ -2046,9 +2049,23 @@ export default function ScoreReader() {
       section: presetSection,
       fileName: presetFileName,
     })
+  }
 
   /** 底栏上方此刻开着哪个气泡（同时只能开一个） */
   const [bottomPanel, setBottomPanel] = useState<ReaderPanel>('none')
+  /**
+   * 底栏五个功能是**单选组**：开一个就收掉另一个。
+   *
+   * 为什么必须互斥（真机反馈「一个启用时点另一个没反应」）：**批注栏与气泡贴在同一个位置**
+   * （都在底栏正上方，`bottom: 100%` 与 `penBarBottom` 相等），而且同为 `Z_TOOLBAR` ——
+   * 批注栏在 DOM 里排在底栏**之后**，于是气泡开在它后面，看起来就是「点了没反应」。
+   * ⚠️ 靠调 z 序解决不了：气泡是底栏的子节点，底栏自己有 z-index ⇒ 已成层叠上下文，
+   * 子节点的 z 再大也顶不出底栏那一层。**只能靠互斥**。
+   */
+  const openPanel = (p: ReaderPanel) => {
+    if (p !== 'none') setPenOn(false)
+    setBottomPanel(p)
+  }
   /**
    * 进度条轨道宽度：屏幕宽的 2/5（用户 2026-10-10 定，**不随页数增长**）。
    *
@@ -2058,7 +2075,7 @@ export default function ScoreReader() {
    * deprecation 告警），别换回去。
    */
   const trackW = Math.round((readScreenWidth() || 375) * 0.4)
-  /** 批注：从底栏点进来时先把气泡收掉（批注工具条是另一条悬浮层） */
+  /** 批注：从底栏点进来时先把气泡收掉（两者贴在同一个位置，见 openPanel 的注释） */
   const penFromToolbar = () => {
     setBottomPanel('none')
     togglePen()
@@ -2360,7 +2377,7 @@ export default function ScoreReader() {
             panel={bottomPanel}
             busy={handoff.busy}
             trackW={trackW}
-            onPanel={setBottomPanel}
+            onPanel={openPanel}
             onPen={penFromToolbar}
             onForward={openHandoff}
             onMode={switchMode}
