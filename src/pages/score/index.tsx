@@ -21,7 +21,7 @@ export default function Score() {
   useNavTitle('score.navTitle')
   const darkClass = useThemeClass()
   const { user } = useUser()
-  const { profile: myProfile } = useMyProfile()
+  const { profile: myProfile, loading: myProfileLoading } = useMyProfile()
   const [tab, setTab] = useState<TabKey>('all')
   const { items, loading, error, fetch } = useSheetMusic()
 
@@ -96,7 +96,10 @@ export default function Score() {
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='px-4 pb-3 pt-3'>
           <ListState
-            loading={loading}
+            // 「分发给我的」还得等 profile（我的声部就在里面）：没到手之前**不能**把
+            // 「还不知道」显示成「你的声部暂无乐谱」——那是句陈述。ListState 只在
+            // 「loading && 内容为空」时显示加载中，所以这里把它一并抬起来即可。
+            loading={loading || (tab === 'mine' && myProfileLoading)}
             isEmpty={visible.length === 0}
             error={error ? t('score.loadFailed', { error }) : null}
             emptyText={tab === 'all' ? t('score.emptyAll') : t('score.emptyMine')}
