@@ -34,7 +34,7 @@ import { pageImageUrls } from '@/lib/score-page-image'
 import type { SheetMusicFileRow } from '@/types/database'
 // 页面内部模块：留在分包目录内，保证被打进分包 chunk（见 lib/types.ts 顶部注释）
 import type { CanvasCtx, CanvasNode, Drag, Job, Layer, Pan, Pinch, Stage } from './lib/types'
-import { frameInk, frameSharpness, rasterDpr, sampleEdgeColors } from './lib/raster'
+import { frameInk, rasterDpr, sampleEdgeColors } from './lib/raster'
 import { waitForLayoutSize } from './lib/canvas-size'
 import { clamp, clampPan, touchDist, touchMid } from './lib/geometry'
 import { createPanQueue, type PanQueue } from './lib/pan-queue'
@@ -811,29 +811,6 @@ export default function ScoreReader() {
       // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
       paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
       const renderMs = Date.now() - tRender
-      // 首帧探针（**临时**，为 2026-10-11 那台 iOS 的糊色块而加）：把画完这一帧的「锐度画像」
-      // 上报一次，用来回答「坏像素在画布位图里，还是只坏在上屏那一下」——两者修法完全不同。
-      // 画像含义见 lib/raster.ts 的 frameSharpness（真谱面每行 23~63 条锐边，糊色块是 0 条）。
-      // 成因确认后这整段可以删。
-      if (firstPaint) {
-        const sharp = frameSharpness(node as CanvasNode)
-        reportClientError({
-          event: 'score_reader_first_frame_probe',
-          message: sharp ? `首帧 ink=${sharp.inkPct}% edges=${sharp.edgesPerRow}` : '首帧 探测失败',
-          detail: {
-            fileId,
-            page: target,
-            via: pageImg.via,
-            sizedTicks,
-            sizeWaitMs,
-            infoMs,
-            renderMs,
-            dpr,
-            bitmapW: Math.round(w * dpr),
-            bitmapH: Math.round(h * dpr),
-          },
-        })
-      }
       // 这一帧画完了：顺手采一下这张纸的纸色，给灰带上色（后台、失败无所谓）
       sampleBandColorRef.current(layer)
       viaTallyRef.current[pageImg.via] += 1 // 取图来源计数（见 reportPageSource）
