@@ -414,6 +414,46 @@ describe('supabase 官方客户端适配', () => {
     ])
   })
 
+  it('全局 Response 被残缺垫片污染时，仍返回带 text/json/headers 的完整响应（PDF 运行时回归）', async () => {
+    vi.stubEnv('TARO_ENV', 'weapp')
+    vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')
+    vi.stubEnv('TARO_APP_SUPABASE_ANON_KEY', 'anon-key')
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: webCreate }))
+    // 模拟 wechat-miniprogram-pdf 运行时注入的残缺 Response：只有 body/status/ok，
+    // 没有 text()/json()/headers（真实事故：postgrest 调 res.text() 抛
+    // TypeError: t.text is not a function，打开一个文件后所有页面查询全挂）。
+    // 实现侧的约定见 lib/supabase.ts 里 createFetchResponse 上方的警告。
+    vi.stubGlobal(
+      'Response',
+      class BrokenResponse {
+        body: unknown
+        status: number
+        ok: boolean
+        constructor(body: unknown = null, init: { status?: number } = {}) {
+          this.body = body
+          this.status = Number(init.status || 200)
+          this.ok = this.status >= 200 && this.status < 300
+        }
+      }
+    )
+    request.mockResolvedValue({
+      statusCode: 200,
+      header: { 'content-type': 'application/json' },
+      data: '{"ok":true}',
+    })
+
+    const { taroFetch } = await loadSupabase()
+    const res = await taroFetch('https://project.supabase.co/rest/v1/test')
+    // 实现一旦退回 `new Response(...)`，这里拿到的就是上面那个残缺对象 → 全红
+    expect(typeof res.text).toBe('function')
+    expect(typeof res.json).toBe('function')
+    expect(await res.text()).toBe('{"ok":true}')
+    expect(await res.json()).toEqual({ ok: true })
+    expect(res.headers.get('content-type')).toBe('application/json')
+    expect(res.status).toBe(200)
+    expect(res.ok).toBe(true)
+  })
+
   it('只换路名单与用例保持同步：往 FAILOVER_ONLY_POSTS 加路径必须同时加断言', async () => {
     vi.stubEnv('TARO_ENV', 'weapp')
     vi.stubEnv('TARO_APP_SUPABASE_URL', 'https://project.supabase.co')

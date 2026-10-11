@@ -499,13 +499,32 @@ function isRetryable(method, path) {
 }
 
 /**
+ * 把**对象形态**的 query（值可能是数组）逐项 append 成 query 串。
+ *
+ * ⚠️ **必须逐项 append**。值是数组时若整只塞进去，`["1","2"]` 会被拼成 `a=1%2C2`
+ * ——一个参数一个值，PostgREST 收到的查询就完全是另一回事了。
+ * 而 PostgREST 的 `in.(a,b)`、`or=(...)` 这类恰恰**依赖参数值里的逗号**，
+ * 拼错不会报错，只会静默查出不同的数据。
+ */
+function rebuildQueryFromMap(map) {
+  const params = new URLSearchParams()
+  for (const [k, v] of Object.entries(map)) {
+    if (Array.isArray(v)) for (const item of v) params.append(k, item)
+    else params.append(k, v)
+  }
+  return params.toString()
+}
+
+/**
  * 把 event 还原成「路径 + query 串」。
  *
- * **以下每一条都是 `/pkuso-echo` 实测出来的，不是照文档推的**（2026-09-30，ap-shanghai）：
- *   - `event.path` = 完整路径、**不带触发路径前缀**（路由配的是 `/`，无前缀可剥）✓
- *   - `event.rawPath` = null、`event.queryString` = null ⇒ **query 只能从 `queryStringParameters` 重建**
- *   - `event.queryStringParameters` 的**值可能是数组**：请求 `a=1&a=2` 得到 `{ a: ["1","2"] }`
- *   - `event.isBase64Encoded` = false（文本 body）；`event.body` 是字符串
+ * 两种网关的 event 形状**不一样，这里是双形态兼容**（两边都经 `/pkuso-echo` 实测）：
+ *   - 微信云开发 HTTP 网关（2026-09-30，ap-shanghai）：`path` 完整不带前缀、`rawPath` null；
+ *     `queryString` = null ⇒ query 在 `queryStringParameters`；`isBase64Encoded` = false
+ *   - 腾讯云 SCF 函数 URL（2026-10-04）：event 只有 `{body, headers, httpMethod, path, queryString}`
+ *     五个键；`queryStringParameters` = null，**query 在 `queryString` 且是对象**（值可能是数组）
+ *   - 两种 `path` 里都不带 query；Web 函数适配层（`scf-web/app.js`）把原始 `req.url`
+ *     整个塞进 `path`，所以下面的 `path?query` 拆分就是那条路的唯一解析
  */
 function toPathAndQuery(event) {
   // 剥掉路由前缀（BASE_PATH 为空时是空操作）。转发给上游的必须是**上游认识的路径**，
@@ -520,26 +539,18 @@ function toPathAndQuery(event) {
   }
 
   if (!query && event.multiValueQueryStringParameters) {
-    const params = new URLSearchParams()
-    for (const [k, v] of Object.entries(event.multiValueQueryStringParameters)) {
-      for (const item of Array.isArray(v) ? v : [v]) params.append(k, item)
-    }
-    query = params.toString()
+    query = rebuildQueryFromMap(event.multiValueQueryStringParameters)
   }
 
   if (!query && event.queryStringParameters && Object.keys(event.queryStringParameters).length) {
-    const params = new URLSearchParams()
-    for (const [k, v] of Object.entries(event.queryStringParameters)) {
-      // ⚠️ **必须逐项 append**。值是数组时若整只塞进去，`["1","2"]` 会被拼成 `a=1%2C2`
-      // ——一个参数一个值，PostgREST 收到的查询就完全是另一回事了。
-      // 而 PostgREST 的 `in.(a,b)`、`or=(...)` 这类恰恰**依赖参数值里的逗号**，
-      // 拼错不会报错，只会静默查出不同的数据。
-      if (Array.isArray(v)) for (const item of v) params.append(k, item)
-      else params.append(k, v)
-    }
-    query = params.toString()
-  } else if (!query && typeof event.queryString === 'string') {
-    query = event.queryString
+    query = rebuildQueryFromMap(event.queryStringParameters)
+  } else if (!query && event.queryString) {
+    query =
+      typeof event.queryString === 'string'
+        ? event.queryString
+        : Object.keys(event.queryString).length
+          ? rebuildQueryFromMap(event.queryString)
+          : ''
   }
 
   return { path, query }

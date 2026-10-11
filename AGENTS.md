@@ -252,10 +252,13 @@ on:
       - .github/**
 ```
 
-- **`deploy-*.yml` 只有 `push`。** PR 上的检查来自 `ci.yml`（它挂 `pull_request`，**没有** `paths:` 白名单——任何改动都跑闸门；`deploy-*.yml` 则要命中白名单才跑）。
+- **`deploy-*.yml` 只有 `push`**（例外：`deploy-dev.yml` 另挂了 `workflow_dispatch`，用于补一次被跳过的构建，见本节末条）。PR 上的检查来自 `ci.yml`（它挂 `pull_request`，**没有** `paths:` 白名单——任何改动都跑闸门；`deploy-*.yml` 则要命中白名单才跑）。
 - 白名单里的 `app.css` / `app.scss` 是**无效条目**：仓库根没有 `app.css`，根的 `app.scss` 是空文件；真文件是 `src/app.css`，已被 `src/**` 覆盖。
 - 不在名单里的改动（`AGENTS.md`、`README.md`、`CONTRIBUTING.md`、`docs/**`、`.env*`、`types/**`）**不触发发版 workflow**（但会触发 PR 上的 `ci.yml`）。
 - 提交信息里带 `[skip ci]` 时 workflow 会跳过（prod 的版本号回写提交就靠这个避免自触发）。
+  ⚠️ **它的判定范围是「整条提交信息」且不看上下文**，于是 **squash 合并会把 PR 里的每条提交标题带进正文**——PR 里只要有一条带标记（类型同步那种标题自带），**整个合并就没跑 CI、没出包**，而 GitHub 不会告诉你。
+  实测：2026-10-11 的 #64（`72039c0`）就这么静默丢了一次 dev 构建，dev 包停在上一版（源码是对的，只是没构建）。**所以合完 PR 别只看「合上了」，去 `gh run list` 核一次那次 push 到底有没有 workflow。**
+  真丢了不用伪造提交：`gh workflow run deploy-dev.yml --ref dev`。
 
 ### 3.3 ⚠️ 必须监控 CI
 

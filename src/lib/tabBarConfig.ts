@@ -3,6 +3,7 @@
 // 注意：与 CustomTabBar.tsx 的 LIST 保持一一对应，community 暂时隐藏需同步移除。
 export const TAB_PAGE_PATHS = [
   '/pages/index/index',
+  '/pages/score/index',
   '/pages/schedule/index',
   '/pages/members/index',
   '/pages/profile/index',

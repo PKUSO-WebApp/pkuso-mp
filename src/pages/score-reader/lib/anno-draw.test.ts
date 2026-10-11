@@ -1,0 +1,309 @@
+import { describe, expect, it } from 'vitest'
+import type { AnnoStroke } from '@/lib/annotation'
+import { drawPolylineOn, drawStrokeOn, eraseStrokesAt, strokeHitByPoint } from './anno-draw'
+
+/** 假 2D 上下文：只记调用顺序，够验「画到哪、什么样式」 */
+function fakeCtx() {
+  const calls: string[] = []
+  const ctx = {
+    beginPath: () => calls.push('beginPath'),
+    moveTo: (x: number, y: number) => calls.push(`moveTo(${x},${y})`),
+    lineTo: (x: number, y: number) => calls.push(`lineTo(${x},${y})`),
+    stroke: () => calls.push('stroke'),
+    strokeStyle: '',
+    lineWidth: 0,
+    lineCap: '',
+    lineJoin: '',
+  }
+  return { calls, ctx }
+}
+
+describe('drawPolylineOn', () => {
+  it('归一化坐标（0~1）按画布尺寸换算成像素', () => {
+    const { calls, ctx } = fakeCtx()
+    drawPolylineOn(
+      ctx as never,
+      [
+        [0, 0],
+        [0.5, 0.25],
+        [1, 1],
+      ],
+      '#f00',
+      0.004,
+      200,
+      400
+    )
+    expect(calls).toEqual([
+      'beginPath',
+      'moveTo(0,0)',
+      'lineTo(100,100)',
+      'lineTo(200,400)',
+      'stroke',
+    ])
+  })
+
+  it('首点 moveTo、其余 lineTo（少一笔多余的连线）', () => {
+    const { calls, ctx } = fakeCtx()
+    drawPolylineOn(ctx as never, [[0.1, 0.1]], '#f00', 0.004, 100, 100)
+    expect(calls.filter((c) => c.startsWith('lineTo'))).toEqual([])
+    expect(calls.filter((c) => c.startsWith('moveTo'))).toHaveLength(1)
+  })
+
+  it('空点集什么都不画', () => {
+    const { calls, ctx } = fakeCtx()
+    drawPolylineOn(ctx as never, [], '#f00', 0.004, 100, 100)
+    expect(calls).toEqual([])
+  })
+
+  it('线宽按画布宽度换算成像素（笔宽是画布宽的比例，不是像素）', () => {
+    const a = fakeCtx()
+    drawPolylineOn(
+      a.ctx as never,
+      [
+        [0, 0],
+        [1, 1],
+      ],
+      '#f00',
+      0.008,
+      750,
+      1000
+    )
+    expect(a.ctx.lineWidth).toBe(6) // 0.008 × 750
+
+    const b = fakeCtx()
+    drawPolylineOn(
+      b.ctx as never,
+      [
+        [0, 0],
+        [1, 1],
+      ],
+      '#f00',
+      0.004,
+      1000,
+      1400
+    )
+    expect(b.ctx.lineWidth).toBe(4) // 0.004 × 1000
+  })
+
+  it('线宽有 1px 下限（画布很窄时仍看得见）', () => {
+    const { ctx } = fakeCtx()
+    drawPolylineOn(
+      ctx as never,
+      [
+        [0, 0],
+        [1, 1],
+      ],
+      '#f00',
+      0.004,
+      100,
+      140
+    )
+    expect(ctx.lineWidth).toBe(1) // 0.004 × 100 = 0.4 → 抬到 1
+  })
+
+  it('笔迹样式：圆头圆角（折线拐点不生硬）', () => {
+    const { ctx } = fakeCtx()
+    drawPolylineOn(
+      ctx as never,
+      [
+        [0, 0],
+        [1, 1],
+      ],
+      '#abcdef',
+      0.004,
+      100,
+      100
+    )
+    expect(ctx.strokeStyle).toBe('#abcdef')
+    expect(ctx.lineCap).toBe('round')
+    expect(ctx.lineJoin).toBe('round')
+  })
+})
+
+describe('drawStrokeOn', () => {
+  it('把笔迹的点/颜色/线宽原样转交给折线绘制', () => {
+    const { calls, ctx } = fakeCtx()
+    const stroke = {
+      points: [
+        [0, 0],
+        [0.5, 0.5],
+      ],
+      color: '#123456',
+      width: 0.008,
+    }
+    drawStrokeOn(ctx as never, stroke as never, 200, 200)
+    expect(calls).toEqual(['beginPath', 'moveTo(0,0)', 'lineTo(100,100)', 'stroke'])
+    expect(ctx.strokeStyle).toBe('#123456')
+    expect(ctx.lineWidth).toBe(1.6) // 0.008 × 200（1px 下限那条在上一组用例里）
+  })
+})
+
+describe('strokeHitByPoint（橡皮擦命中）', () => {
+  const W = 100
+  const H = 200
+  const line = (points: [number, number][]): AnnoStroke => ({
+    color: '#000',
+    width: 0.01, // 1% 页宽 = 1px（W=100）
+    points,
+  })
+
+  it('点落在折线段上/附近算命中——判的是**线段距离**，不是采样点距离', () => {
+    // 只有两个端点的一条长横线：中点离两个采样点都很远，仍必须命中
+    const s = line([
+      [0.1, 0.5],
+      [0.9, 0.5],
+    ])
+    expect(strokeHitByPoint(s, 50, 100, 6, W, H)).toBe(true)
+    expect(strokeHitByPoint(s, 50, 130, 6, W, H)).toBe(false)
+  })
+
+  it('半径叠加上笔迹自身的一半线宽（粗笔迹边缘也算擦到）', () => {
+    const thin = line([
+      [0.2, 0.5],
+      [0.8, 0.5],
+    ])
+    const thick: AnnoStroke = { ...thin, width: 0.1 } // 10% 页宽 = 10px
+    // 距线 6px：细笔迹擦不到（有效半径 2 + 0.5 = 2.5），粗笔迹擦得到（2 + 5 = 7）
+    expect(strokeHitByPoint(thin, 50, 106, 2, W, H)).toBe(false)
+    expect(strokeHitByPoint(thick, 50, 106, 2, W, H)).toBe(true)
+  })
+
+  it('单点笔迹按点距判（点一下留下的那种）', () => {
+    const dot = line([[0.5, 0.5]])
+    expect(strokeHitByPoint(dot, 51, 101, 3, W, H)).toBe(true)
+    expect(strokeHitByPoint(dot, 70, 100, 3, W, H)).toBe(false)
+  })
+
+  it('空笔迹不算命中（历史数据里可能有）', () => {
+    expect(strokeHitByPoint(line([]), 10, 10, 20, W, H)).toBe(false)
+  })
+})
+
+describe('eraseStrokesAt（一串触点扫过的整条删除）', () => {
+  const W = 100
+  const H = 200
+  const line = (points: [number, number][]): AnnoStroke => ({
+    color: '#000',
+    width: 0.01,
+    points,
+  })
+  // 上边一条（y=20）、下边一条（y=160），都横跨 x∈[10,20]
+  const top = line([
+    [0.1, 0.1],
+    [0.2, 0.1],
+  ])
+  const bottom = line([
+    [0.1, 0.8],
+    [0.2, 0.8],
+  ])
+
+  it('多个触点是一次**并集**：各点各命中一条，两条都得删', () => {
+    // 逐点串行改数据的实现只会剩最后一个点的效果（上边那条活下来）⇒ 这条用例会红
+    const kept = eraseStrokesAt(
+      [top, bottom],
+      [
+        { x: 15, y: 20 },
+        { x: 15, y: 160 },
+      ],
+      4,
+      W,
+      H
+    )
+    expect(kept).toEqual([])
+  })
+
+  it('顺序反过来也一样（并集与触点先后无关）', () => {
+    const kept = eraseStrokesAt(
+      [top, bottom],
+      [
+        { x: 15, y: 160 },
+        { x: 15, y: 20 },
+      ],
+      4,
+      W,
+      H
+    )
+    expect(kept).toEqual([])
+  })
+
+  it('空触点列表什么都不删（原样返回，连数组都不是新的）', () => {
+    const strokes = [top, bottom]
+    expect(eraseStrokesAt(strokes, [], 4, W, H)).toBe(strokes)
+  })
+
+  it('没被扫到的笔迹原样留下且顺序不变', () => {
+    const untouched = line([
+      [0.6, 0.6],
+      [0.7, 0.6],
+    ])
+    const kept = eraseStrokesAt([top, untouched, bottom], [{ x: 15, y: 20 }], 4, W, H)
+    expect(kept).toEqual([untouched, bottom])
+    expect(kept[0]).toBe(untouched) // 不重建对象，只筛掉命中的
+  })
+
+  it('单点只删它自己扫到的那条', () => {
+    const kept = eraseStrokesAt([top, bottom], [{ x: 15, y: 20 }], 4, W, H)
+    expect(kept).toEqual([bottom])
+  })
+})
+
+/**
+ * 荧光笔靠 `globalAlpha` 半透明。⚠️ 它是**有状态**的：谁最后写谁说了算 ——
+ * 画完荧光笔再画画笔，若画笔不显式写回 1，那支画笔就也是半透明的（真机上是
+ * 「画完荧光笔之后笔全变淡了」）。所以这条用例同时钉住两个方向。
+ */
+describe('不透明度（荧光笔）', () => {
+  function alphaCtx() {
+    const alphas: number[] = []
+    let current = 1
+    const ctx = {
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      stroke: () => {},
+      strokeStyle: '',
+      lineWidth: 0,
+      lineCap: '',
+      lineJoin: '',
+      get globalAlpha() {
+        return current
+      },
+      set globalAlpha(v: number) {
+        current = v
+        alphas.push(v)
+      },
+    }
+    return { alphas, ctx }
+  }
+
+  const strokeOf = (extra: Partial<AnnoStroke>): AnnoStroke => ({
+    color: '#f5a524',
+    width: 0.016,
+    points: [
+      [0.1, 0.1],
+      [0.2, 0.2],
+    ],
+    ...extra,
+  })
+
+  it('带 alpha 的笔迹按它画，画完 globalAlpha 就是那个值', () => {
+    const { alphas, ctx } = alphaCtx()
+    drawStrokeOn(ctx as never, strokeOf({ alpha: 0.5 }), 100, 100)
+    expect(alphas).toEqual([0.5])
+    expect(ctx.globalAlpha).toBe(0.5)
+  })
+
+  it('画笔笔迹（没有 alpha 字段）画完必须是 1，不能沿用上一笔的 0.5', () => {
+    const { alphas, ctx } = alphaCtx()
+    drawStrokeOn(ctx as never, strokeOf({ alpha: 0.5 }), 100, 100)
+    drawStrokeOn(ctx as never, strokeOf({}), 100, 100)
+    expect(alphas).toEqual([0.5, 1])
+  })
+
+  it('整页重画时逐笔各写各的（顺序无关，最后一笔说了算）', () => {
+    const { ctx } = alphaCtx()
+    const strokes = [strokeOf({}), strokeOf({ alpha: 0.5 }), strokeOf({})]
+    strokes.forEach((s) => drawStrokeOn(ctx as never, s, 100, 100))
+    expect(ctx.globalAlpha).toBe(1)
+  })
+})

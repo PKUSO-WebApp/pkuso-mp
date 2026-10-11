@@ -15,6 +15,13 @@ on:
       - 'app.css'
       - 'app.scss'
       - '.github/**'
+  # 手动补一次 dev 构建。存在的理由是 push 触发的构建**可能被静默跳过**：GitHub 看到
+  # 提交信息里有跳过标记就跳过这次 push 的全部 workflow，而 squash 合并会把 PR 里的每条
+  # 提交标题整段带进正文——PR 里只要有一条带标记（类型同步那种），整个合并就没构建。
+  # 实测：2026-10-11 的 #64（72039c0）就这么丢了一次，dev 包停在上一版。
+  # 用途就一个：出了这种情况不用再伪造一个提交，直接
+  #   gh workflow run deploy-dev.yml --ref dev
+  workflow_dispatch:
 
 jobs:
   verify:

@@ -6,6 +6,7 @@ import { markPostSeen } from '@/lib/postSeen'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
 import { useT, useNavTitle } from '@/i18n'
+import { PageLoading } from '@/components/ui/PageLoading'
 import { useThemeClass } from '@/context/theme-context'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import './index.scss'
@@ -85,11 +86,7 @@ export default function PostDetailPage() {
   }
 
   if (loading) {
-    return (
-      <View className={`${darkClass} flex min-h-screen items-center justify-center bg-page-bg`}>
-        <Text className='text-xs text-text-muted'>{t('common.actions.loading')}</Text>
-      </View>
-    )
+    return <PageLoading darkClass={darkClass} height='screen' size='xs' />
   }
 
   if (notFound || !post) {
