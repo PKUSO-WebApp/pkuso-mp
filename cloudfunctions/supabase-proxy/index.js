@@ -306,30 +306,52 @@ function buildTargets() {
 
 async function runProbe() {
   const startedAt = new Date()
+  // dnsInfo 先跑：UPSTREAM_HOST 的解析结果本身是探针要记的一项，它顺带让下面四个目标命中 DNS 热缓存
   const dnsResults = await dnsInfo(UPSTREAM_HOST)
 
-  const probes = {}
-  for (const target of buildTargets()) {
-    const r = await rawRequest({
-      url: target.url,
-      method: target.method || 'GET',
-      headers: target.headers,
-    })
-    probes[target.name] = {
-      ok: r.ok,
-      status: r.status,
-      err: r.err,
-      ip: r.ip,
-      family: r.family,
-      dns_ms: r.dns_ms,
-      tcp_ms: r.tcp_ms,
-      tls_ms: r.tls_ms,
-      ttfb_ms: r.ttfb_ms,
-      total_ms: r.total_ms,
-      cf_colo: r.cf_colo,
-      body_head: r.bodyBuffer ? r.bodyBuffer.toString('utf8').slice(0, 120) : null,
-    }
-  }
+  /**
+   * 四个目标**并发**（2026-10-11 由串行改并发）。
+   *
+   * 理由是计费：SCF 按「时长 × 内存」收费，而串行时四条腿的耗时是**相加**的
+   * （实测均值 dns 109 + auth 938 + rest 1147 + 对照 cf 944 + 对照 cn 423 ≈ 3.56s，p90 5.6s）——
+   * 探针月份额一度比真实流量还高。并发后这一段墙钟 ≈ 最慢的那条（rest ≈ 1.15s）。
+   * 四条腿之间本来就没有先后依赖：测的是「此刻能不能建起连接」，不是「连着测会怎样」。
+   *
+   * ⚠️ 两个后果要知道：
+   *   1. 四条腿共享 CPU 与出口带宽，各目标的**分层耗时会被轻微抬高**（内存档越低 CPU 越少）。
+   *      趋势仍可比，但**别拿并发前后的 total_ms 直接对比** —— 3.5s 掉到 1.2s 是设计变更，不是链路变好。
+   *   2. 这里依赖 `rawRequest` 的契约「**失败也 resolve**」：单个目标失败只写进它自己的 err，
+   *      整批照常写库。若哪天把它改成会 reject，`Promise.all` 就变成「一条腿炸 = 整个探针不写库」，
+   *      而「表里的空洞」正是判读失败的方式 —— 那会看起来像链路故障。改 rawRequest 时留意这条。
+   */
+  const probes = Object.fromEntries(
+    await Promise.all(
+      buildTargets().map(async (target) => {
+        const r = await rawRequest({
+          url: target.url,
+          method: target.method || 'GET',
+          headers: target.headers,
+        })
+        return [
+          target.name,
+          {
+            ok: r.ok,
+            status: r.status,
+            err: r.err,
+            ip: r.ip,
+            family: r.family,
+            dns_ms: r.dns_ms,
+            tcp_ms: r.tcp_ms,
+            tls_ms: r.tls_ms,
+            ttfb_ms: r.ttfb_ms,
+            total_ms: r.total_ms,
+            cf_colo: r.cf_colo,
+            body_head: r.bodyBuffer ? r.bodyBuffer.toString('utf8').slice(0, 120) : null,
+          },
+        ]
+      })
+    )
+  )
 
   const write = await writeRow({
     client_id: randomUUID(),
