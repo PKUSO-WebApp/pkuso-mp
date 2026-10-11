@@ -84,6 +84,56 @@ export function sampleEdgeColors(node: CanvasNode): { top: string; bottom: strin
   }
 }
 
+/** 判定「这是一条锐边」的亮度跳变阈值（灰阶）。真谱面的墨线远超它，缓变则远低于它 */
+export const EDGE_DELTA = 40
+
+/** 一帧的「锐度画像」：有墨比例 + 每行锐边数（真机实测：真谱面 6~57% 墨 / 23~63 边，
+ *  纯白页 0% / 0，而 2026-10-11 那台 iOS 上画坏的帧是 **100% 墨 / 0 边**） */
+export type FrameSharpness = { inkPct: number; edgesPerRow: number }
+
+/**
+ * 量一帧的锐度画像（三条整行采样，与 `frameInk` 同一套取行方式）。
+ *
+ * 为什么要它：**「有墨但一条锐边都没有」不可能是一页谱面**——谱面是墨线条，扫描下来
+ * 必有大量明暗跳变。判据「有墨 + 零锐边」与「纯白页」（合法的空白页，0 墨 0 边）
+ * 天然分得开，所以它可以当坏帧判据；同时它也是首帧探针的画像（见 index.tsx 的上报）。
+ *
+ * 读不到像素（不支持 `getImageData` / 尺寸为 0 / 抛错）返回 `null` —— 调用方**不要**
+ * 拿 null 当坏帧，探测失败不等于画面坏。
+ */
+export function frameSharpness(node: CanvasNode): FrameSharpness | null {
+  try {
+    const ctx = node.getContext('2d')
+    if (!ctx?.getImageData) return null
+    const w = node.width
+    const h = node.height
+    if (!w || !h) return null
+    let ink = 0
+    let edges = 0
+    let total = 0
+    for (const fy of [0.25, 0.5, 0.75]) {
+      const line = ctx.getImageData(0, Math.floor(fy * h), w, 1).data
+      let prev = -1
+      for (let x = 0; x < w; x += 1) {
+        const i = x * 4
+        const v =
+          0.299 * (line[i] ?? 0) + 0.587 * (line[i + 1] ?? 0) + 0.114 * (line[i + 2] ?? 0)
+        total += 1
+        if (v < 245) ink += 1
+        if (prev >= 0 && Math.abs(v - prev) > EDGE_DELTA) edges += 1
+        prev = v
+      }
+    }
+    if (total === 0) return null
+    return {
+      inkPct: Math.round((1000 * ink) / total) / 10,
+      edgesPerRow: Math.round(edges / 3),
+    }
+  } catch {
+    return null
+  }
+}
+
 /**
  * 抽样看这一帧有没有墨：预绘制把整页 JPEG 画进备用块之后用它验一次，全白（0）
  * 就丢弃这一帧、交回常规路径。返回 -1 表示探测本身失败，不参与判定。

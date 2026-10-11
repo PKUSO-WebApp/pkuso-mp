@@ -34,7 +34,8 @@ import { pageImageUrls } from '@/lib/score-page-image'
 import type { SheetMusicFileRow } from '@/types/database'
 // 页面内部模块：留在分包目录内，保证被打进分包 chunk（见 lib/types.ts 顶部注释）
 import type { CanvasCtx, CanvasNode, Drag, Job, Layer, Pan, Pinch, Stage } from './lib/types'
-import { frameInk, rasterDpr, sampleEdgeColors } from './lib/raster'
+import { frameInk, frameSharpness, rasterDpr, sampleEdgeColors } from './lib/raster'
+import { waitForLayoutSize } from './lib/canvas-size'
 import { clamp, clampPan, touchDist, touchMid } from './lib/geometry'
 import { createPanQueue, type PanQueue } from './lib/pan-queue'
 import {
@@ -661,6 +662,28 @@ export default function ScoreReader() {
   )
 
   /**
+   * 只问画布**当前的布局尺寸**（`size: true` 那一份），用于首帧「等布局落地」
+   * （见 lib/canvas-size.ts）。与 `queryCanvasNode` 分开是为了不白取一次 node。
+   */
+  const probeCanvasSize = useCallback(
+    (id: string): Promise<{ width: number; height: number } | null> =>
+      new Promise((resolve) => {
+        Taro.createSelectorQuery()
+          .select(id)
+          .fields({ size: true })
+          .exec((res) => {
+            const f = res?.[0]
+            resolve(
+              f && typeof f.width === 'number'
+                ? { width: f.width, height: typeof f.height === 'number' ? f.height : 0 }
+                : null
+            )
+          })
+      }),
+    []
+  )
+
+  /**
    * 采样刚落地这一帧的**纸色**，给上下灰带当填充色（观感：整屏都是谱面）。
    *
    * 后台跑、失败就算了：它只是观感，绝不能影响渲染与翻页。采样点取**页边留白**
@@ -762,6 +785,21 @@ export default function ScoreReader() {
       // 首帧：先把内容尺寸给出来，别让画布以 0 高存在
       if (firstPaint) setViewSize({ w, h })
       const infoMs = Date.now() - tStep - nodeMs
+      // ⚠️ 首帧必须**等这一版尺寸真的落到视图层**再画（理由见 lib/canvas-size.ts 的长注释）：
+      // setViewSize 是 React setState，这一拍画布的布局盒还是 `boxW × 0`，真机（iOS，2026-10-11）
+      // 实测画出来就是一块没有结构的糊色块——**画布里的像素是好的**（同一块画布后续换帧显示正常），
+      // 坏在「从屏外摆回屏幕」与「布局盒 0 高→满高」挤在同一拍。其余渲染的盒子早就是对的，
+      // 不付这一次查询。等不到（-1）也照画：宁可糊，不能白。
+      let sizedTicks = 0
+      let sizeWaitMs = 0
+      if (firstPaint) {
+        const tWait = Date.now()
+        sizedTicks = await waitForLayoutSize(() => probeCanvasSize(CANVAS_SEL[layer]), {
+          width: w,
+          height: h,
+        })
+        sizeWaitMs = Date.now() - tWait
+      }
       // 目标块可能还在滑（上一次翻页的动画没走完）：等它停靠再动它。串行队列的下一件
       // 必然写「刚退役的那一块」，而清屏（paintPageImage 重设尺寸）落在滑行半路
       // 会当场露白。放在这里而不是开头，是为了让取图/解析与动画尾巴并行
@@ -773,6 +811,29 @@ export default function ScoreReader() {
       // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
       paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
       const renderMs = Date.now() - tRender
+      // 首帧探针（**临时**，为 2026-10-11 那台 iOS 的糊色块而加）：把画完这一帧的「锐度画像」
+      // 上报一次，用来回答「坏像素在画布位图里，还是只坏在上屏那一下」——两者修法完全不同。
+      // 画像含义见 lib/raster.ts 的 frameSharpness（真谱面每行 23~63 条锐边，糊色块是 0 条）。
+      // 成因确认后这整段可以删。
+      if (firstPaint) {
+        const sharp = frameSharpness(node as CanvasNode)
+        reportClientError({
+          event: 'score_reader_first_frame_probe',
+          message: sharp ? `首帧 ink=${sharp.inkPct}% edges=${sharp.edgesPerRow}` : '首帧 探测失败',
+          detail: {
+            fileId,
+            page: target,
+            via: pageImg.via,
+            sizedTicks,
+            sizeWaitMs,
+            infoMs,
+            renderMs,
+            dpr,
+            bitmapW: Math.round(w * dpr),
+            bitmapH: Math.round(h * dpr),
+          },
+        })
+      }
       // 这一帧画完了：顺手采一下这张纸的纸色，给灰带上色（后台、失败无所谓）
       sampleBandColorRef.current(layer)
       viaTallyRef.current[pageImg.via] += 1 // 取图来源计数（见 reportPageSource）
@@ -799,6 +860,9 @@ export default function ScoreReader() {
           dpr,
           bitmapW: w * dpr,
           bitmapH: h * dpr,
+          // 首帧「等布局落地」等了几拍（0 = 第一次查就已到位；-1 = 拍到上限没等到，照画了）
+          sizedTicks,
+          sizeWaitMs,
         })
       }
       // 换帧：只在这页仍是当前页时。
@@ -859,7 +923,7 @@ export default function ScoreReader() {
       // 换帧落地，趁空闲把「下一页」备进备用块（见 schedulePredraw）
       schedulePredrawRef.current()
     },
-    [containerW, fileId, pageCount, pageFileKey, queryCanvasNode]
+    [containerW, fileId, pageCount, pageFileKey, probeCanvasSize, queryCanvasNode]
   )
 
   /**
