@@ -149,7 +149,10 @@ export function usePdfHandoff() {
         // 签名 URL 的**长度只有服务端知道**（本地没有库里的 file_size 可比），
         // 所以分片下载的依据取响应里那个确切的字节数
         expectedBytes = composed.bytes > 0 ? composed.bytes : undefined
-        fileName = `${m.fileName}${t('common.saveTo.annoSuffix')}`
+        // ⚠️ `m.fileName` 是库里的 `file_name`，**自带 `.pdf`**（实测 `小提琴1.pdf`）——
+        // 后缀必须加在扩展名**之前**。直接拼在末尾的话，`displayPdfName` 只会剥掉最后那个
+        // `.pdf`，中间那个原样留下来 ⇒ 交付出去的是 `xxx.pdf（带批注）.pdf`（2026-10-11 真机报）
+        fileName = `${m.fileName.replace(/\.pdf$/i, '')}${t('common.saveTo.annoSuffix')}`
       }
       if (!url) {
         void Taro.showToast({ title: t('common.saveTo.notReady'), icon: 'none' })

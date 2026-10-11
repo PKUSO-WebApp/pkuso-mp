@@ -121,6 +121,9 @@ describe('usePdfHandoff：是否带有批注', () => {
     // 字节数取服务端给的那个确切值，分片下载才有依据
     expect(last.expectedBytes).toBe(4321)
     expect(String(last.fileName)).toContain('common.saveTo.annoSuffix')
+    // ⚠️ 传给 ensureSavedPdf 的名字里**不能带 `.pdf`**：库里的 file_name 自带扩展名，
+    // 后缀要加在它之前；否则 displayPdfName 只剥末尾那个 ⇒ `总谱.pdf（带批注）.pdf`（真机报过）
+    expect(String(last.fileName)).toBe('总谱common.saveTo.annoSuffix')
     // ⚠️ 必须 force：本地那个路径是固定的，不强制的话**新合成的那份根本不会被下载**，
     // 交出去的是上一次的旧内容（用户又多画了几笔也照样是旧的）
     expect(last.force).toBe(true)
