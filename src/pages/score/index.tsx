@@ -10,6 +10,7 @@ import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { ListState } from '@/components/ui/ListState'
 import { StaffBlockedPage } from '@/components/staff-blocked-page'
 import { translateInstrument } from '@/lib/instrument-i18n'
+import { myPartOf } from '@/lib/sheet-music-mine'
 import { isOrchestraMember } from '@/lib/role-gate'
 import './index.scss'
 
@@ -22,7 +23,15 @@ export default function Score() {
   const { user } = useUser()
   const { profile: myProfile } = useMyProfile()
   const [tab, setTab] = useState<TabKey>('all')
-  const { items, myPartsBySheet, loading, error, fetch } = useSheetMusic()
+  const { items, loading, error, fetch } = useSheetMusic()
+
+  /**
+   * 「分发给我的」= **含我声部的乐谱**（2026-10-11 用户定的现阶段口径：暂时不看
+   * `sheet_music_distributions`）。我的声部取自 profile，与 `sheet_music_parts.section`
+   * 是同一套闭集词表，判据见 `lib/sheet-music-mine.ts`。
+   */
+  const mySection = (myProfile?.instrument ?? '').trim()
+  const mySectionLabel = translateInstrument(mySection, t)
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'all', label: t('score.tabs.all') },
@@ -30,8 +39,8 @@ export default function Score() {
   ]
 
   const visible = useMemo(
-    () => (tab === 'all' ? items : items.filter((s) => myPartsBySheet[s.id])),
-    [tab, items, myPartsBySheet]
+    () => (tab === 'all' ? items : items.filter((s) => myPartOf(s.parts, mySection))),
+    [tab, items, mySection]
   )
 
   // 游客模式：未登录不展示谱务文件系统（与社区页一致）
@@ -61,14 +70,18 @@ export default function Score() {
     void Taro.navigateTo({ url: `/pages/score-detail/index?id=${id}` })
   }
 
-  /** 「分发给我的」卡片展示我被分发的声部名 */
-  const mySectionLabels = (s: SheetMusicWithParts): string => {
-    const ids = myPartsBySheet[s.id] ?? []
-    const names = s.parts
-      .filter((p) => ids.includes(p.id))
-      .map((p) => translateInstrument(p.section, t))
-      .filter(Boolean)
-    return Array.from(new Set(names)).join('、')
+  /**
+   * 「分发给我的」的层级是**曲子/谱子**——**跳过声部那一层**（用户 2026-10-11 定）：
+   * 直接进「我那个声部」的文件列表。复用现成的声部页（它本来就是「一个声部 → 它的文件
+   * → 阅读器」），所以这里只需要把 part_id 换成**我的**那一个。
+   */
+  const openMyFiles = (s: SheetMusicWithParts) => {
+    const mine = myPartOf(s.parts, mySection)
+    if (!mine) return
+    const sheet = encodeURIComponent(s.title ?? '')
+    void Taro.navigateTo({
+      url: `/pages/score-part/index?part_id=${encodeURIComponent(mine.id)}&sheet=${sheet}`,
+    })
   }
 
   const fileCount = (s: SheetMusicWithParts) => s.parts.reduce((acc, p) => acc + p.files.length, 0)
@@ -89,34 +102,43 @@ export default function Score() {
             emptyText={tab === 'all' ? t('score.emptyAll') : t('score.emptyMine')}
             onRetry={() => void fetch()}
           >
-            {visible.map((s) => (
-              <View
-                key={s.id}
-                className='mb-3 rounded-xl border border-border bg-card p-4'
-                onClick={() => openDetail(s.id)}
-              >
-                <Text className='block text-base font-semibold text-text'>{s.title}</Text>
-                {s.composer ? (
-                  <Text className='mt-1 block text-sm text-text-muted'>{s.composer}</Text>
-                ) : null}
-                <View className='mt-2 flex flex-row items-center'>
-                  <Text className='text-xs text-text-muted'>
-                    {t('score.partsCount', { n: s.parts.length })}
-                  </Text>
-                  <Text className='ml-3 text-xs text-text-muted'>
-                    {t('score.filesCount', { n: fileCount(s) })}
-                  </Text>
+            {visible.map((s) => {
+              const mine = tab === 'mine' ? myPartOf(s.parts, mySection) : null
+              return (
+                <View
+                  key={s.id}
+                  className='mb-3 rounded-xl border border-border bg-card p-4'
+                  onClick={() => (tab === 'mine' ? openMyFiles(s) : openDetail(s.id))}
+                >
+                  <Text className='block text-base font-semibold text-text'>{s.title}</Text>
+                  {s.composer ? (
+                    <Text className='mt-1 block text-sm text-text-muted'>{s.composer}</Text>
+                  ) : null}
+                  {tab === 'mine' ? (
+                    // 这一栏列的是**我的**谱子，所以数量按我那份算：「整曲有多少声部 / 多少文件」
+                    // 在这里没有意义（谁在这栏里看到的都是同一份曲子）。
+                    <View className='mt-2 flex flex-row items-center'>
+                      <Text className='text-xs text-text-muted'>
+                        {t('score.filesCount', { n: mine?.files.length ?? 0 })}
+                      </Text>
+                      <Text className='ml-3 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary'>
+                        {t('score.mineBadge')}
+                        {mySectionLabel ? `：${mySectionLabel}` : ''}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View className='mt-2 flex flex-row items-center'>
+                      <Text className='text-xs text-text-muted'>
+                        {t('score.partsCount', { n: s.parts.length })}
+                      </Text>
+                      <Text className='ml-3 text-xs text-text-muted'>
+                        {t('score.filesCount', { n: fileCount(s) })}
+                      </Text>
+                    </View>
+                  )}
                 </View>
-                {tab === 'mine' ? (
-                  <View className='mt-2'>
-                    <Text className='rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary'>
-                      {t('score.mineBadge')}
-                      {mySectionLabels(s) ? `：${mySectionLabels(s)}` : ''}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            ))}
+              )
+            })}
           </ListState>
         </View>
       </ScrollView>

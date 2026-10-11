@@ -6,7 +6,10 @@ export const score = {
   },
   loadFailed: '加载失败：{error}',
   emptyAll: '暂无曲目',
-  emptyMine: '你还没有被分发的声部',
+  // 「分发给我的」现按**我的声部**判定（见 lib/sheet-music-mine.ts），与下发记录无关。
+  // 空列表的两种成因是「profile 里没设声部」与「你的声部还没有谱子」，而前者更多见、
+  // 且用户自己看不出来 ⇒ 一句里把排查方向也带上（用户 2026-10-11 定）
+  emptyMine: '你的声部暂无乐谱——请检查是否设置了声部',
   mineBadge: '我的声部',
   partsCount: '{n} 声部',
   filesCount: '{n} 份文件',
