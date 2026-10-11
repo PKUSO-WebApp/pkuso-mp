@@ -65,6 +65,10 @@ export default defineConfig<'webpack5'>(async (merge) => {
       },
       webpackChain(chain) {
         chain.resolve.plugin('tsconfig-paths').use(TsconfigPathsPlugin)
+        // 项目根 vendor/（构建期生成的 PDF 运行时）。不要在 tsconfig 配 @vendor
+        // paths 映射（会让 tsc 读入生成的 JS 并触发 TS5.4.5 崩溃），类型走
+        // types/*.d.ts 的 ambient module，webpack 解析在此显式 alias。
+        chain.resolve.alias.set('@vendor', path.resolve(process.cwd(), 'vendor'))
         // 每次构建前清空 dist：防止 watch 增量构建残留旧 chunk，导致开发者工具
         // 混合加载新旧产物（模块 ID 漂移 → 运行时 n[e] is not a function）。
         // Taro 的 Output 类型未收录 clean 字段，用 set 绕过类型检查
@@ -77,6 +81,8 @@ export default defineConfig<'webpack5'>(async (merge) => {
         // 注：不能用顶层 compile.include 配置——Taro 服务层对 config 键白名单过滤，
         // compile 键不会传到 runner；webpackChain 运行于模块规则合并之后，
         // chain.module.rule('script') 此时已存在。
+        // 注2：PDF 运行时 vendor/wechat-miniprogram-pdf.js 在 src/ 之外，不被本规则
+        // include 命中（babel 不处理），由 scripts/build-pdf-runtime.mjs 预降到 es2019。
         chain.module
           .rule('script')
           .include.add((filename: string) =>

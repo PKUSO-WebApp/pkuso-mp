@@ -4,6 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
+import { PageLoading } from '@/components/ui/PageLoading'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useEditDraft } from '@/hooks/useEditDraft'
 import { isValidPhoneNumber } from '@/lib/validation'
@@ -321,11 +322,7 @@ export default function ProfileInfoPage() {
   )
 
   if (!myProfile) {
-    return (
-      <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
-      </View>
-    )
+    return <PageLoading darkClass={darkClass} />
   }
 
   return (

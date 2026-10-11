@@ -22,6 +22,13 @@ export type Instrument = (typeof INSTRUMENT_ORDER)[number]
 
 export const OTHER_INSTRUMENT_GROUP = '其他'
 
+/**
+ * 「总谱」——整份谱（所有声部都在里面）的标记，**不是声部**，刻意不进 INSTRUMENT_ORDER
+ * （那张表是成员分声部用的）。谱务里可作为 sheet_music_parts.section 的值存在；
+ * 详情页排序把它放**最前**（契约见 pkuso-web#289 / src/lib/sheet-music-sort.ts）。
+ */
+export const FULL_SCORE_SECTION = '总谱'
+
 /** 声部组：用于分排创建时的联想列表分组、小程序端显示声部组名 */
 export const SECTION_GROUPS = {
   弦乐: ['第一小提琴', '第二小提琴', '中提琴', '大提琴', '低音提琴'],

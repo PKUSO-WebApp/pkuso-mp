@@ -89,6 +89,7 @@ describe('rehearsal-utils', () => {
       expect(isRehearsalWithinNextWeek('2028-03-04T00:00:00', febNow)).toBe(false)
     })
   })
+
   describe('normalizeTargets', () => {
     it('数组原样（只留字符串）', () => {
       expect(normalizeTargets(['弦乐', '管乐'])).toEqual(['弦乐', '管乐'])

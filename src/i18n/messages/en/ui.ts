@@ -17,7 +17,7 @@ export const ui = {
       'Your account was signed in on another device at {when}; this device has been signed out.',
     line2:
       'If this was not you, your password may be compromised. Please sign in again and change it as soon as possible.',
-    action: 'Sign In Again',
+    confirm: 'OK',
     justNow: 'just now',
   },
   errorBoundary: {
@@ -30,6 +30,7 @@ export const ui = {
     home: 'Home',
     community: 'Community',
     schedule: 'B108',
+    score: 'Scores',
     members: 'Members',
     profile: 'Me',
   },

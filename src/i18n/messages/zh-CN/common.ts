@@ -1,5 +1,8 @@
 // 公共文案（跨页面复用：按钮、加载态等）
 export const common = {
+  /** 二态开关两侧的两个字（见 components/ui/YesNoSwitch） */
+  yes: '是',
+  no: '否',
   appName: '北京大学学生交响乐团',
   actions: {
     save: '保存',
@@ -35,10 +38,32 @@ export const common = {
     exiting: '退出中…',
     loading: '加载中…',
   },
+  /**
+   * 「保存到…」：把文件交给用户能看见的地方。**共用组件**（阅读器顶栏 + 声部页文件行），
+   * 所以放在 common 而不是某一页的命名空间里。落点与平台能力见 src/lib/pdf-handoff.ts。
+   */
+  saveTo: {
+    title: '保存到…',
+    favorites: '收藏到微信',
+    chat: '发送到…',
+    app: '用其他应用打开',
+    disk: '保存到电脑',
+    preparing: '正在准备文件…',
+    cancel: '取消',
+    notReady: '文件尚未加载完成',
+    failed: '保存失败：{error}',
+    /** 「是否带有批注？」那个开关（左「是」右「否」，见 components/ui/YesNoSwitch） */
+    withAnno: '是否带有批注？',
+    /** 打开开关但这份谱一笔都没画过：这是**预期内**的一种，不当失败报 */
+    noAnno: '这份谱还没有批注',
+    /** 带批注那份的文件名后缀——同一次会话里两份可能都存过，名字必须能分辨 */
+    annoSuffix: '（带批注）',
+  },
   error: {
     defaultTitle: '页面出错了',
     copySuccess: '已复制错误信息',
     copyFailed: '复制失败',
+    copyTruncated: '已复制（内容过长，已截断）',
     copyButton: '复制错误信息',
     hint: '请把复制的信息发送给乐团管理员，以便尽快修复问题。',
   },

@@ -6,6 +6,7 @@ import { usePageRestore } from '@/hooks/usePageRestore'
 import { useEditDraft } from '@/hooks/useEditDraft'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
+import { PageLoading } from '@/components/ui/PageLoading'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 import './index.scss'
@@ -190,11 +191,7 @@ export default function PostEditPage() {
   const previewSrc = imageFile ? imageFile.tempFilePath : imagePreview
 
   if (loading) {
-    return (
-      <View className={`${darkClass} flex min-h-screen items-center justify-center bg-page-bg`}>
-        <Text className='text-xs text-text-muted'>{t('common.actions.loading')}</Text>
-      </View>
-    )
+    return <PageLoading darkClass={darkClass} height='screen' size='xs' />
   }
 
   if (notFound || !post) {

@@ -21,6 +21,10 @@ import { members } from './members'
 import { myActivities } from './myActivities'
 import { ui } from './ui'
 import { instruments } from './instruments'
+import { score } from './score'
+import { scoreDetail } from './score-detail'
+import { scorePart } from './score-part'
+import { scoreReader } from './score-reader'
 
 // 必须保持与 zh-CN 完全相同的结构（缺/多 key 都会编译报错）
 export const en: typeof zhCN = {
@@ -46,5 +50,9 @@ export const en: typeof zhCN = {
   myActivities,
   ui,
   instruments,
+  score,
+  scoreDetail,
+  scorePart,
+  scoreReader,
 }
 export default en

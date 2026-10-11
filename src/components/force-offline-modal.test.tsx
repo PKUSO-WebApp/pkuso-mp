@@ -60,7 +60,7 @@ describe('ForceOfflineModal', () => {
   it('点击按钮触发 onClose', () => {
     const onClose = vi.fn()
     render(<ForceOfflineModal opened at='2026-08-22T11:00:00Z' onClose={onClose} />)
-    fireEvent.click(screen.getByRole('button', { name: '重新登录' }))
+    fireEvent.click(screen.getByRole('button', { name: '好的' }))
     expect(onClose).toHaveBeenCalled()
   })
 })
