@@ -403,21 +403,29 @@ export default function ScoreReader() {
   /**
    * 让所有邻居帧作废（世代 +1，并打断在飞的那次）。触发点：视口宽变化、缩放、换册、
    * 页面销毁、回到前台——凡是「已经画好的帧尺寸对不上/内容来路不明」的事。
+   *
+   * ⚠️ **只作废帧的有效性**（`layerMetaRef` 的 page+zoom+containerW 凭证），
+   * **不动 `layerSlot`（显示记账）**：它问的是「这块画布装着哪一页」，缩放/回前台后
+   * 这个身份仍然成立——像素只是旧了、被 CSS 拉伸着，页没错。清掉它有两层代价
+   * （2026-10-11 用户真机报「每次放大/缩小都转加载圈」）：① 加载圈判据 `renderedPages`
+   * 读的正是它 ⇒ 捏合的每一次 move 都让当前页算「没渲染过」，圈在整段手势里一直转；
+   * ② UD 的可见/摆位判据也是它 ⇒ 三块画布当场摆到屏外（整屏空白，要等 settle 重渲救回来）。
+   * 唯一例外是**换册**（`reassignLayers`）：那些像素属于上一册，身份不再成立，必须清。
+   *
+   * 历史：42e6b9a 回退过一次「不清摆位记账」，当时真机症状是「某个页位轮闪别的页」——
+   * 那是**写位图却不更新摆位**造成的错配；如今由两处堵住：前台 `doRender` 的丢弃分支在
+   * 同一拍补渲当前页；后台 `doPredraw` 只写视野外的块、且在写之前把该块的摆位记账一并
+   * 置空。若该症状再现，回滚点就是这里给 `reassignLayers` 之外的分支也补上清空。
    */
-  const invalidatePredraw = useCallback((why: string) => {
+  const invalidatePredraw = useCallback((why: string, opts?: { reassignLayers?: boolean }) => {
+    // 换册的显示记账**无条件清**，且必须在下面那条早退之前（早退会把它一起跳过去）
+    if (opts?.reassignLayers) setLayerSlot({ a: null, b: null, c: null })
     const hasFrames = Boolean(
       layerMetaRef.current.a || layerMetaRef.current.b || layerMetaRef.current.c
     )
     if (!hasFrames && !bgRef.current && !predrawTimerRef.current) return
     predrawEpochRef.current += 1
     layerMetaRef.current = { a: null, b: null, c: null }
-    // ⚠️ 摆位记账**必须一起清**（2026-10-09 真机教训，见下面的注）：它同时是 UD 的
-    // 「这块现在显示着哪一页」判据，留着它会让「像素已经换成别的页、摆位还说旧页」的错配
-    // 一直摆在那儿——真机表现就是同一块位置反复闪出别的页（「第 4 页位置轮闪 1/2/3」）。
-    setLayerSlot({ a: null, b: null, c: null })
-    // 代价：UD 里三块画布会当场摆到屏外（可见判据=记账）⇒ 缩放/回前台那一瞬谱面是空的，
-    // 直到新帧落地。所以**清完必须立刻补渲当前页**（见 useDidShow 那条与 zoom 的 settle 渲染）。
-    // 正解是给「显示中」单独一份与帧有效性无关的记账，别再让两层共用一个——那是下一步。
     const ctl = bgRef.current
     if (ctl) {
       ctl.cancelled = true
@@ -1012,6 +1020,10 @@ export default function ScoreReader() {
         // 与 doRender 同一条铁律：马上要写这块位图，这块的记账当场作废
         // （否则这一笔若没画成 / 被判白帧，旧的记账会继续冒充「有效帧」）
         layerMetaRef.current[layer] = null
+        // 摆位记账同理（2026-10-11 起 invalidatePredraw 不再统一清它）：马上要写进去的
+        // 像素未必还是原来那一页 —— 先置空，写成功后再写回 target（见下）。写失败时宁可
+        // 让它显示成「没装东西」，也好过继续冒充旧页（UD 里会按旧页摆位、露出错内容）。
+        setLayerSlot((prev) => (prev[layer] === null ? prev : { ...prev, [layer]: null }))
         paintPageImage(node as CanvasNode, img.img, Math.round(w * dpr), Math.round(h * dpr))
         // 有墨校验：帧从画完到上屏之间隔着不确定时间（位图可能被系统回收），而图片模式
         // 没有自愈路径 —— 只丢弃、不重试（误丢的代价只是这一页走常规渲染 ~50ms）
@@ -1226,7 +1238,8 @@ export default function ScoreReader() {
   // 「回前台后的第一次翻页走常规路径」，比上错页/上白页便宜得多
   useDidShow(() => {
     invalidatePredraw('show')
-    // 记账被清空 ⇒ UD 的画布全在屏外。回前台不补这一下，谱面会一直空着等用户操作
+    // 帧有效性已作废，补一次当前页的渲染（后台期间位图可能被系统回收）。
+    // 摆位记账不再被清（见 invalidatePredraw）⇒ 回前台那一瞬画面不会先变空白
     if (docTick > 0) requestRef.current({ page: pageRef.current, zoom: zoomRef.current })
   })
 
@@ -1435,7 +1448,8 @@ export default function ScoreReader() {
     setBandColor(null) // 纸色也作废：新册第一帧采到之前，先退回默认灰带
     historyRef.current = [] // 撤销栈不跨册
     setUndoDepth(0)
-    invalidatePredraw('load') // 换册：备用块上那一帧属于上一册，作废
+    // 换册：备用块上那一帧属于上一册，作废；显示记账也清（像素属于上一册，身份不再成立）
+    invalidatePredraw('load', { reassignLayers: true })
     setNoImages(false)
     // 「显示中的页」作废：换册后的首帧不滑（换册前后页码可能撞上，靠它区分）。
     // 上一册那一段滑出不用管——它自己 200ms 内会停靠
