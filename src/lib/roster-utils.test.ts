@@ -52,11 +52,27 @@ describe('roster-utils', () => {
       expect(result.map((u) => u.id)).toEqual(['2', '1'])
     })
 
-    it('非声部长按姓名（zh-CN localeCompare）排序', () => {
+    it('非声部长按姓名拼音排序', () => {
       const a = makeUser({ id: '1', full_name: '张三' })
       const b = makeUser({ id: '2', full_name: '李四' })
       const c = makeUser({ id: '3', full_name: '阿三' })
       expect(sortGroupMembers([a, b, c]).map((u) => u.id)).toEqual(['3', '2', '1'])
+    })
+
+    it('拼音序 ≠ 码点序：按拼音排（码点序会得出另一个结果）', () => {
+      // 码点序：周(U+5468) < 王(U+738B) < 陈(U+9648)；拼音序：chen < wang < zhou
+      const zhou = makeUser({ id: '1', full_name: '周某' })
+      const chen = makeUser({ id: '2', full_name: '陈某' })
+      const wang = makeUser({ id: '3', full_name: '王某' })
+      expect(sortGroupMembers([zhou, chen, wang]).map((u) => u.id)).toEqual(['2', '3', '1'])
+    })
+
+    it('同音名（拼音键相同）按原值定序，与传入顺序无关', () => {
+      const wei = makeUser({ id: '1', full_name: '张薇' })
+      const wei2 = makeUser({ id: '2', full_name: '张伟' })
+      // 伟(U+4F1F) < 薇(U+8587)：两种传入顺序都收敛到同一结果
+      expect(sortGroupMembers([wei, wei2]).map((u) => u.id)).toEqual(['2', '1'])
+      expect(sortGroupMembers([wei2, wei]).map((u) => u.id)).toEqual(['2', '1'])
     })
 
     it('不修改原数组', () => {
