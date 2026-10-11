@@ -1,5 +1,5 @@
-import { pinyin } from 'pinyin-pro'
 import { FULL_SCORE_SECTION, INSTRUMENT_ORDER } from '@/constants/instruments'
+import { pinyinSortKey } from './pinyin-sort'
 
 /**
  * 曲目声部与文件的展示排序——与 pkuso-web 的 `src/app/admin/sheet-music/sort-parts.ts`
@@ -25,7 +25,7 @@ import { FULL_SCORE_SECTION, INSTRUMENT_ORDER } from '@/constants/instruments'
  * ICU 会把「长笛」读成 zhǎng 且把拉丁字母开头的名字排到所有中文名之后，
  * web 侧实测五个用例错四个（见 web 侧 sort-parts.ts 注释）。
  *
- * ⚠️ 排序键有缓存：每次比较都算拼音会成为排序热点（O(n log n) 次调用）。
+ * 排序键（含缓存）在 `./pinyin-sort` —— 与花名册 `roster-utils.ts` 共用同一份。
  */
 
 interface SortableFile {
@@ -51,18 +51,6 @@ export function sectionSortKey(section: string | null): number {
   return i === -1 ? INSTRUMENT_ORDER.length : i
 }
 
-const keyCache = new Map<string, string>()
-
-/** 拼音排序键：`长笛` → `changdi`，`A调单簧管` → `atiaodanhuangguan`。 */
-function pinyinKey(s: string): string {
-  let key = keyCache.get(s)
-  if (key === undefined) {
-    key = pinyin(s, { toneType: 'none', type: 'array' }).join('').toLowerCase()
-    keyCache.set(s, key)
-  }
-  return key
-}
-
 /**
  * 文件 → 排序用的「第一个分声部号」。没有号（空数组）返回 0，排在所有有号的前面
  * ——合法的分声部号恒 ≥ 1，所以 0 是安全的哨兵。
@@ -74,8 +62,8 @@ function firstSubPart(f: SortableFile): number {
 
 /** 文件比较：先按乐器名拼音，再按第一个分声部号，最后保持原顺序（稳定排序）。 */
 export function compareFiles(a: SortableFile, b: SortableFile): number {
-  const ka = pinyinKey(a.instrument ?? '')
-  const kb = pinyinKey(b.instrument ?? '')
+  const ka = pinyinSortKey(a.instrument ?? '')
+  const kb = pinyinSortKey(b.instrument ?? '')
   // 键已是纯小写拉丁串，码点序就是拼音序；不用 localeCompare（会把 Latin 开头排到最后）
   if (ka !== kb) return ka < kb ? -1 : 1
   return firstSubPart(a) - firstSubPart(b)

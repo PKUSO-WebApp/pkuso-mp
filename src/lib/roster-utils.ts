@@ -1,5 +1,6 @@
 import { INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP } from '@/constants/instruments'
 import type { ProfileRow } from '@/types/database'
+import { pinyinSortKey } from './pinyin-sort'
 
 /**
  * 花名册分组/排序工具（纯函数，可单测）
@@ -21,15 +22,24 @@ export type RosterGroup = {
 }
 
 /**
- * 组内排序：声部长（is_section_leader）排最前（多个声部长之间按姓名排序），
- * 其余按姓名（zh-CN localeCompare）排序。
+ * 组内排序：声部长（is_section_leader）排最前（多个声部长之间同样按姓名拼音），
+ * 其余按**姓名拼音**排序。
+ *
+ * 拼音键走共用的 `pinyinSortKey`（见 ./pinyin-sort），**不是** `localeCompare(x, 'zh-CN')`
+ * ——后者依赖运行时的 ICU 排序数据，真机上实测不出拼音序（2026-10-11 用户报「看着像按
+ * 创建时间倒序」）。同音（键相同）时再按原值定序，保证先后与查询返回顺序无关。
  */
 export function sortGroupMembers(users: ProfileRow[]): ProfileRow[] {
   return [...users].sort((a, b) => {
     const aLeader = a.is_section_leader ? 0 : 1
     const bLeader = b.is_section_leader ? 0 : 1
     if (aLeader !== bLeader) return aLeader - bLeader
-    return String(a.full_name ?? '').localeCompare(String(b.full_name ?? ''), 'zh-CN')
+    const an = String(a.full_name ?? '')
+    const bn = String(b.full_name ?? '')
+    const ka = pinyinSortKey(an)
+    const kb = pinyinSortKey(bn)
+    if (ka !== kb) return ka < kb ? -1 : 1
+    return an < bn ? -1 : an > bn ? 1 : 0
   })
 }
 
