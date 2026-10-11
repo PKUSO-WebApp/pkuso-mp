@@ -9,7 +9,6 @@ import { useSheetMusic, type SheetMusicWithParts } from '@/hooks/useSheetMusic'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { ListState } from '@/components/ui/ListState'
 import { StaffBlockedPage } from '@/components/staff-blocked-page'
-import { translateInstrument } from '@/lib/instrument-i18n'
 import { myPartOf } from '@/lib/sheet-music-mine'
 import { isOrchestraMember } from '@/lib/role-gate'
 import './index.scss'
@@ -31,7 +30,6 @@ export default function Score() {
    * 是同一套闭集词表，判据见 `lib/sheet-music-mine.ts`。
    */
   const mySection = (myProfile?.instrument ?? '').trim()
-  const mySectionLabel = translateInstrument(mySection, t)
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'all', label: t('score.tabs.all') },
@@ -120,13 +118,11 @@ export default function Score() {
                   {tab === 'mine' ? (
                     // 这一栏列的是**我的**谱子，所以数量按我那份算：「整曲有多少声部 / 多少文件」
                     // 在这里没有意义（谁在这栏里看到的都是同一份曲子）。
+                    // 「我的声部：xxx」徽标已去掉（用户 2026-10-11）：这栏的判定逻辑后面要改，
+                    // 现在把一个具体声部名钉在卡片上会与将来不符。
                     <View className='mt-2 flex flex-row items-center'>
                       <Text className='text-xs text-text-muted'>
                         {t('score.filesCount', { n: mine?.files.length ?? 0 })}
-                      </Text>
-                      <Text className='ml-3 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary'>
-                        {t('score.mineBadge')}
-                        {mySectionLabel ? `：${mySectionLabel}` : ''}
                       </Text>
                     </View>
                   ) : (
