@@ -4,6 +4,7 @@ import {
   MAX_RASTER_EDGE,
   MAX_RASTER_PIXELS,
   frameInk,
+  frameSharpness,
   medianHex,
   rasterDpr,
   sampleEdgeColors,
@@ -210,6 +211,72 @@ describe('frameInk', () => {
       getContext: () => ({ ...fakeCtx().ctx, getImageData: spy }),
     }
     frameInk(node)
+    expect(spy.mock.calls).toEqual([
+      [0, 100, 100, 1],
+      [0, 200, 100, 1],
+      [0, 300, 100, 1],
+    ])
+  })
+})
+
+describe('frameSharpness（坏帧判据 / 首帧探针的画像）', () => {
+  /** 每 10px 里 2px 黑：模拟五线谱的墨线（有墨、有大量锐边） */
+  const staffRow = (w: number) => rowOf(w, (x) => (x % 10 < 2 ? BLACK : WHITE))
+
+  it('真谱面：有墨且有大量锐边', () => {
+    const row = staffRow(100)
+    const s = frameSharpness(fakeNode({ width: 100, height: 100, rows: [row, row, row] }).node)
+    expect(s).not.toBeNull()
+    expect(s!.inkPct).toBeGreaterThan(5)
+    expect(s!.edgesPerRow).toBeGreaterThan(10)
+  })
+
+  it('纯白页：0 墨 0 边 —— 与坏帧（有墨 0 边）天然分得开', () => {
+    const s = frameSharpness(
+      fakeNode({ width: 100, height: 100, rows: [rowOf(100, WHITE), rowOf(100, WHITE), rowOf(100, WHITE)] })
+        .node
+    )
+    expect(s).toEqual({ inkPct: 0, edgesPerRow: 0 })
+  })
+
+  it('真机上的坏帧形态：处处有墨、一条锐边都没有（缓变）', () => {
+    // 逐像素 +2 的缓变：都在 245 以下（= 有墨），但相邻差恒为 2（< EDGE_DELTA = 无锐边）
+    const row = rowOf(100, (x) => {
+      const v = 12 + x * 2
+      return [v, v, v, 255]
+    })
+    const s = frameSharpness(fakeNode({ width: 100, height: 100, rows: [row, row, row] }).node)
+    expect(s!.inkPct).toBe(100)
+    expect(s!.edgesPerRow).toBe(0)
+  })
+
+  it('锐边阈值是亮度跳变 40（墨线的抗锯齿边缘不算、真墨线算）', () => {
+    const soft = rowOf(100, (x) => {
+      const v = 100 + (x % 2 === 0 ? 0 : 39)
+      return [v, v, v, 255]
+    })
+    const hard = rowOf(100, (x) => {
+      const v = 100 + (x % 2 === 0 ? 0 : 41)
+      return [v, v, v, 255]
+    })
+    expect(frameSharpness(fakeNode({ width: 100, height: 100, rows: [soft, soft, soft] }).node)!.edgesPerRow).toBe(0)
+    expect(frameSharpness(fakeNode({ width: 100, height: 100, rows: [hard, hard, hard] }).node)!.edgesPerRow).toBe(99)
+  })
+
+  it('探测失败 / 尺寸为 0 ⇒ null（探测失败不等于画面坏，调用方别据此判坏帧）', () => {
+    expect(frameSharpness(fakeNode({ probeThrows: true }).node)).toBeNull()
+    expect(frameSharpness(fakeNode({ width: 0 }).node)).toBeNull()
+    expect(frameSharpness(fakeNode({ height: 0 }).node)).toBeNull()
+  })
+
+  it('与 frameInk 同一套取行方式：三条整行、行号按高度取', () => {
+    const spy = vi.fn((_x: number, _y: number, _w: number, _h: number) => ({ data: WHITE }))
+    const node: CanvasNode = {
+      width: 100,
+      height: 400,
+      getContext: () => ({ ...fakeCtx().ctx, getImageData: spy }),
+    }
+    frameSharpness(node)
     expect(spy.mock.calls).toEqual([
       [0, 100, 100, 1],
       [0, 200, 100, 1],
