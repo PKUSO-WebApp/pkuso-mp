@@ -1,5 +1,4 @@
 import Taro from '@tarojs/taro'
-import { translateCurrent } from '@/i18n/core'
 
 /**
  * 显示大小：一个三档的用户偏好（**衡量的是绝对尺寸，不是「占屏比例」**）。
@@ -21,42 +20,44 @@ import { translateCurrent } from '@/i18n/core'
  * - 内联 px 层：它本来就是绝对尺寸，**只乘档位系数**。
  */
 
-export type UiScale = 'compact' | 'normal' | 'large'
+export type UiScale = 'compact' | 'normal' | 'large' | 'xlarge'
 
 /** 存储键（沿用本仓 `pkuso-` 前缀的习惯，与 pkuso-theme 一致） */
 export const UI_SCALE_KEY = 'pkuso-ui-scale'
 
-/** 三档：紧凑 / 标准 / 宽松。**默认标准**（用户 2026-10-13 定：不做按设备自动切档） */
-export const UI_SCALE_OPTIONS: readonly UiScale[] = ['compact', 'normal', 'large']
+/**
+ * 四档。**默认 1.00x**（用户 2026-10-13 定：不做按设备自动切档）。
+ * 顺序即 UI 里的顺序（由小到大），界面按系数显示 `0.85x / 1.00x / 1.25x / 1.50x`
+ * （用户 2026-10-13 定：直接用倍率叫，不用「紧凑/标准/宽松」这类形容词）。
+ */
+export const UI_SCALE_OPTIONS: readonly UiScale[] = ['compact', 'normal', 'large', 'xlarge']
 
 /**
- * 档位系数。
+ * 档位系数（**界面直接按它显示**：`0.85x` … `1.50x`）。
  *
- * ⚠️ 这组值是**乘在「手机绝对尺寸」上的**，所以范围不必很大：标准本身已经是对的了。
- * 宽松给到 1.25 是为了让「就是想大一点」的用户够得着（旧平板的观感约 2×，不打算复刻）。
- * 真机看着不对就改这里 —— 全站只有这一份数字。
+ * ⚠️ 这组值是**乘在「手机绝对尺寸」上的**：1.00x 就是「和手机一样大」，也就是平板上的基准。
+ * 1.50x 是给「就想大一点」的人（旧平板的观感约 2x，不打算复刻）。真机看着不对就改这里 ——
+ * 全站只有这一份数字（CSS 侧的 `.ui-k-*` 是另一份，两处必须一致）。
  */
 export const UI_SCALE_FACTOR: Record<UiScale, number> = {
   compact: 0.85,
   normal: 1,
   large: 1.25,
+  xlarge: 1.5,
 }
 
 /** 基准屏宽：设计稿的绝对尺寸以 375pt 手机为准（该宽度下 1rpx = 0.5px） */
 export const UI_BASE_WIDTH = 375
 
-export const isUiScale = (v: unknown): v is UiScale =>
-  v === 'compact' || v === 'normal' || v === 'large'
+export const isUiScale = (v: unknown): v is UiScale => UI_SCALE_OPTIONS.includes(v as UiScale)
 
-/** 选项文案（随语言本地化，与 themeLabel 同一手法） */
-export const uiScaleLabel = (v: UiScale): string =>
-  translateCurrent(
-    v === 'compact'
-      ? 'profile.displaySize.compact'
-      : v === 'large'
-        ? 'profile.displaySize.large'
-        : 'profile.displaySize.normal'
-  )
+/**
+ * 选项文案：**就是倍率本身**（`0.85x` / `1.00x` / `1.25x` / `1.50x`）。
+ *
+ * 不走 `translateCurrent` 是因为它不需要翻译 —— 用户 2026-10-13 定：直接用倍率叫，
+ * 比「紧凑/标准/宽松」这种形容词准（同样的词在手机和平板上含义完全不同）。
+ */
+export const uiScaleLabel = (v: UiScale): string => `${uiScaleFactor(v).toFixed(2)}x`
 
 export function uiScaleFactor(v: UiScale): number {
   return UI_SCALE_FACTOR[v] ?? 1
