@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ALL_LAYERS,
+  assignSlot,
   frameForPage,
   missingNeighbor,
   neighborFrames,
@@ -211,5 +213,93 @@ describe('spareLayerOffscreen（后台只准写视野外的画布）', () => {
         { first: 4, last: 4 }
       )
     ).toBe('a')
+  })
+})
+
+describe('assignSlot（同一页只能由一块画布占着）', () => {
+  const slots = (o: Partial<Record<Layer, number | null>> = {}): Record<Layer, number | null> => ({
+    a: null,
+    b: null,
+    c: null,
+    ...o,
+  })
+
+  it('交给空块：只有那一块变了', () => {
+    expect(assignSlot(slots({ a: 1 }), 'b', 2)).toEqual({ a: 1, b: 2, c: null })
+  })
+
+  it('没变化时原样返回（React 状态不白换引用）', () => {
+    const s = slots({ a: 2, b: 1 })
+    expect(assignSlot(s, 'a', 2)).toBe(s)
+  })
+
+  it('同一页在别处也占着 ⇒ 交给新块，旧块的记账清掉（它退回屏外）', () => {
+    expect(assignSlot(slots({ a: 2, b: 1, c: 3 }), 'a', 3)).toEqual({ a: 3, b: 1, c: null })
+  })
+
+  it('清掉的只是**同一页**那些，别页不动', () => {
+    expect(assignSlot(slots({ a: 5, b: 5, c: 5 }), 'c', 5)).toEqual({ a: null, b: null, c: 5 })
+  })
+})
+
+/**
+ * 摆位/帧记账的最小模型：**照 index.tsx 里 doRender 与 invalidatePredraw 的规则**推
+ * （挑块用真的 spareLayer、落摆位用真的 assignSlot），用来复现真机那条路径。
+ */
+function makeLayerModel() {
+  let slots: Record<Layer, number | null> = { a: null, b: null, c: null }
+  let m: LayerMetas = { a: null, b: null, c: null }
+  let active: Layer = 'a' // index.tsx 的初值
+  return {
+    slots: () => slots,
+    /** doRender：挑一块「不是显示中的」写进去；写成功才落摆位 */
+    render(page: number) {
+      const layer = spareLayer(ALL_LAYERS, active, m, page)
+      m = { ...m, [layer]: frame({ page, layer }) }
+      slots = assignSlot(slots, layer, page)
+      active = layer
+    },
+    /** invalidatePredraw：帧全部作废，**摆位不动**（2026-10-11 起） */
+    invalidate() {
+      m = { a: null, b: null, c: null }
+    },
+    /** 有没有哪一页被两块同时占着（上下模式里 = 叠在同一位置画两遍） */
+    doubledPages(): number[] {
+      const held = ALL_LAYERS.map((l) => slots[l]).filter((p): p is number => p !== null)
+      return [...new Set(held.filter((p, i) => held.indexOf(p) !== i))]
+    },
+  }
+}
+
+describe('上下模式：翻页 + 放大后重渲（真机「荧光笔松手后几乎不透明」的根因）', () => {
+  it('顺次翻三页各自占一块，谁都不重复', () => {
+    const L = makeLayerModel()
+    L.render(1)
+    L.render(2)
+    L.render(3)
+    expect(L.slots()).toEqual({ a: 2, b: 1, c: 3 })
+    expect(L.doubledPages()).toEqual([])
+  })
+
+  it('放大后重渲当前页 ⚠️ 不能让它同时占两块', () => {
+    const L = makeLayerModel()
+    L.render(1)
+    L.render(2)
+    L.render(3)
+    // 捏合放大 ⇒ syncView 重渲当前页；此时帧全作废、摆位还在 ⇒ 挑块挑不到「装着别页的」
+    L.invalidate()
+    L.render(3)
+    expect(L.doubledPages()).toEqual([])
+    // 当前页由新块显示，原来的那块退回屏外（c 上那一页已被顶掉）
+    expect(L.slots()).toEqual({ a: 3, b: 1, c: null })
+  })
+
+  it('切后台回来（useDidShow 也走同一条重渲）同样不重复', () => {
+    const L = makeLayerModel()
+    L.render(1)
+    L.render(2)
+    L.invalidate()
+    L.render(2)
+    expect(L.doubledPages()).toEqual([])
   })
 })
