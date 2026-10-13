@@ -2,6 +2,8 @@ import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
+import { tabBarReserveCss } from '@/lib/ui-scale'
 import { useSheetMusicDetail, type SheetMusicPartWithFiles } from '@/hooks/useSheetMusic'
 import { ListState } from '@/components/ui/ListState'
 import { translateInstrument } from '@/lib/instrument-i18n'
@@ -11,6 +13,8 @@ export default function ScoreDetail() {
   const { t } = useT()
   useNavTitle('scoreDetail.navTitle')
   const darkClass = useThemeClass()
+  // 底边栏预留是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
   const router = useRouter()
   const id = router.params.id ?? ''
   const { item, loading, error, fetch } = useSheetMusicDetail(id)
@@ -26,7 +30,7 @@ export default function ScoreDetail() {
   return (
     <View
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
-      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: tabBarReserveCss(uiScale) }}
     >
       {/* 面包屑：谱务 / 曲名 */}
       <View className='mb-1 flex flex-row items-center px-4 pt-3 text-sm'>

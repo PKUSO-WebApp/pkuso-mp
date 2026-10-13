@@ -262,7 +262,7 @@ export default function SetupPage() {
           className='mb-3'
           labelClass='text-sm font-medium text-text-muted'
           label={t('setup.nameLabel')}
-          inputClass='h-10 text-sm text-text'
+          inputClass='h-[var(--size-control-h)] text-sm text-text'
           placeholder={t('setup.namePlaceholder')}
           value={name}
           onInput={(e) => {
@@ -275,7 +275,7 @@ export default function SetupPage() {
           className='mb-3'
           labelClass='text-sm font-medium text-text-muted'
           label={t('setup.emailLabel')}
-          inputClass='h-10 text-sm text-text'
+          inputClass='h-[var(--size-control-h)] text-sm text-text'
           placeholder={t('setup.emailPlaceholder')}
           value={email}
           onInput={(e) => {
@@ -319,7 +319,7 @@ export default function SetupPage() {
         <ActionBar className='mt-5 gap-3'>
           <Button
             hoverClass='none'
-            className='flex h-10 w-24 items-center justify-center rounded-2xl bg-muted text-sm font-medium text-text disabled:opacity-60'
+            className='flex h-[var(--size-control-h)] w-24 items-center justify-center rounded-2xl bg-muted text-sm font-medium text-text disabled:opacity-60'
             disabled={submitting || signingOut}
             onClick={() => void logout()}
           >
@@ -327,7 +327,7 @@ export default function SetupPage() {
           </Button>
           <Button
             hoverClass='none'
-            className='flex h-10 w-24 items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
+            className='flex h-[var(--size-control-h)] w-24 items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
             disabled={submitting || emailVerify.verifying}
             onClick={() => void handleSubmit()}
           >
@@ -358,7 +358,7 @@ export default function SetupPage() {
               <View className='flex items-center gap-2'>
                 <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
                   <Input
-                    className='h-10 w-full bg-transparent text-sm text-text'
+                    className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
                     placeholder={t('setup.emailVerify.codePlaceholder')}
                     type='number'
                     maxlength={6}
@@ -395,14 +395,14 @@ export default function SetupPage() {
             <View className='mt-5 flex gap-3'>
               <Button
                 hoverClass='none'
-                className='flex h-10 flex-1 items-center justify-center rounded-2xl bg-muted text-sm font-medium text-text'
+                className='flex h-[var(--size-control-h)] flex-1 items-center justify-center rounded-2xl bg-muted text-sm font-medium text-text'
                 onClick={handleUseRecorded}
               >
                 {t('setup.emailVerify.useRecorded')}
               </Button>
               <Button
                 hoverClass='none'
-                className='flex h-10 flex-1 items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
+                className='flex h-[var(--size-control-h)] flex-1 items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
                 disabled={codeSending}
                 onClick={handleUseOwn}
               >

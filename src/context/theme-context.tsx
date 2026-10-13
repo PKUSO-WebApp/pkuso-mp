@@ -17,6 +17,8 @@ import {
   type ThemeMode,
 } from '@/lib/theme'
 import { setThemeMode } from '@/lib/themeStore'
+import { useUiScaleStore } from '@/lib/uiScaleStore'
+import { uiScaleClass } from '@/lib/ui-scale'
 
 export type ThemeContextValue = {
   /** 用户二态选择（亮色 / 暗色） */
@@ -83,8 +85,22 @@ export function useThemeContext(): ThemeContextValue {
   return ctx
 }
 
-/** 页面根节点暗色类名：mode 为 dark 时返回 'dark'，否则空串 */
+/**
+ * 页面根节点该挂的类。
+ *
+ * ⚠️ 名字沿用（页面里都叫 `darkClass`），但它现在返回**两样东西**：
+ * - 暗色：mode 为 dark 时 `dark`（覆盖 `--color-*`）；
+ * - 显示大小：`ui-scale ui-k-*`（覆盖 `--text-*` / `--spacing` / `--size-*`，见 app.css）。
+ *
+ * 两者是同一套手法（页根挂类 → 覆盖 CSS 变量 → 整棵子树跟着变），所以合成一个入口：
+ * 分两个 hook 挂在页根上，早晚会有人漏挂一个，而漏挂的后果是「那一页不跟着变」——
+ * 静默、且只有对着真机逐个页面看才发现。
+ *
+ * 档位取自模块级 store（不是 Context）：初值就是存储里的偏好，不需要 Provider 就正确，
+ * 也因此**在没有 UiScaleProvider 的树里（含测试）不会抛错**。
+ */
 export function useThemeClass(): string {
   const { mode } = useThemeContext()
-  return mode === 'dark' ? 'dark' : ''
+  const uiScale = useUiScaleStore()
+  return mode === 'dark' ? `dark ${uiScaleClass(uiScale)}` : uiScaleClass(uiScale)
 }

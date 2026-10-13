@@ -79,7 +79,7 @@ export function ApprovalGuard({ expected }: ApprovalGuardProps) {
       <View className='mt-2 flex w-full max-w-64 flex-col gap-3'>
         <Button
           hoverClass='none'
-          className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
+          className='flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
           disabled={loading || signingOut}
           onClick={() => void refresh()}
         >
@@ -87,7 +87,7 @@ export function ApprovalGuard({ expected }: ApprovalGuardProps) {
         </Button>
         <Button
           hoverClass='none'
-          className='flex h-11 w-full items-center justify-center rounded-2xl bg-muted text-sm font-medium text-text disabled:opacity-60'
+          className='flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-2xl bg-muted text-sm font-medium text-text disabled:opacity-60'
           disabled={signingOut}
           onClick={() => void logout()}
         >

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { View, Text, Button, Image } from '@tarojs/components'
 import type { ITouchEvent } from '@tarojs/components'
 import { useT } from '@/i18n'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { pageFromSliderX, sliderFracOf } from '@/pages/score-reader/lib/layout'
 import bookOpenIcon from '@/assets/icons/book-open.png'
 import bookOpenIconDark from '@/assets/icons/book-open-dark.png'
@@ -20,47 +21,56 @@ import chevronsUDDark from '@/assets/icons/chevrons-up-down-dark.png'
 export type ReaderPanel = 'none' | 'page' | 'zoom'
 
 /**
- * 底栏的尺寸整体放大 25%（用户 2026-10-10 定：初版偏小）。**改这里就够了** ——
- * 底下所有尺寸都由这几个常量推出来，包括 `TRACK_LEFT`（页码气泡要贴屏幕左沿）与
- * `cardWidthOf`，各写一份数就会漂移。
- */
-const SCALE = 1.25
-const ICON = 18 * SCALE
-/**
- * 每个按钮是**方形热区**（见 SCALE，44px 的 1.25 倍），图标居中，**无底无框**
- * （用户 2026-10-10 定：不要圆角矩形按钮）。整个方形都响应点击。
+ * 底栏的全部尺寸：基准 `SCALE = 1.25`（用户 2026-10-10 定：初版偏小），再乘**显示大小档位系数**。
  *
- * 因此按钮**没有激活态外观**——底色/边框正是被去掉的东西。状态在别处照样看得见：
- * 面板开着时它就在按钮正上方，批注开着时上方会出现整条批注工具条。
- * `busy` 时的半透明是另一回事（那是「点不动」，不是「选中」），保留。
+ * ⚠️ 所有尺寸都必须从这里取（含 `trackLeft` 与 `cardWidthOf`）——各写一份数就会漂移；
+ * 而「底栏偏小」正是这次加档位的起因之一，所以它必须跟着档位走。
+ * ⚠️ 尺寸**不走类**：类里的 px 会被 Taro 转成 rpx（`h-[30px]` 会变成 15px），只能内联给。
+ * ⚠️ 这些 px 是**绝对尺寸**（不随屏宽变），所以只乘档位系数，不再乘设备系数（口径见 lib/ui-scale.ts）。
  */
-const BTN_SIZE = 44 * SCALE
-/** ± 按钮的边长：**宽高都要给**（只定宽 = 椭圆，真机反馈过），且轨道的左端要靠它算成常量 */
-const STEP_W = 30 * SCALE
 /**
- * ± 按钮的样式（形状与配色）。**尺寸不走类**：类里的 `px` 会被 Taro 转成 rpx，
- * 写 `h-[30px]` 到这里会变成 15px。所以边长用内联样式给（`ROUND_SIZE`）。
+ * ± 按钮的样式（形状与配色，与尺寸无关的那部分）。**尺寸在 `roundSize` 里内联给**：
+ * 类里的 `px` 会被 Taro 转成 rpx，写 `h-[30px]` 到这里会变成 15px。
  */
-const ROUND_BTN = 'flex items-center justify-center rounded-full border border-border bg-card p-0 text-sm text-text'
-/** ± 的边长（px）。宽高都给才是正圆；也决定了 `TRACK_LEFT` 这个常量 */
-const ROUND_SIZE = { width: `${STEP_W}px`, height: `${STEP_W}px` }
-const CARD_PAD = 12 * SCALE
-const GAP = 12 * SCALE
-/** 底栏按钮行的左右内边距 */
-const BAR_PAD = 8 * SCALE
-/**
- * 轨道左端在**屏幕坐标**里的位置 —— 一个**常量**，不是量出来的。
- *
- * 页码气泡贴屏幕左沿（底栏本身就在屏幕左沿，气泡 `left: 0`），所以
- * 「屏幕左沿 + 卡片内边距 + − 按钮宽 + 间距」就是轨道左端。拖动定位因此完全不依赖
- * `createSelectorQuery` 的测量值 —— 上一版用测量值算，那个值一旦不对，**两个气泡会
- * 一起被压窄**（真机现象：页码条只剩数字、缩放那排被挤成一团）。
- */
-const TRACK_LEFT = CARD_PAD + STEP_W + GAP
-/** 卡片宽度：全由常量与轨道宽算出，不靠内容撑（内容撑宽 + 居中在真机上出过偏差） */
-const cardWidthOf = (trackW: number) => trackW + (STEP_W + GAP) * 2 + CARD_PAD * 2
-/** 缩放百分比文字的定宽：不定的话 100% → 95% 会让整排按钮跟着挪（真机反馈） */
-const PCT_W = 46 * SCALE
+const ROUND_BTN =
+  'flex items-center justify-center rounded-full border border-border bg-card p-0 text-sm text-text'
+
+function metricsFor(k: number) {
+  const s = 1.25 * k
+  /** 图标边长 */
+  const icon = 18 * s
+  /**
+   * 每个按钮是**方形热区**（44px 的 1.25×档位），图标居中、**无底无框**
+   * （用户 2026-10-10 定：不要圆角矩形按钮）。整个方形都响应点击。
+   *
+   * 因此按钮**没有激活态外观**——底色/边框正是被去掉的东西。状态在别处照样看得见：
+   * 面板开着时它就在按钮正上方，批注开着时上方会出现整条批注工具条。
+   * `busy` 时的半透明是另一回事（那是「点不动」，不是「选中」），保留。
+   */
+  const btnSize = 44 * s
+  /** ± 按钮的边长：**宽高都要给**（只定宽 = 椭圆，真机反馈过），且轨道的左端要靠它算成常量 */
+  const stepW = 30 * s
+  /** ± 的边长（px）。宽高都给才是正圆；也决定了 `trackLeft` 这个常量 */
+  const roundSize = { width: `${stepW}px`, height: `${stepW}px` }
+  const cardPad = 12 * s
+  const gap = 12 * s
+  /** 底栏按钮行的左右内边距 */
+  const barPad = 8 * s
+  /**
+   * 轨道左端在**屏幕坐标**里的位置 —— 一个**常量**，不是量出来的。
+   *
+   * 页码气泡贴屏幕左沿（底栏本身就在屏幕左沿，气泡 `left: 0`），所以
+   * 「屏幕左沿 + 卡片内边距 + − 按钮宽 + 间距」就是轨道左端。拖动定位因此完全不依赖
+   * `createSelectorQuery` 的测量值 —— 上一版用测量值算，那个值一旦不对，**两个气泡会
+   * 一起被压窄**（真机现象：页码条只剩数字、缩放那排被挤成一团）。
+   */
+  const trackLeft = cardPad + stepW + gap
+  /** 卡片宽度：全由常量与轨道宽算出，不靠内容撑（内容撑宽 + 居中在真机上出过偏差） */
+  const cardWidthOf = (trackW: number) => trackW + (stepW + gap) * 2 + cardPad * 2
+  /** 缩放百分比文字的定宽：不定的话 100% → 95% 会让整排按钮跟着挪（真机反馈） */
+  const pctW = 46 * s
+  return { s, icon, btnSize, stepW, roundSize, cardPad, gap, barPad, trackLeft, cardWidthOf, pctW }
+}
 
 /**
  * 阅读器底栏：五个图标按钮 + 它们各自的气泡。
@@ -114,6 +124,8 @@ export function ReaderToolbar({
   onJump: (page: number) => void
 }) {
   const { t } = useT()
+  /** 本档位的全部尺寸（见 metricsFor：基准 × 档位系数，底栏的每一处尺寸都从它取） */
+  const M = metricsFor(useUiScaleFactor())
   /**
    * 拖动中的页码（抬手前**不**真的翻页）：只在这一格变了才 setState ——
    * 逐像素更新会把拖一次变成上百次重渲染，而页码变一次才需要重画滑块。
@@ -122,8 +134,8 @@ export function ReaderToolbar({
   const shown = dragPage ?? page
   const dragRef = useRef<number | null>(null)
 
-  /** 触点在轨道里的位置：左端是常量 TRACK_LEFT，不需要量任何东西 */
-  const pageAt = (clientX: number) => pageFromSliderX(clientX - TRACK_LEFT, trackW, pageCount)
+  /** 触点在轨道里的位置：左端是常量 M.trackLeft，不需要量任何东西 */
+  const pageAt = (clientX: number) => pageFromSliderX(clientX - M.trackLeft, trackW, pageCount)
 
   const onSlideStart = (e: ITouchEvent) => {
     const touch = e.touches[0]
@@ -148,16 +160,16 @@ export function ReaderToolbar({
   }
 
   const icon = (src: string, srcDark: string) => (
-    <Image src={dark ? srcDark : src} style={{ width: `${ICON}px`, height: `${ICON}px` }} />
+    <Image src={dark ? srcDark : src} style={{ width: `${M.icon}px`, height: `${M.icon}px` }} />
   )
 
   const frac = sliderFracOf(shown, pageCount)
   const cardStyle = {
-    width: `${cardWidthOf(trackW)}px`,
-    marginBottom: `${8 * SCALE}px`,
-    padding: `${10 * SCALE}px ${CARD_PAD}px`,
+    width: `${M.cardWidthOf(trackW)}px`,
+    marginBottom: `${8 * M.s}px`,
+    padding: `${10 * M.s}px ${M.cardPad}px`,
   }
-  const cellStyle = { width: `${BTN_SIZE}px`, height: `${BTN_SIZE}px` }
+  const cellStyle = { width: `${M.btnSize}px`, height: `${M.btnSize}px` }
 
   return (
     <>
@@ -177,17 +189,17 @@ export function ReaderToolbar({
                   `rounded-full` 出来的是椭圆而不是圆（真机反馈「形状很奇怪」） */}
               <Button
                 className={ROUND_BTN}
-                style={ROUND_SIZE}
+                style={M.roundSize}
                 disabled={pageCount <= 0 || shown <= 1}
                 onClick={() => onJump(shown - 1)}
               >
                 −
               </Button>
               {/* 轨道：拖动改页码。宽度固定（屏幕宽的 2/5），**不随页数变化**；
-                  左端 = TRACK_LEFT（常量）⇒ 触点到页码是一步纯换算 */}
+                  左端 = M.trackLeft（常量）⇒ 触点到页码是一步纯换算 */}
               <View
                 className='relative flex flex-row items-center'
-                style={{ width: `${trackW}px`, height: `${28 * SCALE}px`, marginLeft: `${GAP}px` }}
+                style={{ width: `${trackW}px`, height: `${28 * M.s}px`, marginLeft: `${M.gap}px` }}
                 onTouchStart={onSlideStart}
                 onTouchMove={onSlideMove}
                 onTouchEnd={onSlideEnd}
@@ -195,24 +207,27 @@ export function ReaderToolbar({
               >
                 {/* 轨道与滑块也按 SCALE 走。⚠️ 基数是 **2px** 不是类名 h-1 那个数：
                     类里的 px 会被 pxtransform 转成 rpx（375 屏上 4rpx = 2px），而内联 px 不转 */}
-                <View className='w-full rounded-full bg-border' style={{ height: `${2 * SCALE}px` }} />
+                <View
+                  className='w-full rounded-full bg-border'
+                  style={{ height: `${2 * M.s}px` }}
+                />
                 <View
                   className='absolute left-0 rounded-full bg-primary'
-                  style={{ width: `${frac * trackW}px`, height: `${2 * SCALE}px` }}
+                  style={{ width: `${frac * trackW}px`, height: `${2 * M.s}px` }}
                 />
                 <View
                   className='absolute rounded-full border-2 border-primary bg-card'
                   style={{
                     left: `${frac * trackW}px`,
-                    width: `${14 * SCALE}px`,
-                    height: `${14 * SCALE}px`,
-                    marginLeft: `${-7 * SCALE}px`,
+                    width: `${14 * M.s}px`,
+                    height: `${14 * M.s}px`,
+                    marginLeft: `${-7 * M.s}px`,
                   }}
                 />
               </View>
               <Button
                 className={ROUND_BTN}
-                style={{ ...ROUND_SIZE, marginLeft: `${GAP}px` }}
+                style={{ ...M.roundSize, marginLeft: `${M.gap}px` }}
                 disabled={pageCount <= 0 || shown >= pageCount}
                 onClick={() => onJump(shown + 1)}
               >
@@ -234,8 +249,8 @@ export function ReaderToolbar({
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'space-between',
-          paddingLeft: `${BAR_PAD}px`,
-          paddingRight: `${BAR_PAD}px`,
+          paddingLeft: `${M.barPad}px`,
+          paddingRight: `${M.barPad}px`,
         }}
       >
         <View
@@ -251,17 +266,17 @@ export function ReaderToolbar({
             不需要知道这个按钮在屏幕上的 x（弹性布局怎么排都不会错位） */}
         <View style={{ position: 'relative' }}>
           {panel === 'zoom' ? (
-            <View style={{ position: 'absolute', left: '0px', bottom: `${BTN_SIZE}px` }}>
+            <View style={{ position: 'absolute', left: '0px', bottom: `${M.btnSize}px` }}>
               {/* ⚠️ 这一张**不套 `cardStyle`**：那条宽度是按进度条轨道算的（≈234px），
                   而这里的内容只有「− 100% 适配 +」≈190px ⇒ 两边各剩一大块空白（真机反馈）。
                   改成按内容收缩：`absolute` 且不给 right/width ⇒ 宽度由内容决定。 */}
               <View
                 className='flex flex-row items-center rounded-2xl border border-border bg-surface'
-                style={{ marginBottom: `${8 * SCALE}px`, padding: `${10 * SCALE}px ${CARD_PAD}px` }}
+                style={{ marginBottom: `${8 * M.s}px`, padding: `${10 * M.s}px ${M.cardPad}px` }}
               >
                 <Button
                   className={ROUND_BTN}
-                  style={ROUND_SIZE}
+                  style={M.roundSize}
                   ariaLabel={t('scoreReader.zoomOut')}
                   onClick={() => onZoom('out')}
                 >
@@ -270,13 +285,13 @@ export function ReaderToolbar({
                 {/* 定宽：否则 100% → 95% 时整排会跟着挪（真机反馈「内容随放大缩小改变」） */}
                 <Text
                   className='text-center text-xs text-text-muted'
-                  style={{ width: `${PCT_W}px`, marginLeft: `${GAP}px` }}
+                  style={{ width: `${M.pctW}px`, marginLeft: `${M.gap}px` }}
                 >
                   {Math.round(zoom * 100)}%
                 </Text>
                 <Button
                   className='flex items-center justify-center rounded-full border border-border bg-card px-3 p-0 text-sm text-text'
-                  style={{ marginLeft: `${GAP}px`, height: `${STEP_W}px` }}
+                  style={{ marginLeft: `${M.gap}px`, height: `${M.stepW}px` }}
                   ariaLabel={t('scoreReader.zoomReset')}
                   onClick={() => onZoom('fit')}
                 >
@@ -284,7 +299,7 @@ export function ReaderToolbar({
                 </Button>
                 <Button
                   className={ROUND_BTN}
-                  style={{ ...ROUND_SIZE, marginLeft: `${GAP}px` }}
+                  style={{ ...M.roundSize, marginLeft: `${M.gap}px` }}
                   ariaLabel={t('scoreReader.zoomIn')}
                   onClick={() => onZoom('in')}
                 >

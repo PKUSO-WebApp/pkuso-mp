@@ -4,7 +4,8 @@ export const profile = {
   settings: {
     attendance: 'Attendance',
     myActivities: 'My Activities',
-    appearance: 'Appearance',
+    appearanceAndLayout: 'Appearance & Layout',
+    displaySize: 'Display Size',
     account: 'Email & Password',
     feedback: 'Feedback',
     language: 'Language settings',
@@ -71,6 +72,7 @@ export const profile = {
     placeholder: 'Write down your question or suggestion',
   },
   appearance: {
+    theme: 'Theme',
     dark: 'Dark',
     light: 'Light',
     followSystemShort: 'Follow system',

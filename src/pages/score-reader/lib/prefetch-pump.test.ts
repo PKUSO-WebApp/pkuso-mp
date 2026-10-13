@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createPrefetchPump, PREFETCH_PARALLEL } from './prefetch-pump'
+import { createPrefetchPump, MAX_REARM_PER_PAGE, PREFETCH_PARALLEL } from './prefetch-pump'
 
 /** 把泵的循环排空（注入的 prefetchOne 只 resolve 微任务，无计时器） */
 const flush = async (rounds = 80) => {
@@ -45,7 +45,7 @@ describe('createPrefetchPump', () => {
     expect(calls).toEqual([1, 2, 8, 9, 10, 7, 6, 5, 4, 3])
   })
 
-  it('某页失败即跳过、不重排、不中断', async () => {
+  it('同一轮里某页失败：不重排、不中断后面的页（留到 setCurrent 再唤醒）', async () => {
     const calls: number[] = []
     const pump = createPrefetchPump({
       total: 4,
@@ -58,7 +58,115 @@ describe('createPrefetchPump', () => {
     pump.setCurrent(1)
     await flush()
     expect(calls).toEqual([1, 2, 3, 4]) // 3 失败后继续 4
-    expect(calls.filter((n) => n === 3)).toHaveLength(1) // 且不重试
+    expect(calls.filter((n) => n === 3)).toHaveLength(1) // 这一轮里不重试
+  })
+
+  it('一页的候选腿挨个试：反代腿失败、直连腿成功 ⇒ 算抓到', async () => {
+    const tried: string[] = []
+    const failedPages: number[] = []
+    const pump = createPrefetchPump({
+      total: 1,
+      urlsFor: () => ['https://proxy/1.jpg', 'https://direct/1.jpg'],
+      prefetchOne: async (url) => {
+        tried.push(url)
+        if (url.includes('proxy')) throw new Error('反代不通')
+      },
+      onFail: (p) => failedPages.push(p),
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(tried).toEqual(['https://proxy/1.jpg', 'https://direct/1.jpg'])
+    expect(failedPages).toEqual([]) // 兜底腿拿到了就不算失败
+    expect(pump.isWarm(1)).toBe(true)
+  })
+
+  it('所有腿都失败 ⇒ onFail 报一次、这一页不算 warm 但算抓过', async () => {
+    const failedPages: number[] = []
+    const pump = createPrefetchPump({
+      total: 1,
+      urlsFor: () => ['a', 'b'],
+      prefetchOne: async () => {
+        throw new Error('boom')
+      },
+      onFail: (p) => failedPages.push(p),
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(failedPages).toEqual([1])
+    expect(pump.isWarm(1)).toBe(false)
+    expect(pump.isDone(1)).toBe(true)
+  })
+
+  it('失败过的页：用户翻到它附近时重新唤醒，且不超过 MAX_REARM_PER_PAGE', async () => {
+    const calls: string[] = []
+    const pump = createPrefetchPump({
+      total: 3,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: async (url) => {
+        calls.push(url)
+        if (url === '2') throw new Error('boom')
+      },
+    })
+    const timesOfPage2 = () => calls.filter((u) => u === '2').length
+
+    pump.setCurrent(1) // 抓 1、2（失败）、3
+    await flush()
+    expect(timesOfPage2()).toBe(1)
+
+    pump.setCurrent(1) // 用户还在这附近 ⇒ 2 在优先带内，重新唤醒一次
+    await flush()
+    expect(timesOfPage2()).toBe(2)
+
+    for (let i = 0; i < 4; i += 1) {
+      pump.setCurrent(1)
+      await flush()
+    }
+    expect(timesOfPage2()).toBe(1 + MAX_REARM_PER_PAGE)
+  })
+
+  it('翻到远处时**不**唤醒远处的失败页（重排的触发者只能是用户导航过去）', async () => {
+    const calls: string[] = []
+    const pump = createPrefetchPump({
+      total: 30,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: async (url) => {
+        calls.push(url)
+        if (url === '1') throw new Error('boom')
+      },
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(calls.filter((u) => u === '1')).toHaveLength(1)
+
+    pump.setCurrent(20) // 第 1 页远在优先带之外
+    await flush()
+    expect(calls.filter((u) => u === '1')).toHaveLength(1)
+  })
+
+  it('rearm：本地副本没了 ⇒ 重下一遍（含「说抓过」的记账一起清），并受上限约束', async () => {
+    const calls: string[] = []
+    const pump = createPrefetchPump({
+      total: 1,
+      urlsFor: (p) => [String(p)],
+      prefetchOne: async (url) => {
+        calls.push(url)
+      },
+    })
+    pump.setCurrent(1)
+    await flush()
+    expect(calls).toEqual(['1'])
+    expect(pump.isWarm(1)).toBe(true)
+
+    pump.rearm(1) // 前台发现「泵说抓过、这次却没走本地文件」
+    await flush()
+    expect(calls).toEqual(['1', '1'])
+
+    for (let i = 0; i < 4; i += 1) {
+      pump.rearm(1)
+      await flush()
+    }
+    // 与 setCurrent 的唤醒共用一个上限：最多再给 MAX_REARM_PER_PAGE 次
+    expect(calls).toHaveLength(1 + MAX_REARM_PER_PAGE)
   })
 
   it('stop 后不再发起新的抓取（在途的完成即止）', async () => {

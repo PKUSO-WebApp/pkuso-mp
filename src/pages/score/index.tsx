@@ -3,6 +3,8 @@ import { View, Text, ScrollView } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
+import { tabBarReserveCss } from '@/lib/ui-scale'
 import { useUser } from '@/context/user-context'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useSheetMusic, type SheetMusicWithParts } from '@/hooks/useSheetMusic'
@@ -19,6 +21,8 @@ export default function Score() {
   const { t } = useT()
   useNavTitle('score.navTitle')
   const darkClass = useThemeClass()
+  // 底边栏预留是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
   const { user } = useUser()
   const { profile: myProfile, loading: myProfileLoading } = useMyProfile()
   const [tab, setTab] = useState<TabKey>('all')
@@ -47,7 +51,7 @@ export default function Score() {
     return (
       <View
         className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
-        style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
       >
         <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
         <View className='flex flex-1 items-center justify-center px-4'>
@@ -87,7 +91,7 @@ export default function Score() {
   return (
     <View
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
-      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: tabBarReserveCss(uiScale) }}
     >
       <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
 

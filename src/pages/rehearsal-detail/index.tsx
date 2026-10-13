@@ -336,7 +336,7 @@ export default function RehearsalDetail() {
           />
           <View className='mt-6'>
             <View
-              className={`inline-flex h-11 w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${signClass} ${
+              className={`inline-flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-xl px-4 text-center text-base font-medium ${signClass} ${
                 signDisabled ? 'opacity-90' : ''
               }`}
               onClick={signDisabled ? undefined : (onSign ?? undefined)}

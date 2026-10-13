@@ -88,6 +88,7 @@ import {
 import { createPrefetchPump, type PrefetchPump } from './lib/prefetch-pump'
 import {
   ALL_LAYERS,
+  assignSlot,
   frameForPage,
   missingNeighbor,
   neighborFrames,
@@ -98,6 +99,7 @@ import {
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
   type LayerMetas,
+  type LayerSlots,
   type PredrawFrame,
 } from './lib/predraw'
 import { hasSeenReaderTutorial, markReaderTutorialSeen } from './lib/tutorial-seen'
@@ -112,6 +114,14 @@ const ZOOM_MAX = 4
 const ZOOM_SETTLE_MS = 180
 /** 手写进行中推迟渲染的重试间隔 */
 const RENDER_RETRY_MS = 140
+/**
+ * 前台取图超过这个时长就留一条证（每页每次会话一条）。
+ *
+ * 为什么要留：真机报「回到某一页要等好几秒的空白 + 转圈」时，**事后完全分不开**
+ * 是「本地文件没命中、走了网络」（预下载的账）还是「本地文件本身就慢」（图片层/解码的账），
+ * 而这两条的修法完全不同。loadMs 是纯取图时间，renderMs 是画进画布的时间，两者分开记。
+ */
+const SLOW_LOAD_REPORT_MS = 2000
 /** 备用帧停靠位置：移出视口即可（overflow:hidden 会裁掉），它仍是正常在绘制的画布 */
 const OFFSCREEN = '-99999px'
 
@@ -364,8 +374,11 @@ export default function ScoreReader() {
    * 渲染一件新页时要先把语义记账清掉（否则半成品会被当成有效帧换上去），但**摆位不能跟着清**
    * ——清了就当场离屏，用户正看着的那一页会凭空消失几百毫秒再回来，真机上就是「翻到下一页时
    * 上一页闪一下」。所以：语义记账随时可变，摆位只在**画成功**之后才更新。
+   *
+   * ⚠️ **同一页在这份记账里只能出现一次**（写入一律走 `assignSlot`，见 lib/predraw.ts）：
+   * 上下模式里两块指着同一页的画布会叠在同一位置，半透明的荧光笔被合成两遍（0.5 → 0.75）。
    */
-  const [layerSlot, setLayerSlot] = useState<Record<Layer, number | null>>({
+  const [layerSlot, setLayerSlot] = useState<LayerSlots>({
     a: null,
     b: null,
     c: null,
@@ -395,8 +408,10 @@ export default function ScoreReader() {
   const [idleTick, setIdleTick] = useState(0)
   /** 补渲染上一次请求的页 + 时刻：同一页 5 秒内不重复排（失败时别变成无限重试） */
   const fillLastRef = useRef<{ page: number; at: number } | null>(null)
+  /** 已为哪些页报过「慢帧」（每页每次会话只报一条，见 SLOW_LOAD_REPORT_MS） */
+  const slowReportedRef = useRef<Set<number>>(new Set())
   /** `layerSlot` 的同步镜像：后台写帧时要问「这块是不是正显示着视野内的页」 */
-  const layerSlotRef = useRef<Record<Layer, number | null>>({ a: null, b: null, c: null })
+  const layerSlotRef = useRef<LayerSlots>({ a: null, b: null, c: null })
   /** 当前视野盖到哪几页（闭区间；null = 尺寸还没量到）——判据与加载圈共用 visibleRange */
   const visibleRef = useRef<{ first: number; last: number } | null>(null)
 
@@ -743,14 +758,20 @@ export default function ScoreReader() {
       // 诊断：**这次取图之前**，预热泵是否已经抓到过这一页。它直接回答
       // 「预热过的页在 iOS 上到底算不算命中」——warm 却仍要 600ms，说明泵白干了
       const warm = prefetchPumpRef.current?.isWarm(target) ?? false
+      const pumpDone = prefetchPumpRef.current?.isDone(target) ?? false
+      // 取图**之前**本地有没有这一页的记账——慢帧留证靠它分「没命中」与「本地本身慢」
+      const localHit = Boolean(localFileFor(pageFileKey(target)))
+      let loadMs = 0
       try {
         // 页图走**小程序图片层**（微信自带 HTTP/磁盘图片缓存）；图片层在个别设备上会
         // 必现失败，那时自动退到 downloadFile 兜底并记住结论——见 lib/page-image.ts
+        const tLoad = Date.now()
         pageImg = await loadPageImageWithRetry(
           node as CanvasNode,
           pageImageUrls(fileUrlRef.current, target),
           { deps: { key: pageFileKey(target) } }
         )
+        loadMs = Date.now() - tLoad
       } catch (err) {
         // 这条路径的失败原本**只在屏幕上可见**（图片层 onerror 不带状态码，唯一的原因
         // 文案也只有这里能拿到）——真机出现「页图加载失败」时事后完全无法定性，补上这条。
@@ -779,6 +800,13 @@ export default function ScoreReader() {
           },
         })
         throw err
+      }
+      // 泵以为这一页在本地（warm）或本地本来有记账（localHit），而这次取图**没走本地文件**
+      // ⇒ 本地那份已经没了（平台的临时文件池会清、记账也会失效）⇒ 让泵重下一遍。
+      // 不做这一步的话，泵的「已抓过」记账不会自己回头：这一页整场会话都只能走网络
+      // ——真机表现就是「每次回到这一页都要等好几秒的空白 + 转圈」。
+      if (pageImg.via !== 'file' && (warm || localHit)) {
+        prefetchPumpRef.current?.rearm(target)
       }
       const info = { width: pageImg.width, height: pageImg.height }
       // 翻页：把预热泵的窗口挪到这一页（泵自己负责「前 3 后 3 优先、再填 ±窗口」，
@@ -819,6 +847,28 @@ export default function ScoreReader() {
       // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
       paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
       const renderMs = Date.now() - tRender
+      // 慢帧留证（每页每次会话一条）：loadMs 与 renderMs 分开记，本地命中与否也记
+      if (loadMs > SLOW_LOAD_REPORT_MS && !slowReportedRef.current.has(target)) {
+        slowReportedRef.current.add(target)
+        reportClientError({
+          event: 'score_reader_slow_load',
+          level: 'warn',
+          message: `页图慢 ${loadMs}ms（via ${pageImg.via}${localHit ? '' : '，取图前本地未命中'}）`,
+          detail: {
+            fileId,
+            page: target,
+            mode: modeRef.current,
+            zoom: job.zoom,
+            loadMs,
+            renderMs,
+            localHit,
+            via: pageImg.via,
+            pumpWarm: warm,
+            pumpDone,
+            imageLayerBroken: isImageLayerBroken(),
+          },
+        })
+      }
       // 这一帧画完了：顺手采一下这张纸的纸色，给灰带上色（后台、失败无所谓）
       sampleBandColorRef.current(layer)
       viaTallyRef.current[pageImg.via] += 1 // 取图来源计数（见 reportPageSource）
@@ -877,8 +927,10 @@ export default function ScoreReader() {
       // 它靠这个 ref 挑「该写哪块」——晚一步（等 effect）它就会渲到正在显示的画布上
       activeLayerRef.current = layer
       setActiveLayer(layer)
-      // 摆位跟着换帧走（见 layerSlot 的注释：它只在画成功之后更新）
-      setLayerSlot((prev) => (prev[layer] === target ? prev : { ...prev, [layer]: target }))
+      // 摆位跟着换帧走（见 layerSlot 的注释：它只在画成功之后更新）。
+      // ⚠️ 必须走 assignSlot：当前页被重渲进**另一块**时（放大、切后台回来、转屏），
+      // 原来那块的记账还指着同一页 ⇒ 上下模式里两块叠在同一位置，荧光笔被合成两遍
+      setLayerSlot((prev) => assignSlot(prev, layer, target))
       // 记账：这块现在放着 target（预绘制据此知道「哪个邻居已经备好」）
       layerMetaRef.current[layer] = {
         page: target,
@@ -936,6 +988,10 @@ export default function ScoreReader() {
     displayedPageRef.current = f.page
     activeLayerRef.current = f.layer
     setActiveLayer(f.layer)
+    // 正常情形下这块的记账已经是这一页（它就是为这一页留着的）⇒ 原样返回、不重渲染。
+    // 写这一句是为了兜住「别的块也指着这一页」：那两块会叠在同一位置，半透明笔迹被
+    // 合成两遍（见 lib/predraw.ts 的 assignSlot）
+    setLayerSlot((prev) => assignSlot(prev, f.layer, f.page))
     const dir =
       modeRef.current === 'ud' ? null : turnDirFor({ firstPaint: false, shown, target: f.page })
     if (dir !== null) turnRef.current?.begin(retiring, dir)
@@ -1045,7 +1101,8 @@ export default function ScoreReader() {
         }
         layerMetaRef.current[layer] = frame
         // 画成功了才更新**摆位**：这一块现在真的显示着 target 了，摆到它那一页的位置上
-        setLayerSlot((prev) => (prev[layer] === target ? prev : { ...prev, [layer]: target }))
+        // （同 doRender：同一页只能由一块占着，见 assignSlot）
+        setLayerSlot((prev) => assignSlot(prev, layer, target))
         const readyMs = Date.now() - t0
         if (readyMs > 300) {
           // eslint-disable-next-line no-console

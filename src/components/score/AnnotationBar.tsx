@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { View, Button, Image } from '@tarojs/components'
 import { useT } from '@/i18n'
 import { useThemeContext } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { PEN_COLORS, effectiveWidth, widthsFor, type AnnoTool } from '@/lib/annotation'
 import penIcon from '@/assets/icons/pen.png'
 import penIconDark from '@/assets/icons/pen-dark.png'
@@ -47,6 +48,8 @@ export function AnnotationBar({
 }: AnnotationBarProps) {
   const { t } = useT()
   const { mode } = useThemeContext()
+  // 换行后的行距是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
   const dark = mode === 'dark'
   const [confirmingClear, setConfirmingClear] = useState(false)
 
@@ -77,7 +80,10 @@ export function AnnotationBar({
       ariaLabel={label}
       onClick={() => onTool(kind)}
     >
-      <Image src={dark ? iconDark : icon} style={{ width: `${TOOL_ICON}px`, height: `${TOOL_ICON}px` }} />
+      <Image
+        src={dark ? iconDark : icon}
+        style={{ width: `${TOOL_ICON * uiScale}px`, height: `${TOOL_ICON * uiScale}px` }}
+      />
     </Button>
   )
 
@@ -97,7 +103,7 @@ export function AnnotationBar({
     >
       <View
         className='rounded-full bg-text'
-        style={{ width: `${w * 400}px`, height: `${w * 400}px` }}
+        style={{ width: `${w * 400 * uiScale}px`, height: `${w * 400 * uiScale}px` }}
       />
     </View>
   )
@@ -112,7 +118,10 @@ export function AnnotationBar({
     // `flex-wrap` + 右组 `margin-left: auto` 同时解决两件事：装得下时右组被推到最右；
     // 装不下时它换到第二行，并在**那一行里**靠右。宽度不再是硬约束，也就不需要横向滚了。
     <View className='border-t border-border bg-surface'>
-      <View className='flex flex-row flex-wrap items-center px-3 py-2' style={{ rowGap: '8px' }}>
+      <View
+        className='flex flex-row flex-wrap items-center px-3 py-2'
+        style={{ rowGap: `${8 * uiScale}px` }}
+      >
         <View className='flex flex-row items-center'>
           {/* 笔 / 荧光笔 / 擦：橡皮擦按整条删除，比「清空本页」好用（能只擦掉不想要的那几笔）。
                 用**图标**而不是文字（用户 2026-10-10 定）：这一栏在英文下比中文长得多
@@ -120,7 +129,12 @@ export function AnnotationBar({
                 形状仍是圆角按钮、保留选中态（它仨是三选一的开关，不像底栏那五个是纯动作）。
                 `ariaLabel` 仍走原 key —— 图标按钮没有可读的文字了。 */}
           {toolButton('pen', penIcon, penIconDark, t('scoreReader.pen'))}
-          {toolButton('highlighter', highlighterIcon, highlighterIconDark, t('scoreReader.highlighter'))}
+          {toolButton(
+            'highlighter',
+            highlighterIcon,
+            highlighterIconDark,
+            t('scoreReader.highlighter')
+          )}
           {toolButton('eraser', eraserIcon, eraserIconDark, t('scoreReader.eraser'))}
           {PEN_COLORS.map((c) => (
             <View
@@ -147,7 +161,7 @@ export function AnnotationBar({
             >
               <Image
                 src={dark ? undoIconDark : undoIcon}
-                style={{ width: `${TOOL_ICON}px`, height: `${TOOL_ICON}px` }}
+                style={{ width: `${TOOL_ICON * uiScale}px`, height: `${TOOL_ICON * uiScale}px` }}
               />
             </Button>
           ) : null}

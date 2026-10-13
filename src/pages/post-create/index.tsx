@@ -4,6 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts, type CreatePostInput } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { useT, useNavTitle } from '@/i18n'
 import { useEditDraft } from '@/hooks/useEditDraft'
 import { StaffBlockedPage } from '@/components/staff-blocked-page'
@@ -22,6 +23,8 @@ export default function PostCreatePage() {
   const { create, saving } = usePosts()
   const { profile: myProfile } = useMyProfile()
   const darkClass = useThemeClass()
+  // 正文框最小高度是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
   const { t } = useT()
   useNavTitle('postCreate.navTitle')
 
@@ -195,7 +198,7 @@ export default function PostCreatePage() {
               }}
               placeholder={t('postCreate.titlePlaceholder')}
               maxlength={50}
-              className='h-10 w-full bg-transparent text-sm text-text'
+              className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
             />
           </View>
 
@@ -213,7 +216,7 @@ export default function PostCreatePage() {
               }}
               placeholder={t('postCreate.contentPlaceholder')}
               className='w-full bg-transparent py-2 text-sm text-text'
-              style={{ minHeight: '120px' }}
+              style={{ minHeight: `${120 * uiScale}px` }}
             />
           </View>
 
@@ -232,7 +235,7 @@ export default function PostCreatePage() {
                     editDraft.update({ currentSections: value })
                   }}
                   placeholder={t('postCreate.currentSectionsPlaceholder')}
-                  className='h-10 w-full bg-transparent text-sm text-text'
+                  className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
                 />
               </View>
               <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
@@ -247,7 +250,7 @@ export default function PostCreatePage() {
                     editDraft.update({ missingSections: value })
                   }}
                   placeholder={t('postCreate.missingSectionsPlaceholder')}
-                  className='h-10 w-full bg-transparent text-sm text-text'
+                  className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
                 />
               </View>
             </>
@@ -266,7 +269,7 @@ export default function PostCreatePage() {
                 editDraft.update({ contactInfo: value })
               }}
               placeholder={t('postCreate.contactPlaceholder')}
-              className='h-10 w-full bg-transparent text-sm text-text'
+              className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
             />
           </View>
 
@@ -301,7 +304,7 @@ export default function PostCreatePage() {
 
           <View className='mt-6'>
             <View
-              className={`inline-flex h-11 w-full items-center justify-center rounded-xl bg-primary px-4 text-center text-base font-medium text-primary-foreground ${
+              className={`inline-flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-xl bg-primary px-4 text-center text-base font-medium text-primary-foreground ${
                 busy ? 'opacity-90' : ''
               }`}
               onClick={busy ? undefined : handleSubmit}

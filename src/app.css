@@ -125,6 +125,126 @@
   --color-icon-ink: #e7e7e3;
 }
 
+/* ============================================================================
+   显示大小（`ui-scale`）：一处改、全局变。
+
+   背景：这个 App 里有两套尺度在同屏打架（细节见 src/lib/ui-scale.ts）——
+   rpx 层随屏宽放大（iPad 上约 2 倍 ⇒「太大」），内联 px 层恒定（⇒「太小」）。
+   用户 2026-10-13 拍板：**所有设备都回到「375pt 手机上的绝对尺寸」**（标准档），
+   档位再在它上面乘一个系数。
+
+   生效方式与 `.dark` 同一套：**页根挂一个类**（`useThemeClass()` 会把
+   `ui-scale ui-k-*` 一并返回，页面侧不用改），这里只覆盖 token，不动任何类名。
+
+   - `--ui-k`：用户档位（0.85 / 1 / 1.25），由 `.ui-k-*` 给；
+   - `--ui-dev`：把「rpx 随屏宽放大」抵消掉的设备系数 —— 值是 375/该档屏宽，
+     手机上 1、iPad(768pt) ≈ 0.49。**用媒体查询按屏宽给**（连续值没法用类表达，
+     100px 一档、误差 ±8% 以内），转屏/分屏自动跟上，不需要任何 JS。
+
+   ⚠️ 这里**必须**用 `calc(<基准>rpx * var(--ui-dev) * var(--ui-k))`：
+   `--spacing` 与 `--text-*` 是 Tailwind 工具类的源头（`calc(var(--spacing) * 4)`
+   之类），覆盖它们等于覆盖全站的字号/间距/圆角；而 `--size-*` 是**组件尺寸 token**
+   ——同类组件共用一种大小（按钮/输入框、图标、列表行、底边栏、阅读器工具条），
+   组件里用 `h-[var(--size-control-h)]` 这种任意值类消费，不要各写各的数字。
+   ============================================================================ */
+/* ⚠️ 全局兜底（必须先给）：`--spacing` 等 token 是 `calc(... * var(--ui-dev) * var(--ui-k))`，
+   而**未定义的 var() 会让整条声明在计算值阶段失效** —— 万一某个页根漏挂了 `.ui-scale`，
+   间距不会"退回原值"，而是塌成 0（`padding-inline: calc(var(--spacing) * 4)` 直接作废）。
+   有这两个默认值，漏挂的后果只是"那一页不跟着档位变"，不会塌版。 */
+page {
+  --ui-dev: 1;
+  --ui-k: 1;
+}
+
+.ui-scale {
+  /* 设备系数：手机（<400pt）不动 */
+  --ui-dev: 1;
+
+  /* —— 字号 / 间距 / 圆角：Tailwind token（原本由 @theme 定义，这里按档位覆盖）—— */
+  --spacing: calc(8rpx * var(--ui-dev) * var(--ui-k));
+  --text-xs: calc(24rpx * var(--ui-dev) * var(--ui-k));
+  --text-sm: calc(28rpx * var(--ui-dev) * var(--ui-k));
+  --text-base: calc(32rpx * var(--ui-dev) * var(--ui-k));
+  --text-lg: calc(36rpx * var(--ui-dev) * var(--ui-k));
+  --text-xl: calc(40rpx * var(--ui-dev) * var(--ui-k));
+  --text-2xl: calc(48rpx * var(--ui-dev) * var(--ui-k));
+  --text-label: calc(22rpx * var(--ui-dev) * var(--ui-k));
+  --radius-lg: calc(16rpx * var(--ui-dev) * var(--ui-k));
+  --radius-xl: calc(24rpx * var(--ui-dev) * var(--ui-k));
+  --radius-2xl: calc(32rpx * var(--ui-dev) * var(--ui-k));
+  --radius-3xl: calc(48rpx * var(--ui-dev) * var(--ui-k));
+
+  /* —— 组件尺寸 token：同类组件共用一种大小 ——
+     基准值 = 该尺寸在 375pt 手机上的 px 数 × 2（因为 1px 设计稿 = 2rpx）。
+     消费方式：`h-[var(--size-control-h)]` / 内联 style 里读 JS 的档位系数。 */
+  --size-control-h: calc(80rpx * var(--ui-dev) * var(--ui-k)); /* 40px：按钮/输入框/选择器 */
+  --size-control-h-lg: calc(88rpx * var(--ui-dev) * var(--ui-k)); /* 44px：大按钮（主操作） */
+  --size-control-h-sm: calc(64rpx * var(--ui-dev) * var(--ui-k)); /* 32px：小控件/紧凑按钮 */
+  --size-icon: calc(64rpx * var(--ui-dev) * var(--ui-k)); /* 32px：列表/空态图标（w-8 h-8） */
+  --size-icon-sm: calc(32rpx * var(--ui-dev) * var(--ui-k)); /* 16px：附属小图标 */
+  --size-avatar: calc(96rpx * var(--ui-dev) * var(--ui-k)); /* 48px：头像/缩略图（w-12 h-12） */
+  --size-tabbar-h: calc(
+    100rpx * var(--ui-dev) * var(--ui-k)
+  ); /* 50px：底边栏（值由 JS 读同一档） */
+  --size-tab-icon: calc(48rpx * var(--ui-dev) * var(--ui-k)); /* 24px：底栏图标 */
+  --size-reader-btn: calc(110rpx * var(--ui-dev) * var(--ui-k)); /* 55px：阅读器工具条按钮 */
+  --size-reader-icon: calc(45rpx * var(--ui-dev) * var(--ui-k)); /* 22.5px：阅读器图标 */
+}
+
+/* 屏幕越宽，rpx 越大 ⇒ 设备系数越小（值 = 375 / 该档中点宽度）。
+   相邻两档之间误差 ≤8%，肉眼看不出来；没必要做成连续值（那需要 JS 注入，
+   而「内联自定义属性在 WXSS/WXML 里到底吃不吃」本仓还没验证过）。 */
+@media (min-width: 400px) {
+  .ui-scale {
+    --ui-dev: 0.83;
+  }
+}
+@media (min-width: 500px) {
+  .ui-scale {
+    --ui-dev: 0.68;
+  }
+}
+@media (min-width: 600px) {
+  .ui-scale {
+    --ui-dev: 0.58;
+  }
+}
+@media (min-width: 700px) {
+  .ui-scale {
+    --ui-dev: 0.5;
+  }
+}
+@media (min-width: 800px) {
+  .ui-scale {
+    --ui-dev: 0.42;
+  }
+}
+@media (min-width: 1000px) {
+  .ui-scale {
+    --ui-dev: 0.34;
+  }
+}
+@media (min-width: 1200px) {
+  .ui-scale {
+    --ui-dev: 0.3;
+  }
+}
+
+/* 用户档位（四档、默认 1.00x）。值与 `UI_SCALE_FACTOR` 必须一致（改一处要改两处：
+   这里是 CSS 侧的 --ui-k，那边是内联 px 侧的乘数）。界面按倍率显示这四档。 */
+.ui-k-compact {
+  --ui-k: 0.85;
+}
+.ui-k-normal {
+  --ui-k: 1;
+}
+.ui-k-large {
+  --ui-k: 1.25;
+}
+.ui-k-xlarge {
+  --ui-k: 1.5;
+}
+
 /* 页面包裹层满高兜底：Taro 会为每个页面的 wxss 注入 .page{height:100%}
    （PageWrapper 包裹层的类名），但空样式页会被跳过注入——首页 index.scss 为空、
    pending/rejected 无样式文件——包裹层高度塌陷为内容高度，h-full 根节点随之

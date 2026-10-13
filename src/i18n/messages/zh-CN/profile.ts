@@ -4,7 +4,8 @@ export const profile = {
   settings: {
     attendance: '考勤',
     myActivities: '我的活动',
-    appearance: '外观',
+    appearanceAndLayout: '外观与布局',
+    displaySize: '显示大小',
     account: '邮箱与密码',
     feedback: '问题与反馈',
     language: '语言设置',
@@ -78,6 +79,7 @@ export const profile = {
   },
   // 外观弹窗
   appearance: {
+    theme: '主题',
     dark: '暗色',
     light: '亮色',
     followSystemShort: '跟随系统',

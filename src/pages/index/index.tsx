@@ -6,6 +6,8 @@ import { useAnnouncements } from '@/hooks/useAnnouncements'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
+import { tabBarReserveCss } from '@/lib/ui-scale'
 import { dataSyncBump } from '@/lib/dataSync'
 import { tAppError } from '@/lib/appError'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
@@ -49,6 +51,8 @@ export default function Index() {
   const { profile: myProfile } = useMyProfile()
   const { user } = useUser()
   const darkClass = useThemeClass()
+  // 底边栏预留是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
   const { t } = useT()
   useNavTitle('home.navTitle')
 
@@ -238,7 +242,7 @@ export default function Index() {
     return (
       <View
         className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
-        style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
       >
         <View className='mb-3'>
           <SegmentTabs
@@ -263,7 +267,7 @@ export default function Index() {
   return (
     <View
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
-      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: tabBarReserveCss(uiScale) }}
     >
       <View className='mb-3'>
         <SegmentTabs tabs={scheduleTabs} value={scheduleTab} onChange={(k) => setScheduleTab(k)} />
