@@ -12,13 +12,11 @@ export const ui = {
     loggingOut: 'Logging out…',
   },
   forceOffline: {
-    title: 'Your account signed in on another device',
+    title: 'This device has been denied sign-in',
     line1:
-      'Your account was signed in on another device at {when}; this device has been signed out.',
-    line2:
-      'If this was not you, your password may be compromised. Please sign in again and change it as soon as possible.',
+      'This device was marked "not trusted" and has been signed out. It cannot sign in again until you trust it again.',
+    line2: 'If this was not you, open Me - Login Devices on another device to review it.',
     confirm: 'OK',
-    justNow: 'just now',
   },
   errorBoundary: {
     defaultMessage: 'An error occurred while rendering',

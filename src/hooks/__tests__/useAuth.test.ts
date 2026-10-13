@@ -12,8 +12,8 @@ const { ctx } = vi.hoisted(() => {
     user: null,
     ready: false,
     restoreFailed: false,
-    forcedOfflineAt: null,
     forcedOffline: false,
+    markForcedOffline: vi.fn(),
     clearForcedOffline: vi.fn(),
   }
   return { ctx: state }

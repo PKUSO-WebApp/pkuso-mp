@@ -7,6 +7,7 @@ export const profile = {
     appearanceAndLayout: 'Appearance & Layout',
     displaySize: 'Display Size',
     account: 'Email & Password',
+    devices: 'Login Devices',
     feedback: 'Feedback',
     language: 'Language settings',
     logout: 'Log Out',

@@ -1,21 +1,18 @@
 import { useEffect } from 'react'
 import { View, Text, Button } from '@tarojs/components'
-import { formatDateTimeInChina } from '@/lib/date-utils'
 import { useT } from '@/i18n'
 import { logDiag } from '@/lib/session-diag'
 
 export type ForceOfflineModalProps = {
   opened: boolean
-  /** 另一设备登录时刻（ISO 字符串），为 null 时显示「刚刚」 */
-  at: string | null
   onClose: () => void
 }
 
 /**
- * 强制下线通知：本设备会话被其他设备登录挤下线时弹出。
+ * 强制下线通知：本设备被设为「不信任」时弹出 —— 在线被踢下线，或登录/冷启动被服务端拒绝。
  * 覆盖层级高于普通 Modal（z-[70] vs z-[60]），登录页处于其下。
  */
-export function ForceOfflineModal({ opened, at, onClose }: ForceOfflineModalProps) {
+export function ForceOfflineModal({ opened, onClose }: ForceOfflineModalProps) {
   const { t } = useT()
 
   useEffect(() => {
@@ -23,7 +20,6 @@ export function ForceOfflineModal({ opened, at, onClose }: ForceOfflineModalProp
   }, [opened])
 
   if (!opened) return null
-  const when = at ? formatDateTimeInChina(at) : t('ui.forceOffline.justNow')
   return (
     <View
       className='fixed left-0 right-0 top-0 bottom-0 z-[70] flex items-center justify-center bg-overlay px-6'
@@ -34,7 +30,7 @@ export function ForceOfflineModal({ opened, at, onClose }: ForceOfflineModalProp
           {t('ui.forceOffline.title')}
         </Text>
         <Text className='mt-3 block text-sm leading-relaxed text-text-muted'>
-          {t('ui.forceOffline.line1', { when })}
+          {t('ui.forceOffline.line1')}
         </Text>
         <Text className='mt-2 block text-sm leading-relaxed text-text-muted'>
           {t('ui.forceOffline.line2')}

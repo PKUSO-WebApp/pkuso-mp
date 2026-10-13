@@ -11,19 +11,15 @@ import {
 import Taro, { useDidShow } from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import type { Session } from '@supabase/supabase-js'
-import {
-  clearSessionToken,
-  establishSession,
-  getStoredSessionToken,
-  verifySession,
-} from '@/lib/single-session'
+import { clearLegacySessionToken, touchSession, verifySession } from '@/lib/device-session'
+import { getOrCreateDeviceId } from '@/lib/device-id'
 import { logDiag, setSessionStatusProvider, startSessionDiag } from '@/lib/session-diag'
 import { __resetRehearsalsCache } from '@/hooks/useRehearsals'
 import { setLoggedIn } from '@/lib/authStore'
 
 // 会话恢复超时阈值：弱网/挂起时不再无限等待（SDK 默认等待较长），超时降级为「未登录 + 恢复失败」
 const RESTORE_TIMEOUT_MS = 10000
-// 单设备会话心跳间隔：前台切换（useDidShow）之外，定时比对令牌以更快发现被挤下线。
+// 设备会话自查间隔：前台切换（useDidShow）之外，定时自查本设备是否被设为不信任。
 // 15s：前台空闲最坏检测延迟约 15s（更短会显著增加 RPC 频次，收益递减）
 const SESSION_CHECK_INTERVAL_MS = 15000
 
@@ -41,23 +37,24 @@ export type UserContextValue = {
   ready: boolean
   // 会话恢复是否失败（超时/异常）：为 true 时页面可提示「网络异常，请重试」
   restoreFailed: boolean
-  // 本设备会话被其他设备登录挤下线时的「另一设备登录时刻」；非 null 时弹出强制下线通知
-  forcedOfflineAt: string | null
-  // 是否处于「被其他设备挤下线」弹窗状态（与 forcedOfflineAt 解耦，避免 startedAt 为空时漏弹）
+  // 本设备被拒绝登录（被设为不信任）：在线被踢下线、登录/冷启动被服务端拒绝，都是这一条
   forcedOffline: boolean
+  // 登录链路自己发现被拒（touch_session_v2 返回 device_rejected）时置位，复用同一条弹窗
+  markForcedOffline: () => void
   // 关闭强制下线弹窗（仅在登录页渲染，供用户确认后复位）
   clearForcedOffline: () => void
 }
 
 const UserContext = createContext<UserContextValue | undefined>(undefined)
 
+// 走强制下线链路的原因，只用于诊断日志
+type KickReason = 'verify' | 'touch_rejected'
+
 export function UserProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [ready, setReady] = useState(false)
   const [restoreFailed, setRestoreFailed] = useState(false)
-  const [forcedOfflineAt, setForcedOfflineAt] = useState<string | null>(null)
-  // 控制「被其他设备挤下线」弹窗显隐的独立布尔：与 forcedOfflineAt（另一设备登录时刻，可为
-  // null）解耦，确保即便 startedAt 为空弹窗也照常弹出，不会因 !!null 而永不显示
+  // 控制强制下线弹窗显隐（弹窗本体挂在登录页上）
   const [forcedOffline, setForcedOffline] = useState(false)
 
   // 镜像最新状态：诊断心跳提供者注册一次即可读到最新值，避免闭包过期
@@ -65,47 +62,93 @@ export function UserProvider({ children }: { children: ReactNode }) {
   sessionRef.current = session
   const readyRef = useRef(ready)
   readyRef.current = ready
-  // 已登记为活跃会话的 access_token：同一会话只 touch_session 一次，避免 restore /
-  // onAuthStateChange / token 刷新等事件并发重复调用，导致本地令牌与 DB 令牌不一致而被
-  // 自己「挤下线」（自踢）
+  // 已登记为活跃设备的 access_token：同一会话只 touch_session_v2 一次，避免 restore /
+  // onAuthStateChange / token 刷新等事件并发重复调用
   const establishedTokenRef = useRef<string | null>(null)
-  // 本设备被挤下线的「另一设备登录时刻」镜像（见 kick）；新会话建立时必须复位，否则卡死
-  const forcedOfflineAtRef = useRef<string | null>(null)
-  // 是否已弹过强制下线通知（去重 + 控制弹窗显隐），与时刻无关，避免 startedAt 为空时漏弹
+  // 是否已处理过「被拒绝」：去重（kick 只走一次），新会话建立时必须复位，否则会一直卡住
   const forcedOfflineRef = useRef(false)
-  // establishSession 进行中标记：防止 RPC 期间 checkNow 比对到新旧交替的中间态误判为被踢
+  // touch/establish 进行中标记：防止 RPC 期间 checkNow 读到新旧交替的中间态
   const establishingRef = useRef(false)
 
-  // 设置会话并（当会话存在时）把本机登记为当前活跃会话（覆写 profiles.session_token），
-  // 使单设备会话生效：后登录设备会挤掉先登录设备
-  const applySession = useCallback((next: Session | null) => {
-    if (next) {
-      // 新会话建立：清掉上一次「被其他设备登录挤下线」的卡死标记。否则 forcedOfflineAtRef
-      // 永不复位，心跳会一直报 forcedOffline=true、checkNow 早退不再校验，登录后也恢复不了
-      forcedOfflineAtRef.current = null
-      setForcedOfflineAt(null)
-      forcedOfflineRef.current = false
-      setForcedOffline(false)
-      // 同一会话只 establish 一次（见 establishedTokenRef 注释），防止并发自踢
-      if (next.access_token && next.access_token === establishedTokenRef.current) {
+  // 本地会话复位：清会话状态与缓存。与「被拒绝」弹窗状态无关（那是 kick 的事）。
+  const resetLocalSession = useCallback(() => {
+    establishedTokenRef.current = null
+    __resetRehearsalsCache()
+    setSession(null)
+    setLoggedIn(false)
+  }, [])
+
+  // 本设备被拒绝登录的统一处理：记录、弹通知、跳登录页、本地登出
+  const kick = useCallback(
+    (reason: KickReason) => {
+      if (forcedOfflineRef.current) return
+      forcedOfflineRef.current = true
+      logDiag('forced_offline', {
+        reason,
+        deviceId8: getOrCreateDeviceId().slice(0, 8),
+      })
+      // 同步先置位（若 Provider 不因 reLaunch 重挂载，弹窗立即出现）；并延迟到 reLaunch 完成后
+      // 再置位一次（reLaunch 在部分 Taro 配置下会让 UserProvider 重挂载，旧实例状态随之丢失，
+      // 需在登录页新实例上重新置位，否则弹窗不出现）。见 force_offline_modal_render 诊断。
+      setForcedOffline(true)
+      clearLegacySessionToken()
+      const openOnLogin = () => {
+        logDiag('forced_offline_open', { reason })
+        setForcedOffline(true)
+        resetLocalSession()
+        void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+      }
+      Taro.reLaunch({ url: '/pages/login/index' }).then(openOnLogin).catch(openOnLogin)
+    },
+    [resetLocalSession]
+  )
+
+  // 关闭强制下线弹窗：复位卡死标记与显隐状态。弹窗由登录页在 forcedOffline 为真时就地渲染。
+  const clearForcedOffline = useCallback(() => {
+    forcedOfflineRef.current = false
+    setForcedOffline(false)
+  }, [])
+
+  // 登录链路自己发现被拒时置位（同一条弹窗、同一套文案）：此时已在登录页，不 reLaunch、不登出
+  // （会话由登录链路自己撤销），只把通知弹出来。
+  const markForcedOffline = useCallback(() => {
+    logDiag('forced_offline', { reason: 'login_rejected' })
+    forcedOfflineRef.current = true
+    setForcedOffline(true)
+  }, [])
+
+  // 设置会话并（当会话存在时）登记本设备（touch_session_v2）：刷新本设备这一行。
+  // 被设为不信任的设备在这里被服务端明确拒绝（device_rejected）⇒ 走强制下线链路。
+  const applySession = useCallback(
+    (next: Session | null) => {
+      if (next) {
+        // 新会话建立：清掉上一次「被拒绝」的卡死标记。否则 forcedOfflineRef 永不复位，
+        // 心跳会一直报 forcedOffline=true、checkNow 早退不再校验，登录后也恢复不了。
+        forcedOfflineRef.current = false
+        setForcedOffline(false)
+        // 同一会话只 touch 一次（见 establishedTokenRef 注释），防止并发重复调用
+        if (next.access_token && next.access_token === establishedTokenRef.current) {
+          setSession(next)
+          setLoggedIn(true)
+          return
+        }
+        establishedTokenRef.current = next.access_token ?? null
         setSession(next)
         setLoggedIn(true)
+        establishingRef.current = true
+        void touchSession(supabase)
+          .then((res) => {
+            if (res.rejected) kick('touch_rejected')
+          })
+          .finally(() => {
+            establishingRef.current = false
+          })
         return
       }
-      establishedTokenRef.current = next.access_token ?? null
-    } else {
-      establishedTokenRef.current = null
-      __resetRehearsalsCache()
-    }
-    setSession(next)
-    setLoggedIn(!!next)
-    if (next) {
-      establishingRef.current = true
-      void establishSession(supabase).finally(() => {
-        establishingRef.current = false
-      })
-    }
-  }, [])
+      resetLocalSession()
+    },
+    [kick, resetLocalSession]
+  )
 
   // 诊断：注册心跳状态提供者并启动日志（幂等）
   useEffect(() => {
@@ -117,56 +160,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
         userId8: s?.user.id.slice(0, 8) ?? null,
         expiresInSec:
           typeof s?.expires_at === 'number' ? Math.round(s.expires_at - Date.now() / 1000) : null,
-        localToken8: getStoredSessionToken()?.slice(0, 8) ?? null,
-        forcedOffline: !!forcedOfflineAtRef.current,
+        deviceId8: getOrCreateDeviceId().slice(0, 8),
+        forcedOffline: !!forcedOfflineRef.current,
       }
     })
     startSessionDiag()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 本设备被挤下线的统一处理：记录时刻、弹通知、清本机会话令牌、跳登录页、本地登出
-  const kick = useCallback(
-    (startedAt: string | null) => {
-      if (forcedOfflineRef.current) return
-      forcedOfflineRef.current = true
-      // forcedOfflineAtRef 仅作「是否已处理」标志，startedAt 可能为空，用哨兵值保证 truthy
-      forcedOfflineAtRef.current = startedAt ?? 'kicked'
-      logDiag('forced_offline', {
-        otherDeviceStartedAt: startedAt,
-        localToken8: getStoredSessionToken()?.slice(0, 8) ?? null,
-      })
-      // 同步先置位（若 Provider 不因 reLaunch 重挂载，弹窗立即出现）；并延迟到 reLaunch 完成后
-      // 再置位一次（reLaunch 在部分 Taro 配置下会让 UserProvider 重挂载，旧实例状态随之丢失，
-      // 需在登录页新实例上重新置位，否则弹窗不出现）。见 force_offline_modal_render 诊断。
-      setForcedOffline(true)
-      setForcedOfflineAt(startedAt)
-      clearSessionToken()
-      const openOnLogin = () => {
-        logDiag('forced_offline_open', { startedAt })
-        setForcedOffline(true)
-        setForcedOfflineAt(startedAt)
-        applySession(null)
-        void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
-      }
-      Taro.reLaunch({ url: '/pages/login/index' }).then(openOnLogin).catch(openOnLogin)
-    },
-    [applySession]
-  )
-
-  // 关闭强制下线弹窗：复位卡死标记与显隐状态。弹窗由登录页在 forcedOffline 为真时就地渲染。
-  const clearForcedOffline = useCallback(() => {
-    forcedOfflineRef.current = false
-    forcedOfflineAtRef.current = null
-    setForcedOffline(false)
-    setForcedOfflineAt(null)
-  }, [])
-
-  // 比对本地令牌与 DB 当前令牌；被挤下线则清会话 + 弹通知
+  // 自查本设备这一行：被设为不信任（trusted=false）即强制下线。
+  // 旧的「本地令牌 ≠ DB 令牌」判据已随多设备模型退场（每设备一行，token 只标识那一行）。
   const checkNow = useCallback(async () => {
-    if (!session || forcedOfflineAtRef.current || establishingRef.current) return
+    if (!session || forcedOfflineRef.current || establishingRef.current) return
     // 主动续期：临近过期（≤2 分钟）时刷新令牌。挂机久了微信会节流 JS 定时器，
-    // supabase 自带刷新也可能不触发；这里在我们的 60s 心跳里兜底续期，避免 access
+    // supabase 自带刷新也可能不触发；这里在我们的 15s 心跳里兜底续期，避免 access
     // token 静默失效导致请求拿到空数据 / 静默登出。续期成功会触发 TOKEN_REFRESHED。
     const exp = session?.expires_at
     if (typeof exp === 'number' && Date.now() / 1000 >= exp - 120) {
@@ -174,8 +181,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       void supabase.auth.refreshSession().catch(() => {})
     }
     try {
-      const { kicked, startedAt } = await verifySession(supabase)
-      if (kicked) kick(startedAt)
+      const { kicked } = await verifySession(supabase)
+      if (kicked) kick('verify')
     } catch (err) {
       logDiag('verify_error', { err: err instanceof Error ? err.message : String(err) })
     }
@@ -185,7 +192,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const checkNowRef = useRef(checkNow)
   checkNowRef.current = checkNow
 
-  // 前台切换即核对（设备 B 登录后，设备 A 回到前台立即发现被挤下线）
+  // 前台切换即核对（设备 B 把设备 A 设为不信任后，设备 A 回到前台立即发现）
   useDidShow(() => {
     void checkNow()
   })
@@ -240,15 +247,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
         hasSession: !!nextSession,
         userId8: nextSession?.user?.id.slice(0, 8) ?? null,
       })
-      // 会话结束（SIGNED_OUT）只清本地状态，不再弹「已在其他设备登录」：
-      // 自然过期 / 被服务端清理与会话被其他设备注销难以区分——而本模型下「被其他设备登录」
-      // 只会覆写 profiles.session_token、auth.sessions 仍存活，可由 checkNow 的 verifySession
-      // 走「有效令牌 + DB 令牌不符」分支精确判定并弹窗。此处若对已失效会话再调 signOut，
-      // 会触发 session_not_found（JWT 的 session_id 已无对应记录）报错。
+      // 会话结束（SIGNED_OUT）只清本地状态，不弹通知：自然过期 / 服务端清理 / 被设为不信任
+      // 在这里分不开——被拒绝这件事由 applySession 的 touch 与 checkNow 的自查精确判定。
       applySession(nextSession)
     })
 
-    // 心跳兜底：前台之外定时核对，缩短「后台被踢、回到前台才察觉」的窗口
+    // 心跳兜底：前台之外定时自查，缩短「后台被设为不信任、回到前台才察觉」的窗口
     const intervalId = setInterval(() => {
       void checkNowRef.current()
     }, SESSION_CHECK_INTERVAL_MS)
@@ -258,7 +262,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       clearInterval(intervalId)
       sub.subscription.unsubscribe()
     }
-  }, [applySession, kick])
+  }, [applySession])
 
   const user = useMemo<User | null>(() => {
     const authUser = session?.user
@@ -276,11 +280,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
       user,
       ready,
       restoreFailed,
-      forcedOfflineAt,
       forcedOffline,
+      markForcedOffline,
       clearForcedOffline,
     }),
-    [session, user, ready, restoreFailed, forcedOfflineAt, forcedOffline, clearForcedOffline]
+    [session, user, ready, restoreFailed, forcedOffline, markForcedOffline, clearForcedOffline]
   )
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>

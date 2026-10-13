@@ -7,6 +7,7 @@ export const profile = {
     appearanceAndLayout: '外观与布局',
     displaySize: '显示大小',
     account: '邮箱与密码',
+    devices: '登录设备',
     feedback: '问题与反馈',
     language: '语言设置',
     logout: '退出登录',

@@ -21,6 +21,7 @@ export default defineAppConfig({
     'pages/members/index',
     'pages/profile/index',
     'pages/profile-info/index',
+    'pages/devices/index',
     'pages/error/index',
     'pages/rehearsal-detail/index',
     'pages/leave-request/index',
