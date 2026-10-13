@@ -78,7 +78,7 @@ export default function FeedbackPage() {
             />
           </FormField>
           <View
-            className={`mt-4 inline-flex h-11 w-full items-center justify-center rounded-xl bg-primary text-center text-base font-medium text-primary-foreground ${
+            className={`mt-4 inline-flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-xl bg-primary text-center text-base font-medium text-primary-foreground ${
               submitting ? 'opacity-90' : ''
             }`}
             onClick={submitting ? undefined : () => void handleSubmit()}

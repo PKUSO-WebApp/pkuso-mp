@@ -357,10 +357,13 @@ export default function ProfileInfoPage() {
               <Button
                 openType='chooseAvatar'
                 onChooseAvatar={handleWechatAvatar}
-                className='absolute bottom-0 right-0 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-primary p-0 m-0 leading-normal min-h-0'
+                className='absolute bottom-0 right-0 z-10 flex w-[var(--size-icon)] h-[var(--size-icon)] items-center justify-center rounded-full border-2 border-primary p-0 m-0 leading-normal min-h-0'
                 style={{ backgroundColor: 'var(--color-page-bg)' }}
               >
-                <Image src={pencilImg} className='h-4 w-4' />
+                <Image
+                  src={pencilImg}
+                  className='w-[var(--size-icon-sm)] h-[var(--size-icon-sm)]'
+                />
               </Button>
             </>
           ) : (
@@ -523,7 +526,7 @@ export default function ProfileInfoPage() {
           {isEditing ? (
             <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
               <Input
-                className='h-10 w-full bg-transparent text-sm text-text'
+                className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
                 placeholder={t('profileInfo.phonePlaceholder')}
                 value={editPhone}
                 onInput={(e) => {
@@ -561,7 +564,7 @@ export default function ProfileInfoPage() {
           {isEditing ? (
             <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
               <Input
-                className='h-10 w-full bg-transparent text-sm text-text'
+                className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
                 placeholder={t('profileInfo.collegePlaceholder')}
                 value={editCollege}
                 onInput={(e) => {
@@ -597,7 +600,7 @@ export default function ProfileInfoPage() {
         {isEditing && (
           <View className='mt-6 pb-4'>
             <View
-              className={`flex h-11 w-full items-center justify-center rounded-xl bg-primary text-base font-medium text-primary-foreground ${
+              className={`flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-xl bg-primary text-base font-medium text-primary-foreground ${
                 submitting ? 'opacity-60' : ''
               }`}
               onClick={submitting ? undefined : handleSave}
@@ -605,7 +608,7 @@ export default function ProfileInfoPage() {
               {submitting ? t('profileInfo.saving') : t('common.actions.save')}
             </View>
             <View
-              className={`mt-3 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-card text-base font-medium text-text ${
+              className={`mt-3 flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-xl border border-border bg-card text-base font-medium text-text ${
                 submitting ? 'opacity-60' : ''
               }`}
               onClick={submitting ? undefined : cancelEdit}

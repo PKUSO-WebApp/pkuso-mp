@@ -10,6 +10,7 @@ import { STATUS_TEXT_COLOR } from '@/lib/attendance-status'
 import { summarizeAttendance, type AttendanceSummaryKey } from '@/lib/attendance-summary'
 import type { AttendanceRow } from '@/types/database'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { useUser } from '@/context/user-context'
 import Taro from '@tarojs/taro'
 import './index.scss'
@@ -35,6 +36,7 @@ const getAttendanceDisplay = (
 
 export default function AttendancePage() {
   const { t } = useT()
+  const uiScale = useUiScaleFactor()
   useNavTitle('profile.attendance.title')
   const darkClass = useThemeClass()
   const { user } = useUser()
@@ -105,7 +107,7 @@ export default function AttendancePage() {
                 value={startDate}
                 onChange={(e) => handleStartChange(String(e.detail.value))}
               >
-                <View className='flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
+                <View className='flex h-[var(--size-control-h)] items-center rounded-xl border border-border bg-muted px-3'>
                   <Text className='text-sm text-text'>
                     {startDate || t('profile.attendance.unlimited')}
                   </Text>
@@ -122,7 +124,7 @@ export default function AttendancePage() {
                 value={endDate}
                 onChange={(e) => handleEndChange(String(e.detail.value))}
               >
-                <View className='flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
+                <View className='flex h-[var(--size-control-h)] items-center rounded-xl border border-border bg-muted px-3'>
                   <Text className='text-sm text-text'>
                     {endDate || t('profile.attendance.unlimited')}
                   </Text>
@@ -197,7 +199,7 @@ export default function AttendancePage() {
       {!loading && !queryFailed && (
         <View
           className='border-t border-border px-4 pt-2'
-          style={{ paddingBottom: 'calc(8px + env(safe-area-inset-bottom))' }}
+          style={{ paddingBottom: `calc(${8 * uiScale}px + env(safe-area-inset-bottom))` }}
         >
           <Text className='text-xs text-text-muted'>
             {t('profile.attendance.totalRehearsals', { count: attendanceSummary.total })}

@@ -5,6 +5,8 @@ import { tAppError } from '@/lib/appError'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
+import { tabBarReserveCss } from '@/lib/ui-scale'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { StaffBlockedPage } from '@/components/staff-blocked-page'
@@ -36,6 +38,8 @@ export default function Members() {
   } = useProfiles({ status: 'approved' })
 
   const darkClass = useThemeClass()
+  // 底边栏预留与列表底部占位都是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
 
   // 游客模式：未登录时显示空态提示
   const isGuest = !currentUser
@@ -89,7 +93,7 @@ export default function Members() {
     return (
       <View
         className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
-        style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
       >
         <View className='flex flex-1 items-center justify-center px-4'>
           <Text className='text-center text-sm text-text-muted'>{t('common.guestHint')}</Text>
@@ -108,7 +112,7 @@ export default function Members() {
     /* 根容器 flex 化（矮屏布局）：头部固定，搜索框 + 列表整体独立滚动 */
     <View
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
-      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: tabBarReserveCss(uiScale) }}
     >
       <ScrollView scrollY className='flex-1 min-h-0'>
         {/* 底部留白：底边栏固定覆盖在页面底部（高 50px + 安全区），
@@ -187,7 +191,7 @@ export default function Members() {
               ))}
             </View>
           </ListState>
-          <View style={{ height: '8px' }} />
+          <View style={{ height: `${8 * uiScale}px` }} />
         </View>
       </ScrollView>
 

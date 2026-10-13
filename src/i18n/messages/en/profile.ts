@@ -5,6 +5,7 @@ export const profile = {
     attendance: 'Attendance',
     myActivities: 'My Activities',
     appearance: 'Appearance',
+    displaySize: 'Display Size',
     account: 'Email & Password',
     feedback: 'Feedback',
     language: 'Language settings',
@@ -76,6 +77,13 @@ export const profile = {
     followSystemShort: 'Follow system',
     currentMode: 'Current mode: {mode}',
     followSystem: '(Follow system: auto switch with device appearance)',
+  },
+  displaySize: {
+    compact: 'Compact',
+    normal: 'Standard',
+    large: 'Large',
+    current:
+      'Currently "{level}". Text, spacing and buttons share one set of sizes, so the app looks the same on phones and tablets.',
   },
   attendance: {
     title: 'My Attendance',

@@ -341,7 +341,8 @@ pnpm upload 0.4.27 "测试上传"   # 指定版本号与描述
 
 - **新建页面必须有 `index.scss` 并 `import`**：建 `src/pages/<page>/index.scss`（可放一条占位规则）并在页面 `tsx` 顶部 `import './index.scss'`。实测（`src/pages/index`）**空的 `index.scss` 也会生成 0 字节的 `index.wxss`**，所以后果不是"文件不存在"；真正的坑是 Taro 会跳过给包裹层注入 `.page { height: 100% }`，短内容页面因此高度塌陷、露出窗口背景色——由 `src/app.css` 的全局兜底接住。规则照旧：新页面别漏这个文件。
 - **Modal 通过 `useLayoutEffect` 在绘制前隐藏 tabBar**（`src/components/ui/Modal.tsx`）。
-- **`Input` / `Textarea` 必须用 `View` 包裹以约束宽度**：小程序原生 `Input`/`Textarea` 直接写 `w-full` 仍可能撑破父容器、超出画面。统一用「外层 `View`（承载边框/圆角/背景，带 `w-full overflow-hidden`）包住内层 `Input`/`Textarea`（内层用 `w-full bg-transparent`，高度如 `h-10`）」的写法（参考 `src/pages/login/index.tsx` 的邮箱/密码框）。改动表单页时务必沿用此模式。
+- **`Input` / `Textarea` 必须用 `View` 包裹以约束宽度**：小程序原生 `Input`/`Textarea` 直接写 `w-full` 仍可能撑破父容器、超出画面。统一用「外层 `View`（承载边框/圆角/背景，带 `w-full overflow-hidden`）包住内层 `Input`/`Textarea`（内层用 `w-full bg-transparent`，高度用**组件尺寸 token** `h-[var(--size-control-h)]`）」的写法（参考 `src/pages/login/index.tsx` 的邮箱/密码框）。改动表单页时务必沿用此模式。
+  ⚠️ 高度**不要**写 `h-10` / `h-11` 这种字面档位：那正是「同类组件各写各的大小」的来源（全仓曾有 28 个 `h-10`、13 个 `h-11`，改一次尺寸要翻遍所有页面）。控件/图标/头像分别用 `--size-control-h`（含 `-lg` / `-sm`）、`--size-icon`（含 `-sm`）、`--size-avatar`，它们随「显示大小」档位一起变（见 `src/app.css` 的 `.ui-scale`）。
 
 ## 8. 页面状态恢复设计原则
 

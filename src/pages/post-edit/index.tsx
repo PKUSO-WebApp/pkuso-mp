@@ -5,6 +5,7 @@ import { usePosts } from '@/hooks/usePosts'
 import { usePageRestore } from '@/hooks/usePageRestore'
 import { useEditDraft } from '@/hooks/useEditDraft'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { useT, useNavTitle } from '@/i18n'
 import { PageLoading } from '@/components/ui/PageLoading'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
@@ -37,6 +38,8 @@ export default function PostEditPage() {
   const id = cachedId
   const { fetchOne, updatePost, saving } = usePosts()
   const darkClass = useThemeClass()
+  // 正文框最小高度是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
   const { t } = useT()
   useNavTitle('postEdit.navTitle')
 
@@ -226,7 +229,7 @@ export default function PostEditPage() {
               }}
               placeholder={t('postEdit.titlePlaceholder')}
               maxlength={50}
-              className='h-10 w-full bg-transparent text-sm text-text'
+              className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
             />
           </View>
 
@@ -244,7 +247,7 @@ export default function PostEditPage() {
               }}
               placeholder={t('postEdit.contentPlaceholder')}
               className='w-full bg-transparent py-2 text-sm text-text'
-              style={{ minHeight: '120px' }}
+              style={{ minHeight: `${120 * uiScale}px` }}
             />
           </View>
 
@@ -263,7 +266,7 @@ export default function PostEditPage() {
                     saveDraft({ currentSections: value })
                   }}
                   placeholder={t('postEdit.currentSectionsPlaceholder')}
-                  className='h-10 w-full bg-transparent text-sm text-text'
+                  className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
                 />
               </View>
               <Text className='mb-1 mt-4 block text-sm font-medium text-text'>
@@ -278,7 +281,7 @@ export default function PostEditPage() {
                     saveDraft({ missingSections: value })
                   }}
                   placeholder={t('postEdit.missingSectionsPlaceholder')}
-                  className='h-10 w-full bg-transparent text-sm text-text'
+                  className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
                 />
               </View>
             </>
@@ -297,7 +300,7 @@ export default function PostEditPage() {
                 saveDraft({ contactInfo: value })
               }}
               placeholder={t('postEdit.contactPlaceholder')}
-              className='h-10 w-full bg-transparent text-sm text-text'
+              className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
             />
           </View>
 
@@ -333,7 +336,7 @@ export default function PostEditPage() {
           {/* 底部大按钮：保存 / 取消（各自独立大按钮，不拆分同级） */}
           <View className='mt-6'>
             <View
-              className={`flex h-11 w-full items-center justify-center rounded-xl bg-primary text-base font-medium text-primary-foreground ${
+              className={`flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-xl bg-primary text-base font-medium text-primary-foreground ${
                 busy ? 'opacity-90' : ''
               }`}
               onClick={busy ? undefined : handleSubmit}
@@ -341,7 +344,7 @@ export default function PostEditPage() {
               {busy ? t('postEdit.saving') : t('common.actions.save')}
             </View>
             <View
-              className='mt-3 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-card text-base font-medium text-text'
+              className='mt-3 flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-xl border border-border bg-card text-base font-medium text-text'
               onClick={() => void Taro.navigateBack()}
             >
               {t('common.actions.cancel')}
