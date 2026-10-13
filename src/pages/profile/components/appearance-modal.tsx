@@ -15,7 +15,8 @@ import { UI_SCALE_OPTIONS, uiScaleLabel } from '@/lib/ui-scale'
  * 用户不需要知道「平板基准 / rpx 换算」这些内部口径（同一条口径见 lib/ui-scale.ts）。
  *
  * 两段都用分段控件（与主题一致，用户 2026-10-13 定：显示大小不要行式列表）。
- * 显示大小那排走 `fill`（等分铺满）：四段的下限宽度是跟着档位缩放的，1.50x 下会溢出弹窗。
+ * 显示大小那排走 `compact`（收窄每段）而不是「等分铺满」：四段的下限宽度跟着档位缩放，
+ * 1.50x 下用默认宽度会溢出弹窗，但铺满又会跟上面只有两段的那排变成两种形态。
  */
 export function AppearanceModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { preference, setPreference } = useThemeContext()
@@ -44,7 +45,7 @@ export function AppearanceModal({ open, onClose }: { open: boolean; onClose: () 
         <Text className='text-xs text-text-muted'>{t('profile.settings.displaySize')}</Text>
         <View className='mt-2'>
           <Toggle
-            fill
+            compact
             options={UI_SCALE_OPTIONS}
             value={uiScale}
             onChange={setUiScale}
