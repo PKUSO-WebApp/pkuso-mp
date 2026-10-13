@@ -15,8 +15,12 @@ import Taro from '@tarojs/taro'
  * - **窗口之外不预热**（见 `nextPage`）：谱务阅读器现在传的是**整册**
  *   （窗口概念退役，2026-10-09，见 index.tsx 的 createPrefetchPump），
  *   这段窗口逻辑留给别的调用方与用例；
- * - **失败即跳过**（标记 done、不重排）：预热只是止损，真翻到那一页时前台加载路径
- *   有自己的超时 / 换入口 / 重试。
+ * - **一页的候选 URL 按顺序全试**（反代优先、直连兜底）——与前台取图同构，
+ *   见 `run` 里那段注释；
+ * - **失败留账，等用户真翻到它附近再给一次机会**（有上限，见 `MAX_REARM_PER_PAGE`）：
+ *   从前是「失败即跳过、永不重排」，理由是「真翻到那一页时前台路径会重试」——
+ *   而前台那条路**不产生本地文件**（见 `setCurrent` 的注释），于是失败过的页
+ *   整场会话都只能走网络。真机表现就是「回到这一页总要等几秒空白 + 转圈」。
  */
 
 /** 优先带（前）：当前页之后这几页最先预热 */
@@ -49,6 +53,14 @@ export const WINDOW_BEHIND = 5
  */
 export const PREFETCH_PARALLEL = 4
 
+/**
+ * 同一页最多被「用户翻到它附近」重新唤醒几次。
+ *
+ * 有上限是因为重排的触发者是**用户导航**：没有上限时，一页恒定失败（404 / 已删）
+ * 会在每次翻页时都重排一次，白耗一次超时。两次足够覆盖「换个网络 / 抖了一下」。
+ */
+export const MAX_REARM_PER_PAGE = 2
+
 export type PrefetchPump = {
   /** 翻到某页时调用：挪动优先带并确保泵在跑（当前页由前台路径负责，泵不重复抓） */
   setCurrent(page: number): void
@@ -58,6 +70,12 @@ export type PrefetchPump = {
   isDone(page: number): boolean
   /** 这一页是否**成功**抓过（图片缓存里应该有它）。诊断的 `warm` 与预绘制据此决定等不等 */
   isWarm(page: number): boolean
+  /**
+   * **本地那份没了，重下一遍**：前台取图时发现「泵说抓过、这次却没走本地文件」
+   * （临时文件被平台清了、或记账失效）时调用。它会清掉这一页的「抓过」记账，
+   * 让它重新排队——否则这一页整场会话都只能走网络（真机：回到这一页总要等几秒）。
+   */
+  rearm(page: number): void
   /** 退出页面 / 换册时调用 */
   stop(): void
 }
@@ -112,6 +130,10 @@ export function createPrefetchPump(opts: {
   const attempted = new Set<number>()
   /** 成功抓到的页 */
   const warmed = new Set<number>()
+  /** 抓过但**失败**的页（等用户翻到附近时重新唤醒，见 setCurrent） */
+  const failed = new Set<number>()
+  /** 每页被重新唤醒过几次（上限见 MAX_REARM_PER_PAGE） */
+  const rearmed = new Map<number, number>()
   /** 唤醒句柄：跑着的时候 setCurrent/setParallel 靠它把循环从等待里叫醒（否则留出的空槽要等某个请求超时才被用上） */
   let wake: (() => void) | null = null
 
@@ -166,21 +188,30 @@ export function createPrefetchPump(opts: {
         if (!priority && backfillInFlight >= backfillLimit) break
         attempted.add(p) // 先标记：抓失败也不重排（见文件头「失败即跳过」）
         if (!priority) backfillInFlight += 1
-        const task: Promise<void> = prefetchOne(urlsFor(p)[0], p)
-          .then(
-            () => {
+        // ⚠️ 一页的候选 URL **按顺序全试**（反代优先、直连兜底），与前台取图同构。
+        // 只试 `urls[0]` 曾经是个真缺陷：反代那条腿不通时**整册都落不了本地**（每一页都
+        // 只赌第一条腿），而前台取图不产生本地文件（见 setCurrent 的注释）⇒ 用户此后
+        // 每一次翻页都得走网络，表现就是「空白 + 转圈好几秒」。腿的实现与顺序由
+        // 调用方给（`urlsFor`），这里只负责「挨个试、第一个成功即止」。
+        const task: Promise<void> = (async () => {
+          let lastErr: unknown = new Error('没有候选页图地址')
+          for (const url of urlsFor(p)) {
+            try {
+              await prefetchOne(url, p)
               warmed.add(p)
-            },
-            (err) => {
-              // 失败即跳过（不重排、不重试），但**要让人看得见**：从前这里是空的，
-              // 预下载整册失败在线上完全无声（见 opts.onFail 的注释）
-              onFail?.(p, err)
+              return
+            } catch (err) {
+              lastErr = err
             }
-          )
-          .then(() => {
-            inFlight.delete(task)
-            if (!priority) backfillInFlight -= 1
-          })
+          }
+          // 全部腿都失败：留账（等用户真翻到这一页时在 setCurrent 里补一次机会），
+          // 并且**要让人看得见**——预下载失败在线上从前完全无声（见 opts.onFail 的注释）
+          failed.add(p)
+          onFail?.(p, lastErr)
+        })().then(() => {
+          inFlight.delete(task)
+          if (!priority) backfillInFlight -= 1
+        })
         inFlight.add(task)
       }
       if (inFlight.size === 0) break
@@ -203,6 +234,20 @@ export function createPrefetchPump(opts: {
       // 前台路径负责」）在预取改为落本地文件后不成立了：前台的取图走图片层，不产生本地文件，
       // 于是**用户翻过/滑过的每一页都被永久排除在预下载之外**——而它们恰恰是最可能被回看的。
       // 与首帧抢带宽的顾虑改由调用方解决：**首帧落地（stage ready）之后才启动泵**。
+      //
+      // 同一条道理也适用于**失败过**的页：前台那条路同样不落本地 ⇒ 不重新唤醒的话，
+      // 这一页整场会话都只能走网络（真机：回到这一页总要等几秒空白）。判据取「用户真翻到
+      // 它附近」（优先带内），不是定时重扫——重排的触发者是用户导航，不白烧流量。
+      const bandFirst = Math.max(1, current - behind)
+      const bandLast = Math.min(total, current + ahead)
+      for (let n = bandFirst; n <= bandLast; n += 1) {
+        if (!failed.has(n)) continue
+        const used = rearmed.get(n) ?? 0
+        if (used >= MAX_REARM_PER_PAGE) continue
+        rearmed.set(n, used + 1)
+        failed.delete(n)
+        attempted.delete(n)
+      }
       wakeLoop()
       void run()
     },
@@ -213,6 +258,20 @@ export function createPrefetchPump(opts: {
     },
     isDone: (page) => attempted.has(page),
     isWarm: (page) => warmed.has(page),
+    rearm(page) {
+      const n = Math.floor(page)
+      if (!Number.isFinite(n) || n < 1 || n > total) return
+      const used = rearmed.get(n) ?? 0
+      if (used >= MAX_REARM_PER_PAGE) return
+      // 只清记账（含 warmed：它现在**不准了**，本地那份已经没了），下一次 run 会重排它
+      if (!attempted.has(n) && !warmed.has(n)) return
+      rearmed.set(n, used + 1)
+      attempted.delete(n)
+      warmed.delete(n)
+      failed.delete(n)
+      wakeLoop()
+      void run()
+    },
     stop() {
       stopped = true
       wakeLoop()

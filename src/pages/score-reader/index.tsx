@@ -114,6 +114,14 @@ const ZOOM_MAX = 4
 const ZOOM_SETTLE_MS = 180
 /** 手写进行中推迟渲染的重试间隔 */
 const RENDER_RETRY_MS = 140
+/**
+ * 前台取图超过这个时长就留一条证（每页每次会话一条）。
+ *
+ * 为什么要留：真机报「回到某一页要等好几秒的空白 + 转圈」时，**事后完全分不开**
+ * 是「本地文件没命中、走了网络」（预下载的账）还是「本地文件本身就慢」（图片层/解码的账），
+ * 而这两条的修法完全不同。loadMs 是纯取图时间，renderMs 是画进画布的时间，两者分开记。
+ */
+const SLOW_LOAD_REPORT_MS = 2000
 /** 备用帧停靠位置：移出视口即可（overflow:hidden 会裁掉），它仍是正常在绘制的画布 */
 const OFFSCREEN = '-99999px'
 
@@ -400,6 +408,8 @@ export default function ScoreReader() {
   const [idleTick, setIdleTick] = useState(0)
   /** 补渲染上一次请求的页 + 时刻：同一页 5 秒内不重复排（失败时别变成无限重试） */
   const fillLastRef = useRef<{ page: number; at: number } | null>(null)
+  /** 已为哪些页报过「慢帧」（每页每次会话只报一条，见 SLOW_LOAD_REPORT_MS） */
+  const slowReportedRef = useRef<Set<number>>(new Set())
   /** `layerSlot` 的同步镜像：后台写帧时要问「这块是不是正显示着视野内的页」 */
   const layerSlotRef = useRef<LayerSlots>({ a: null, b: null, c: null })
   /** 当前视野盖到哪几页（闭区间；null = 尺寸还没量到）——判据与加载圈共用 visibleRange */
@@ -748,14 +758,20 @@ export default function ScoreReader() {
       // 诊断：**这次取图之前**，预热泵是否已经抓到过这一页。它直接回答
       // 「预热过的页在 iOS 上到底算不算命中」——warm 却仍要 600ms，说明泵白干了
       const warm = prefetchPumpRef.current?.isWarm(target) ?? false
+      const pumpDone = prefetchPumpRef.current?.isDone(target) ?? false
+      // 取图**之前**本地有没有这一页的记账——慢帧留证靠它分「没命中」与「本地本身慢」
+      const localHit = Boolean(localFileFor(pageFileKey(target)))
+      let loadMs = 0
       try {
         // 页图走**小程序图片层**（微信自带 HTTP/磁盘图片缓存）；图片层在个别设备上会
         // 必现失败，那时自动退到 downloadFile 兜底并记住结论——见 lib/page-image.ts
+        const tLoad = Date.now()
         pageImg = await loadPageImageWithRetry(
           node as CanvasNode,
           pageImageUrls(fileUrlRef.current, target),
           { deps: { key: pageFileKey(target) } }
         )
+        loadMs = Date.now() - tLoad
       } catch (err) {
         // 这条路径的失败原本**只在屏幕上可见**（图片层 onerror 不带状态码，唯一的原因
         // 文案也只有这里能拿到）——真机出现「页图加载失败」时事后完全无法定性，补上这条。
@@ -784,6 +800,13 @@ export default function ScoreReader() {
           },
         })
         throw err
+      }
+      // 泵以为这一页在本地（warm）或本地本来有记账（localHit），而这次取图**没走本地文件**
+      // ⇒ 本地那份已经没了（平台的临时文件池会清、记账也会失效）⇒ 让泵重下一遍。
+      // 不做这一步的话，泵的「已抓过」记账不会自己回头：这一页整场会话都只能走网络
+      // ——真机表现就是「每次回到这一页都要等好几秒的空白 + 转圈」。
+      if (pageImg.via !== 'file' && (warm || localHit)) {
+        prefetchPumpRef.current?.rearm(target)
       }
       const info = { width: pageImg.width, height: pageImg.height }
       // 翻页：把预热泵的窗口挪到这一页（泵自己负责「前 3 后 3 优先、再填 ±窗口」，
@@ -824,6 +847,28 @@ export default function ScoreReader() {
       // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
       paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
       const renderMs = Date.now() - tRender
+      // 慢帧留证（每页每次会话一条）：loadMs 与 renderMs 分开记，本地命中与否也记
+      if (loadMs > SLOW_LOAD_REPORT_MS && !slowReportedRef.current.has(target)) {
+        slowReportedRef.current.add(target)
+        reportClientError({
+          event: 'score_reader_slow_load',
+          level: 'warn',
+          message: `页图慢 ${loadMs}ms（via ${pageImg.via}${localHit ? '' : '，取图前本地未命中'}）`,
+          detail: {
+            fileId,
+            page: target,
+            mode: modeRef.current,
+            zoom: job.zoom,
+            loadMs,
+            renderMs,
+            localHit,
+            via: pageImg.via,
+            pumpWarm: warm,
+            pumpDone,
+            imageLayerBroken: isImageLayerBroken(),
+          },
+        })
+      }
       // 这一帧画完了：顺手采一下这张纸的纸色，给灰带上色（后台、失败无所谓）
       sampleBandColorRef.current(layer)
       viaTallyRef.current[pageImg.via] += 1 // 取图来源计数（见 reportPageSource）
