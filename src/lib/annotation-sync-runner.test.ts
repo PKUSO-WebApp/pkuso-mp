@@ -21,6 +21,7 @@ import {
   __resetAnnotationSyncState,
   flushAnnotationSync,
   loadConflictPage,
+  loadConflictPages,
   resolveAnnotationConflict,
   scheduleAnnotationSync,
   setAnnotationAdoptListener,
@@ -562,6 +563,14 @@ describe('loadConflictPage / resolveAnnotationConflict', () => {
     seedRemote(page, theirs, 'v2')
     saveConflicts(fileId, 'u1', [page])
   }
+
+  it('loadConflictPages：按账号读这一册的冲突页（没登录 ⇒ 空，别提示一个动不了的冲突）', async () => {
+    saveConflicts('f1', 'u1', [3, 7])
+    expect(await loadConflictPages('f1')).toEqual([3, 7])
+
+    state.userId = null
+    expect(await loadConflictPages('f1')).toEqual([])
+  })
 
   it('读一页的两份内容（本地 + 远端 + 远端版本）', async () => {
     seedConflict()
