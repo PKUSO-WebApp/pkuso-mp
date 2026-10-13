@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass, useThemeContext } from '@/context/theme-context'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
+import { AnnotationConflictSheet } from '@/components/score/AnnotationConflictSheet'
 import { ReaderToolbar, type ReaderPanel } from '@/components/score/ReaderToolbar'
 import { ReaderTutorial } from '@/components/score/ReaderTutorial'
 import { SaveToSheet } from '@/components/score/SaveToSheet'
@@ -22,11 +23,13 @@ import {
   type AnnoStroke,
   type AnnoTool,
 } from '@/lib/annotation'
-import { markAnnoPending, markLocalEdit } from '@/lib/annotation-sync'
+import { markAnnoPending } from '@/lib/annotation-sync'
 import {
   flushAnnotationSync,
+  loadConflictPages,
   scheduleAnnotationSync,
   setAnnotationAdoptListener,
+  setAnnotationConflictListener,
   syncAnnotationFile,
 } from '@/lib/annotation-sync-runner'
 import { describeError, reportClientError } from '@/lib/error-report'
@@ -280,6 +283,13 @@ export default function ScoreReader() {
    * 去 spread 再存，就把刚落地的内容覆盖回去了。渲染照旧读 state——要的就是重渲染。
    */
   const annosRef = useRef<AnnoDoc>({})
+  /**
+   * 批注冲突：这一册有哪些页是「两边都改过、还没解决」的，以及列表要不要开着。
+   * 来源只有一处——落盘的冲突记录（见 refreshConflicts）。**不阻塞任何事**：
+   * 关掉它就是「稍后处理」，画谱、翻页、别的功能一概照旧。
+   */
+  const [conflictPages, setConflictPages] = useState<number[]>([])
+  const [conflictOn, setConflictOn] = useState(false)
   /**
    * 当前工具：画笔 / 荧光笔 / 橡皮擦（橡皮擦按**整条**删除，见 eraseAtPoints + eraseStrokesAt）。
    * 三选一而不是两个布尔——「笔和擦同时开着」这种状态本来就不该存在。
@@ -566,6 +576,30 @@ export default function ScoreReader() {
     setZoom(v)
   }, [])
 
+  /**
+   * 按**落盘的冲突记录**决定要不要弹冲突列表。记录是「这一次对账的产物」，所以读它
+   * 既不会漏（同步刚写过）也不会陈（没有冲突时记录已被删掉）。
+   *
+   * ⚠️ 本会话已经提示过的那一批页不再重复打扰（`conflictShownRef`）：用户点了「稍后处理」
+   * 就是「我知道了，先这样」。**换了一批页**（多出某一页）才会再弹——那是有新信息。
+   * 退出小程序再进来（组件重建 ⇒ ref 归零）就会重新提示，这正是用户要的
+   * 「解决之前退出，下次遇到冲突时再解决」。
+   */
+  const conflictShownRef = useRef('')
+  const refreshConflicts = useCallback(async () => {
+    const pages = await loadConflictPages(fileId)
+    setConflictPages(pages)
+    if (pages.length === 0) {
+      setConflictOn(false)
+      conflictShownRef.current = ''
+      return
+    }
+    const key = pages.join(',')
+    if (key === conflictShownRef.current) return
+    conflictShownRef.current = key
+    setConflictOn(true)
+  }, [fileId])
+
   // 进入文件时载入本地批注，然后**先拉后推**地对一次账（触发点 ③）。
   // 这一次同时是「上次进程被杀、那一册的欠账没推上去」的兜底：欠账由指纹推导，不靠内存。
   useEffect(() => {
@@ -581,9 +615,17 @@ export default function ScoreReader() {
       annosRef.current = doc
       setAnnos(doc)
     })
-    void syncAnnotationFile(fileId)
-    return () => setAnnotationAdoptListener(null)
-  }, [fileId])
+    // 冲突：册内（本册的同步、别处的扫描）发现冲突时提示；进册这一次对完账也提示一次
+    setAnnotationConflictListener((id) => {
+      if (id !== fileId) return
+      void refreshConflicts()
+    })
+    void syncAnnotationFile(fileId).then(() => refreshConflicts())
+    return () => {
+      setAnnotationAdoptListener(null)
+      setAnnotationConflictListener(null)
+    }
+  }, [fileId, refreshConflicts])
 
   // 首次教程：等**首帧出来**再展示（一进页面就盖住加载过程，用户看不到自己在等什么），
   // 此时菜单保持默认隐藏，教程讲的正是「点中间唤出菜单」
@@ -1298,6 +1340,9 @@ export default function ScoreReader() {
     // 帧有效性已作废，补一次当前页的渲染（后台期间位图可能被系统回收）。
     // 摆位记账不再被清（见 invalidatePredraw）⇒ 回前台那一瞬画面不会先变空白
     if (docTick > 0) requestRef.current({ page: pageRef.current, zoom: zoomRef.current })
+    // 从冲突解决页回来（或从后台回来）：按落盘的记录重算一次——解决掉的那几页要消失，
+    // 全解决了就把列表收起来。同一次会话里刚提示过的页不会被重新弹出来
+    if (fileId) void refreshConflicts()
   })
 
   /** 让画面追上当前 page/zoom */
@@ -1461,14 +1506,6 @@ export default function ScoreReader() {
 
   const persist = useCallback(
     (next: AnnoDoc) => {
-      const prev = annosRef.current
-      // 这一页的**本地改动时刻**（LWW 裁决用）：比引用而不是比内容——每次改动都新建数组，
-      // 所以引用不等就是改过，O(页数) 且不必逐点比。删掉的页（清空后不再有键）也算改过。
-      const changed = Object.keys(next).filter((k) => next[k] !== prev[k])
-      for (const k of Object.keys(prev)) {
-        if (!(k in next)) changed.push(k)
-      }
-      if (changed.length > 0) markLocalEdit(fileId, changed, Date.now())
       annosRef.current = next
       setAnnos(next)
       // 本地一改就两件事：记「可能有欠账」（离线改了 3 册然后被强杀，别的册只有靠它才会被扫到），
@@ -2268,6 +2305,26 @@ export default function ScoreReader() {
     })
   }
 
+  /**
+   * 打开冲突解决页（点冲突列表里某一页）。
+   *
+   * 带上这一册的 PDF 公开地址 `u`：解决页只画一页，没必要让它为拿到页图再查一次库
+   *（与「阅读器从列表页拿 sp」同一个理由）。`u` 同时是**本地文件记账的入口**——
+   * 页图那条路按 `fileId#页号` 查本地文件，整册预下载过的就一次网络都不用。
+   */
+  const openConflictPage = (target: number) => {
+    const q = [
+      `file_id=${encodeURIComponent(fileId)}`,
+      `page=${target}`,
+      `u=${encodeURIComponent(fileUrlRef.current)}`,
+      presetFileName ? `fn=${encodeURIComponent(presetFileName)}` : '',
+    ]
+      .filter(Boolean)
+      .join('&')
+    setConflictOn(false)
+    void Taro.navigateTo({ url: `/pages/score-reader/conflict/index?${q}` })
+  }
+
   /** 底栏上方此刻开着哪个气泡（同时只能开一个） */
   const [bottomPanel, setBottomPanel] = useState<ReaderPanel>('none')
   /**
@@ -2630,6 +2687,15 @@ export default function ScoreReader() {
         {/* 首次教程蒙层：放在最后 ⇒ 压在所有工具条之上（z 也最高）。
             它是 #reader-stage 的兄弟节点，触摸不会冒泡进舞台状态机 */}
         {tutorialOn ? <ReaderTutorial mode={mode} onClose={dismissTutorial} /> : null}
+        {/* 批注冲突列表：也是「只在需要它的那一刻存在」——
+            没有冲突时它一个像素都不占，用户点了「稍后处理」本次会话就不再弹 */}
+        {conflictOn ? (
+          <AnnotationConflictSheet
+            pages={conflictPages}
+            onPick={openConflictPage}
+            onClose={() => setConflictOn(false)}
+          />
+        ) : null}
         {handoff.sheetOn ? (
           <SaveToSheet
             kinds={handoff.kinds}
