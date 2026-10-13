@@ -27,8 +27,7 @@ import { useCountdown } from '@/hooks/useCountdown'
 import { invokeFunction } from '@/lib/functions'
 
 import { SkeletonCircle, SkeletonText } from '@/components/ui/Skeleton'
-import { ThemeModal } from './components/theme-modal'
-import { UiScaleModal } from './components/ui-scale-modal'
+import { AppearanceModal } from './components/appearance-modal'
 import './index.scss'
 
 // 邮箱与密码弹窗 tab：换绑邮箱（默认）/ 修改密码
@@ -40,7 +39,7 @@ type AccountTab = (typeof ACCOUNT_TAB_OPTIONS)[number]
  * - 头像卡（姓名/声部/邮箱）
  * - 通知信箱：三分类未读徽章 + 信箱列表（打开即标已读）
  * - 设置列表：个人信息编辑（独立页面 pages/profile-info） / 账号与密码（改密 + 换绑邮箱双 tab）/
- *   考勤查看 / 外观（亮色·暗色·跟随系统）/ 问题与反馈（匿名提交）/ 退出登录
+ *   考勤查看 / 外观与布局（主题 + 显示大小）/ 问题与反馈（匿名提交）/ 退出登录
  * - 已发布的活动暂缓（后续任务补）
  * - 管理端登录显示阻断页（规划 §1：admin 留在 Web）
  */
@@ -125,9 +124,8 @@ export default function Profile() {
     stop: stopCodeCountdown,
   } = useCountdown(60)
 
-  // ---- 外观 ----
-  const [isThemeOpen, setIsThemeOpen] = useState(false)
-  const [isUiScaleOpen, setIsUiScaleOpen] = useState(false)
+  // ---- 外观与布局（主题 + 显示大小） ----
+  const [isAppearanceOpen, setIsAppearanceOpen] = useState(false)
 
   // ---- 通知信箱 ----
   // 未读数和标记已读收敛在 useNotifications；挂载时拉取一次未读数，
@@ -538,22 +536,13 @@ export default function Profile() {
               >
                 <Text className='text-sm font-medium text-text'>语言设置 / Language Settings</Text>
               </View>
-              {/* 外观：亮色 / 暗色 / 跟随系统 三态主题切换 */}
+              {/* 外观与布局：主题（亮/暗）+ 显示大小（0.85x~1.50x），同一个弹窗 */}
               <View
                 className='border-b border-border px-4 py-3'
-                onClick={() => setIsThemeOpen(true)}
+                onClick={() => setIsAppearanceOpen(true)}
               >
                 <Text className='text-sm font-medium text-text'>
-                  {t('profile.settings.appearance')}
-                </Text>
-              </View>
-              {/* 显示大小：紧凑 / 标准 / 宽松（同一套绝对尺寸，平板不再按屏宽放大） */}
-              <View
-                className='border-b border-border px-4 py-3'
-                onClick={() => setIsUiScaleOpen(true)}
-              >
-                <Text className='text-sm font-medium text-text'>
-                  {t('profile.settings.displaySize')}
+                  {t('profile.settings.appearanceAndLayout')}
                 </Text>
               </View>
               {/* 问题与反馈：匿名提交，底部弹窗 */}
@@ -740,9 +729,8 @@ export default function Profile() {
         </View>
       </Modal>
 
-      {/* 外观 Modal：亮色 / 暗色 / 跟随系统 三态主题切换 */}
-      <ThemeModal open={isThemeOpen} onClose={() => setIsThemeOpen(false)} />
-      <UiScaleModal open={isUiScaleOpen} onClose={() => setIsUiScaleOpen(false)} />
+      {/* 外观与布局 Modal：主题（亮/暗）+ 显示大小（0.85x~1.50x） */}
+      <AppearanceModal open={isAppearanceOpen} onClose={() => setIsAppearanceOpen(false)} />
 
       {/* 语言选择：手动选择后持久化 */}
       <Modal

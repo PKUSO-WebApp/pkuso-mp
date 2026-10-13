@@ -4,7 +4,7 @@ export const profile = {
   settings: {
     attendance: '考勤',
     myActivities: '我的活动',
-    appearance: '外观',
+    appearanceAndLayout: '外观与布局',
     displaySize: '显示大小',
     account: '邮箱与密码',
     feedback: '问题与反馈',
@@ -79,18 +79,12 @@ export const profile = {
   },
   // 外观弹窗
   appearance: {
+    theme: '主题',
     dark: '暗色',
     light: '亮色',
     followSystemShort: '跟随系统',
     currentMode: '当前为「{mode}」模式',
     followSystem: '（跟随系统：随设备系统外观自动切换）',
-  },
-  // 显示大小（三档）。口径：所有设备**同一套绝对尺寸**（不再随屏宽放大）
-  displaySize: {
-    compact: '紧凑',
-    normal: '标准',
-    large: '宽松',
-    current: '当前为「{level}」。字号、间距与按钮大小是同一套尺寸，在手机和平板上看起来一样大。',
   },
   // 考勤查看弹窗
   attendance: {

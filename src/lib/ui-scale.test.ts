@@ -28,17 +28,13 @@ vi.mock('@tarojs/taro', () => ({
   },
 }))
 
-vi.mock('@/i18n/core', () => ({
-  translateCurrent: (k: string) => k,
-}))
-
 beforeEach(() => {
   for (const k of Object.keys(storage)) delete storage[k]
 })
 
 describe('档位与系数', () => {
   it('三档，且默认（没写过 / 存坏了）一律是标准', () => {
-    expect(UI_SCALE_OPTIONS).toEqual(['compact', 'normal', 'large'])
+    expect(UI_SCALE_OPTIONS).toEqual(['compact', 'normal', 'large', 'xlarge'])
     expect(readStoredUiScale()).toBe('normal')
 
     storage[UI_SCALE_KEY] = 'huge'
@@ -63,6 +59,7 @@ describe('档位与系数', () => {
     expect(isUiScale('compact')).toBe(true)
     expect(isUiScale('normal')).toBe(true)
     expect(isUiScale('large')).toBe(true)
+    expect(isUiScale('xlarge')).toBe(true)
     expect(isUiScale('')).toBe(false)
     expect(isUiScale(undefined)).toBe(false)
   })
@@ -72,9 +69,8 @@ describe('档位与系数', () => {
     expect(uiScaleClass('compact')).toContain('ui-k-compact')
   })
 
-  it('文案随语言走（走 translateCurrent，不硬编码中文）', () => {
-    expect(uiScaleLabel('compact')).toBe('profile.displaySize.compact')
-    expect(uiScaleLabel('large')).toBe('profile.displaySize.large')
+  it('选项文案就是倍率本身（用户定：不用「紧凑/标准」这类形容词）', () => {
+    expect(UI_SCALE_OPTIONS.map(uiScaleLabel)).toEqual(['0.85x', '1.00x', '1.25x', '1.50x'])
   })
 })
 

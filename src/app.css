@@ -230,8 +230,8 @@ page {
   }
 }
 
-/* 用户档位（三档、默认标准）。值与 `UI_SCALE_FACTOR` 必须一致（改一处要改两处：
-   这里是 CSS 侧的 --ui-k，那边是内联 px 侧的乘数）。 */
+/* 用户档位（四档、默认 1.00x）。值与 `UI_SCALE_FACTOR` 必须一致（改一处要改两处：
+   这里是 CSS 侧的 --ui-k，那边是内联 px 侧的乘数）。界面按倍率显示这四档。 */
 .ui-k-compact {
   --ui-k: 0.85;
 }
@@ -240,6 +240,9 @@ page {
 }
 .ui-k-large {
   --ui-k: 1.25;
+}
+.ui-k-xlarge {
+  --ui-k: 1.5;
 }
 
 /* 页面包裹层满高兜底：Taro 会为每个页面的 wxss 注入 .page{height:100%}

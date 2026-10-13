@@ -4,7 +4,7 @@ export const profile = {
   settings: {
     attendance: 'Attendance',
     myActivities: 'My Activities',
-    appearance: 'Appearance',
+    appearanceAndLayout: 'Appearance & Layout',
     displaySize: 'Display Size',
     account: 'Email & Password',
     feedback: 'Feedback',
@@ -72,18 +72,12 @@ export const profile = {
     placeholder: 'Write down your question or suggestion',
   },
   appearance: {
+    theme: 'Theme',
     dark: 'Dark',
     light: 'Light',
     followSystemShort: 'Follow system',
     currentMode: 'Current mode: {mode}',
     followSystem: '(Follow system: auto switch with device appearance)',
-  },
-  displaySize: {
-    compact: 'Compact',
-    normal: 'Standard',
-    large: 'Large',
-    current:
-      'Currently "{level}". Text, spacing and buttons share one set of sizes, so the app looks the same on phones and tablets.',
   },
   attendance: {
     title: 'My Attendance',
