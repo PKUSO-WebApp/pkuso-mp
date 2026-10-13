@@ -196,8 +196,17 @@ export default function AnnotationConflict() {
     paintOverlay(shownRef.current)
   }
 
+  /**
+   * 提交选择。
+   *
+   * ⚠️ `stage !== 'ready'` 时**一律不执行**：预览画出来之前 `data` 已经有值了，
+   * 只挡 `!data` 会留一个「没看见两版也能选」的窗口 —— 页图加载失败（弱网、iOS 那条
+   * 已知的失败路径）时它就从窗口变成常态，用户会在盲选之下完成一次不可逆的裁决。
+   * 方案 §5：预览是刚需，且**默认不要替用户选**。
+   */
+  const canResolve = stage === 'ready' && !busy && Boolean(data)
   const resolve = async (choice: Side) => {
-    if (busy || !data) return
+    if (!canResolve || !data) return
     setBusy(true)
     setMessage('')
     const result = await resolveAnnotationConflict({
@@ -212,9 +221,10 @@ export default function AnnotationConflict() {
       return
     }
     if (result.reason === 'raced') {
-      // 云端在我看预览的时候又变了：不拿旧选择套新内容，刷新预览让用户重看一眼
-      setMessage(t('scoreReader.conflict.raced'))
+      // 云端在我看预览的时候又变了：不拿旧选择套新内容，刷新预览让用户重看一眼。
+      // ⚠️ 顺序不能颠倒：load() 一上来就 setMessage('')，先设的话这句提示一次都画不出来
       await load()
+      setMessage(t('scoreReader.conflict.raced'))
       return
     }
     setMessage(t('scoreReader.conflict.failed'))
@@ -263,6 +273,18 @@ export default function AnnotationConflict() {
             <Text className='text-xs text-text-muted'>
               {stage === 'error' ? message : t('scoreReader.loading')}
             </Text>
+            {/* 加载失败给一条真出口：没有它，用户只能退出重进（而「重试」不能做成那两个
+                选择按钮 —— 那正是上一条要挡的事） */}
+            {stage === 'error' ? (
+              <View className='mt-2 flex flex-row justify-center'>
+                <View
+                  className='rounded-full border border-border bg-card px-3 py-1'
+                  onClick={() => void load()}
+                >
+                  <Text className='text-xs text-text'>{t('scoreReader.retry')}</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -295,10 +317,12 @@ export default function AnnotationConflict() {
         {message ? (
           <Text className='mb-3 block text-center text-xs text-danger'>{message}</Text>
         ) : null}
+        {/* 两个选择按钮：预览没出来（加载中 / 失败）时**点了也不做事**（`canResolve`），
+            置灰只是把这件事画出来 —— 见 resolve 的注释 */}
         <View className='flex flex-row'>
           <View
             className={`mr-2 flex-1 rounded-full border border-border bg-card px-3 py-3 text-center ${
-              busy || stage !== 'ready' ? 'opacity-50' : ''
+              canResolve ? '' : 'opacity-50'
             }`}
             onClick={() => void resolve('local')}
           >
@@ -306,7 +330,7 @@ export default function AnnotationConflict() {
           </View>
           <View
             className={`ml-2 flex-1 rounded-full border border-border bg-card px-3 py-3 text-center ${
-              busy || stage !== 'ready' ? 'opacity-50' : ''
+              canResolve ? '' : 'opacity-50'
             }`}
             onClick={() => void resolve('remote')}
           >

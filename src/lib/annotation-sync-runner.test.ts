@@ -64,6 +64,12 @@ const { state, reports } = vi.hoisted(() => ({
     /** 让这一页的 rpc 直接报错（模拟网络失败） */
     failPushFor: new Set<number>(),
     archiveError: null as string | null,
+    /** 列册拉取（`select().eq()` 那条）返回**之前**调一下：模拟「拉取期间用户又画了几笔」 */
+    onFetch: null as null | (() => void),
+    /** 归档 RPC 返回**之前**调一下：模拟「解决冲突的两次往返之间，后台扫描被触发」 */
+    onArchive: null as null | (() => void),
+    /** 让 Storage 写入抛错（模拟存储满） */
+    storageFull: false,
     /** 覆盖推送的应答（模拟丢 ACK / 并发写：服务端已经写进去了，客户端却看到「冲突」） */
     pushReply: null as
       | null
@@ -113,6 +119,7 @@ vi.mock('@tarojs/taro', () => ({
   default: {
     getStorageSync: (key: string) => storage.get(key) ?? '',
     setStorageSync: (key: string, value: unknown) => {
+      if (state.storageFull) throw new Error('storage full')
       storage.set(key, value)
     },
     removeStorageSync: (key: string) => {
@@ -154,6 +161,8 @@ vi.mock('@/lib/supabase', () => ({
         // 让 `await ...select().eq()`（不接 maybeSingle 的那条）也能取到结果
         then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
           state.selectCalls++
+          // 「拉取返回之前」这一刻：用户手上还在画（见用它的那条用例）
+          state.onFetch?.()
           return Promise.resolve(
             state.selectError
               ? { data: null, error: { message: state.selectError } }
@@ -178,6 +187,7 @@ vi.mock('@/lib/supabase', () => ({
       }
       if (name === 'archive_sheet_music_annotation') {
         state.archiveCalls.push(args as { p_page: number; p_strokes: unknown })
+        state.onArchive?.()
         return state.archiveError
           ? { data: null, error: { message: state.archiveError } }
           : { data: null, error: null }
@@ -242,6 +252,11 @@ beforeEach(() => {
   state.failPushFor = new Set()
   state.archiveError = null
   state.pushReply = null
+  // ⚠️ 这两个也必须复位：它们是**会写 Storage 的钩子**，漏掉就会在后面的用例里
+  // 接着生效（实测过一次：「推到一半失败」被上一个用例的 onFetch 改掉了本地内容而假红）
+  state.onFetch = null
+  state.onArchive = null
+  state.storageFull = false
   state.versionSeq = 0
   reports.length = 0
   setAnnotationAdoptListener(null)
@@ -399,6 +414,69 @@ describe('syncAnnotationFile：先拉后推（CAS）', () => {
     expect(state.pushCalls).toHaveLength(2)
     expect(state.pushCalls[1].p_expected_version).toBe('v2')
     expect(loadConflicts('f1', 'u1')).toEqual([])
+  })
+
+  it('⚠️ CAS 落空且**本地 ⊆ 远端** ⇒ 收下远端（与拉取阶段同款，不弹窗）', async () => {
+    const base = [stroke(0.5)]
+    const mine = [stroke(0.5), stroke(0.1)]
+    setted('f1', docWith({ '1': mine }))
+    seedBase('f1', { '1': baseOf(base, 'v1') })
+    seedRemote(1, base, 'v1')
+    // 推送时远端已经变成「我这份 + 别人又画的一笔」：我这几笔一笔不少，收下即可
+    state.pushReply = () => {
+      state.rows[0].strokes = [...mine, stroke(0.9)]
+      state.rows[0].version = 'v2'
+      return { ok: false, version: 'v2', strokes: state.rows[0].strokes }
+    }
+
+    const result = await syncAnnotationFile('f1')
+
+    expect(result).toEqual({ status: 'ok', pushed: 0, adopted: 1, conflicts: 0 })
+    expect(loadConflicts('f1', 'u1')).toEqual([])
+    expect(loadAnnoDoc('f1')['1']).toEqual(packed([...mine, stroke(0.9)]))
+    expect(loadSyncBase('f1', 'u1')['1']).toEqual({
+      fp: pageFingerprint([...mine, stroke(0.9)]),
+      version: 'v2',
+    })
+  })
+
+  it('⚠️ 收下远端时**现读**本地：拉取期间在**别的页**上画的笔迹不能被旧快照覆盖掉', async () => {
+    const mine = [stroke(0.1)]
+    const theirs = [stroke(0.9)]
+    setted('f1', docWith({ '1': mine }))
+    seedBase('f1', { '1': baseOf(mine, 'v1') })
+    seedRemote(1, theirs, 'v2')
+    // 拉取还没返回时用户在第 2 页画了一笔（persist 已落盘）
+    const drawn = stroke(0.4)
+    state.onFetch = () => {
+      saveAnnoDoc('f1', docWith({ '1': mine, '2': [drawn] }))
+    }
+
+    const result = await syncAnnotationFile('f1')
+
+    expect(result.adopted).toBe(1)
+    expect(loadAnnoDoc('f1')['1']).toEqual(packed(theirs)) // 该收的收了
+    // 旧实现拿同步开始时的快照整份写回 ⇒ 这一页连同这一笔一起消失（真机就是「画着画着笔迹没了」）
+    expect(loadAnnoDoc('f1')['2']).toEqual(packed([drawn]))
+  })
+
+  it('⚠️ 要收下的那一页在拉取期间被改过 ⇒ 这一次**不收它**（判定过期了，留给下一次对账）', async () => {
+    const mine = [stroke(0.1)]
+    const theirs = [stroke(0.9)]
+    const drawn = stroke(0.4)
+    setted('f1', docWith({ '1': mine }))
+    seedBase('f1', { '1': baseOf(mine, 'v1') })
+    seedRemote(1, theirs, 'v2')
+    state.onFetch = () => {
+      saveAnnoDoc('f1', docWith({ '1': [...mine, drawn] }))
+    }
+
+    const result = await syncAnnotationFile('f1')
+
+    expect(result.adopted).toBe(0)
+    // 用户刚画的那一笔必须还在；远端那一版等下一次对账（那时三方都变了 ⇒ 交用户选）
+    expect(loadAnnoDoc('f1')['1']).toEqual(packed([...mine, drawn]))
+    expect(loadSyncBase('f1', 'u1')['1']).toEqual(baseOf(mine, 'v1'))
   })
 
   it('CAS 落空、互不包含 ⇒ 记成冲突（推的那一刻才发现的那种）', async () => {
@@ -708,6 +786,47 @@ describe('loadConflictPage / resolveAnnotationConflict', () => {
 
     expect(result).toEqual({ ok: true })
     expect(state.archiveCalls).toEqual([])
+  })
+
+  it('采纳远端时写盘失败 ⇒ **不推进基线**、如实回 failed（否则下次会把旧本地推上去顶回云端版）', async () => {
+    seedConflict()
+    state.storageFull = true
+
+    const result = await resolveAnnotationConflict({
+      fileId: 'f1',
+      page: 1,
+      choice: 'remote',
+      shownVersion: 'v2',
+    })
+
+    expect(result).toEqual({ ok: false, reason: 'failed' })
+    expect(loadSyncBase('f1', 'u1')['1']).toBeUndefined()
+    expect(loadConflicts('f1', 'u1')).toEqual([1])
+  })
+
+  it('⚠️ 解决冲突与后台扫描撞在一起 ⇒ 扫描**等它落地**再对账，不会把刚摘掉的那页写回记录', async () => {
+    seedConflict()
+    // 真实的触发点是「请求成功之后」那条钩子（app.ts）——它**不 await** 扫描，所以这里也不 await
+    let scanned: Promise<{ status: string }> | null = null
+    state.onArchive = () => {
+      scanned = syncAnnotationFile('f1')
+    }
+
+    const result = await resolveAnnotationConflict({
+      fileId: 'f1',
+      page: 1,
+      choice: 'remote',
+      shownVersion: 'v2',
+    })
+    expect(result).toEqual({ ok: true })
+
+    const scanResult = await scanned!
+    // 扫描跑的是**解决之后**的真实对账（不是被跳过、也不是拿着旧内容算的计划）
+    expect(scanResult.status).toBe('ok')
+    expect(state.selectCalls).toBeGreaterThan(1)
+    expect(loadAnnoDoc('f1')['1']).toEqual(packed(theirs))
+    // 关键：刚解决掉的那一页没有被写回冲突记录
+    expect(loadConflicts('f1', 'u1')).toEqual([])
   })
 
   it('没登录 ⇒ no-user，什么都不做', async () => {

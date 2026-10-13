@@ -229,6 +229,37 @@ describe('planSync', () => {
     expect(plan.autoMerged).toEqual([{ page: 1, took: 'local' }])
   })
 
+  it('⚠️ 「一边擦空」不算包含：基线证明这一页原本有内容 ⇒ 交用户选，不替他撤销擦除', () => {
+    // 我这一页擦空了、别人在这一页上又画了 —— 空集被一切内容包含，
+    // 按包含关系判就会「收下远端」= 把用户的擦除悄悄恢复（方案 §4：这种只能问）
+    const localErased = planSync(doc({ '1': [] }), baseWith(1, [stroke(0.5)], 'v1'), [
+      row(1, [stroke(0.5), stroke(0.9)], 'v2'),
+    ])
+    expect(localErased.conflicts).toEqual([1])
+    expect(localErased.toAdopt).toEqual([])
+    expect(localErased.toPush).toEqual([])
+    expect(localErased.autoMerged).toEqual([])
+
+    // 反方向同理：远端被擦空、本地有内容 ⇒ 也不许自动推上去（那等于替另一台撤销擦除）
+    const remoteErased = planSync(
+      doc({ '1': [stroke(0.5), stroke(0.9)] }),
+      baseWith(1, [stroke(0.5)], 'v1'),
+      [row(1, [], 'v2')]
+    )
+    expect(remoteErased.conflicts).toEqual([1])
+    expect(remoteErased.toAdopt).toEqual([])
+    expect(remoteErased.toPush).toEqual([])
+  })
+
+  it('基线里这一页本来就是空的 ⇒ 「一边擦空」不成立，照旧按包含关系自动裁决', () => {
+    // 原本就空的页不可能「被擦掉」⇒ 两边都动过时仍按包含关系走（不因为「空」就一律弹窗）
+    const plan = planSync(doc({ '1': [stroke(0.1)] }), baseWith(1, [], 'v1'), [
+      row(1, [stroke(0.1), stroke(0.2)], 'v2'),
+    ])
+    expect(plan.conflicts).toEqual([])
+    expect(plan.autoMerged).toEqual([{ page: 1, took: 'remote' }])
+  })
+
   it('⚠️ 本地 ⊆ 远端 ⇒ 自动收下远端（本地那几笔远端都有，什么都没丢）', () => {
     const plan = planSync(doc({ '1': L }), baseWith(1, other, 'v1'), [row(1, BOTH, 'v2')])
     expect(plan.conflicts).toEqual([])
@@ -292,13 +323,13 @@ describe('planSync', () => {
       row(3, BOTH, 'v2'),
     ])
     // 1：本地有内容且 == 基线，远端「没有行」= 空 ⇒ 远端变成了空、本地没变 ⇒ 收下（清掉）
-    // 3：本地没有这一页（擦空）、远端是它的超集 ⇒ 也收下（本地 ⊆ 远端，什么都没丢）
-    expect(plan.toAdopt.map((p) => p.page)).toEqual([1, 3])
+    expect(plan.toAdopt.map((p) => p.page)).toEqual([1])
     // 2：本地有内容、远端也有同样的内容 ⇒ 无事
     expect(plan.inSync.map((p) => p.page)).toEqual([2])
-    // 3：基线是 L，本地没有这一页（= 擦空）、远端改成了 L+BOTH 的超集 ⇒ 本地 ⊆ 远端，自动收下
-    expect(plan.autoMerged).toEqual([{ page: 3, took: 'remote' }])
-    expect(plan.conflicts).toEqual([])
+    // 3：基线说这一页有内容，而本地这一页**空了**（擦掉 / 本机丢过数据），远端还长了内容
+    //    ⇒ 空集不算包含 ⇒ 冲突（不能让「收下远端」把本地那一页的消失无声地反转回去）
+    expect(plan.conflicts).toEqual([3])
+    expect(plan.autoMerged).toEqual([])
   })
 
   it('坏页码的键被忽略，不参与也不炸', () => {

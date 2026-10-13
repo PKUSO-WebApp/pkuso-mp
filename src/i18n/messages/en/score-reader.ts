@@ -37,7 +37,7 @@ export const scoreReader = {
   conflict: {
     title: '{count} page(s) with conflicting ink',
     intro:
-      'These pages were edited on two devices and cannot be merged automatically. Keep one version — the other is saved to history and can be restored anytime.',
+      'These pages were edited on two devices and cannot be merged automatically. Keep one version — the other is kept in the cloud history.',
     pageButton: 'Page {page}',
     later: 'Later',
     navTitle: 'Resolve conflict',

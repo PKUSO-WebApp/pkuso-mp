@@ -580,9 +580,10 @@ export default function ScoreReader() {
    * 按**落盘的冲突记录**决定要不要弹冲突列表。记录是「这一次对账的产物」，所以读它
    * 既不会漏（同步刚写过）也不会陈（没有冲突时记录已被删掉）。
    *
-   * ⚠️ 本会话已经提示过的那一批页不再重复打扰（`conflictShownRef`）：用户点了「稍后处理」
-   * 就是「我知道了，先这样」。**换了一批页**（多出某一页）才会再弹——那是有新信息。
-   * 退出小程序再进来（组件重建 ⇒ ref 归零）就会重新提示，这正是用户要的
+   * ⚠️ 打扰规则（`conflictShownRef` 记住本会话已经展示过的那一批页）：**页集合一变就重算**——
+   * 变多（出现了新的冲突页）要提示；变少（用户刚解决掉一页）也要让剩下的那几页仍然可达，
+   * 因为**列表面板是唯一的入口**（方案 §5：不常驻入口）。用户点「稍后处理」= 记住当前这批、
+   * 本次不再弹；退出小程序再进来（组件重建 ⇒ ref 归零）会重新提示 —— 这正是用户要的
    * 「解决之前退出，下次遇到冲突时再解决」。
    */
   const conflictShownRef = useRef('')
@@ -2321,8 +2322,17 @@ export default function ScoreReader() {
     ]
       .filter(Boolean)
       .join('&')
-    setConflictOn(false)
-    void Taro.navigateTo({ url: `/pages/score-reader/conflict/index?${q}` })
+    // ⚠️ **不关**列表面板：解决完一页回来它还开着（`useDidShow` 会把已解决的摘掉），
+    // 用户能接着处理下一页。关掉的话有两个坑：① 导航失败（页面栈满 10 层等）时
+    // 这一次会话就再也打不开它了（`conflictShownRef` 已记住这一批页）；
+    // ② 回来时列表若因为「少了一页」而重算 key，会看起来像「又弹了一次」。
+    void Taro.navigateTo({ url: `/pages/score-reader/conflict/index?${q}` }).catch((err) => {
+      reportClientError({
+        event: 'score_reader_conflict_nav_failed',
+        message: describeError(err),
+        detail: { fileId, page: target },
+      })
+    })
   }
 
   /** 底栏上方此刻开着哪个气泡（同时只能开一个） */

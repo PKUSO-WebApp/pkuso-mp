@@ -158,6 +158,12 @@ export type AdoptAction = {
   strokes: AnnoStroke[]
   fp: string
   version: string | null
+  /**
+   * **做这次判定时**本地那一页的指纹。落盘前要拿它复核一遍：拉取是网络往返，
+   * 这期间用户可能正好在改这一页 —— 那份判定就过期了，不能再拿它覆盖本地
+   *（否则用户在拉取窗口里画的笔迹会被「收下的远端内容」顶掉）。
+   */
+  localFp: string
 }
 
 export type SyncPlan = {
@@ -216,6 +222,12 @@ export function planSync(local: AnnoDoc, base: SyncBase, remote: RemotePage[]): 
    * 它挡掉的正是最常见的一类「冲突」：一台设备接着另一台画（本地就是「远端 ∪ 我这几笔」）。
    * 取超集那一边两边都不丢——子集那一份的每一笔都在超集里，所以这**不是**静默丢数据，
    * 与 LWW 有本质区别。互不包含（各画了对方没有的笔）才记成冲突。
+   *
+   * ⚠️ **「一边空了」不算包含**（`baseFp` 那条早退）：空集被一切内容包含，于是
+   * 「我把这一页擦空、别人在这一页上又画了」会被判成「本地 ⊆ 远端 ⇒ 收下」——
+   * 那等于**替用户撤销了他的擦除**。笔迹记不住「少了一笔」，只有在基线的对照下
+   * 「变空」才是可辨认的编辑 ⇒ 基线说这一页原本有内容时，这一支交给用户选
+   *（方案 §4：一边画了 X、另一边把 X 擦了，集合层面分不出来，只能问）。
    */
   const byInclusion = (
     page: number,
@@ -223,8 +235,13 @@ export function planSync(local: AnnoDoc, base: SyncBase, remote: RemotePage[]): 
     remoteStrokes: AnnoStroke[],
     l: string,
     r: string,
-    rv: string | null
+    rv: string | null,
+    baseFp: string | undefined
   ) => {
+    if (baseFp !== undefined && baseFp !== EMPTY_FP && (l === EMPTY_FP || r === EMPTY_FP)) {
+      plan.conflicts.push(page)
+      return
+    }
     if (contentCovers(remoteStrokes, localStrokes)) {
       // 远端 ⊆ 本地 ⇒ 推本地（超集）。expected 用**刚读到的**远端版本 ⇒ 正常情况下一次就成
       plan.toPush.push({ page, strokes: localStrokes, fp: l, expected: rv ?? '' })
@@ -233,7 +250,7 @@ export function planSync(local: AnnoDoc, base: SyncBase, remote: RemotePage[]): 
     }
     if (contentCovers(localStrokes, remoteStrokes)) {
       // 本地 ⊆ 远端 ⇒ 直接收下远端（本地那几笔远端都有）
-      plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r, version: rv })
+      plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r, version: rv, localFp: l })
       plan.autoMerged.push({ page, took: 'remote' })
       return
     }
@@ -254,9 +271,10 @@ export function planSync(local: AnnoDoc, base: SyncBase, remote: RemotePage[]): 
       continue
     }
     if (b === undefined) {
-      // 没有基线 ⇒ 没有「谁动过」可依据，只能看包含关系（空集被任何内容包含，
-      // 所以「一边有一边空」自然落进正确的那一支）
-      byInclusion(page, localStrokes, remoteStrokes, l, r, rv)
+      // 没有基线 ⇒ 没有「谁动过」可依据，只能看包含关系。这里**不**套用「一边空了 ⇒ 冲突」
+      // 那条：没有基线就无从知道这一页原本有没有内容 —— 一边有一边空时方向是明确的
+      //（没基线的那本册第一次同步就落在这里，猜成冲突会让所有旧数据都弹一次窗）
+      byInclusion(page, localStrokes, remoteStrokes, l, r, rv, undefined)
       continue
     }
     if (r === b.fp) {
@@ -266,11 +284,11 @@ export function planSync(local: AnnoDoc, base: SyncBase, remote: RemotePage[]): 
     }
     if (l === b.fp) {
       // 本地 == 基线 ⇒ 本地没动、远端改了 ⇒ 收下
-      plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r, version: rv })
+      plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r, version: rv, localFp: l })
       continue
     }
     // 两边都动过
-    byInclusion(page, localStrokes, remoteStrokes, l, r, rv)
+    byInclusion(page, localStrokes, remoteStrokes, l, r, rv, b.fp)
   }
   return plan
 }

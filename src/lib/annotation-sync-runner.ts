@@ -14,6 +14,7 @@ import {
   planSync,
   saveConflicts,
   saveSyncBase,
+  type AdoptAction,
   type SyncBase,
   type RemotePage,
 } from '@/lib/annotation-sync'
@@ -76,6 +77,16 @@ const SKIPPED: SyncResult = { status: 'skipped', pushed: 0, adopted: 0, conflict
  * 才是它要的语义；「跳过」会让它以为已经对过账了。
  */
 const inFlight = new Map<string, Promise<SyncResult>>()
+
+/**
+ * 正在**解决冲突**的那几册（解决页按下选择按钮时占位）。
+ *
+ * 它挡的是这一种并发：解决流程在两次网络往返之间（拉版本 → 归档），后台扫描（④⑤ 触发）
+ * 对同一册跑了一次对账 —— 那次对账读的是「解决前」的本地内容，算出「这一页还是冲突」，
+ * 然后在解决完成之后**整体重写冲突记录**，把刚摘掉的那一页写回去。
+ * 表现是：用户解决完返回，列表又弹一次、点进去两版一模一样（已解决的冲突「回魂」）。
+ */
+const resolving = new Map<string, Promise<unknown>>()
 
 /**
  * 当前打开的阅读器要在「别处（全量扫描）把这册的内容落到本地」时同步刷新内存态，
@@ -235,13 +246,52 @@ function reportFailure(event: string, fileId: string, page: number, err: unknown
  * 对账一册（先拉后推）。返回的 status 只在真正跑过之后才可能是 'ok'/'failed'——
  * 没登录、fileId 为空都是 'skipped'（**不算失败**，不该拦住全局标记的清理）。
  */
-export function syncAnnotationFile(fileId: string): Promise<SyncResult> {
-  if (!fileId) return Promise.resolve(SKIPPED)
+export async function syncAnnotationFile(fileId: string): Promise<SyncResult> {
+  if (!fileId) return SKIPPED
   const running = inFlight.get(fileId)
   if (running) return running
-  const run = runSync(fileId).finally(() => inFlight.delete(fileId))
+  const solving = resolving.get(fileId)
+  if (solving) {
+    // 正在解决冲突：**等它落地再对账**（那之后算出来的计划才是准的）。不并发跑，
+    // 也不当成「跳过」——「跳过」会让全量扫描以为这一册已经对过账而清掉欠账标记
+    await solving.catch(() => {})
+    const again = inFlight.get(fileId)
+    if (again) return again
+  }
+  const run = runSync(fileId).finally(() => {
+    if (inFlight.get(fileId) === run) inFlight.delete(fileId)
+  })
   inFlight.set(fileId, run)
   return run
+}
+
+/**
+ * 把「收下远端」的页写回本地。返回**真正收下了几页**。
+ *
+ * 两条都必须守住（它们挡的是同一类真机表现：画着画着笔迹没了）：
+ *
+ * 1. **现读一次 Storage**，不拿同步开始时的快照整份写回 —— 拉取与推送是两次网络往返，
+ *    这期间用户可能已经又画了别的页（`persist` 落盘了，也在阅读器的 `annosRef` 里）。
+ *    只替换要收下的那几页，别的页原样保留。
+ * 2. **逐页复核判定没过期**（`localFp`）—— 要收下的那一页若在这期间被改过，这一次
+ *    **不收它**：计划是「远端改过、本地没动」时下的，前提没了就不能执行。
+ *    那一页留到下一次对账（用户的改动触发了防抖，很快就会跑）按当时的真实三方重算。
+ */
+function applyAdopt(fileId: string, items: AdoptAction[], nextBase: SyncBase): number {
+  if (items.length === 0) return 0
+  const doc: AnnoDoc = { ...loadAnnoDoc(fileId) }
+  let applied = 0
+  for (const item of items) {
+    const key = String(item.page)
+    if (pageFingerprint(doc[key] ?? []) !== item.localFp) continue
+    doc[key] = item.strokes
+    nextBase[key] = { fp: item.fp, version: item.version ?? undefined }
+    applied++
+  }
+  if (applied === 0) return 0
+  saveAnnoDoc(fileId, doc)
+  adoptListener?.(fileId, doc)
+  return applied
 }
 
 async function runSync(fileId: string): Promise<SyncResult> {
@@ -261,16 +311,7 @@ async function runSync(fileId: string): Promise<SyncResult> {
       nextBase[String(item.page)] = { fp: item.fp, version: item.version ?? undefined }
     }
 
-    if (plan.toAdopt.length > 0) {
-      const doc: AnnoDoc = { ...local }
-      for (const item of plan.toAdopt) {
-        doc[String(item.page)] = item.strokes
-        nextBase[String(item.page)] = { fp: item.fp, version: item.version ?? undefined }
-      }
-      saveAnnoDoc(fileId, doc)
-      adoptListener?.(fileId, doc)
-    }
-
+    const adopted = [...plan.toAdopt]
     let pushed = 0
     let failed = false
     /** 推的那一刻才发现的分叉（CAS 落空且内容互不包含）——与拉取时判出的冲突合并上报 */
@@ -304,7 +345,19 @@ async function runSync(fileId: string): Promise<SyncResult> {
           lateConflicts.push(item.page)
           continue
         }
-        // ③ 真分叉：两边都有对方没有的东西，交给用户选（这一页继续不动，等解决）
+        if (contentCovers(item.strokes, remoteStrokes)) {
+          // ③ 本地 ⊆ 远端 ⇒ 别人已经把这一页画成了我的超集（我这几笔都在里面）⇒ 收下，
+          //    与拉取阶段同款。**这一半不能漏**：漏了就会把本该静默合掉的一页弹给用户
+          adopted.push({
+            page: item.page,
+            strokes: remoteStrokes,
+            fp: pageFingerprint(remoteStrokes),
+            version: outcome.version,
+            localFp: item.fp,
+          })
+          continue
+        }
+        // ④ 真分叉：两边都有对方没有的东西，交给用户选（这一页继续不动，等解决）
         lateConflicts.push(item.page)
       } catch (err) {
         // 失败即留账：这一页的基线**不推进**，下次自然重推
@@ -319,6 +372,8 @@ async function runSync(fileId: string): Promise<SyncResult> {
         break
       }
     }
+    /** 收下远端的页**在推完之后**统一落盘：那时才读得到用户在这期间新画的笔迹（见 applyAdopt） */
+    const adoptedCount = applyAdopt(fileId, adopted, nextBase)
     // 基线要落盘，包括「推到一半失败」的情况：已经推上去的那些页必须记住，否则每次重推
     saveSyncBase(fileId, userId, nextBase)
 
@@ -339,7 +394,7 @@ async function runSync(fileId: string): Promise<SyncResult> {
     return {
       status: failed ? 'failed' : 'ok',
       pushed,
-      adopted: plan.toAdopt.length,
+      adopted: adoptedCount,
       conflicts: conflicts.length,
     }
   } catch (err) {
@@ -466,10 +521,19 @@ export async function resolveAnnotationConflict(args: {
   const userId = await currentUserId()
   if (!userId) return { ok: false, reason: 'no-user' }
 
-  const running = inFlight.get(fileId)
-  if (running) await running.catch(() => {})
+  // 占住这一册：见 `resolving` 的注释（不然并发的后台扫描会把刚摘掉的冲突写回记录）
+  const prev = resolving.get(fileId)
+  if (prev) await prev.catch(() => {})
+  let release: () => void = () => {}
+  const mine = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  resolving.set(fileId, mine)
 
   try {
+    const running = inFlight.get(fileId)
+    if (running) await running.catch(() => {})
+
     const fresh = await fetchRemotePage(fileId, page)
     if ((fresh.version ?? null) !== (shownVersion ?? null)) return { ok: false, reason: 'raced' }
 
@@ -497,7 +561,12 @@ export async function resolveAnnotationConflict(args: {
       }
       const doc: AnnoDoc = { ...loadAnnoDoc(fileId) }
       doc[String(page)] = fresh.strokes
-      saveAnnoDoc(fileId, doc)
+      // ⚠️ 写盘失败就**不推进基线**：否则磁盘上还是旧本地那份，而基线已经说「和远端一致了」
+      // ⇒ 下一次同步会拿旧本地当「本地改过」推上去，把刚采纳的云端版顶回去
+      if (!saveAnnoDoc(fileId, doc)) {
+        reportFailure('score_reader_annotation_save_failed', fileId, page, new Error('save_failed'))
+        return { ok: false, reason: 'failed' }
+      }
       adoptListener?.(fileId, doc)
       const base = loadSyncBase(fileId, userId)
       base[String(page)] = { fp: remoteFp, version: fresh.version ?? undefined }
@@ -514,11 +583,15 @@ export async function resolveAnnotationConflict(args: {
   } catch (err) {
     reportFailure('score_reader_annotation_resolve_failed', fileId, page, err)
     return { ok: false, reason: 'failed' }
+  } finally {
+    release()
+    if (resolving.get(fileId) === mine) resolving.delete(fileId)
   }
 }
 
 /** 测试用：把「同一册只跑一次」的记账清干净（生产路径不需要） */
 export function __resetAnnotationSyncState(): void {
   inFlight.clear()
+  resolving.clear()
   reportedFileFailure.clear()
 }
