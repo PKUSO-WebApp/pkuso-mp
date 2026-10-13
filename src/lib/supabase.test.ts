@@ -374,6 +374,7 @@ describe('supabase 官方客户端适配', () => {
     const READ_RPCS = [
       '/rest/v1/rpc/check_data_versions',
       '/rest/v1/rpc/get_my_session',
+      '/rest/v1/rpc/get_my_session_v2',
       '/rest/v1/rpc/get_my_profile_entry',
     ]
     for (const path of READ_RPCS) {
@@ -389,6 +390,8 @@ describe('supabase 官方客户端适配', () => {
     // 不是同入口重发，用例在「双入口与自动回退」里，别把这里的 1 次读成「永远只发一次」。
     const NEVER_RETRY = [
       '/rest/v1/rpc/touch_session',
+      // 多设备版的登记也在「只换入口、同入口不重发」那张表里（见 FAILOVER_ONLY_POSTS）
+      '/rest/v1/rpc/touch_session_v2',
       '/rest/v1/leave_requests',
       '/functions/v1/wechat-auth',
       '/auth/v1/token?grant_type=refresh_token',
@@ -411,6 +414,7 @@ describe('supabase 官方客户端适配', () => {
       '/rest/v1/rpc/check_data_versions',
       '/rest/v1/rpc/get_my_profile_entry',
       '/rest/v1/rpc/get_my_session',
+      '/rest/v1/rpc/get_my_session_v2',
     ])
   })
 
@@ -468,6 +472,7 @@ describe('supabase 官方客户端适配', () => {
       '/functions/v1/login-with-code',
       '/functions/v1/register-with-wechat',
       '/functions/v1/wechat-auth',
+      '/rest/v1/rpc/touch_session_v2',
     ])
   })
 
