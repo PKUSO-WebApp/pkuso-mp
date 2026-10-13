@@ -8,10 +8,12 @@ import type { Job, Layer } from './types'
  * 不需要任何额外取图，它就是「往回翻」的现成帧；另一块上是预绘制好的「下一页」。
  * 两块各记各的，于是**两个方向都能直接换帧**（回翻不再是"看缓存心情"）。
  *
- * 三条不变量（index.tsx 里执行）：
+ * 四条不变量（index.tsx 里执行）：
  * 1. 任何渲染**决定要写某块**位图的瞬间就把它的记账清掉（`doRender` 开头）——留着就是上错页；
  * 2. 只有**画成功**（含白帧校验通过）才写回记账；
- * 3. 缩放/视口宽/换册变化时全部清掉（尺寸不对的帧不能用）。
+ * 3. 缩放/视口宽/换册变化时全部清掉（尺寸不对的帧不能用）；
+ * 4. **摆位记账里同一页只能出现一次**（走 `assignSlot`）——两块画布叠在同一页上会把
+ *    半透明笔迹合成两遍，见 `assignSlot` 的注释。
  */
 
 export type PredrawFrame = {
@@ -69,9 +71,43 @@ export function discardable(f: PredrawFrame | null, currentPage: number): number
   return Math.abs(f.page - currentPage) * 2 + (f.page < currentPage ? 1 : 0)
 }
 
+/** 摆位记账：每块画布**此刻显示着**哪一页（null = 没装东西，退回屏外） */
+export type LayerSlots = Record<Layer, number | null>
+
+/**
+ * 把某一页**交给某一块画布**，返回新的摆位记账。
+ *
+ * ⚠️ 同一页**只能由一块画布占着**。上下模式里三块画布同时可见、各按自己那一页的纵向偏移
+ * 摆位 —— 两块记账指向同一页时，它们会叠在**同一个位置**上，那一页的笔迹就被合成两遍：
+ * 半透明的荧光笔 0.5 叠成 0.75（真机反馈「落定后几乎不透明」），而不透明的画笔/页图叠两遍
+ * 看不出来 ⇒ **只有荧光笔会露馅**。
+ *
+ * 为什么「松手那一刻」才变深：正在画的那一笔只画在 `laneUnderPoint` 选中的**一块**上
+ * （所以是正常的 0.5），抬手后 `paintLane` 按记账把这一页画到**所有**记账指向它的画布上
+ * （两块 ⇒ 0.75）。同一个成因也解释了「进册后一切正常，放大/切后台回来之后才出现」——
+ * 那两条路都会把当前页重渲进**另一块**（见 index.tsx 的 doRender 与 invalidatePredraw）。
+ *
+ * 交给新块的同时把别处**同一页**的记账清掉：那块画布退回屏外，它的位图只是旧了，
+ * 而这一页已经由新块显示 —— 位图仍可作邻居帧复用（那是 `layerMetaRef` 的事，与摆位无关）。
+ * 没有变化时**原样返回**（React 状态不该白换引用）。
+ */
+export function assignSlot(slots: LayerSlots, layer: Layer, page: number): LayerSlots {
+  const dup = ALL_LAYERS.some((l) => l !== layer && slots[l] === page)
+  if (!dup && slots[layer] === page) return slots
+  const next: LayerSlots = { ...slots }
+  for (const l of ALL_LAYERS) {
+    if (l !== layer && next[l] === page) next[l] = null
+  }
+  next[layer] = page
+  return next
+}
+
 /**
  * 该往哪块画布写：不是显示中的那块，且是「最该被写掉」的那块
  * （见 `discardable`：远的先弃、同远时弃上一页保下一页）。
+ *
+ * ⚠️ 它只看**帧记账**（`layerMetaRef`），看不到摆位记账 —— 所以写进去之后必须用
+ * `assignSlot` 落摆位，否则同一页会被两块占着（见那儿的注释）。
  */
 export function spareLayer(
   all: readonly Layer[],

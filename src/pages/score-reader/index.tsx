@@ -88,6 +88,7 @@ import {
 import { createPrefetchPump, type PrefetchPump } from './lib/prefetch-pump'
 import {
   ALL_LAYERS,
+  assignSlot,
   frameForPage,
   missingNeighbor,
   neighborFrames,
@@ -98,6 +99,7 @@ import {
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
   type LayerMetas,
+  type LayerSlots,
   type PredrawFrame,
 } from './lib/predraw'
 import { hasSeenReaderTutorial, markReaderTutorialSeen } from './lib/tutorial-seen'
@@ -364,8 +366,11 @@ export default function ScoreReader() {
    * 渲染一件新页时要先把语义记账清掉（否则半成品会被当成有效帧换上去），但**摆位不能跟着清**
    * ——清了就当场离屏，用户正看着的那一页会凭空消失几百毫秒再回来，真机上就是「翻到下一页时
    * 上一页闪一下」。所以：语义记账随时可变，摆位只在**画成功**之后才更新。
+   *
+   * ⚠️ **同一页在这份记账里只能出现一次**（写入一律走 `assignSlot`，见 lib/predraw.ts）：
+   * 上下模式里两块指着同一页的画布会叠在同一位置，半透明的荧光笔被合成两遍（0.5 → 0.75）。
    */
-  const [layerSlot, setLayerSlot] = useState<Record<Layer, number | null>>({
+  const [layerSlot, setLayerSlot] = useState<LayerSlots>({
     a: null,
     b: null,
     c: null,
@@ -396,7 +401,7 @@ export default function ScoreReader() {
   /** 补渲染上一次请求的页 + 时刻：同一页 5 秒内不重复排（失败时别变成无限重试） */
   const fillLastRef = useRef<{ page: number; at: number } | null>(null)
   /** `layerSlot` 的同步镜像：后台写帧时要问「这块是不是正显示着视野内的页」 */
-  const layerSlotRef = useRef<Record<Layer, number | null>>({ a: null, b: null, c: null })
+  const layerSlotRef = useRef<LayerSlots>({ a: null, b: null, c: null })
   /** 当前视野盖到哪几页（闭区间；null = 尺寸还没量到）——判据与加载圈共用 visibleRange */
   const visibleRef = useRef<{ first: number; last: number } | null>(null)
 
@@ -877,8 +882,10 @@ export default function ScoreReader() {
       // 它靠这个 ref 挑「该写哪块」——晚一步（等 effect）它就会渲到正在显示的画布上
       activeLayerRef.current = layer
       setActiveLayer(layer)
-      // 摆位跟着换帧走（见 layerSlot 的注释：它只在画成功之后更新）
-      setLayerSlot((prev) => (prev[layer] === target ? prev : { ...prev, [layer]: target }))
+      // 摆位跟着换帧走（见 layerSlot 的注释：它只在画成功之后更新）。
+      // ⚠️ 必须走 assignSlot：当前页被重渲进**另一块**时（放大、切后台回来、转屏），
+      // 原来那块的记账还指着同一页 ⇒ 上下模式里两块叠在同一位置，荧光笔被合成两遍
+      setLayerSlot((prev) => assignSlot(prev, layer, target))
       // 记账：这块现在放着 target（预绘制据此知道「哪个邻居已经备好」）
       layerMetaRef.current[layer] = {
         page: target,
@@ -936,6 +943,10 @@ export default function ScoreReader() {
     displayedPageRef.current = f.page
     activeLayerRef.current = f.layer
     setActiveLayer(f.layer)
+    // 正常情形下这块的记账已经是这一页（它就是为这一页留着的）⇒ 原样返回、不重渲染。
+    // 写这一句是为了兜住「别的块也指着这一页」：那两块会叠在同一位置，半透明笔迹被
+    // 合成两遍（见 lib/predraw.ts 的 assignSlot）
+    setLayerSlot((prev) => assignSlot(prev, f.layer, f.page))
     const dir =
       modeRef.current === 'ud' ? null : turnDirFor({ firstPaint: false, shown, target: f.page })
     if (dir !== null) turnRef.current?.begin(retiring, dir)
@@ -1045,7 +1056,8 @@ export default function ScoreReader() {
         }
         layerMetaRef.current[layer] = frame
         // 画成功了才更新**摆位**：这一块现在真的显示着 target 了，摆到它那一页的位置上
-        setLayerSlot((prev) => (prev[layer] === target ? prev : { ...prev, [layer]: target }))
+        // （同 doRender：同一页只能由一块占着，见 assignSlot）
+        setLayerSlot((prev) => assignSlot(prev, layer, target))
         const readyMs = Date.now() - t0
         if (readyMs > 300) {
           // eslint-disable-next-line no-console
