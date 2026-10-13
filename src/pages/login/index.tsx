@@ -22,8 +22,15 @@ import './index.scss'
 type LoginMode = 'code' | 'password'
 
 export default function LoginPage() {
-  const { ready, user, restoreFailed, forcedOffline, markForcedOffline, clearForcedOffline } =
-    useUser()
+  const {
+    ready,
+    user,
+    restoreFailed,
+    forcedOffline,
+    forcedOfflineKind,
+    markForcedOffline,
+    clearForcedOffline,
+  } = useUser()
   const { submitting: wechatSubmitting, loginWithWechat } = useWechatLogin()
   const { sending: codeSending, countdown, isCountingDown, sendCode } = useSendLoginCode()
   const darkClass = useThemeClass()
@@ -416,7 +423,11 @@ export default function LoginPage() {
 
   return (
     <>
-      <ForceOfflineModal opened={forcedOffline} onClose={clearForcedOffline} />
+      <ForceOfflineModal
+        opened={forcedOffline}
+        kind={forcedOfflineKind}
+        onClose={clearForcedOffline}
+      />
       {content}
     </>
   )

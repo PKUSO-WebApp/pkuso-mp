@@ -85,6 +85,7 @@ const { ctx } = vi.hoisted(() => {
     ready: true,
     restoreFailed: false,
     forcedOffline: false,
+    forcedOfflineKind: null,
     markForcedOffline: vi.fn(),
     clearForcedOffline: vi.fn(),
   }
@@ -170,6 +171,7 @@ describe('LoginPage', () => {
     ctx.session = null
     ctx.restoreFailed = false
     ctx.forcedOffline = false
+    ctx.forcedOfflineKind = null
     authMock.getUser.mockReset()
     authMock.getUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
     authMock.signOut.mockReset()
@@ -282,6 +284,14 @@ describe('LoginPage', () => {
     ctx.forcedOffline = true
     renderPage()
     expect(screen.getByText('该设备已被拒绝登录')).toBeTruthy()
+  })
+
+  it('被「删除设备」踢下线时（kind=deleted）弹窗换文案：已从账号中移除', () => {
+    ctx.forcedOffline = true
+    ctx.forcedOfflineKind = 'deleted'
+    renderPage()
+    expect(screen.getByText('该设备已从账号中移除')).toBeTruthy()
+    expect(screen.queryByText('该设备已被拒绝登录')).toBeNull()
   })
 
   // --- 本设备登记（touch_session_v2）---

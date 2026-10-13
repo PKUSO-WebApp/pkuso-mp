@@ -7,7 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { getOrCreateDeviceId } from '@/lib/device-id'
-import { listMyDevices, setDeviceTrust, type DeviceInfo } from '@/lib/device-session'
+import { deleteDevice, listMyDevices, setDeviceTrust, type DeviceInfo } from '@/lib/device-session'
 import { supabase } from '@/lib/supabase'
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import './index.scss'
@@ -15,10 +15,16 @@ import './index.scss'
 /**
  * 登录设备（「我的 → 设置 → 登录设备」进入）。
  *
- * 多设备模型下没有「顶号」：每台设备在 user_devices 里各占一行，互不影响。
- * 这里唯一的动作是「设为不信任」——该设备立刻下线，且在被恢复信任之前拒绝它再登录
- * （行会保留，所以能恢复）。**本机那一行不提供这个入口**：把自己拒绝掉会当场把自己
- * 锁在门外（服务端也会以 cannot_untrust_self 硬拦）。
+ * 多设备模型下没有「顶号」：每台设备在 user_devices 里各占一行，互不影响。这里有两个动作，
+ * 都**只对别的设备**：
+ * - 「设为不信任」：立刻下线，且在被恢复信任之前拒绝它再登录（行保留，所以能恢复）；
+ * - 「删除设备」：立刻下线、从列表消失，它下次登录会被当作新设备（并给本人发一条通知）。
+ *
+ * **本机那一行两个入口都不提供**：把自己拒绝/删除掉会当场把自己锁在门外
+ * （服务端另有 cannot_untrust_self / cannot_block_self 硬拦）。
+ *
+ * 行是三态，但第三态在这里看不见：已信任 / 已拒绝登录（列表里带标记）/ 已删除 ——
+ * 后者由服务端 list_my_devices 过滤掉，在用户眼里就是「从未登录过」。
  */
 export default function DevicesPage() {
   const darkClass = useThemeClass()
@@ -33,6 +39,7 @@ export default function DevicesPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [confirmUntrustId, setConfirmUntrustId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -69,8 +76,24 @@ export default function DevicesPage() {
     await load({ silent: true })
   }
 
+  const applyDelete = async (device: DeviceInfo) => {
+    setBusyId(device.deviceId)
+    const res = await deleteDevice(supabase, selfDeviceId, device.deviceId)
+    setBusyId(null)
+    if (!res.ok) {
+      Taro.showToast({ title: t('devices.deleteFailed'), icon: 'none' })
+      return
+    }
+    Taro.showToast({ title: t('devices.deleteSuccess'), icon: 'success' })
+    // 重新取一遍而不是本地摘掉那一行：删掉的那台同时也是「已信任」顺序的一部分，
+    // 且下一次静默刷新（切回本页）本来就会重取，本地改只会让两份状态对不上
+    await load({ silent: true })
+  }
+
   const confirmDevice = devices.find((d) => d.deviceId === confirmUntrustId)
   const confirmBusy = !!confirmUntrustId && busyId === confirmUntrustId
+  const deleteDeviceInfo = devices.find((d) => d.deviceId === confirmDeleteId)
+  const deleteBusy = !!confirmDeleteId && busyId === confirmDeleteId
 
   return (
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
@@ -110,9 +133,9 @@ export default function DevicesPage() {
                     {t('devices.lastSeen', { time: formatDateTimeInChina(device.lastSeenAt) })}
                   </Text>
 
-                  {/* 本机不给任何操作入口：拒绝自己 = 当场把自己锁在门外 */}
+                  {/* 本机不给任何操作入口：拒绝/删除自己 = 当场把自己锁在门外 */}
                   {isSelf ? null : (
-                    <View className='mt-3 flex justify-end'>
+                    <View className='mt-3 flex justify-end gap-2'>
                       <View
                         className={`rounded-xl border px-3 py-1.5 ${
                           device.trusted ? 'border-danger' : 'border-primary'
@@ -136,6 +159,18 @@ export default function DevicesPage() {
                             : device.trusted
                               ? t('devices.untrust')
                               : t('devices.trust')}
+                        </Text>
+                      </View>
+                      {/* 删除比「设为不信任」更进一步：设备会从列表消失，下次登录当新设备 */}
+                      <View
+                        className='rounded-xl border border-danger px-3 py-1.5'
+                        onClick={() => {
+                          if (busy) return
+                          setConfirmDeleteId(device.deviceId)
+                        }}
+                      >
+                        <Text className='text-xs font-medium text-danger'>
+                          {t('devices.deleteDevice')}
                         </Text>
                       </View>
                     </View>
@@ -176,6 +211,40 @@ export default function DevicesPage() {
           >
             <Text className='text-sm text-primary-foreground'>
               {confirmBusy ? t('common.actions.loading') : t('common.actions.confirm')}
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 删除设备的二次确认：后果比「设为不信任」多一层（会消失、下次登录当新设备），正文写清 */}
+      <Modal
+        open={!!deleteDeviceInfo}
+        onClose={() => {
+          if (deleteBusy) return
+          setConfirmDeleteId(null)
+        }}
+        title={t('devices.deleteConfirmTitle')}
+      >
+        <Text className='block text-sm text-text'>{t('devices.deleteConfirmContent')}</Text>
+        {deleteDeviceInfo ? (
+          <Text className='mt-2 block text-xs text-text-muted'>{deleteDeviceInfo.name}</Text>
+        ) : null}
+        <View className='mt-4 flex gap-3'>
+          <View
+            className='flex-1 rounded-xl border border-border bg-card py-2 text-center'
+            onClick={() => setConfirmDeleteId(null)}
+          >
+            <Text className='text-sm text-text'>{t('common.actions.cancel')}</Text>
+          </View>
+          <View
+            className='flex-1 rounded-xl bg-danger py-2 text-center'
+            onClick={() => {
+              if (!deleteDeviceInfo || deleteBusy) return
+              void applyDelete(deleteDeviceInfo).then(() => setConfirmDeleteId(null))
+            }}
+          >
+            <Text className='text-sm text-primary-foreground'>
+              {deleteBusy ? t('common.actions.loading') : t('common.actions.delete')}
             </Text>
           </View>
         </View>

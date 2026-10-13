@@ -43,7 +43,8 @@ function getSeasonLabels(t: TFn) {
 }
 
 export default function RegisterPage() {
-  const { ready, user, forcedOffline, markForcedOffline, clearForcedOffline } = useUser()
+  const { ready, user, forcedOffline, forcedOfflineKind, markForcedOffline, clearForcedOffline } =
+    useUser()
   const darkClass = useThemeClass()
   const { t, locale, setLocale } = useT()
   const placeholderStyle = usePlaceholderStyle()
@@ -201,7 +202,11 @@ export default function RegisterPage() {
 
   return (
     <>
-      <ForceOfflineModal opened={forcedOffline} onClose={clearForcedOffline} />
+      <ForceOfflineModal
+        opened={forcedOffline}
+        kind={forcedOfflineKind}
+        onClose={clearForcedOffline}
+      />
       <View
         className={`${darkClass} pk-register flex flex-col items-center bg-page-bg px-5 pt-8 pb-safe`}
       >

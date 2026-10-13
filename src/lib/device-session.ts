@@ -71,11 +71,23 @@ export async function touchSession(client: SupabaseClient<Database>): Promise<To
   }
 }
 
-export type VerifyResult = { kicked: boolean }
+/**
+ * 被踢下线的两种原因 —— 同一个「trusted = false」，用户看到的事不一样：
+ * - `'rejected'`：被设为不信任（行留着、列表里看得见、可恢复信任，之后一直拒绝它登录）；
+ * - `'deleted'` ：被「删除设备」（墓碑行，列表里看不见；它下次登录会被当作新设备）。
+ * 只影响提示文案，不影响踢不踢（判据始终是 trusted）。
+ */
+export type SessionKickKind = 'rejected' | 'deleted'
+
+export type VerifyResult = {
+  kicked: boolean
+  /** 被踢的原因；没被踢时为 null */
+  kind: SessionKickKind | null
+}
 
 /**
  * 自查（15 秒轮询 + 回前台）：**被踢的判据只有一个** —— 本设备这一行存在且 trusted === false
- * （被设为不信任 ⇒ 踢下线）。
+ * （被设为不信任 / 被删除 ⇒ 踢下线）。
  *
  * 保守方向很重要：查不到行（新装机 / 换了 device_id）或查询失败一律判「没被踢」，
  * 否则瞬时 401 / 网络抖动会把人误判成被踢而误杀会话（表现为 profile 全「-」、无通知、设置失效）。
@@ -84,10 +96,13 @@ export async function verifySession(client: SupabaseClient<Database>): Promise<V
   const { data, error } = await client.rpc('get_my_session_v2', {
     p_device_id: getOrCreateDeviceId(),
   })
-  if (error) return { kicked: false }
-  const row = toRows<{ trusted: boolean }>(data)[0]
-  if (!row) return { kicked: false }
-  return { kicked: row.trusted === false }
+  if (error) return { kicked: false, kind: null }
+  const row = toRows<{ trusted: boolean; deleted_at: string | null }>(data)[0]
+  if (!row) return { kicked: false, kind: null }
+  if (row.trusted !== false) return { kicked: false, kind: null }
+  // kind 只读 `deleted_at`：墓碑行必然 trusted = false（服务端有 CHECK 约束），
+  // 所以「trusted = false 且没有墓碑」就是被设为不信任。
+  return { kicked: true, kind: row.deleted_at ? 'deleted' : 'rejected' }
 }
 
 export type DeviceInfo = {
@@ -153,6 +168,35 @@ export async function setDeviceTrust(
       p_self_device_id: selfDeviceId,
       p_device_id: deviceId,
       p_trusted: trusted,
+    })
+    if (error) return { ok: false }
+    return { ok: true }
+  } catch {
+    return { ok: false }
+  }
+}
+
+export type DeleteDeviceResult = { ok: boolean; reason?: 'cannot_delete_self' }
+
+/**
+ * 删除设备：这台设备立刻下线、从设备列表里消失，**下一次它登录时被当作新设备**
+ * （照发一条「新设备登录」通知给本人）—— 与「设为不信任」的区别就在这里：
+ * 后者是「以后一直拒绝」，前者是「我不认识这台，让它忘了我，但它再进来要告诉我」。
+ *
+ * **永远不能删除自己**：目标就是本机时直接返回、不发请求。与 setDeviceTrust 里那条
+ * 「不能拒绝自己」是同一道第二防线（理由也相同：本机当场被踢，而恢复的入口需要先登录），
+ * 服务端另有 `cannot_block_self` 硬拦。
+ */
+export async function deleteDevice(
+  client: SupabaseClient<Database>,
+  selfDeviceId: string,
+  deviceId: string
+): Promise<DeleteDeviceResult> {
+  if (deviceId === selfDeviceId) return { ok: false, reason: 'cannot_delete_self' }
+  try {
+    const { error } = await client.rpc('delete_device', {
+      p_self_device_id: selfDeviceId,
+      p_device_id: deviceId,
     })
     if (error) return { ok: false }
     return { ok: true }

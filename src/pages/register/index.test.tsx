@@ -100,6 +100,7 @@ vi.mock('@/context/user-context', () => ({
     ready: true,
     user: null,
     forcedOffline: false,
+    forcedOfflineKind: null,
     markForcedOffline: mocks.markForcedOffline,
     clearForcedOffline: vi.fn(),
   }),

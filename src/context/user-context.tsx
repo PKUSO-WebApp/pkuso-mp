@@ -11,7 +11,12 @@ import {
 import Taro, { useDidShow } from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import type { Session } from '@supabase/supabase-js'
-import { clearLegacySessionToken, touchSession, verifySession } from '@/lib/device-session'
+import {
+  clearLegacySessionToken,
+  touchSession,
+  verifySession,
+  type SessionKickKind,
+} from '@/lib/device-session'
 import { getOrCreateDeviceId } from '@/lib/device-id'
 import { logDiag, setSessionStatusProvider, startSessionDiag } from '@/lib/session-diag'
 import { __resetRehearsalsCache } from '@/hooks/useRehearsals'
@@ -39,8 +44,12 @@ export type UserContextValue = {
   restoreFailed: boolean
   // 本设备被拒绝登录（被设为不信任）：在线被踢下线、登录/冷启动被服务端拒绝，都是这一条
   forcedOffline: boolean
-  // 登录链路自己发现被拒（touch_session_v2 返回 device_rejected）时置位，复用同一条弹窗
-  markForcedOffline: () => void
+  // 被踢下线的两种原因（'rejected' 被设为不信任 / 'deleted' 被删除设备），弹窗据此选文案；
+  // null = 当前没有这条下线，或原因未知（弹窗按 'rejected' 兜底）
+  forcedOfflineKind: SessionKickKind | null
+  // 登录链路自己发现被拒（touch_session_v2 返回 device_rejected）时置位，复用同一条弹窗。
+  // 该 RPC 只在一行「不信任且无墓碑」时拒绝 ⇒ 省略 kind 时按 'rejected' 处理
+  markForcedOffline: (kind?: SessionKickKind) => void
   // 关闭强制下线弹窗（仅在登录页渲染，供用户确认后复位）
   clearForcedOffline: () => void
 }
@@ -56,6 +65,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [restoreFailed, setRestoreFailed] = useState(false)
   // 控制强制下线弹窗显隐（弹窗本体挂在登录页上）
   const [forcedOffline, setForcedOffline] = useState(false)
+  // 这次下线的原因，只给弹窗选文案用
+  const [forcedOfflineKind, setForcedOfflineKind] = useState<SessionKickKind | null>(null)
 
   // 镜像最新状态：诊断心跳提供者注册一次即可读到最新值，避免闭包过期
   const sessionRef = useRef(session)
@@ -80,21 +91,25 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   // 本设备被拒绝登录的统一处理：记录、弹通知、跳登录页、本地登出
   const kick = useCallback(
-    (reason: KickReason) => {
+    (reason: KickReason, kind: SessionKickKind) => {
       if (forcedOfflineRef.current) return
       forcedOfflineRef.current = true
       logDiag('forced_offline', {
         reason,
+        kind,
         deviceId8: getOrCreateDeviceId().slice(0, 8),
       })
       // 同步先置位（若 Provider 不因 reLaunch 重挂载，弹窗立即出现）；并延迟到 reLaunch 完成后
       // 再置位一次（reLaunch 在部分 Taro 配置下会让 UserProvider 重挂载，旧实例状态随之丢失，
       // 需在登录页新实例上重新置位，否则弹窗不出现）。见 force_offline_modal_render 诊断。
+      // kind 与它同进同退：只置位一半会让弹窗按默认（rejected）出文案。
       setForcedOffline(true)
+      setForcedOfflineKind(kind)
       clearLegacySessionToken()
       const openOnLogin = () => {
-        logDiag('forced_offline_open', { reason })
+        logDiag('forced_offline_open', { reason, kind })
         setForcedOffline(true)
+        setForcedOfflineKind(kind)
         resetLocalSession()
         void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
       }
@@ -107,14 +122,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const clearForcedOffline = useCallback(() => {
     forcedOfflineRef.current = false
     setForcedOffline(false)
+    setForcedOfflineKind(null)
   }, [])
 
-  // 登录链路自己发现被拒时置位（同一条弹窗、同一套文案）：此时已在登录页，不 reLaunch、不登出
-  // （会话由登录链路自己撤销），只把通知弹出来。
-  const markForcedOffline = useCallback(() => {
-    logDiag('forced_offline', { reason: 'login_rejected' })
+  // 登录链路自己发现被拒时置位（同一条弹窗）：此时已在登录页，不 reLaunch、不登出
+  // （会话由登录链路自己撤销），只把通知弹出来。kind 默认 'rejected' —— device_rejected
+  // 只在「不信任且未删除」时抛出（见 touch_session_v2），不存在另一种原因。
+  const markForcedOffline = useCallback((kind: SessionKickKind = 'rejected') => {
+    logDiag('forced_offline', { reason: 'login_rejected', kind })
     forcedOfflineRef.current = true
     setForcedOffline(true)
+    setForcedOfflineKind(kind)
   }, [])
 
   // 设置会话并（当会话存在时）登记本设备（touch_session_v2）：刷新本设备这一行。
@@ -126,6 +144,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         // 心跳会一直报 forcedOffline=true、checkNow 早退不再校验，登录后也恢复不了。
         forcedOfflineRef.current = false
         setForcedOffline(false)
+        setForcedOfflineKind(null)
         // 同一会话只 touch 一次（见 establishedTokenRef 注释），防止并发重复调用
         if (next.access_token && next.access_token === establishedTokenRef.current) {
           setSession(next)
@@ -138,7 +157,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         establishingRef.current = true
         void touchSession(supabase)
           .then((res) => {
-            if (res.rejected) kick('touch_rejected')
+            // device_rejected 只在「不信任且未删除」时抛出 ⇒ 原因只能是 rejected
+            if (res.rejected) kick('touch_rejected', 'rejected')
           })
           .finally(() => {
             establishingRef.current = false
@@ -168,7 +188,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 自查本设备这一行：被设为不信任（trusted=false）即强制下线。
+  // 自查本设备这一行：trusted=false 即强制下线（被设为不信任，或被「删除设备」）。
   // 旧的「本地令牌 ≠ DB 令牌」判据已随多设备模型退场（每设备一行，token 只标识那一行）。
   const checkNow = useCallback(async () => {
     if (!session || forcedOfflineRef.current || establishingRef.current) return
@@ -181,8 +201,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
       void supabase.auth.refreshSession().catch(() => {})
     }
     try {
-      const { kicked } = await verifySession(supabase)
-      if (kicked) kick('verify')
+      const { kicked, kind } = await verifySession(supabase)
+      // kind 为 null 只可能出现在「没被踢」那一支（被踢时一定有原因）；?? 兜住类型
+      if (kicked) kick('verify', kind ?? 'rejected')
     } catch (err) {
       logDiag('verify_error', { err: err instanceof Error ? err.message : String(err) })
     }
@@ -281,10 +302,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
       ready,
       restoreFailed,
       forcedOffline,
+      forcedOfflineKind,
       markForcedOffline,
       clearForcedOffline,
     }),
-    [session, user, ready, restoreFailed, forcedOffline, markForcedOffline, clearForcedOffline]
+    [
+      session,
+      user,
+      ready,
+      restoreFailed,
+      forcedOffline,
+      forcedOfflineKind,
+      markForcedOffline,
+      clearForcedOffline,
+    ]
   )
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>

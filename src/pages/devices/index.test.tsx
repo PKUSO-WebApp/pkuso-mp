@@ -2,13 +2,14 @@
 
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import DevicesPage from './index'
 
 /**
- * 登录设备页：列表三态 + 两个动作。
- * 最重要的一条是产品不变量 —— **本机那一行不给「设为不信任」入口**（拒绝自己 = 当场把自己
- * 锁在门外，服务端也会以 cannot_untrust_self 硬拦）；其次是「设为不信任」必须二次确认。
+ * 登录设备页：列表三态 + 两个动作（设为不信任 / 删除设备）。
+ * 最重要的一条是产品不变量 —— **本机那一行两个入口都不给**（拒绝或删除自己 = 当场把自己
+ * 锁在门外，服务端也会以 cannot_untrust_self / cannot_block_self 硬拦）；其次是两个动作
+ * 都必须二次确认，且**确认前不发请求**。
  */
 
 const SELF_DEVICE_ID = 'selfdevice0001'
@@ -92,7 +93,7 @@ const ALL_DEVICES = [
   deviceRow('blockeddevice01', 'iPad Air · iPadOS 18.0', false, '2026-10-10T02:00:00Z'),
 ]
 
-/** 取某个 RPC 的调用参数（page 只用两个 RPC） */
+/** 取某个 RPC 的调用参数（page 只用三个 RPC：list / set_trust / delete） */
 const rpcArgs = (fnName: string) =>
   mocks.rpc.mock.calls.filter((call) => call[0] === fnName).map((call) => call[1])
 
@@ -108,6 +109,12 @@ const listText = (label: string) =>
 const waitForListText = async (label: string) => {
   await waitFor(() => expect(listText(label).length).toBeGreaterThan(0))
   return listText(label)[0]
+}
+
+/** 同上，但要全部命中（例如「每一行各有一个按钮」时按行取第 N 个） */
+const waitForListTexts = async (label: string) => {
+  await waitFor(() => expect(listText(label).length).toBeGreaterThan(0))
+  return listText(label)
 }
 
 const setDevices = (rows: unknown[]) => {
@@ -134,12 +141,13 @@ describe('DevicesPage', () => {
     expect(screen.getByText('已拒绝登录')).toBeTruthy()
   })
 
-  it('**本机那一行不给「设为不信任」入口**（只有本机一台时界面上没有任何拒绝入口）', async () => {
+  it('**本机那一行不给任何操作入口**（只有本机一台时界面上没有任何拒绝 / 删除入口）', async () => {
     setDevices([ALL_DEVICES[0]])
     render(<DevicesPage />)
     await waitForListText('本机')
     expect(listText('设为不信任')).toHaveLength(0)
     expect(listText('恢复信任')).toHaveLength(0)
+    expect(listText('删除设备')).toHaveLength(0)
   })
 
   it('别的设备才有「设为不信任」；被拒的那台显示「恢复信任」', async () => {
@@ -148,6 +156,12 @@ describe('DevicesPage', () => {
     // 三台设备：本机（无入口）、另一台已信任（设为不信任）、一台被拒（恢复信任）
     expect(listText('设为不信任')).toHaveLength(1)
     expect(listText('恢复信任')).toHaveLength(1)
+  })
+
+  it('「删除设备」只出现在非本机行（两台非本机设备各一个，本机那行没有）', async () => {
+    render(<DevicesPage />)
+    await waitForListText('小米 14 · Android 15')
+    expect(listText('删除设备')).toHaveLength(2)
   })
 
   it('设为不信任必须二次确认：确认前不发请求，确认后带本机 id 发', async () => {
@@ -177,6 +191,69 @@ describe('DevicesPage', () => {
       p_device_id: 'blockeddevice01',
       p_trusted: true,
     })
+  })
+
+  it('删除设备：二次确认前不发请求，确认后带本机 id 发；成功后该行从列表消失', async () => {
+    // 服务端行为的最小仿真：delete_device 之后 list_my_devices 不再返回那一行
+    let rows = [...ALL_DEVICES]
+    mocks.rpc.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+      if (fn === 'list_my_devices') return { data: rows, error: null }
+      if (fn === 'delete_device') {
+        rows = rows.filter((row) => row.device_id !== args?.p_device_id)
+        return { data: null, error: null }
+      }
+      return { data: null, error: null }
+    })
+    render(<DevicesPage />)
+    fireEvent.click((await waitForListTexts('删除设备'))[0])
+
+    // 弹窗打开且写清了后果（立刻下线 / 从列表消失 / 下次登录当新设备）；此刻**一个请求都没发**
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.textContent).toContain('这台设备会立即下线，并从列表中消失')
+    expect(dialog.textContent).toContain('会被当作新设备')
+    expect(rpcArgs('delete_device')).toHaveLength(0)
+    // 只断言**列表里**那一行还在（弹窗正文里也印着同一个设备名）
+    expect(listText('小米 14 · Android 15')).toHaveLength(1)
+
+    fireEvent.click(screen.getByText('删除'))
+    await waitFor(() => expect(rpcArgs('delete_device')).toHaveLength(1))
+    expect(rpcArgs('delete_device')[0]).toEqual({
+      p_self_device_id: SELF_DEVICE_ID,
+      p_device_id: 'otherdevice001',
+    })
+    // 列表以服务端为准重新取：那一行消失（另一台非本机设备还在，入口还剩一个）
+    await waitFor(() => expect(listText('小米 14 · Android 15')).toHaveLength(0))
+    expect(listText('删除设备')).toHaveLength(1)
+    await waitFor(() =>
+      expect(mocks.showToast).toHaveBeenCalledWith({ title: '设备已删除', icon: 'success' })
+    )
+  })
+
+  it('删除失败：toast 提示，界面不假装成功（那一行还在）', async () => {
+    mocks.rpc.mockImplementation(async (fn: string) => {
+      if (fn === 'list_my_devices') return { data: ALL_DEVICES, error: null }
+      return { data: null, error: { message: 'rls' } }
+    })
+    render(<DevicesPage />)
+    fireEvent.click((await waitForListTexts('删除设备'))[0])
+    fireEvent.click(screen.getByText('删除'))
+
+    await waitFor(() =>
+      expect(mocks.showToast).toHaveBeenCalledWith({ title: '删除失败，请重试', icon: 'none' })
+    )
+    expect(listText('小米 14 · Android 15')).toHaveLength(1)
+    expect(listText('删除设备')).toHaveLength(2)
+  })
+
+  it('确认弹窗上的「取消」不发请求（删除必须由用户明确确认）', async () => {
+    render(<DevicesPage />)
+    fireEvent.click((await waitForListTexts('删除设备'))[0])
+    // 「取消」两个弹窗里都有（另一个只是 display:none），所以按「当前打开的那个」取
+    fireEvent.click(within(screen.getByRole('dialog')).getByText('取消'))
+
+    expect(rpcArgs('delete_device')).toHaveLength(0)
+    // 弹窗已关闭（display:none 的节点不进可访问树）
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('列表失败显示错误与重试，重试成功后渲染列表', async () => {

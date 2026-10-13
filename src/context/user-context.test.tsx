@@ -287,6 +287,45 @@ describe('UserProvider', () => {
       expect(result.current.user).toBeNull()
     })
     await waitFor(() => expect(authMock.signOut).toHaveBeenCalled())
+    // device_rejected 只可能来自「不信任且未删除」⇒ 弹窗出「被拒绝登录」那套文案
+    expect(result.current.forcedOfflineKind).toBe('rejected')
+  })
+
+  it('自查发现本设备被「删除设备」（deleted_at 非空）⇒ 同样下线，但 kind 为 deleted', async () => {
+    authMock.getSession.mockResolvedValue({ data: { session: makeSession('u1') }, error: null })
+    supabaseRpcMock.mockImplementation((fn: string) => {
+      if (fn === 'touch_session_v2') {
+        return Promise.resolve({ data: [{ token: 't-local', trusted: true }], error: null })
+      }
+      if (fn === 'get_my_session_v2') {
+        // 别的设备把本机删掉了：行还在（墓碑），trusted = false 且 deleted_at 非空
+        return Promise.resolve({
+          data: [
+            {
+              token: 't-local',
+              trusted: false,
+              deleted_at: '2026-10-14T02:00:00Z',
+              last_seen_at: '2026-10-14T01:00:00Z',
+            },
+          ],
+          error: null,
+        })
+      }
+      return Promise.resolve({ data: [], error: null })
+    })
+    const { result } = renderWithProvider()
+    await waitFor(() => expect(result.current.user?.id).toBe('u1'))
+    // 等 touch 完成（establishing 期间自查会早退）
+    await waitFor(() =>
+      expect(supabaseRpcMock).toHaveBeenCalledWith('touch_session_v2', expect.anything())
+    )
+    await act(async () => {})
+    await act(async () => {
+      didShowCbs[didShowCbs.length - 1]()
+    })
+    await waitFor(() => expect(result.current.forcedOffline).toBe(true))
+    expect(result.current.forcedOfflineKind).toBe('deleted')
+    expect(supabaseRpcMock).toHaveBeenCalledWith('get_my_session_v2', expect.anything())
   })
 
   it('自查查不到行（换了 device_id / 新装机）不算被踢，会话保留', async () => {
@@ -297,6 +336,8 @@ describe('UserProvider', () => {
       didShowCbs[didShowCbs.length - 1]()
     })
     expect(result.current.forcedOffline).toBe(false)
+    // 没被踢 ⇒ 也没有「被踢的原因」（弹窗按 kind 选文案，留个残值会张冠李戴）
+    expect(result.current.forcedOfflineKind).toBeNull()
     expect(result.current.user?.id).toBe('u1')
   })
 })

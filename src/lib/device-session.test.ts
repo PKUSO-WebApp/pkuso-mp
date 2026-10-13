@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearLegacySessionToken,
   consumeIntentionalSignOut,
+  deleteDevice,
   listMyDevices,
   markIntentionalSignOut,
   setDeviceTrust,
@@ -70,34 +71,71 @@ describe('touchSession', () => {
 })
 
 describe('verifySession', () => {
-  it('本设备这一行 trusted === false ⇒ 被踢（唯一判据）', async () => {
+  it('本设备这一行 trusted === false ⇒ 被踢（唯一判据），且无墓碑 ⇒ kind = rejected', async () => {
     store['pkuso_device_id'] = 'dlocal1234567890'
     rpcMock.mockResolvedValue({
-      data: [{ token: 't-1', trusted: false, last_seen_at: '2026-10-13T10:00:00Z' }],
+      data: [
+        {
+          token: 't-1',
+          trusted: false,
+          deleted_at: null,
+          last_seen_at: '2026-10-13T10:00:00Z',
+        },
+      ],
       error: null,
     })
-    expect(await verifySession(client)).toEqual({ kicked: true })
+    expect(await verifySession(client)).toEqual({ kicked: true, kind: 'rejected' })
     expect(rpcMock).toHaveBeenCalledWith('get_my_session_v2', {
       p_device_id: 'dlocal1234567890',
     })
   })
 
-  it('trusted === true ⇒ 没被踢（token 变了也不算——它只标识那一行）', async () => {
+  it('deleted_at 非空 ⇒ 同样被踢，但 kind = deleted（文案要说「已从账号中移除」）', async () => {
     rpcMock.mockResolvedValue({
-      data: [{ token: 't-other', trusted: true, last_seen_at: '2026-10-13T10:00:00Z' }],
+      data: [
+        {
+          token: 't-1',
+          trusted: false,
+          deleted_at: '2026-10-14T02:00:00Z',
+          last_seen_at: '2026-10-14T01:00:00Z',
+        },
+      ],
       error: null,
     })
-    expect(await verifySession(client)).toEqual({ kicked: false })
+    expect(await verifySession(client)).toEqual({ kicked: true, kind: 'deleted' })
+  })
+
+  it('返回体里压根没有 deleted_at 这一列（比数据库旧的服务端）⇒ 判 rejected 而不是漏踢', async () => {
+    rpcMock.mockResolvedValue({
+      data: [{ token: 't-1', trusted: false, last_seen_at: '2026-10-13T10:00:00Z' }],
+      error: null,
+    })
+    expect(await verifySession(client)).toEqual({ kicked: true, kind: 'rejected' })
+  })
+
+  it('trusted === true ⇒ 没被踢（token 变了也不算——它只标识那一行）', async () => {
+    rpcMock.mockResolvedValue({
+      data: [
+        {
+          token: 't-other',
+          trusted: true,
+          deleted_at: null,
+          last_seen_at: '2026-10-13T10:00:00Z',
+        },
+      ],
+      error: null,
+    })
+    expect(await verifySession(client)).toEqual({ kicked: false, kind: null })
   })
 
   it('查不到行（新装机 / 换了 device_id）⇒ 保守判没被踢', async () => {
     rpcMock.mockResolvedValue({ data: [], error: null })
-    expect(await verifySession(client)).toEqual({ kicked: false })
+    expect(await verifySession(client)).toEqual({ kicked: false, kind: null })
   })
 
   it('查询失败 ⇒ 保守判没被踢（瞬时 401 不能误杀会话）', async () => {
     rpcMock.mockResolvedValue({ data: null, error: { message: 'boom' } })
-    expect(await verifySession(client)).toEqual({ kicked: false })
+    expect(await verifySession(client)).toEqual({ kicked: false, kind: null })
   })
 })
 
@@ -173,6 +211,33 @@ describe('setDeviceTrust', () => {
   it('服务端报错 ⇒ ok:false（页面提示失败）', async () => {
     rpcMock.mockResolvedValue({ data: null, error: { message: 'cannot_untrust_self' } })
     expect((await setDeviceTrust(client, 'd-self', 'd-other', false)).ok).toBe(false)
+  })
+})
+
+describe('deleteDevice', () => {
+  it('对别的设备发请求（带自己的 device_id 作 self 判据）', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: null })
+    expect(await deleteDevice(client, 'd-self', 'd-other')).toEqual({ ok: true })
+    expect(rpcMock).toHaveBeenCalledWith('delete_device', {
+      p_self_device_id: 'd-self',
+      p_device_id: 'd-other',
+    })
+  })
+
+  it('目标是本机时**零 RPC 调用**（永远不能删除自己；服务端也会以 cannot_block_self 硬拦）', async () => {
+    const res = await deleteDevice(client, 'd-self', 'd-self')
+    expect(res).toEqual({ ok: false, reason: 'cannot_delete_self' })
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
+
+  it('服务端报错 ⇒ ok:false（页面据此 toast，界面不假装成功）', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'cannot_block_self' } })
+    expect((await deleteDevice(client, 'd-self', 'd-other')).ok).toBe(false)
+  })
+
+  it('rpc 直接抛错也不外抛', async () => {
+    rpcMock.mockRejectedValue(new Error('network down'))
+    expect(await deleteDevice(client, 'd-self', 'd-other')).toEqual({ ok: false })
   })
 })
 
