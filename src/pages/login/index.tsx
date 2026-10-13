@@ -273,7 +273,7 @@ export default function LoginPage() {
           {/* 微信授权登录 */}
           <Button
             hoverClass='none'
-            className='flex h-11 w-full items-center justify-center rounded-2xl bg-[#03DB6C] text-sm font-medium text-white disabled:opacity-60'
+            className='flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-2xl bg-[#03DB6C] text-sm font-medium text-white disabled:opacity-60'
             disabled={wechatSubmitting}
             onClick={() => void handleWechatLogin()}
           >
@@ -311,7 +311,7 @@ export default function LoginPage() {
                 <View className='flex items-center gap-2'>
                   <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
                     <Input
-                      className='h-10 w-full bg-transparent text-sm'
+                      className='h-[var(--size-control-h)] w-full bg-transparent text-sm'
                       placeholder={t('login.codePlaceholder')}
                       type='number'
                       maxlength={6}
@@ -367,7 +367,7 @@ export default function LoginPage() {
           {/* 登录按钮 */}
           <Button
             hoverClass='none'
-            className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
+            className='flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
             disabled={submitting || (mode === 'code' && codeSending)}
             onClick={() => void handleSubmit()}
           >

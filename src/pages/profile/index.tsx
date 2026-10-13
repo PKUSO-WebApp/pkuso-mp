@@ -4,6 +4,8 @@ import { TextField } from '@/components/ui/FormFields'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
+import { tabBarReserveCss } from '@/lib/ui-scale'
 import { useT, useNavTitle } from '@/i18n'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { useProfiles } from '@/hooks/useProfiles'
@@ -26,6 +28,7 @@ import { invokeFunction } from '@/lib/functions'
 
 import { SkeletonCircle, SkeletonText } from '@/components/ui/Skeleton'
 import { ThemeModal } from './components/theme-modal'
+import { UiScaleModal } from './components/ui-scale-modal'
 import './index.scss'
 
 // 邮箱与密码弹窗 tab：换绑邮箱（默认）/ 修改密码
@@ -49,6 +52,8 @@ export default function Profile() {
   const { user } = useUser()
   const { signOut } = useAuth()
   const darkClass = useThemeClass()
+  // 底边栏预留是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
   const { t, locale, setLocale } = useT()
   const placeholderStyle = usePlaceholderStyle()
   useNavTitle('profile.title')
@@ -122,6 +127,7 @@ export default function Profile() {
 
   // ---- 外观 ----
   const [isThemeOpen, setIsThemeOpen] = useState(false)
+  const [isUiScaleOpen, setIsUiScaleOpen] = useState(false)
 
   // ---- 通知信箱 ----
   // 未读数和标记已读收敛在 useNotifications；挂载时拉取一次未读数，
@@ -397,7 +403,7 @@ export default function Profile() {
   return (
     <View
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
-      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: tabBarReserveCss(uiScale) }}
     >
       <ScrollView scrollY className='flex-1 min-h-0'>
         {/* 底部留白 = 自定义底边栏高(50px)，避免末行被遮挡、滚不到底（横屏同样稳健） */}
@@ -414,7 +420,7 @@ export default function Profile() {
             </View>
           ) : (
             <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
-              <View className='flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary'>
+              <View className='flex w-[var(--size-avatar)] h-[var(--size-avatar)] shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary'>
                 {avatarUrl ? (
                   <Image src={avatarUrl} className='h-full w-full' mode='aspectFill' />
                 ) : (
@@ -541,6 +547,15 @@ export default function Profile() {
                   {t('profile.settings.appearance')}
                 </Text>
               </View>
+              {/* 显示大小：紧凑 / 标准 / 宽松（同一套绝对尺寸，平板不再按屏宽放大） */}
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => setIsUiScaleOpen(true)}
+              >
+                <Text className='text-sm font-medium text-text'>
+                  {t('profile.settings.displaySize')}
+                </Text>
+              </View>
               {/* 问题与反馈：匿名提交，底部弹窗 */}
               <View
                 className='border-b border-border px-4 py-3'
@@ -611,7 +626,7 @@ export default function Profile() {
                 <View className='flex items-center gap-2'>
                   <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
                     <Input
-                      className='h-10 w-full bg-transparent text-sm text-text'
+                      className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
                       placeholder={t('profile.account.verificationCodePlaceholder')}
                       value={verifyCode}
                       onInput={(e) => setVerifyCode(e.detail.value)}
@@ -681,7 +696,7 @@ export default function Profile() {
                 <View className='flex items-center gap-2'>
                   <View className='flex-1 overflow-hidden rounded-xl border border-border bg-muted px-3'>
                     <Input
-                      className='h-10 w-full bg-transparent text-sm text-text'
+                      className='h-[var(--size-control-h)] w-full bg-transparent text-sm text-text'
                       placeholder={t('profile.account.verificationCodePlaceholder')}
                       value={verifyCode}
                       onInput={(e) => setVerifyCode(e.detail.value)}
@@ -727,6 +742,7 @@ export default function Profile() {
 
       {/* 外观 Modal：亮色 / 暗色 / 跟随系统 三态主题切换 */}
       <ThemeModal open={isThemeOpen} onClose={() => setIsThemeOpen(false)} />
+      <UiScaleModal open={isUiScaleOpen} onClose={() => setIsUiScaleOpen(false)} />
 
       {/* 语言选择：手动选择后持久化 */}
       <Modal

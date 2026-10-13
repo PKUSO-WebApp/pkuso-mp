@@ -3,6 +3,8 @@ import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow, useRouter } from '@tarojs/taro'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
+import { tabBarReserveCss } from '@/lib/ui-scale'
 import { supabase } from '@/lib/supabase'
 import { ListState } from '@/components/ui/ListState'
 import { translateInstrument } from '@/lib/instrument-i18n'
@@ -19,6 +21,8 @@ export default function ScorePart() {
   const { t } = useT()
   useNavTitle('scorePart.navTitle')
   const darkClass = useThemeClass()
+  // 底边栏预留是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
   const router = useRouter()
   const partId = router.params.part_id ?? ''
   const sheetTitle = router.params.sheet ? decodeURIComponent(router.params.sheet) : ''
@@ -97,7 +101,7 @@ export default function ScorePart() {
   return (
     <View
       className={`${darkClass} relative flex h-full min-h-0 flex-col bg-page-bg`}
-      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: tabBarReserveCss(uiScale) }}
     >
       {/* 面包屑：曲名 / 声部名（曲名点击返回曲目详情） */}
       <View className='flex flex-row items-center px-4 pt-3 text-sm'>

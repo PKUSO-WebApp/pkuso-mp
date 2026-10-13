@@ -7,6 +7,8 @@ import { useSchedule } from '@/hooks/useSchedule'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
+import { tabBarReserveCss } from '@/lib/ui-scale'
 import { useT, useNavTitle } from '@/i18n'
 import { useOverlayOpen } from '@/lib/overlayStore'
 import { StaffBlockedPage } from '@/components/staff-blocked-page'
@@ -41,6 +43,8 @@ export default function Schedule() {
   const { profile: myProfile } = useMyProfile()
   const { user } = useUser()
   const darkClass = useThemeClass()
+  // 底边栏预留与按钮偏移是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
   const { t } = useT()
   useNavTitle('schedule.navTitle')
 
@@ -110,7 +114,7 @@ export default function Schedule() {
   return (
     <View
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4`}
-      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: tabBarReserveCss(uiScale) }}
     >
       {/* 日期选择器 */}
       <View className='mt-3 mb-4'>
@@ -155,7 +159,7 @@ export default function Schedule() {
         {!overlayOpen && user && (
           <View
             className='absolute flex items-center justify-center rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground shadow-lg'
-            style={{ right: '8px', bottom: '8px' }}
+            style={{ right: `${8 * uiScale}px`, bottom: `${8 * uiScale}px` }}
             onClick={() => setCreateOpen(true)}
           >
             {t('schedule.addReservation')}

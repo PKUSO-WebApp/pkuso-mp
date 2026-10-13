@@ -1,5 +1,6 @@
 import { View, Text, Image } from '@tarojs/components'
 import { useT } from '@/i18n'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { ZONE_SPLITS, ZONE_SPLITS_UD, Z_TUTORIAL } from '@/pages/score-reader/lib/layout'
 import type { ReaderMode } from '@/pages/score-reader/lib/reader-mode'
 // 蒙层恒为深色（bg-overlay 两种主题下都是黑），所以图例**恒用 -dark 那套**（白色描边）
@@ -28,6 +29,7 @@ const LEGEND_ICON_W = 32
  */
 function MenuLegend({ ud }: { ud: boolean }) {
   const { t } = useT()
+  const uiScale = useUiScaleFactor()
   // 最后一个是**切换翻页方式**：显示的是「点下去会变成什么」，与真实底栏同一条规则
   const items: Array<{ icon: string; label: string }> = [
     { icon: bookOpenIcon, label: t('scoreReader.tutorialMenuPage') },
@@ -37,14 +39,20 @@ function MenuLegend({ ud }: { ud: boolean }) {
     { icon: ud ? chevronsLR : chevronsUD, label: t('scoreReader.tutorialMenuMode') },
   ]
   return (
-    <View className='mx-auto flex flex-col items-center' style={{ width: `${LEGEND_ROW_W}px` }}>
+    <View
+      className='mx-auto flex flex-col items-center'
+      style={{ width: `${LEGEND_ROW_W * uiScale}px` }}
+    >
       {items.map((it) => (
         <View key={it.label} className='mt-1 flex w-full flex-row items-center'>
           <View
             className='flex items-center justify-center'
-            style={{ width: `${LEGEND_ICON_W}px` }}
+            style={{ width: `${LEGEND_ICON_W * uiScale}px` }}
           >
-            <Image src={it.icon} style={{ width: `${LEGEND_ICON}px`, height: `${LEGEND_ICON}px` }} />
+            <Image
+              src={it.icon}
+              style={{ width: `${LEGEND_ICON * uiScale}px`, height: `${LEGEND_ICON * uiScale}px` }}
+            />
           </View>
           <Text className='text-xs text-white'>{it.label}</Text>
         </View>
@@ -89,6 +97,7 @@ function HintLines({ text }: { text: string }) {
  */
 export function ReaderTutorial({ mode, onClose }: { mode: ReaderMode; onClose: () => void }) {
   const { t } = useT()
+  const uiScale = useUiScaleFactor()
   // 画在深色蒙层上：两种主题都用白，不用主题 token
   const line = 'rgb(255 255 255 / 0.75)'
   const ud = mode === 'ud'
@@ -183,7 +192,7 @@ export function ReaderTutorial({ mode, onClose }: { mode: ReaderMode; onClose: (
               竖线同样切不到 */}
           <View
             className='absolute bottom-0 left-0 right-0 px-8'
-            style={{ paddingBottom: 'calc(32px + env(safe-area-inset-bottom))' }}
+            style={{ paddingBottom: `calc(${32 * uiScale}px + env(safe-area-inset-bottom))` }}
           >
             <HintLines text={t('scoreReader.tutorialSwipeHint')} />
             {dismiss}

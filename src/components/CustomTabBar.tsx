@@ -6,6 +6,8 @@ import { getRehearsalUnviewedFlag, subscribeRehearsalUnviewed } from '@/lib/rehe
 // [FALLBACK] 社区隐藏，post 未读 import 暂时注释。恢复时取消注释。
 // import { getPostUnviewedFlag, subscribePostUnviewed } from '@/lib/postSeen'
 import { getThemeMode, subscribeThemeMode } from '@/lib/themeStore'
+import { getUiScale, subscribeUiScale } from '@/lib/uiScaleStore'
+import { tabBarReserveCss, uiScaleFactor } from '@/lib/ui-scale'
 import { THEME_PALETTE } from '@/lib/theme'
 import { getOverlayOpen, subscribeOverlayOpen } from '@/lib/overlayStore'
 import { getTabBarSelected, setTabBarSelected, subscribeTabBarSelected } from '@/lib/tabBarSelected'
@@ -113,6 +115,9 @@ export default class CustomTabBar extends Component {
     dark: getThemeMode() === 'dark',
     overlay: getOverlayOpen(),
     loggedIn: getLoggedIn(),
+    // 显示大小档位：底边栏这一身尺寸都是内联 px（不随屏宽变、也不吃 Tailwind token），
+    // 必须自己乘档位系数（口径见 lib/ui-scale.ts）
+    uiFactor: uiScaleFactor(getUiScale()),
   }
 
   componentDidMount() {
@@ -129,6 +134,9 @@ export default class CustomTabBar extends Component {
     //   this.setState({ postUnviewed: getPostUnviewedFlag() })
     // )
     this.unsubTheme = subscribeThemeMode(() => this.setState({ dark: getThemeMode() === 'dark' }))
+    this.unsubUiScale = subscribeUiScale(() =>
+      this.setState({ uiFactor: uiScaleFactor(getUiScale()) })
+    )
     this.unsubOverlay = subscribeOverlayOpen(() => this.setState({ overlay: getOverlayOpen() }))
     this.unsubAuth = subscribeLoggedIn(() => this.setState({ loggedIn: getLoggedIn() }))
     // 语言切换时重渲染 tab 文字（底边栏由框架独立槽位渲染，不在 React Provider 树内）
@@ -141,6 +149,7 @@ export default class CustomTabBar extends Component {
     this.unsubRehearsal?.()
     this.unsubPost?.()
     this.unsubTheme?.()
+    this.unsubUiScale?.()
     this.unsubOverlay?.()
     this.unsubAuth?.()
     this.unsubLocale?.()
@@ -151,6 +160,7 @@ export default class CustomTabBar extends Component {
   unsubRehearsal?: () => void
   unsubPost?: () => void
   unsubTheme?: () => void
+  unsubUiScale?: () => void
   unsubOverlay?: () => void
   unsubAuth?: () => void
   unsubLocale?: () => void
@@ -166,8 +176,13 @@ export default class CustomTabBar extends Component {
   }
 
   render() {
-    const { selected, unread, rehearsalUnviewed, dark, overlay } = this.state
+    const { selected, unread, rehearsalUnviewed, dark, overlay, uiFactor } = this.state
     const c = paletteFor(dark)
+    // 尺寸都乘档位系数（高度与 tab 图标/红点/文字同源；页面根的预留由 tabBarReserveCss
+    // 从同一个函数取，两边不会各说各话）
+    const iconPx = Math.round(24 * uiFactor * 100) / 100
+    const dotPx = Math.round(8 * uiFactor * 100) / 100
+    const labelPx = Math.round(10 * uiFactor * 100) / 100
     return (
       <View
         style={{
@@ -178,7 +193,7 @@ export default class CustomTabBar extends Component {
           zIndex: '50',
           display: overlay ? 'none' : 'flex',
           boxSizing: 'border-box',
-          height: 'calc(50px + env(safe-area-inset-bottom))',
+          height: tabBarReserveCss(uiFactor),
           paddingBottom: 'env(safe-area-inset-bottom)',
           alignItems: 'stretch',
           background: c.bg,
@@ -205,7 +220,7 @@ export default class CustomTabBar extends Component {
                 <Image
                   // 暗色模式选中态用高亮暗版图标（active-dark），避免与深底色融为一体
                   src={isSelected ? (dark ? tab.selectedIconDark : tab.selectedIcon) : tab.icon}
-                  style={{ width: '24px', height: '24px' }}
+                  style={{ width: `${iconPx}px`, height: `${iconPx}px` }}
                 />
                 {idx === 4 && unread > 0 && (
                   <View
@@ -213,8 +228,8 @@ export default class CustomTabBar extends Component {
                       position: 'absolute',
                       top: '-1px',
                       right: '-1px',
-                      width: '8px',
-                      height: '8px',
+                      width: `${dotPx}px`,
+                      height: `${dotPx}px`,
                       borderRadius: '9999px',
                       background: c.dot,
                       borderWidth: '1px',
@@ -228,8 +243,8 @@ export default class CustomTabBar extends Component {
                       position: 'absolute',
                       top: '-1px',
                       right: '-1px',
-                      width: '8px',
-                      height: '8px',
+                      width: `${dotPx}px`,
+                      height: `${dotPx}px`,
                       borderRadius: '9999px',
                       background: c.dot,
                       borderWidth: '1px',
@@ -244,8 +259,8 @@ export default class CustomTabBar extends Component {
                       position: 'absolute',
                       top: '-1px',
                       right: '-1px',
-                      width: '8px',
-                      height: '8px',
+                      width: `${dotPx}px`,
+                      height: `${dotPx}px`,
                       borderRadius: '9999px',
                       background: c.dot,
                       borderWidth: '1px',
@@ -256,8 +271,8 @@ export default class CustomTabBar extends Component {
               </View>
               <View
                 style={{
-                  marginTop: '2px',
-                  fontSize: '10px',
+                  marginTop: `${Math.round(2 * uiFactor * 100) / 100}px`,
+                  fontSize: `${labelPx}px`,
                   color: isSelected ? c.active : c.inactive,
                 }}
               >

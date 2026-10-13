@@ -49,7 +49,7 @@ export function TextField({
   labelClass,
   className,
   boxClass,
-  inputClass = 'h-10 w-full bg-transparent text-sm text-text',
+  inputClass = 'h-[var(--size-control-h)] w-full bg-transparent text-sm text-text',
   placeholderStyle,
   ...inputProps
 }: TextFieldProps) {

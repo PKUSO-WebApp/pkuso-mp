@@ -5,6 +5,8 @@ import { usePosts } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
+import { tabBarHeightPx, tabBarReserveCss } from '@/lib/ui-scale'
 import { tAppError } from '@/lib/appError'
 import { useT, useNavTitle } from '@/i18n'
 import { translateInstrument } from '@/lib/instrument-i18n'
@@ -40,6 +42,8 @@ export default function Community() {
   const { profile: myProfile } = useMyProfile()
   const { user } = useUser()
   const darkClass = useThemeClass()
+  // 底边栏预留与悬浮按钮偏移都是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
+  const uiScale = useUiScaleFactor()
   const { t } = useT()
   useNavTitle('community.navTitle')
   const [view, setView] = useState<'ensemble' | 'gathering'>('ensemble')
@@ -87,7 +91,7 @@ export default function Community() {
     return (
       <View
         className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
-        style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
       >
         <View className='mb-3'>
           <SegmentTabs tabs={communityTabs} value={view} onChange={handleSwitchType} />
@@ -108,7 +112,7 @@ export default function Community() {
   return (
     <View
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
-      style={{ paddingBottom: 'calc(50px + env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: tabBarReserveCss(uiScale) }}
     >
       {/* 分类切换 */}
       <View className='mb-3'>
@@ -188,8 +192,8 @@ export default function Community() {
       <View
         className='fixed flex items-center justify-center rounded-full bg-primary px-4 py-2 text-label font-medium text-primary-foreground shadow-lg'
         style={{
-          right: '16px',
-          bottom: 'calc(50px + env(safe-area-inset-bottom) + 16px)',
+          right: `${16 * uiScale}px`,
+          bottom: `calc(${tabBarHeightPx(uiScale)}px + env(safe-area-inset-bottom) + ${16 * uiScale}px)`,
           zIndex: 50,
         }}
         onClick={handleCreate}

@@ -238,7 +238,7 @@ export default function RegisterPage() {
               setInstrumentIndex(Number(e.detail.value))
             }}
           >
-            <View className='flex h-10 w-full items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
+            <View className='flex h-[var(--size-control-h)] w-full items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
               <Text
                 className={`text-sm ${instrumentIndex !== null ? 'text-text' : 'text-text-muted'}`}
               >
@@ -280,7 +280,7 @@ export default function RegisterPage() {
               }}
               className='flex-1'
             >
-              <View className='flex h-10 w-full min-w-0 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
+              <View className='flex h-[var(--size-control-h)] w-full min-w-0 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
                 <Text className={`text-sm ${yearIndex !== null ? 'text-text' : 'text-text-muted'}`}>
                   {yearIndex !== null ? YEAR_OPTIONS[yearIndex] : t('register.yearPlaceholder')}
                 </Text>
@@ -297,7 +297,7 @@ export default function RegisterPage() {
               }}
               className='flex-1'
             >
-              <View className='flex h-10 w-full min-w-0 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
+              <View className='flex h-[var(--size-control-h)] w-full min-w-0 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
                 <Text
                   className={`text-sm ${seasonIndex !== null ? 'text-text' : 'text-text-muted'}`}
                 >
@@ -385,7 +385,7 @@ export default function RegisterPage() {
 
         <Button
           hoverClass='none'
-          className='flex h-11 w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
+          className='flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
           disabled={submitting}
           onClick={() => void handleSubmit()}
         >

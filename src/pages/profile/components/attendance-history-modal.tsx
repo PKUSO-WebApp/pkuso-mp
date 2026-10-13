@@ -118,7 +118,7 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
               value={startDate}
               onChange={(e) => handleStartChange(String(e.detail.value))}
             >
-              <View className='flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
+              <View className='flex h-[var(--size-control-h)] items-center rounded-xl border border-border bg-muted px-3'>
                 <Text className='text-sm text-text'>
                   {startDate || t('profile.attendance.unlimited')}
                 </Text>
@@ -135,7 +135,7 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
               value={endDate}
               onChange={(e) => handleEndChange(String(e.detail.value))}
             >
-              <View className='flex h-10 items-center rounded-xl border border-border bg-muted px-3'>
+              <View className='flex h-[var(--size-control-h)] items-center rounded-xl border border-border bg-muted px-3'>
                 <Text className='text-sm text-text'>
                   {endDate || t('profile.attendance.unlimited')}
                 </Text>
