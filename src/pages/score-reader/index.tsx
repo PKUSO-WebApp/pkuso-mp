@@ -2688,8 +2688,10 @@ export default function ScoreReader() {
             它是 #reader-stage 的兄弟节点，触摸不会冒泡进舞台状态机 */}
         {tutorialOn ? <ReaderTutorial mode={mode} onClose={dismissTutorial} /> : null}
         {/* 批注冲突列表：也是「只在需要它的那一刻存在」——
-            没有冲突时它一个像素都不占，用户点了「稍后处理」本次会话就不再弹 */}
-        {conflictOn ? (
+            没有冲突时它一个像素都不占，用户点了「稍后处理」本次会话就不再弹。
+            ⚠️ 首次教程开着时**先不弹**（教程 z=60 比它低，会互相盖）：等用户关掉教程
+            再出现 —— 冲突不急这一下，而教程盖住一半、点不着更糟 */}
+        {conflictOn && !tutorialOn ? (
           <AnnotationConflictSheet
             pages={conflictPages}
             onPick={openConflictPage}
