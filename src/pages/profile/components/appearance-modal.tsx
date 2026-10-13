@@ -14,8 +14,8 @@ import { UI_SCALE_OPTIONS, uiScaleLabel } from '@/lib/ui-scale'
  * 分开两个入口只多一次点击。**显示大小不写解释文案** —— 倍率本身就说明了一切，
  * 用户不需要知道「平板基准 / rpx 换算」这些内部口径（同一条口径见 lib/ui-scale.ts）。
  *
- * 主题用小分段控件（两个选项，放得下），显示大小改**竖排行式列表**：四档在分段控件里
- * 会挤成一片（每个选项最小 64px），而行式列表顺带能一行一个勾、点哪行选哪档。
+ * 两段都用分段控件（与主题一致，用户 2026-10-13 定：显示大小不要行式列表）。
+ * 显示大小那排走 `fill`（等分铺满）：四段的下限宽度是跟着档位缩放的，1.50x 下会溢出弹窗。
  */
 export function AppearanceModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { preference, setPreference } = useThemeContext()
@@ -42,17 +42,14 @@ export function AppearanceModal({ open, onClose }: { open: boolean; onClose: () 
 
       <View className='mt-5'>
         <Text className='text-xs text-text-muted'>{t('profile.settings.displaySize')}</Text>
-        <View>
-          {UI_SCALE_OPTIONS.map((opt) => (
-            <View
-              key={opt}
-              className='mt-2 flex items-center justify-between rounded-xl border border-border px-4 py-3'
-              onClick={() => setUiScale(opt)}
-            >
-              <Text className='text-sm text-text'>{uiScaleLabel(opt)}</Text>
-              {uiScale === opt && <Text className='text-sm text-primary'>✓</Text>}
-            </View>
-          ))}
+        <View className='mt-2'>
+          <Toggle
+            fill
+            options={UI_SCALE_OPTIONS}
+            value={uiScale}
+            onChange={setUiScale}
+            getLabel={uiScaleLabel}
+          />
         </View>
       </View>
     </Modal>
