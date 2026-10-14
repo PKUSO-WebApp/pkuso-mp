@@ -64,6 +64,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # 不把 GITHUB_TOKEN 的凭据留在 .git/config 里：它推不进 main，
+          # 留着反而会和下面用的 PAT 抢（见「Commit version back」的说明）。
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -106,21 +110,36 @@ jobs:
           node scripts/upload.js
 
       - name: Commit version back
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json
           VERSION=$(node -e "console.log(require('./package.json').version)")
           git diff --cached --quiet || git commit -m "chore: release $VERSION [skip ci]"
-          git push
+
+          # ⚠️ 推 main 用 CROSS_REPO_TOKEN（PAT），**不是**默认的 GITHUB_TOKEN ——
+          # 与 pkuso-backend 的「Commit updated types」是同款改动（backend 见 #86）。
+          # main 的 ruleset 要求走 PR，其 bypass 名单只有 OrganizationAdmin 和一个
+          # RepositoryRole，**没有 GitHub Actions**；用 GITHUB_TOKEN 推的身份正是它，
+          # 会被 `GH013 … Changes must be made through a pull request` 拒掉。
+          # 本仓的台账：版本总在发版 PR 里先 bump 好 ⇒ `version:release` 无 diff ⇒
+          # 这一步实际很少推送，地雷一直没响；但合入带预发布后缀的版本时
+          # （release 去掉后缀即产生 diff）推送就会发生——那天再修就晚了。
+          # 配套：checkout 已设 persist-credentials: false（留着的 GITHUB_TOKEN
+          # 凭据推不进 main，只会和 PAT 抢）。
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push "$REMOTE_URL" "HEAD:${GITHUB_REF_NAME}"
+
           # 推送 tag 到远程。
           # ⚠️ 必须先查**远程**是否已有：同一个版本号部署两次是常见情形（改了 CI 配置
           # 后再推一次 main、或补跑发布），此时本地建 tag 会成功，但 push 会被拒绝，
           # 在 `-e` 下让整个 release job 挂掉——而代码其实早已上传成功，失败点纯属尾部噪音。
-          if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q .; then
+          if git ls-remote --tags "$REMOTE_URL" "refs/tags/v$VERSION" | grep -q .; then
             echo "✓ 远程已有 tag v$VERSION，跳过"
           else
             git tag "v$VERSION" 2>/dev/null || true
-            git push origin "v$VERSION"
+            git push "$REMOTE_URL" "refs/tags/v$VERSION"
             echo "✓ 已创建并推送 tag: v$VERSION"
           fi
