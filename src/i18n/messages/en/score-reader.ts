@@ -34,4 +34,21 @@ export const scoreReader = {
   highlighter: 'Highlighter',
   zoomPanel: 'Zoom',
   modeSwitch: 'Switch paging mode',
+  conflict: {
+    title: '{count} page(s) with conflicting ink',
+    intro:
+      'These pages were edited on two devices and cannot be merged automatically. Keep one version — the other is kept in the cloud history.',
+    pageButton: 'Page {page}',
+    later: 'Later',
+    navTitle: 'Resolve conflict',
+    why: 'This page was edited on two devices and cannot be merged automatically.',
+    localVersion: 'On this device',
+    remoteVersion: 'In the cloud',
+    useLocal: 'Keep local',
+    useRemote: 'Keep cloud',
+    empty: 'This version has no ink',
+    raced: 'The cloud version changed again — please take another look.',
+    failed: 'Failed. Check your connection and try again.',
+    loadFailed: 'Could not load this page',
+  },
 }

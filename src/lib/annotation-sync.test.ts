@@ -2,15 +2,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ANNO_PENDING_KEY,
   EMPTY_FP,
+  annoConflictKey,
   annoSyncKey,
   clearAnnoPending,
+  clearConflictPage,
+  contentCovers,
   isAnnoPending,
   listAnnotatedFileIds,
+  loadConflicts,
   loadSyncBase,
   markAnnoPending,
   pageFingerprint,
   planSync,
+  saveConflicts,
   saveSyncBase,
+  strokeKey,
+  type BaseEntry,
+  type RemotePage,
   type SyncBase,
 } from './annotation-sync'
 import type { AnnoDoc, AnnoStroke } from './annotation'
@@ -40,6 +48,27 @@ const stroke = (x: number, y = 0.5, color = '#e5484d'): AnnoStroke => ({
 })
 
 const doc = (pages: Record<string, AnnoStroke[]>): AnnoDoc => pages
+
+/** 服务端一行（新版：带 version） */
+const row = (
+  page: number,
+  strokes: AnnoStroke[],
+  version: string | null = `v${page}`
+): RemotePage => ({
+  page,
+  strokes,
+  version,
+  updatedAt: 0,
+})
+
+const entry = (strokes: AnnoStroke[], version?: string): BaseEntry =>
+  version === undefined
+    ? { fp: pageFingerprint(strokes) }
+    : { fp: pageFingerprint(strokes), version }
+
+const baseWith = (page: number, strokes: AnnoStroke[], version?: string): SyncBase => ({
+  [String(page)]: entry(strokes, version),
+})
 
 beforeEach(() => {
   storage.clear()
@@ -74,7 +103,17 @@ describe('pageFingerprint', () => {
         [0.2, 0.6],
       ],
     }
-    expect(pageFingerprint([raw])).toBe(pageFingerprint([{ ...raw, points: [[0.1235, 0.5], [0.2, 0.6]] }]))
+    expect(pageFingerprint([raw])).toBe(
+      pageFingerprint([
+        {
+          ...raw,
+          points: [
+            [0.1235, 0.5],
+            [0.2, 0.6],
+          ],
+        },
+      ])
+    )
   })
 
   it('只有不透明度不同也算改过（荧光笔与画笔不是同一份内容）', () => {
@@ -95,133 +134,237 @@ describe('pageFingerprint', () => {
   })
 })
 
+describe('包含关系（自动裁决的唯一依据）', () => {
+  it('超集包含子集；一笔之差就不算包含', () => {
+    expect(contentCovers([stroke(0.1)], [stroke(0.1), stroke(0.2)])).toBe(true)
+    expect(contentCovers([stroke(0.1), stroke(0.2)], [stroke(0.1)])).toBe(false)
+    // 空集被任何内容包含（「这一边什么都没有」不该挡住自动裁决）
+    expect(contentCovers([], [stroke(0.1)])).toBe(true)
+    expect(contentCovers([], [])).toBe(true)
+  })
+
+  it('⚠️ 按**份数**比而不是按集合：同一笔少画一遍也算「不含」', () => {
+    // 按集合比会把「擦掉一遍重复的笔迹」也算成包含 ⇒ 那等于静默丢一笔
+    expect(contentCovers([stroke(0.1), stroke(0.1)], [stroke(0.1)])).toBe(false)
+    expect(contentCovers([stroke(0.1)], [stroke(0.1), stroke(0.1)])).toBe(true)
+  })
+
+  it('零点笔迹与指纹同源：它不参与包含判定', () => {
+    const empty: AnnoStroke = { color: '#111827', width: 0.004, points: [] }
+    expect(strokeKey(empty)).toBeNull()
+    expect(contentCovers([empty], [])).toBe(true)
+  })
+
+  it('归一化同源：未压缩的原始触点与压缩后的同一笔互相包含', () => {
+    const raw: AnnoStroke = {
+      color: '#e5484d',
+      width: 0.004,
+      points: [
+        [0.10000001, 0.5],
+        [0.2, 0.5],
+      ],
+    }
+    const packed: AnnoStroke = {
+      color: '#e5484d',
+      width: 0.004,
+      points: [
+        [0.1, 0.5],
+        [0.2, 0.5],
+      ],
+    }
+    expect(contentCovers([raw], [packed])).toBe(true)
+    expect(contentCovers([packed], [raw])).toBe(true)
+  })
+})
+
 describe('planSync', () => {
   const L = [stroke(0.1)]
   const R = [stroke(0.9)]
-  const fp = pageFingerprint
-  const baseWith = (page: number, strokes: AnnoStroke[]): SyncBase => ({ [String(page)]: fp(strokes) })
+  const BOTH = [stroke(0.1), stroke(0.9)]
+  const other = [stroke(0.5)]
 
-  it('只有本地变（远端 == 基线）⇒ 上传', () => {
-    const plan = planSync(doc({ '1': L }), baseWith(1, R), [{ page: 1, strokes: R, updatedAt: 0 }])
+  it('只有本地变（远端 == 基线）⇒ 上传，expected 取基线里记的版本', () => {
+    const plan = planSync(doc({ '1': L }), baseWith(1, R, 'v9'), [row(1, R, 'v9')])
     expect(plan.toPush.map((p) => p.page)).toEqual([1])
     expect(plan.toPush[0].strokes).toEqual(L)
+    expect(plan.toPush[0].expected).toBe('v9')
     expect(plan.toAdopt).toEqual([])
     expect(plan.conflicts).toEqual([])
   })
 
-  it('只有远端变（本地 == 基线）⇒ 落回本地', () => {
-    const plan = planSync(doc({ '1': L }), baseWith(1, L), [{ page: 1, strokes: R, updatedAt: 0 }])
+  it('⚠️ 基线里没有版本（本机制之前的老数据）⇒ expected = null（无条件写，不挡）', () => {
+    const plan = planSync(doc({ '1': L }), baseWith(1, R), [row(1, R)])
+    expect(plan.toPush.map((p) => p.page)).toEqual([1])
+    expect(plan.toPush[0].expected).toBeNull()
+  })
+
+  it('⚠️ 首次写（远端没有这一页）⇒ expected = 空串（期望「这一页还不存在」）', () => {
+    const plan = planSync(doc({ '1': L }), {}, [])
+    expect(plan.toPush.map((p) => p.page)).toEqual([1])
+    expect(plan.toPush[0].expected).toBe('')
+  })
+
+  it('只有远端变（本地 == 基线）⇒ 落回本地，并带上远端版本', () => {
+    const plan = planSync(doc({ '1': L }), baseWith(1, L, 'v1'), [row(1, R, 'v2')])
     expect(plan.toAdopt.map((p) => p.page)).toEqual([1])
     expect(plan.toAdopt[0].strokes).toEqual(R)
+    expect(plan.toAdopt[0].version).toBe('v2')
     expect(plan.toPush).toEqual([])
   })
 
-  it('两边都变 ⇒ 按 LWW 裁决：本地那次改动更晚 ⇒ 判给本地（上传）', () => {
-    const other = [stroke(0.5)]
-    const remote = [{ page: 1, strokes: R, updatedAt: 1000 }]
-    const plan = planSync(doc({ '1': L }), baseWith(1, other), remote, { '1': 2000 })
-
-    expect(plan.conflicts).toEqual([1]) // 仍然上报（诊断/对账用）
-    expect(plan.toPush.map((p) => p.page)).toEqual([1])
-    expect(plan.lwwRemote).toEqual([])
-  })
-
-  it('两边都变 ⇒ 云端那行更晚 ⇒ 判给云端（落回本地）', () => {
-    const other = [stroke(0.5)]
-    const remote = [{ page: 1, strokes: R, updatedAt: 5000 }]
-    const plan = planSync(doc({ '1': L }), baseWith(1, other), remote, { '1': 2000 })
-
+  it('⚠️ 两边都改、互不包含 ⇒ 冲突：**两边都不动**（不再替用户按时间选一个）', () => {
+    const plan = planSync(doc({ '1': L }), baseWith(1, other, 'v1'), [row(1, R, 'v2')])
     expect(plan.conflicts).toEqual([1])
+    expect(plan.toPush).toEqual([])
+    expect(plan.toAdopt).toEqual([])
+    expect(plan.autoMerged).toEqual([])
+  })
+
+  it('⚠️ 远端 ⊆ 本地 ⇒ 自动推（用刚读到的远端版本 CAS），不弹窗', () => {
+    // 另一台设备在我画的基础上又画了几笔，而我这边是它的超集
+    const plan = planSync(doc({ '1': BOTH }), baseWith(1, other, 'v1'), [row(1, L, 'v2')])
+    expect(plan.conflicts).toEqual([])
+    expect(plan.toPush.map((p) => p.page)).toEqual([1])
+    expect(plan.toPush[0].expected).toBe('v2')
+    expect(plan.autoMerged).toEqual([{ page: 1, took: 'local' }])
+  })
+
+  it('⚠️ 「一边擦空」不算包含：基线证明这一页原本有内容 ⇒ 交用户选，不替他撤销擦除', () => {
+    // 我这一页擦空了、别人在这一页上又画了 —— 空集被一切内容包含，
+    // 按包含关系判就会「收下远端」= 把用户的擦除悄悄恢复（方案 §4：这种只能问）
+    const localErased = planSync(doc({ '1': [] }), baseWith(1, [stroke(0.5)], 'v1'), [
+      row(1, [stroke(0.5), stroke(0.9)], 'v2'),
+    ])
+    expect(localErased.conflicts).toEqual([1])
+    expect(localErased.toAdopt).toEqual([])
+    expect(localErased.toPush).toEqual([])
+    expect(localErased.autoMerged).toEqual([])
+
+    // 反方向同理：远端被擦空、本地有内容 ⇒ 也不许自动推上去（那等于替另一台撤销擦除）
+    const remoteErased = planSync(
+      doc({ '1': [stroke(0.5), stroke(0.9)] }),
+      baseWith(1, [stroke(0.5)], 'v1'),
+      [row(1, [], 'v2')]
+    )
+    expect(remoteErased.conflicts).toEqual([1])
+    expect(remoteErased.toAdopt).toEqual([])
+    expect(remoteErased.toPush).toEqual([])
+  })
+
+  it('基线里这一页本来就是空的 ⇒ 「一边擦空」不成立，照旧按包含关系自动裁决', () => {
+    // 原本就空的页不可能「被擦掉」⇒ 两边都动过时仍按包含关系走（不因为「空」就一律弹窗）
+    const plan = planSync(doc({ '1': [stroke(0.1)] }), baseWith(1, [], 'v1'), [
+      row(1, [stroke(0.1), stroke(0.2)], 'v2'),
+    ])
+    expect(plan.conflicts).toEqual([])
+    expect(plan.autoMerged).toEqual([{ page: 1, took: 'remote' }])
+  })
+
+  it('⚠️ 本地 ⊆ 远端 ⇒ 自动收下远端（本地那几笔远端都有，什么都没丢）', () => {
+    const plan = planSync(doc({ '1': L }), baseWith(1, other, 'v1'), [row(1, BOTH, 'v2')])
+    expect(plan.conflicts).toEqual([])
     expect(plan.toAdopt.map((p) => p.page)).toEqual([1])
-    expect(plan.lwwRemote).toEqual([1])
+    expect(plan.toAdopt[0].strokes).toEqual(BOTH)
+    expect(plan.autoMerged).toEqual([{ page: 1, took: 'remote' }])
   })
 
-  it('时刻相等 ⇒ 判给本地（用户正看着本机这份）', () => {
-    const other = [stroke(0.5)]
-    const remote = [{ page: 1, strokes: R, updatedAt: 3000 }]
-    const plan = planSync(doc({ '1': L }), baseWith(1, other), remote, { '1': 3000 })
-    expect(plan.toPush.map((p) => p.page)).toEqual([1])
-  })
-
-  it('⚠️ 缺 mtime（改动发生在本机制之前）⇒ 判给本地：否则旧数据会永久卡在冲突里', () => {
-    const other = [stroke(0.5)]
-    // 远端那一行看起来很新（比如刚从另一台设备推上来），但本地无从比较 —— 仍判本地，
-    // 不然「推不上去、也不自愈」那种僵局解不开
-    const remote = [{ page: 1, strokes: R, updatedAt: Date.now() }]
-    const plan = planSync(doc({ '1': L }), baseWith(1, other), remote)
-    expect(plan.toPush.map((p) => p.page)).toEqual([1])
+  it('两边都改、内容恰好一样 ⇒ inSync（不算冲突）', () => {
+    const plan = planSync(doc({ '1': L }), baseWith(1, other, 'v1'), [row(1, L, 'v2')])
+    expect(plan.inSync.map((p) => p.page)).toEqual([1])
+    expect(plan.inSync[0].version).toBe('v2')
+    expect(plan.conflicts).toEqual([])
   })
 
   it('两边一致 ⇒ inSync（哪怕基线是别的、或压根没有基线）', () => {
-    const plan = planSync(doc({ '1': L }), baseWith(1, R), [{ page: 1, strokes: L, updatedAt: 0 }])
+    const plan = planSync(doc({ '1': L }), baseWith(1, R, 'v1'), [row(1, L, 'v2')])
     expect(plan.inSync.map((p) => p.page)).toEqual([1])
-    const noBase = planSync(doc({ '1': L }), {}, [{ page: 1, strokes: L, updatedAt: 0 }])
+    const noBase = planSync(doc({ '1': L }), {}, [row(1, L, 'v2')])
     expect(noBase.inSync.map((p) => p.page)).toEqual([1])
   })
 
-  it('没有基线时按「哪边是空的」定向', () => {
+  it('没有基线时按包含关系定向（一边有内容一边空）', () => {
     const push = planSync(doc({ '1': L }), {}, [])
     expect(push.toPush.map((p) => p.page)).toEqual([1])
 
-    const adopt = planSync(doc({}), {}, [{ page: 1, strokes: R, updatedAt: 0 }])
+    const adopt = planSync(doc({}), {}, [row(1, R)])
     expect(adopt.toAdopt.map((p) => p.page)).toEqual([1])
   })
 
-  it('没有基线、两边都有内容且不同 ⇒ 冲突（不敢猜谁新）', () => {
-    const plan = planSync(doc({ '1': L }), {}, [{ page: 1, strokes: R, updatedAt: 0 }])
+  it('没有基线、两边都有内容且互不包含 ⇒ 冲突（不敢猜谁新）', () => {
+    const plan = planSync(doc({ '1': L }), {}, [row(1, R)])
     expect(plan.conflicts).toEqual([1])
+    expect(plan.toPush).toEqual([])
+    expect(plan.toAdopt).toEqual([])
   })
 
   it('本地整页擦空也要推（擦除是「这一页少了几笔」，不是删除操作）', () => {
-    const plan = planSync(doc({ '1': [] }), baseWith(1, L), [{ page: 1, strokes: L, updatedAt: 0 }])
+    const plan = planSync(doc({ '1': [] }), baseWith(1, L, 'v1'), [row(1, L, 'v1')])
     expect(plan.toPush.map((p) => p.page)).toEqual([1])
     expect(plan.toPush[0].strokes).toEqual([])
+    expect(plan.toPush[0].expected).toBe('v1')
   })
 
   it('远端为空、本地有内容、基线也空 ⇒ 本地是新增，上传', () => {
-    const plan = planSync(doc({ '1': L }), baseWith(1, []), [])
+    const plan = planSync(doc({ '1': L }), baseWith(1, [], 'v1'), [])
     expect(plan.toPush.map((p) => p.page)).toEqual([1])
+    expect(plan.toPush[0].expected).toBe('v1')
   })
 
   it('基线里那一页现在两边都没了 ⇒ inSync，不产生任何动作', () => {
-    const plan = planSync(doc({}), baseWith(1, L), [])
+    const plan = planSync(doc({}), baseWith(1, L, 'v1'), [])
     expect(plan.inSync.map((p) => p.page)).toEqual([1])
     expect(plan.toPush).toEqual([])
     expect(plan.toAdopt).toEqual([])
   })
 
   it('页码取并集：本地 / 基线 / 远端各自独有的页都要参与判定', () => {
-    const plan = planSync(
-      doc({ '1': L, '2': L }),
-      { '1': fp(L), '3': fp(L) },
-      [
-        { page: 2, strokes: L, updatedAt: 0 },
-        { page: 3, strokes: R, updatedAt: 0 },
-      ]
-    )
-    // 1：本地有内容且 == 基线，远端「没有行」= 空 ⇒ 远端变了（L → 空）、本地没变 ⇒ 落回本地（清掉）
+    const plan = planSync(doc({ '1': L, '2': L }), { '1': entry(L, 'v1'), '3': entry(L, 'v1') }, [
+      row(2, L, 'v2'),
+      row(3, BOTH, 'v2'),
+    ])
+    // 1：本地有内容且 == 基线，远端「没有行」= 空 ⇒ 远端变成了空、本地没变 ⇒ 收下（清掉）
     expect(plan.toAdopt.map((p) => p.page)).toEqual([1])
     // 2：本地有内容、远端也有同样的内容 ⇒ 无事
     expect(plan.inSync.map((p) => p.page)).toEqual([2])
-    // 3：基线是 L，本地没有这一页（= 擦空）、远端改成了 R ⇒ 两边都变过 ⇒ 冲突
+    // 3：基线说这一页有内容，而本地这一页**空了**（擦掉 / 本机丢过数据），远端还长了内容
+    //    ⇒ 空集不算包含 ⇒ 冲突（不能让「收下远端」把本地那一页的消失无声地反转回去）
     expect(plan.conflicts).toEqual([3])
+    expect(plan.autoMerged).toEqual([])
   })
 
   it('坏页码的键被忽略，不参与也不炸', () => {
-    const plan = planSync(doc({ '0': L, abc: L, '-3': L }), { '0': fp(L), abc: fp(L) }, [])
+    const plan = planSync(doc({ '0': L, abc: L, '-3': L }), { '0': entry(L), abc: entry(L) }, [])
     expect(plan.toPush).toEqual([])
     expect(plan.toAdopt).toEqual([])
     expect(plan.inSync).toEqual([])
     expect(plan.conflicts).toEqual([])
   })
+
+  it('服务端没给版本（异常形态）⇒ 当成没有版本，而不是把 undefined 当期望值', () => {
+    const plan = planSync(doc({ '1': L }), baseWith(1, R, 'v9'), [row(1, R, null)])
+    expect(plan.toPush[0].expected).toBe('v9')
+    // 远端那一页没有版本 ⇒ 收下时基线里的版本也得是「空」，否则下一次会拿它去 CAS
+    const adopt = planSync(doc({ '1': L }), baseWith(1, L, 'v9'), [row(1, R, null)])
+    expect(adopt.toAdopt[0].version).toBeNull()
+  })
 })
 
 describe('同步记账的读写', () => {
-  it('基线往返', () => {
+  it('基线往返（带版本）', () => {
     expect(loadSyncBase('f1', 'u1')).toEqual({})
-    expect(saveSyncBase('f1', 'u1', { '1': 'aaa', '2': 'bbb' })).toBe(true)
-    expect(loadSyncBase('f1', 'u1')).toEqual({ '1': 'aaa', '2': 'bbb' })
+    expect(
+      saveSyncBase('f1', 'u1', { '1': { fp: 'aaa', version: 'v1' }, '2': { fp: 'bbb' } })
+    ).toBe(true)
+    expect(loadSyncBase('f1', 'u1')).toEqual({
+      '1': { fp: 'aaa', version: 'v1' },
+      '2': { fp: 'bbb' },
+    })
     expect(annoSyncKey('f1')).toBe('score-annotation-sync:f1')
+  })
+
+  it('⭐ 旧版基线（纯字符串表）读得进来：补成 { fp }（version 缺 = 本机制之前的老数据）', () => {
+    storage.set(annoSyncKey('f1'), JSON.stringify({ userId: 'u1', base: { '1': 'aaa' } }))
+    expect(loadSyncBase('f1', 'u1')).toEqual({ '1': { fp: 'aaa' } })
   })
 
   it('基线坏了当没有，不抛', () => {
@@ -234,17 +377,43 @@ describe('同步记账的读写', () => {
   })
 
   it('⚠️ 基线按账号隔离：换了账号，旧基线一律不算数', () => {
-    saveSyncBase('f1', 'u1', { '1': 'aaa' })
-    expect(loadSyncBase('f1', 'u1')).toEqual({ '1': 'aaa' })
+    saveSyncBase('f1', 'u1', { '1': { fp: 'aaa', version: 'v1' } })
+    expect(loadSyncBase('f1', 'u1')).toEqual({ '1': { fp: 'aaa', version: 'v1' } })
     // 换账号后当成「从没同步过」⇒ 本地会被判成「本地有、远端空」而推给新账号，
     // 而不是被判成「远端删了这一页」把本地抹掉
     expect(loadSyncBase('f1', 'u2')).toEqual({})
   })
 
-  it('列册只看批注键：同步键与欠账标记都不算', () => {
+  it('冲突记录：往返 / 排序去重 / 空数组 = 删掉记录', () => {
+    expect(annoConflictKey('f1')).toBe('score-annotation-conflict:f1')
+    expect(loadConflicts('f1', 'u1')).toEqual([])
+    saveConflicts('f1', 'u1', [7, 3, 7])
+    expect(loadConflicts('f1', 'u1')).toEqual([3, 7])
+    saveConflicts('f1', 'u1', [])
+    expect(storage.has(annoConflictKey('f1'))).toBe(false)
+    expect(loadConflicts('f1', 'u1')).toEqual([])
+  })
+
+  it('⚠️ 冲突记录也按账号隔离（换账号后不该提示上一个账号的冲突）', () => {
+    saveConflicts('f1', 'u1', [3])
+    expect(loadConflicts('f1', 'u2')).toEqual([])
+  })
+
+  it('冲突记录坏了当没有；摘一页只动那一页', () => {
+    storage.set(annoConflictKey('f1'), 'not json')
+    expect(loadConflicts('f1', 'u1')).toEqual([])
+    saveConflicts('f1', 'u1', [3, 7, 9])
+    clearConflictPage('f1', 'u1', 7)
+    expect(loadConflicts('f1', 'u1')).toEqual([3, 9])
+    clearConflictPage('f1', 'u1', 99)
+    expect(loadConflicts('f1', 'u1')).toEqual([3, 9])
+  })
+
+  it('列册只看批注键：同步键 / 冲突键 / 欠账标记都不算', () => {
     storage.set('score-annotation:a', '{}')
     storage.set('score-annotation:b', '{}')
     storage.set(annoSyncKey('a'), '{}')
+    storage.set(annoConflictKey('b'), '{}')
     storage.set(ANNO_PENDING_KEY, 'true')
     storage.set('pkuso_error_queue', '[]')
     expect(listAnnotatedFileIds().sort()).toEqual(['a', 'b'])
