@@ -114,8 +114,10 @@ git cat-file -e origin/main:<路径>     # 报错 = main 上没有 = 属于「�
 | 判断结果                | base       | 之后合到哪                                            |
 | ----------------------- | ---------- | ----------------------------------------------------- |
 | 有路径在 `main` 上不存在 | **`dev`**  | `dev`（这就是开发线改动）                             |
-| 全部路径 `main` 上都有   | **`main`** | 先合 `dev` 拿真机验收，再 cherry-pick 到 `main` 发版  |
+| 全部路径 `main` 上都有   | **`dev`**  | 先合 `dev` 拿真机验收 → 再把**同一个提交** cherry-pick 成 `main` 上的第二份（发版） |
 | 拿不准                  | **`dev`**  | 按开发线处理——代价小；反过来的代价是把未发布功能带上正式线 |
+
+> ⚠️ 第二行落地时：**两条线各一份提交是靠 cherry-pick 做的，不是跨线开 PR。** `main` 上有 `dev` 没有的提交（release、反向 cherry-pick），所以**不能拿着基于 `main` 的分支去开 `dev` 的 PR**——那会把它们全带进 `dev`，而且必冲突（2026-10-14 实测：diff 膨胀到 52 个文件 + CONFLICTING）。分支**从各自那条线拉**：第一份 `git checkout -b <名字> origin/dev`；第二份从 `origin/main` 拉后 cherry-pick 同一个提交。
 
 **日常不一定需要开分支**：本仓库实际是「`dev` 当主干」的开发方式（实测 dev 上 92% 的提交是直接提交）。小改动直接提交到 `dev` 就行；**开分支的价值在于**「风险大 / 周期长 / 想留一条可回顾的线」。开了分支就按上表选 base。
 
@@ -252,13 +254,15 @@ on:
       - .github/**
 ```
 
-- **`deploy-*.yml` 只有 `push`**（例外：`deploy-dev.yml` 另挂了 `workflow_dispatch`，用于补一次被跳过的构建，见本节末条）。PR 上的检查来自 `ci.yml`（它挂 `pull_request`，**没有** `paths:` 白名单——任何改动都跑闸门；`deploy-*.yml` 则要命中白名单才跑）。
+- **`deploy-*.yml` 只有 `push`**（例外：`deploy-dev.yml` 另挂了 `workflow_dispatch`——补一次被跳过的构建，或把未合并的分支直接出成真机包，见本节末尾两条）。PR 上的检查来自 `ci.yml`（它挂 `pull_request`，**没有** `paths:` 白名单——任何改动都跑闸门；`deploy-*.yml` 则要命中白名单才跑）。
 - 白名单里的 `app.css` / `app.scss` 是**无效条目**：仓库根没有 `app.css`，根的 `app.scss` 是空文件；真文件是 `src/app.css`，已被 `src/**` 覆盖。
 - 不在名单里的改动（`AGENTS.md`、`README.md`、`CONTRIBUTING.md`、`docs/**`、`.env*`、`types/**`）**不触发发版 workflow**（但会触发 PR 上的 `ci.yml`）。
 - 提交信息里带 `[skip ci]` 时 workflow 会跳过（prod 的版本号回写提交就靠这个避免自触发）。
-  ⚠️ **它的判定范围是「整条提交信息」且不看上下文**，于是 **squash 合并会把 PR 里的每条提交标题带进正文**——PR 里只要有一条带标记（类型同步那种标题自带），**整个合并就没跑 CI、没出包**，而 GitHub 不会告诉你。
-  实测：2026-10-11 的 #64（`72039c0`）就这么静默丢了一次 dev 构建，dev 包停在上一版（源码是对的，只是没构建）。**所以合完 PR 别只看「合上了」，去 `gh run list` 核一次那次 push 到底有没有 workflow。**
+  ⚠️ **它的判定范围是「整条提交信息」且不看上下文**。2026-10-11 的 #64（`72039c0`）曾因此静默丢过一次 dev 构建——当时 squash 的正文是 PR 里的提交标题列表，而其中一条（类型同步）自带该标记。
+  **2026-10-14 起本仓与 pkuso-web / pkuso-backend 的 squash 正文已改为「PR 描述」**（`squash_merge_commit_message=PR_BODY`），这条传染路径已断；但 **PR 描述里**若写出该标记，合并后同样会传染。
+  **所以合完 PR 别只看「合上了」，去 `gh run list` 核一次那次 push 到底有没有 workflow。**
   真丢了不用伪造提交：`gh workflow run deploy-dev.yml --ref dev`。
+- **未合并的分支也能出真机包**：`gh workflow run deploy-dev.yml --ref <分支>` 会构建**该分支**并上传 robot 1（版本号同样被重写为 `<基础版本>-dev.<run_number>`）。用途：PR 还没合、但需要在真机上看效果时（画布 / 手势这类改动在开发者工具里验不了）。**交付终点 = PR + 分支部署到 dev**；合并由人决定，不用等合并才算交付。
 
 ### 3.3 ⚠️ 必须监控 CI
 
