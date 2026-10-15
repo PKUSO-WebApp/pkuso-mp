@@ -393,16 +393,28 @@ export default function ScoreReader() {
    */
   const strokePendingRef = useRef<Array<{ clientX: number; clientY: number }>>([])
   /**
-   * 「抬手时 rect 还没回来」的那一笔（触控笔点得快，整笔都在 rect 查询窗口里）。
+   * 「抬手时 rect 还没回来」的那些笔（触控笔点得快，整笔都落在 rect 查询窗口里）。
    *
    * ⚠️ 与擦除路径**有意分歧**：擦除抬手即作废（连续动作，人已离屏）；绘制抬手时这一笔
-   * 已经画完了 —— 作废就是「点 30 下一个都留不下」。所以这里存下来，交给那个还在飞的
+   * 已经画完了 —— 作废就是「点 30 下一个都留不下」。所以存下来，交给那个还在飞的
    * 异步块用**局部 rect** 落定（绝不碰全局 `overlayRectRef`：此刻可能已有新手势在用）。
+   *
+   * ⚠️ **是数组不是单槽**：极快连点时两笔的 rect 都可能还在飞，单槽会让后一笔把前一笔
+   * 顶掉（2026-10-15 自查）。消费按 `seed` **引用比对**取走，所以谁也不会认领错。
    *
    * 它**不随 cancelStroke 清空** —— 快速连点时下一笔的 `beginStroke` 会调 cancelStroke，
    * 清了就等于又把前一笔丢了。消费它的只有它自己那个异步块。
    */
-  const strokeEndedRef = useRef<{ seed: { x: number; y: number }; page: number } | null>(null)
+  const strokeEndedRef = useRef<Array<{ seed: { x: number; y: number }; page: number }>>([])
+  /**
+   * **正在画的那根手指**的 `identifier`。
+   *
+   * 用途只有一个：`onTouchEnd` 里认出「抬起的是不是画的那根」—— 从前那里只看
+   * `e.touches.length === 0`（所有手指都离开），于是「写着字、另一根手指搭在屏上」时
+   * 这一笔**永远不提交**，剩下那根手指还会继续往同一条笔迹里塞点 ⇒ 线条跳着走
+   *（平板笔调研 §2-2）。
+   */
+  const strokeIdRef = useRef<number | null>(null)
   const fileUrlRef = useRef('')
   /**
    * 页图本地记账的键：**与入口无关**（fileId + 页号）。绝不能用 URL 当键——`urls[0]` 是
@@ -1876,8 +1888,14 @@ export default function ScoreReader() {
     eraseSeedRef.current = null
     erasePendingRef.current = []
     strokePendingRef.current = []
+    strokeIdRef.current = null
+    // ⚠️ 这一句必须在上面那句 `repaintLiveStroke(null)` **之后**：那次重画还要用它。
+    // 它代表「**这一段手势**用的 ctx」，手势结束就该失效 —— 留着的话，万一那块画布被
+    // 卸载重挂（批注层是按条件挂载的，见 JSX 里那处），它就成了指向已销毁节点的脏引用，
+    // 之后往里画是**静默无效**（画面上什么都没有，也没有任何报错）。
+    overlayCtxRef.current = null
     // ⚠️ `strokeEndedRef` 这里**故意不清**：快速连点时下一笔的 beginStroke 会走到这儿，
-    // 清了就等于把上一笔又丢掉一次（见它的声明）。它只由自己那个异步块消费并清空。
+    // 清了就等于把上一笔又丢掉一次（见它的声明）。它只由自己那个异步块消费并移除。
   }
 
   /**
@@ -1955,6 +1973,11 @@ export default function ScoreReader() {
     if (!(w > 0) || !(h > 0)) return
     const ctx = node.getContext('2d')
     const dpr = rasterDpr(w, h)
+    // ⚠️ 位图**必须已经是当前尺寸**才画：`setTransform` 只换坐标系、不换位图，尺寸对不上时
+    // 这个点会落在错误的位置（甚至画出界、看不见）。不匹配就跳过 —— 这一笔已经入账了，
+    // 随后的 `redrawOverlay` 会按正确尺寸把它画出来；丢的只是「立刻可见」那一拍，
+    // 好过把点画到错地方。
+    if (node.width !== Math.round(w * dpr) || node.height !== Math.round(h * dpr)) return
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     drawPolylineOn(
       ctx,
@@ -1969,7 +1992,7 @@ export default function ScoreReader() {
 
   // 起笔：rect 必须当次现取（工具条显隐会挪动画布），取到之前不落笔——
   // 拿旧 rect 算出的首点会连出一条「从按钮到落笔处」的飞线
-  const beginStroke = (touch: { clientX: number; clientY: number }) => {
+  const beginStroke = (touch: { clientX: number; clientY: number; identifier?: number }) => {
     cancelStroke()
     const lane = laneUnderPoint(touch.clientY)
     if (!lane) return
@@ -1977,6 +2000,7 @@ export default function ScoreReader() {
     // （抬起 / 转双指 / 换册 / 又落了一笔都会把它换掉或清掉）
     const seed = { x: touch.clientX, y: touch.clientY }
     strokeSeedRef.current = seed
+    strokeIdRef.current = touch.identifier ?? null
     strokeLayerRef.current = lane.layer
     strokePageRef.current = lane.page
     strokePendingRef.current = []
@@ -1988,11 +2012,12 @@ export default function ScoreReader() {
         if (strokeSeedRef.current !== seed) {
           // 两种「不是我」：被新手势取代（作废），或**已经抬手**了（仍要落定，见 strokeEndedRef）。
           // 后一种只落一个点 —— 用它自己的 rect 局部算坐标，**绝不碰全局 overlayRectRef**
-          if (strokeEndedRef.current?.seed === seed) {
-            strokeEndedRef.current = null
-            // 先把点画上屏，再落定 —— 落定是数百毫秒的同步阻塞（见 paintTapPoint）
-            paintTapPoint(node as CanvasNode, left, top, seed)
-            commitTapStroke(lane.page, seed, left, top)
+          const idx = strokeEndedRef.current.findIndex((x) => x.seed === seed)
+          if (idx >= 0) {
+            const [tap] = strokeEndedRef.current.splice(idx, 1)
+            // 先把点画上屏，再落定 —— 落定这条路上有整册序列化，用户不该等它
+            paintTapPoint(node as CanvasNode, left, top, tap.seed)
+            commitTapStroke(tap.page, tap.seed, left, top)
           }
           return
         }
@@ -2006,7 +2031,9 @@ export default function ScoreReader() {
         ctx.setTransform(rasterDpr(w, h), 0, 0, rasterDpr(w, h), 0, 0)
         overlayCtxRef.current = ctx
       } catch {
-        if (strokeEndedRef.current?.seed === seed) strokeEndedRef.current = null
+        // 拿不到 rect：把这一笔从待落队列里摘掉 —— 留着就永远等不到人认领了
+        const idx = strokeEndedRef.current.findIndex((x) => x.seed === seed)
+        if (idx >= 0) strokeEndedRef.current.splice(idx, 1)
         cancelStroke()
         return
       }
@@ -2355,23 +2382,52 @@ export default function ScoreReader() {
     }
   }
 
+  /** 收掉正在画的那一笔（落定 + 清图层标记）。`onTouchEnd` 的两条路都走它 */
+  const finishStroke = () => {
+    if (!drawingRef.current) return
+    drawingRef.current = false
+    const pts = strokePtsRef.current
+    strokePtsRef.current = []
+    // 落在**落笔时定死的那一页**上（见 strokePageRef）：画布就是那一页，坐标就是页内的，
+    // 不需要任何跨页切分
+    commitStrokePoints(strokePageRef.current, pts)
+    strokeLayerRef.current = null
+  }
+
+  /**
+   * 落笔还没等到 rect 就抬手了（触控笔点得快时整笔都落在那个窗口里）：**不作废** ——
+   * 交给还在飞的异步块用**局部 rect** 补落一个点（见 `strokeEndedRef`）。作废就是
+   * 「点 30 下一个都留不下」，而这一笔在用户那边确确实实是画了的。
+   *
+   * ⚠️ **不动 `strokePendingRef`**：那些点归异步块取走（连同起点一起落定），在它那里清。
+   */
+  const handOffPendingStroke = () => {
+    const endedSeed = strokeSeedRef.current
+    if (endedSeed) strokeEndedRef.current.push({ seed: endedSeed, page: strokePageRef.current })
+    strokeSeedRef.current = null
+  }
+
   const onTouchEnd = (e: ITouchEvent) => {
     // 抬手先把合帧队列里最后一段位移补上：不补就是「手指停了，画面还差一截」
     flushPan()
+    /**
+     * **画的那根手指**抬起了吗（哪怕屏上还有别的手指）。
+     *
+     * ⚠️ 从前这里只看 `e.touches.length === 0`（所有手指都离开）⇒「写着字、另一根手指搭在
+     * 屏上」时这一笔**永远不提交**，而剩下那根手指会继续往同一条笔迹里塞点 ⇒ 线条跳着走
+     *（平板笔调研 §2-2）。现在按 `identifier` 认人。
+     */
+    const id = strokeIdRef.current
+    const penUp =
+      e.touches.length === 0 ||
+      (id !== null && (e.changedTouches ?? []).some((x) => x.identifier === id))
+
     if (e.touches.length === 0) {
       const g = dragRef.current
       dragRef.current = null
       const multi = multiTouchRef.current
       multiTouchRef.current = false
-      if (drawingRef.current) {
-        drawingRef.current = false
-        const pts = strokePtsRef.current
-        strokePtsRef.current = []
-        // 落在**落笔时定死的那一页**上（见 strokePageRef）：画布就是那一页，坐标就是页内的，
-        // 不需要任何跨页切分
-        commitStrokePoints(strokePageRef.current, pts)
-        strokeLayerRef.current = null
-      }
+      finishStroke()
       if (erasingRef.current) {
         // 擦完一段：把「擦之前那页的原样」记成**一步**（撤销要能整段退回来）
         erasingRef.current = false
@@ -2380,18 +2436,21 @@ export default function ScoreReader() {
         if (before) pushHistory(strokePageRef.current, before)
         strokeLayerRef.current = null
       }
-      // 落笔还没等到 rect 就抬手了（触控笔点得快时整笔都落在那个窗口里）：**不作废** ——
-      // 交给还在飞的异步块用**局部 rect** 补落一个点（见 strokeEndedRef）。作废就是
-      // 「点 30 下一个都留不下」，而这一笔在用户那边确确实实是画了的。
-      const endedSeed = strokeSeedRef.current
-      if (endedSeed) strokeEndedRef.current = { seed: endedSeed, page: strokePageRef.current }
-      strokeSeedRef.current = null
+      handOffPendingStroke()
       // 落擦还没等到 rect 就抬手了：整段作废（与从前「点一下什么都没发生」一致）。
       // 必须清掉——否则那个异步块回来时手指早已不在屏上，却照样开擦
       eraseSeedRef.current = null
       erasePendingRef.current = []
+      strokeIdRef.current = null
       // 分类只在「本段从单指开始、中途也没出现过第二指」时做（双指的残留手指会落在多指判定里）
       if (g && !multi) resolveTouchEnd(g, e.changedTouches[0])
+    } else if (drawingRef.current && penUp) {
+      // 屏上还有别的手指，但**画的那根**抬起了：只收这一笔 —— drag / pinch / multiTouch
+      // 一概不动（它们归还留在屏上的那根手指）。从前没有这一支，所以那一笔要等**所有**
+      // 手指离开才提交（见上面 penUp 的注释）
+      finishStroke()
+      handOffPendingStroke()
+      strokeIdRef.current = null
     }
     if (e.touches.length < 2 && pinchRef.current) {
       pinchRef.current = null
