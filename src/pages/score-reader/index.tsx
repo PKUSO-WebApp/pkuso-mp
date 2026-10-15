@@ -410,8 +410,9 @@ export default function ScoreReader() {
    * 实时层摆在哪一块的位置上（`layerStyle(liveLayer)`）。
    *
    * 它是 state 而不是从 `strokeLayerRef` 读 —— 后者是 ref，改它不触发渲染，而实时层的
-   * 位置**必须**在起笔画第一个点之前就位。落笔时 `setLiveLayer(lane.layer)`，紧接着那次
-   * 「查已落定层 rect」的跨线程往返足够让这次渲染落地（真机上若发现错位，就是这条假设不成立）。
+   * 位置**必须**在起笔画第一个点之前就位。所以它**跟着 `activeLayer` 走**（见下面那个
+   * effect）：翻页 / 换模式时就已经摆好，落笔时命中「已经在位」那条同步分支。
+   * `alignLiveLayer` 只兜剩下的那种情况（UD 里落笔落在**不是** `activeLayer` 的那一块上）。
    */
   const [liveLayer, setLiveLayer] = useState<Layer>('b')
   /** 实时层**已经摆到**哪一块上（在 effect 里更新 ⇒ 它落后于渲染，正是「摆放落地」的凭据） */
@@ -423,6 +424,20 @@ export default function ScoreReader() {
     liveAlignWaitersRef.current = []
     for (const done of waiters) done()
   }, [liveLayer])
+  /**
+   * 实时层**跟着显示中的那一块走**（翻页 / 换模式时就摆好），而不是等落笔才摆。
+   *
+   * 为什么必须提前：`alignLiveLayer` 的等待是一次「渲染 + `setData`」的跨线程往返，而它
+   * 长在**落笔路径**上 —— 叠上那句 rect 查询，起笔到首点上屏就成了两次往返。真机表现是
+   * 「手指下落 + 滑动到笔迹出现有 ~300ms」（用户 2026-10-16 报）。提前摆之后，绝大多数
+   * 落笔命中「已经在位」那条**同步**分支。
+   *
+   * ⚠️ UD 模式下多块同时可见，落笔可能在**不是** `activeLayer` 的那一块上 ⇒ 那时
+   * `alignLiveLayer` 仍会等一次（偶发，可接受）。
+   */
+  useEffect(() => {
+    setLiveLayer(activeLayer)
+  }, [activeLayer])
   /**
    * 等「实时层真的摆到 `l` 那一块上」。
    *
@@ -2063,12 +2078,15 @@ export default function ScoreReader() {
     erasePendingRef.current = []
     strokePendingRef.current = []
     strokeIdRef.current = null
-    // ⚠️ 这一句必须在上面那句 `repaintLiveStroke(null)` **之后**：那次重画还要用它。
-    // 它代表「**这一段手势**用的 ctx」，手势结束就该失效 —— 留着的话，万一那块画布被
-    // 卸载重挂（批注层是按条件挂载的，见 JSX 里那处），它就成了指向已销毁节点的脏引用，
-    // 之后往里画是**静默无效**（画面上什么都没有，也没有任何报错）。
-    liveCtxRef.current = null
-    liveNodeRef.current = null
+    // ⚠️ 实时层的 ctx / 节点**故意不在这里清**（2026-10-16 订正）。
+    //
+    // 从前它们挂在「一段手势」下 —— 那时只有一块覆盖画布、随批注层起落，这么写是对的。
+    // 分层之后生命周期**归 `penOn` 那个 effect**：`#reader-live` 的挂载条件只看 `penOn`
+    //（见 JSX 里那处，特意不跟「该页有没有笔迹」走），卸载时由那个 effect 置空。
+    // 留在这里清的后果**不是**防住脏引用，而是把预取**作废**：`beginStroke` 第一句就是
+    // `cancelStroke`，于是每次落笔 `ensureLiveCtx` 都必然落空、白多走一次跨线程查询 ——
+    // 那正是「手指落下到笔迹出现」那段延迟里本可以省掉的一趟（用户 2026-10-16 报 ~300ms）。
+    // 真的换了节点怎么办：`penOn` 那个 effect 会清、`ensureLiveCtx` 会兜底重取。
     // ⚠️ `strokeEndedRef` 这里**故意不清**：快速连点时下一笔的 beginStroke 会走到这儿，
     // 清了就等于把上一笔又丢掉一次（见它的声明）。它只由自己那个异步块消费并移除。
   }
@@ -2152,6 +2170,15 @@ export default function ScoreReader() {
     cancelStroke('new-stroke')
     const lane = laneUnderPoint(touch.clientY)
     if (!lane) return
+    // ⚠️⚠️ **这里不许加「贴左沿不落笔」之类的守卫 —— 这类方案已被永久排除。**
+    // 2026-10-16 用户定：**任何影响正常绘画/显示的方案都不采纳**（曾经试过一版，代价是
+    // 「最左那一条起不了笔」，当场被否）。要解决「从屏幕边缘横向拖动被系统返回手势抢走」，
+    // 只能在**不影响绘画**的前提下做，否则不做。
+    // 现状：**未做规避**。那类手势不只是 iOS —— Android 的手势导航左右边缘都抢。
+    // 核实过的结论：**WebView 渲染模式下关不掉**（通用 API 没有、`disableSwipeBack` 已失效、
+    // `page-container` 只拦「返回动作」且鸿蒙无效）；唯一官方出路是 Skyline 的
+    // `popGestureDirection`（把返回手势改成竖直），而那要求迁渲染引擎 —— 整个阅读器建立在
+    // WebView + canvas 2D 上，是独立的大工程。
     // 种子对象**同时是这段手势的身份**：下面按引用比对，判断 rect 回来时这段手势还在不在
     // （抬起 / 转双指 / 换册 / 又落了一笔都会把它换掉或清掉）
     const seed = { x: touch.clientX, y: touch.clientY }
@@ -2160,6 +2187,19 @@ export default function ScoreReader() {
     strokeLayerRef.current = lane.layer
     strokePageRef.current = lane.page
     strokePendingRef.current = []
+    /**
+     * 起笔（手指落下）到首点上屏的耗时 —— 诊断用，见下面那条上报。
+     *
+     * 这条路上**只剩一次跨线程往返**（量这一页的 rect）。另外两件都在落笔之前预热掉了：
+     * 「等实时层摆位」靠 `liveLayer` 跟着 `activeLayer` 走（见那个 effect），「取实时层的
+     * ctx」靠 `penOn` 时预取、且不再按手势清空（见 `cancelStroke` 里那条订正）。
+     */
+    const startedAt = Date.now()
+    // ⚠️ **不**用「上次量到的 rect」抢着把第一个点画上屏（2026-10-16 试过又撤掉）。
+    // 那个 rect 会在滚动 / 缩放 / 工具条显隐之后失效，而这些时机全在两次落笔**之间** ——
+    // 于是它先把点画在**错的地方**、再由下面那次重画纠正过来，用户看到的是一次跳变。
+    // **看得见的错位比多等一拍更糟**（用户定的原则：任何影响正常绘画/显示的方案都不采纳）。
+    // 真想把这最后一次往返也拿掉，得让实时层不再依赖「量 rect」——那是另一个结构改动。
     void (async () => {
       try {
         // 两件事**并行**：
@@ -2212,6 +2252,17 @@ export default function ScoreReader() {
       // 才由 redrawOverlay 补上 —— 落定那条路是数百毫秒的同步阻塞（见 paintTapPoint），
       // 等它上屏就是用户说的「点了半天没反应」。有攒下的点时这一画顺带把开头那段补上。
       repaintLiveStroke(strokePtsRef.current)
+      // 诊断：起笔到首点上屏的**全程**耗时。它一路上有两次跨线程往返（等实时层摆位 + 量 rect），
+      // 真机上是「手指落下到笔迹出现」的那段延迟（用户 2026-10-16 报 ~300ms）。
+      // 超阈值记一条 —— 用来判断「实时层提前摆位」有没有把第二次往返收回去。
+      const startCost = Date.now() - startedAt
+      if (startCost > 120) {
+        reportClientError({
+          event: 'score_reader_stroke_start_slow',
+          message: `起笔到上屏 ${startCost}ms`,
+          detail: { fileId, page: strokePageRef.current, layer: lane.layer },
+        })
+      }
     })()
   }
 
