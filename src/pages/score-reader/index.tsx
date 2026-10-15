@@ -54,6 +54,7 @@ import {
   Z_TOOLBAR,
 } from './lib/layout'
 import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
+import { isPenBarCollapsed, setPenBarCollapsed } from './lib/pen-bar-collapsed'
 import {
   nextVisibleToRender,
   pageFromScroll,
@@ -315,6 +316,19 @@ export default function ScoreReader() {
   const [penOn, setPenOn] = useState(false)
   const [penColor, setPenColor] = useState<string>(PEN_COLORS[0])
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS[0])
+  /**
+   * 批注工具条收起（跨会话记住，见 lib/pen-bar-collapsed.ts 的「为什么要有这个开关」）。
+   *
+   * 状态放在**页面**而不是组件里，是因为它还要决定**外面那个容器的宽度**：收起时从
+   * `left-0 right-0` 变成 `right-0`。容器不收窄的话，一条透明的整行 View 会照样吃掉
+   * 触摸 —— 那就在谱面上留了一条**看不见的禁区**，正是这次要消灭的东西。
+   */
+  const [penBarCollapsed, setPenBarCollapsedState] = useState(() => isPenBarCollapsed())
+  const togglePenBar = () => {
+    const next = !penBarCollapsed
+    setPenBarCollapsedState(next)
+    setPenBarCollapsed(next)
+  }
   const [annos, setAnnos] = useState<AnnoDoc>({})
   /**
    * 批注的同步镜像：**读-改-写**的调用点一律读它，不读 state。
@@ -3136,10 +3150,12 @@ export default function ScoreReader() {
           />
         </View>
 
-        {/* 批注工具条：悬浮在底栏之上（位置取底栏的**实测**高度——它已含安全区，不重复叠加） */}
+        {/* 批注工具条：悬浮在底栏之上（位置取底栏的**实测**高度——它已含安全区，不重复叠加）。
+            ⚠️ 收起时容器**必须一起收窄**（`left-0 right-0` → `right-0`）：透明的整行 View
+            照样吃触摸，不收窄就在谱面上留了一条看不见的禁区（见 penBarCollapsed 的注释） */}
         {penOn ? (
           <View
-            className='absolute left-0 right-0'
+            className={penBarCollapsed ? 'absolute right-0' : 'absolute left-0 right-0'}
             style={{ bottom: penBarBottom(barH.bottom), zIndex: Z_TOOLBAR }}
           >
             <AnnotationBar
@@ -3156,6 +3172,8 @@ export default function ScoreReader() {
               onWidth={setPenWidth}
               onUndo={handleUndo}
               onClear={handleClear}
+              collapsed={penBarCollapsed}
+              onToggleCollapsed={togglePenBar}
             />
           </View>
         ) : null}

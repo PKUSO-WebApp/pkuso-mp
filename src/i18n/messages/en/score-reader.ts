@@ -18,6 +18,8 @@ export const scoreReader = {
   pen: 'Pen',
   eraser: 'Eraser',
   undo: 'Undo',
+  penBarCollapse: 'Collapse toolbar',
+  penBarExpand: 'Expand toolbar',
   clear: 'Clear p.{page}',
   clearConfirm: 'Confirm?',
   tutorialPrev: 'Previous',
