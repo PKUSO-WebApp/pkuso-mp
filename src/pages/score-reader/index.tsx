@@ -65,6 +65,8 @@ import {
 } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawPolylineOn, drawStrokeOn, eraseStrokesAt } from './lib/anno-draw'
+import { inkFor } from './lib/ink'
+import { touchEndAction } from './lib/touch-end'
 import { lastPageKey } from './lib/last-page'
 import {
   isImageLayerBroken,
@@ -718,7 +720,7 @@ export default function ScoreReader() {
     modeRef.current = next
     setMode(next)
     saveReaderMode(next)
-    cancelStroke()
+    cancelStroke('switch-mode')
     invalidatePredraw('mode')
     if (next === 'ud') scrollToPage(pageRef.current)
     setTutorialOn(true)
@@ -1538,8 +1540,11 @@ export default function ScoreReader() {
         // 完全可能又落了一笔（乐观绘制先上了屏、数据也刚进 annos）—— 拿旧闭包清屏重画就会
         // 把它抹掉，紧接着下一次重画又画回来 ⇒ 真机上「快速点两下，第二笔闪几下」
         //（用户 2026-10-15）。与 `repaintLiveStroke` 同一条纪律：它一直读的就是 annosRef。
-        const strokes = annosRef.current[String(pageNo)] ?? []
-        strokes.forEach((s) => drawStrokeOn(ctx, s, w, h))
+        // `inkFor(..., null)`：整页重画**只画已落定的** —— 正在画的那一块由上面那句守卫
+        // 直接跳过了（它的内容归 `repaintLiveStroke` 维护）
+        for (const s of inkFor(annosRef.current[String(pageNo)] ?? [], null)) {
+          drawStrokeOn(ctx, s, w, h)
+        }
       } catch {
         // 画布没挂载 / 未就绪：静默，下次状态变化会重试
       }
@@ -1827,7 +1832,7 @@ export default function ScoreReader() {
 
   const gotoPage = (n: number) => {
     if (pageCount <= 0) return
-    cancelStroke()
+    cancelStroke('goto-page')
     const target = clampPage(n)
     // turnMs（页码变化 → 换帧）的诊断基准，也是「翻页 <150ms」那个指标
     if (target !== pageRef.current) pageChangeAtRef.current = Date.now()
@@ -1875,10 +1880,24 @@ export default function ScoreReader() {
     return [clamp((clientX - rect.left) / w, 0, 1), clamp((clientY - rect.top) / h, 0, 1)]
   }
 
-  const cancelStroke = () => {
+  /**
+   * 丢弃正在进行的这一笔 / 这一擦。
+   *
+   * `reason` **只用于诊断上报**：长时间拖动时「正在画的线突然消失」到底是谁干的
+   *（用户 2026-10-15 报）。只在**确实抹掉了一条正在画的线**时记一条 —— 正常收笔走
+   * `finishStroke`，压根不经过这里，所以它不会吵。
+   */
+  const cancelStroke = (reason: string) => {
     // 画了一半就被打断（转双指 / 系统打断 / 收起批注）：把那条线从画面上抹掉。
     // 必须在清 ref 之前调——重画要用到「画在哪一页、哪一块」
-    if (drawingRef.current) repaintLiveStroke(null)
+    if (drawingRef.current) {
+      repaintLiveStroke(null)
+      reportClientError({
+        event: 'score_reader_stroke_cancelled',
+        message: `画到一半的线被抹掉：${reason}`,
+        detail: { fileId, page: strokePageRef.current, pts: strokePtsRef.current.length },
+      })
+    }
     drawingRef.current = false
     erasingRef.current = false
     strokePtsRef.current = []
@@ -1993,7 +2012,7 @@ export default function ScoreReader() {
   // 起笔：rect 必须当次现取（工具条显隐会挪动画布），取到之前不落笔——
   // 拿旧 rect 算出的首点会连出一条「从按钮到落笔处」的飞线
   const beginStroke = (touch: { clientX: number; clientY: number; identifier?: number }) => {
-    cancelStroke()
+    cancelStroke('new-stroke')
     const lane = laneUnderPoint(touch.clientY)
     if (!lane) return
     // 种子对象**同时是这段手势的身份**：下面按引用比对，判断 rect 回来时这段手势还在不在
@@ -2034,7 +2053,7 @@ export default function ScoreReader() {
         // 拿不到 rect：把这一笔从待落队列里摘掉 —— 留着就永远等不到人认领了
         const idx = strokeEndedRef.current.findIndex((x) => x.seed === seed)
         if (idx >= 0) strokeEndedRef.current.splice(idx, 1)
-        cancelStroke()
+        cancelStroke('begin-stroke-failed')
         return
       }
       if (strokeSeedRef.current !== seed) return // 已转双指 / 已换册（抬手那种在上面那支处理过了）
@@ -2077,20 +2096,22 @@ export default function ScoreReader() {
     const { w, h } = viewSizeRef.current
     if (!(w > 0) || !(h > 0)) return
     ctx.clearRect(0, 0, w, h)
-    for (const s of annosRef.current[String(strokePageRef.current)] ?? []) {
-      drawStrokeOn(ctx, s, w, h)
-    }
-    if (live && live.length > 0) {
-      drawPolylineOn(
-        ctx,
-        live,
-        penColor,
-        brushWidth,
-        w,
-        h,
-        tool === 'highlighter' ? HIGHLIGHTER_ALPHA : 1
-      )
-    }
+    // 「该画什么」全交给 `inkFor`：已落定的 + **还没入账的那一笔**（见 lib/ink.ts）。
+    // 从前这两类各由一条语句画，任何新增的写入者都得自己记得带上 live —— 而「忘记」
+    // 就是闪一下（结构调查 §2-2）。
+    const ink = inkFor(
+      annosRef.current[String(strokePageRef.current)] ?? [],
+      live && live.length > 0
+        ? {
+            points: live,
+            color: penColor,
+            width: brushWidth,
+            // 画笔是 `undefined` 而不是 1：与落定时 `commitStrokePoints` 的写法逐字一致
+            alpha: tool === 'highlighter' ? HIGHLIGHTER_ALPHA : undefined,
+          }
+        : null
+    )
+    for (const s of ink) drawStrokeOn(ctx, s, w, h)
   }
 
   const drawLiveSegment = (touch: { clientX: number; clientY: number }) => {
@@ -2108,7 +2129,7 @@ export default function ScoreReader() {
    * 等待期间到达的触点攒进 erasePendingRef，rect 到手后连同起点一并补擦。
    */
   const beginErase = (touch: { clientX: number; clientY: number }) => {
-    cancelStroke()
+    cancelStroke('begin-erase')
     const lane = laneUnderPoint(touch.clientY)
     if (!lane) return
     strokeLayerRef.current = lane.layer
@@ -2122,7 +2143,7 @@ export default function ScoreReader() {
         if (eraseSeedRef.current !== seed) return
         overlayRectRef.current = { left, top }
       } catch {
-        cancelStroke()
+        cancelStroke('begin-erase-failed')
         return
       }
       if (eraseSeedRef.current !== seed) return // 手指已抬起 / 已转双指 / 已换册：整段作废
@@ -2249,7 +2270,7 @@ export default function ScoreReader() {
     flushPan()
     if (e.touches.length >= 2) {
       multiTouchRef.current = true
-      cancelStroke()
+      cancelStroke('two-fingers')
       dragRef.current = null
       const [a, b] = e.touches
       if (!a || !b) return
@@ -2411,18 +2432,20 @@ export default function ScoreReader() {
     // 抬手先把合帧队列里最后一段位移补上：不补就是「手指停了，画面还差一截」
     flushPan()
     /**
-     * **画的那根手指**抬起了吗（哪怕屏上还有别的手指）。
+     * 该走哪条路 —— 判据在 `lib/touch-end.ts`（纯函数，有用例）。
      *
      * ⚠️ 从前这里只看 `e.touches.length === 0`（所有手指都离开）⇒「写着字、另一根手指搭在
      * 屏上」时这一笔**永远不提交**，而剩下那根手指会继续往同一条笔迹里塞点 ⇒ 线条跳着走
      *（平板笔调研 §2-2）。现在按 `identifier` 认人。
      */
-    const id = strokeIdRef.current
-    const penUp =
-      e.touches.length === 0 ||
-      (id !== null && (e.changedTouches ?? []).some((x) => x.identifier === id))
+    const action = touchEndAction({
+      touchesLeft: e.touches.length,
+      changedIds: (e.changedTouches ?? []).map((x) => x.identifier),
+      drawing: drawingRef.current,
+      penId: strokeIdRef.current,
+    })
 
-    if (e.touches.length === 0) {
+    if (action === 'full') {
       const g = dragRef.current
       dragRef.current = null
       const multi = multiTouchRef.current
@@ -2444,10 +2467,10 @@ export default function ScoreReader() {
       strokeIdRef.current = null
       // 分类只在「本段从单指开始、中途也没出现过第二指」时做（双指的残留手指会落在多指判定里）
       if (g && !multi) resolveTouchEnd(g, e.changedTouches[0])
-    } else if (drawingRef.current && penUp) {
+    } else if (action === 'stroke-only') {
       // 屏上还有别的手指，但**画的那根**抬起了：只收这一笔 —— drag / pinch / multiTouch
       // 一概不动（它们归还留在屏上的那根手指）。从前没有这一支，所以那一笔要等**所有**
-      // 手指离开才提交（见上面 penUp 的注释）
+      // 手指离开才提交（见 lib/touch-end.ts）
       finishStroke()
       handOffPendingStroke()
       strokeIdRef.current = null
@@ -2462,7 +2485,7 @@ export default function ScoreReader() {
   const onTouchCancel = () => {
     // 平移照常补上最后一拍：被系统打断时画面停在手指最后的位置，比往回跳一帧好
     flushPan()
-    cancelStroke()
+    cancelStroke('touch-cancel')
     dragRef.current = null
     multiTouchRef.current = false
     if (pinchRef.current) {
@@ -2502,7 +2525,7 @@ export default function ScoreReader() {
   }
 
   const togglePen = () => {
-    cancelStroke()
+    cancelStroke('toggle-pen')
     dragRef.current = null
     multiTouchRef.current = false
     const next = !penOn
