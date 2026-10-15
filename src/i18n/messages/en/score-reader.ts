@@ -29,7 +29,7 @@ export const scoreReader = {
   tutorialMenuPage: 'Go to',
   tutorialMenuZoom: 'Zoom',
   tutorialMenuAnno: 'Ink',
-  tutorialMenuSave: 'Save',
+  tutorialMenuSave: 'Share',
   tutorialMenuMode: 'Paging',
   highlighter: 'Highlighter',
   zoomPanel: 'Zoom',

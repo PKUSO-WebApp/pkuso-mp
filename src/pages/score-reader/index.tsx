@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import Taro, { useDidShow, useRouter, useUnload } from '@tarojs/taro'
+import Taro, { useDidShow, useRouter, useShareAppMessage, useUnload } from '@tarojs/taro'
 import { View, Canvas, Text } from '@tarojs/components'
 import type { ITouchEvent } from '@tarojs/components'
 import { supabase } from '@/lib/supabase'
+import { displayPdfName } from '@/lib/pdf-save'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass, useThemeContext } from '@/context/theme-context'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
@@ -183,6 +184,40 @@ export default function ScoreReader() {
   const presetSection = router.params.sec ? decodeURIComponent(router.params.sec) : ''
   /** 文件字节数（库里 `file_size`）：只用它做分片下载的终止条件与长度校验 */
   const presetBytes = Number(router.params.sz) || 0
+
+  /**
+   * 分享卡片的标题 = **「保存到…」里那份交付文件的名字**，去掉 `.pdf`（用户 2026-10-15 定）。
+   *
+   * 用 `displayPdfName` 同一个函数、同一组元数据 ⇒「分享出去的」与「存下来 / 发出去的」
+   * 永远是同一个名字，收到的人对得上号。分享的标题是纯文本，所以 `.pdf` 反而是噪音。
+   */
+  const shareTitle = displayPdfName({
+    title: presetTitle,
+    section: presetSection,
+    fileName: presetFileName,
+  }).replace(/\.pdf$/i, '')
+
+  /**
+   * 右上角「...」→ 转发：卡片带这一册的全部参数，接收方点开**直达阅读器**（而不是首页）。
+   *
+   * ⚠️ 这里发出去的是**小程序页面，不是 PDF 文件** —— 那个菜单加不了自定义项（平台没有
+   * API），想把 PDF 本身发给好友得走「保存到…」里的出口。两条路别混（见 reader 报告
+   * 里「两个菜单」那段）。
+   */
+  useShareAppMessage(() => ({
+    title: shareTitle,
+    path: `/pages/score-reader/index?${[
+      `file_id=${encodeURIComponent(fileId)}`,
+      presetStoragePath ? `sp=${encodeURIComponent(presetStoragePath)}` : '',
+      presetPageCount ? `pc=${presetPageCount}` : '',
+      presetFileName ? `fn=${encodeURIComponent(presetFileName)}` : '',
+      presetTitle ? `title=${encodeURIComponent(presetTitle)}` : '',
+      presetSection ? `sec=${encodeURIComponent(presetSection)}` : '',
+      presetBytes ? `sz=${presetBytes}` : '',
+    ]
+      .filter(Boolean)
+      .join('&')}`,
+  }))
 
   const [stage, setStage] = useState<Stage>('idle')
   /** 这份谱子没有页图（预渲染失败 / 还没跑迁移）：不在 App 里渲染，只引导「保存到…」 */
@@ -1487,13 +1522,17 @@ export default function ScoreReader() {
         const ctx = overlay.getContext('2d')
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
         ctx.clearRect(0, 0, w, h)
-        const strokes = annos[String(pageNo)] ?? []
+        // ⚠️ 读**同步镜像**，不读闭包里的 `annos`：这个函数在 `await` 之后才画，而等待期间
+        // 完全可能又落了一笔（乐观绘制先上了屏、数据也刚进 annos）—— 拿旧闭包清屏重画就会
+        // 把它抹掉，紧接着下一次重画又画回来 ⇒ 真机上「快速点两下，第二笔闪几下」
+        //（用户 2026-10-15）。与 `repaintLiveStroke` 同一条纪律：它一直读的就是 annosRef。
+        const strokes = annosRef.current[String(pageNo)] ?? []
         strokes.forEach((s) => drawStrokeOn(ctx, s, w, h))
       } catch {
         // 画布没挂载 / 未就绪：静默，下次状态变化会重试
       }
     },
-    [annos, queryCanvasNode]
+    [queryCanvasNode]
   )
 
   /**

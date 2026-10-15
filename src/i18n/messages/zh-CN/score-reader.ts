@@ -39,7 +39,9 @@ export const scoreReader = {
   tutorialMenuPage: '跳页',
   tutorialMenuZoom: '缩放',
   tutorialMenuAnno: '批注',
-  tutorialMenuSave: '保存',
+  /** 图例里指向底栏那个 `forwardIcon` 按钮的字（用户 2026-10-15 定：叫「分享」而不是
+   *  「保存」—— 那个面板里全是「把文件递出去」的出口，叫保存会让人以为只是存本地） */
+  tutorialMenuSave: '分享',
   tutorialMenuMode: '翻页',
   /** 荧光笔（批注栏第三支工具） */
   highlighter: '荧光笔',
