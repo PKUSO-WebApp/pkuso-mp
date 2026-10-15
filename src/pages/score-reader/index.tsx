@@ -1658,6 +1658,10 @@ export default function ScoreReader() {
       if (!(w > 0) || !(h > 0)) return
       try {
         const { node } = await queryCanvasNode(CANVAS_OVERLAY_SEL[l])
+        // ⚠️ 等待期间这一块**可能已经换了页**（翻页 / 切模式 / 换册）：按传进来的旧页号画，
+        // 就是把 A 页的墨画到 B 页的画布上。读同步镜像复核一次 —— 不符就跳过，交给下一次
+        // 重画（它由 `layerSlot` 变化触发，一定会来）。
+        if (layerSlotRef.current[l] !== pageNo) return
         const overlay = node as CanvasNode
         // ⚠️ **这里删掉了一条守卫**（2026-10-15 分层）：从前是「正在落笔的那一块直接 return」
         // ——因为清屏会抹掉画到一半的那条线。现在实时墨在**另一块**画布上（`#reader-live`），
@@ -1683,14 +1687,19 @@ export default function ScoreReader() {
     if (viewSize.w <= 0 || viewSize.h <= 0 || pageCount <= 0) return
     // 手势中不重画：内容框被拉伸时位图跟着缩放即可，停手后由 gestureTick 补画
     if (pinchRef.current) return
-    for (const l of ALL_LAYERS) {
-      const p = layerSlot[l]
-      if (p === null) continue
-      // ⚠️ 这里（以及 `paintLane` 里）**各删掉了一条守卫**（2026-10-15 分层）：从前是
-      // 「正在落笔的那一块跳过」—— 因为清屏会抹掉画到一半的那条线。现在实时墨在**另一块**
-      // 画布上（`#reader-live`），这块随时重画都安全，「谁清屏抹谁」从结构上消失。
-      await paintLane(l, p)
-    }
+    // **并行**画这几块（原来是 `for ... await` 串行 ⇒ 三块分三个时间片，UD 模式下多块
+    // 同时可见时，用户能看到「这一块更新了、那一块还没」）。每块内部「清屏 → 画完」仍然
+    // 在同一个 JS 时间片里，所以并行**不会**让谁露出空白。
+    await Promise.all(
+      ALL_LAYERS.map(async (l) => {
+        const p = layerSlot[l]
+        if (p === null) return
+        // ⚠️ 这里（以及 `paintLane` 里）**各删掉了一条守卫**（2026-10-15 分层）：从前是
+        // 「正在落笔的那一块跳过」—— 因为清屏会抹掉画到一半的那条线。现在实时墨在**另一块**
+        // 画布上（`#reader-live`），这块随时重画都安全，「谁清屏抹谁」从结构上消失。
+        await paintLane(l, p)
+      })
+    )
     // 已落定的墨都重画完了 —— 这时候再清实时层，才不会露出「线没了、要等下一拍才回来」。
     // 正在画的时候不清（那会抹掉用户画到一半的线；它的内容归 `repaintLiveStroke` 维护）。
     if (!drawingRef.current) paintLiveLayer(null)
