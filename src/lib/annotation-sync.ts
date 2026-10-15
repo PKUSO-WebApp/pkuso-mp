@@ -113,6 +113,30 @@ export function strokeKey(stroke: AnnoStroke): string | null {
   return `${c.color}|${c.width}|${c.alpha ?? 1}|${c.points.map((p) => `${p[0]},${p[1]}`).join(';')}`
 }
 
+/**
+ * 两版笔迹**取并集**（冲突解决页「合并两版」用的那一步）：本地在前、远端在后。
+ *
+ * **同一笔只留一条**，判据就是 `strokeKey`（颜色 / 线宽 / alpha / 点序列全同）。两端都有的
+ * 那一笔叠加起来会**深一层** —— 荧光笔最明显（同一道高亮在两版里各一份），用户 2026-10-15
+ * 真机报的就是这个。只是「画得像」不算同一笔：这一层没有可靠判据，宁可都留着（这个模型里
+ * 没有 per-stroke id，位置相近的两笔本来就分不开）。
+ *
+ * 复用 `strokeKey` 还白拿一件事：判重与指纹 / 包含关系**同一套归一化**（先 compact、零点
+ * 笔迹当不存在），不会出现「包含关系说这两版一样、合并却留下两笔」这种自相矛盾。
+ */
+export function mergeStrokes(local: AnnoStroke[], remote: AnnoStroke[]): AnnoStroke[] {
+  const seen = new Set<string>()
+  const out: AnnoStroke[] = []
+  const all = [...(Array.isArray(local) ? local : []), ...(Array.isArray(remote) ? remote : [])]
+  for (const s of all) {
+    const key = strokeKey(s)
+    if (key === null || seen.has(key)) continue // null = 零点笔迹：不渲染，也不该占位
+    seen.add(key)
+    out.push(s)
+  }
+  return out
+}
+
 /** 笔迹的**多重集**计数（同一笔重复画两次是两笔，不是一笔） */
 function strokeCounts(strokes: AnnoStroke[]): Map<string, number> {
   const out = new Map<string, number>()

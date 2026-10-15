@@ -10,6 +10,7 @@ import {
   type ConflictPageState,
 } from '@/lib/annotation-sync-runner'
 import { pageImageUrls } from '@/lib/score-page-image'
+import { mergeStrokes } from '@/lib/annotation-sync'
 import type { AnnoStroke } from '@/lib/annotation'
 import { drawStrokeOn } from '../lib/anno-draw'
 import { loadPageImage, paintPageImage } from '../lib/page-image'
@@ -54,12 +55,12 @@ type Side = 'local' | 'remote' | 'merge'
 /**
  * 某一版要画的笔迹。
  *
- * `'merge'` = 两版**并集**（本地在前、远端在后 —— 与 `resolveAnnotationConflict` 里那个
- * 顺序必须一致，否则「预览看到的」与「提交上去的」不是同一份）。合并也能预览是刻意的：
- * 并集的后果（被擦掉的那笔会回来）只有画出来才看得见。
+ * `'merge'` 走 `mergeStrokes`——**与提交那条路是同一个函数**，这一点不能松：预览与提交
+ * 各写一份的话，看到的和落库的就不是同一份（去重规则尤其容易在这里漂）。
+ * 合并也能预览是刻意的：并集的后果（被擦掉的那笔会回来）只有画出来才看得见。
  */
 const strokesOf = (s: Side, d: ConflictPageState): AnnoStroke[] =>
-  s === 'local' ? d.local : s === 'remote' ? d.remote : [...d.local, ...d.remote]
+  s === 'local' ? d.local : s === 'remote' ? d.remote : mergeStrokes(d.local, d.remote)
 
 export default function AnnotationConflict() {
   const { t } = useT()
@@ -80,6 +81,12 @@ export default function AnnotationConflict() {
   const [message, setMessage] = useState('')
   /** 页面的 CSS 尺寸（按图像比例适配舞台） */
   const [box, setBox] = useState({ w: 0, h: 0 })
+  /**
+   * 上下两条栏是否展开。点预览区切换（用户 2026-10-15 提，要的是阅读器「点中间」那个手感，
+   * 收起后能看见整页）。收起时 stage 占满整屏，谱面还要**按新的可用尺寸重算** ——
+   * 不重算只是四周多出空白，反而看不到更多内容。
+   */
+  const [chromeOn, setChromeOn] = useState(true)
 
   const pdfUrlRef = useRef('')
   const overlayNodeRef = useRef<CanvasNode | null>(null)
@@ -226,6 +233,30 @@ export default function AnnotationConflict() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /**
+   * 点预览区收 / 放上下两条栏。
+   *
+   * ⚠️ `stage !== 'ready'` 时**不收**：那两条栏里写着「为什么问你」和「重试」，正是加载中 /
+   * 失败时唯一的指引 —— 而重试按钮就在 stage 里，点它会冒泡上来一起把栏收掉。
+   */
+  const toggleChrome = () => {
+    if (stage !== 'ready') return
+    setChromeOn((v) => !v)
+  }
+
+  /** 首次挂载跳过（load() 里已经画过一帧）；之后每次收放都要按新的可用尺寸重算 */
+  const chromeInitedRef = useRef(false)
+  useEffect(() => {
+    if (!chromeInitedRef.current) {
+      chromeInitedRef.current = true
+      return
+    }
+    if (stage !== 'ready') return
+    // 重算是锦上添花：失败就保持原样，别把整页打成错误态（那是 load 的职责）
+    void drawPage().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chromeOn])
+
   /** 切预览（本地 / 远端 / 合并）：只重画批注层 */
   const switchSide = (next: Side) => {
     if (!data || next === side) return
@@ -272,18 +303,21 @@ export default function AnnotationConflict() {
 
   return (
     <View className={`${darkClass} score-conflict-page flex h-full min-h-0 flex-col bg-page-bg`}>
-      <View className='border-b border-border px-4 py-3'>
-        <Text className='block text-xs leading-relaxed text-text-muted'>
-          {t('scoreReader.conflict.why')}
-        </Text>
-        <Text className='mt-1 block text-xs text-text-subtle'>
-          {t('scoreReader.conflict.pageButton', { page })}
-        </Text>
-      </View>
+      {chromeOn ? (
+        <View className='border-b border-border px-4 py-3'>
+          <Text className='block text-xs leading-relaxed text-text-muted'>
+            {t('scoreReader.conflict.why')}
+          </Text>
+          <Text className='mt-1 block text-xs text-text-subtle'>
+            {t('scoreReader.conflict.pageButton', { page })}
+          </Text>
+        </View>
+      ) : null}
 
       <View
         id='conflict-stage'
         className='relative flex flex-1 items-center justify-center overflow-hidden'
+        onClick={toggleChrome}
       >
         <View
           id='conflict-box'
@@ -327,54 +361,62 @@ export default function AnnotationConflict() {
         ) : null}
       </View>
 
-      <View className='border-t border-border bg-surface px-4 py-3 pb-safe'>
-        {/* 切换：看的是哪一版。两个按钮是**单选的开关**（与批注栏那三支工具同款形态） */}
-        <View className='mb-3 flex flex-row items-center justify-center'>
-          {(['local', 'remote', 'merge'] as Side[]).map((s) => (
-            <View
-              key={s}
-              className={`mr-2 rounded-full border px-4 py-2 ${
-                side === s ? 'border-primary bg-primary/10' : 'border-border bg-card'
-              }`}
-              onClick={() => switchSide(s)}
-            >
-              <Text className='text-xs text-text'>
-                {s === 'local'
-                  ? t('scoreReader.conflict.localVersion')
-                  : s === 'remote'
-                    ? t('scoreReader.conflict.remoteVersion')
-                    : t('scoreReader.conflict.mergeVersion')}
-              </Text>
-            </View>
-          ))}
-        </View>
-        {/* 空的一版也要说清：不然用户看到「一片空白」会以为加载失败 */}
-        {shownStrokes.length === 0 ? (
-          <Text className='mb-3 block text-center text-xs text-text-subtle'>
-            {t('scoreReader.conflict.empty')}
-          </Text>
-        ) : null}
-        {message ? (
-          <Text className='mb-3 block text-center text-xs text-danger'>{message}</Text>
-        ) : null}
-        {/* 单个提交按钮：作用于**当前预览的那一版**（上面那排选中的那个）。
+      {chromeOn ? (
+        <View
+          className='border-t border-border bg-surface px-4 pt-3'
+          /* ⚠️ 底部留白**不能只靠 `pb-safe`**：在没有安全区的机型上它就是 0 ⇒「使用这一版」
+             整个贴在页底（用户 2026-10-15 真机）。内联 px 不参与 Taro 的 px→rpx 转换，
+             写多少是多少；`pt-3` 那侧照旧走工具类（与从前的 py-3 上半一致）。 */
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+        >
+          {/* 切换：看的是哪一版。两个按钮是**单选的开关**（与批注栏那三支工具同款形态） */}
+          <View className='mb-3 flex flex-row items-center justify-center'>
+            {(['local', 'remote', 'merge'] as Side[]).map((s) => (
+              <View
+                key={s}
+                className={`mr-2 rounded-full border px-4 py-2 ${
+                  side === s ? 'border-primary bg-primary/10' : 'border-border bg-card'
+                }`}
+                onClick={() => switchSide(s)}
+              >
+                <Text className='text-xs text-text'>
+                  {s === 'local'
+                    ? t('scoreReader.conflict.localVersion')
+                    : s === 'remote'
+                      ? t('scoreReader.conflict.remoteVersion')
+                      : t('scoreReader.conflict.mergeVersion')}
+                </Text>
+              </View>
+            ))}
+          </View>
+          {/* 空的一版也要说清：不然用户看到「一片空白」会以为加载失败 */}
+          {shownStrokes.length === 0 ? (
+            <Text className='mb-3 block text-center text-xs text-text-subtle'>
+              {t('scoreReader.conflict.empty')}
+            </Text>
+          ) : null}
+          {message ? (
+            <Text className='mb-3 block text-center text-xs text-danger'>{message}</Text>
+          ) : null}
+          {/* 单个提交按钮：作用于**当前预览的那一版**（上面那排选中的那个）。
             先看清再落库 —— 两个「用 xx 版」并成一个，不会误触直接裁决。
             预览没出来（加载中 / 失败）时**点了也不做事**（`canResolve`），置灰只是把这件事画出来
             —— 见 resolve 的注释。
             ⚠️ 「稍后处理」在这一页**已去掉**（用户 2026-10-15 定：它与导航栏返回同义）。
             入口弹层那份「稍后处理」是一等公民（那里没有别的退出方式），**别跟着一起删**
             —— 见 components/score/AnnotationConflictSheet.tsx。 */}
-        <View className='flex flex-row'>
-          <View
-            className={`flex-1 rounded-full border border-border bg-card px-3 py-3 text-center ${
-              canResolve ? '' : 'opacity-50'
-            }`}
-            onClick={() => void resolve(side)}
-          >
-            <Text className='text-sm text-text'>{t('scoreReader.conflict.useCurrent')}</Text>
+          <View className='flex flex-row'>
+            <View
+              className={`flex-1 rounded-full border border-border bg-card px-3 py-3 text-center ${
+                canResolve ? '' : 'opacity-50'
+              }`}
+              onClick={() => void resolve(side)}
+            >
+              <Text className='text-sm text-text'>{t('scoreReader.conflict.useCurrent')}</Text>
+            </View>
           </View>
         </View>
-      </View>
+      ) : null}
     </View>
   )
 }

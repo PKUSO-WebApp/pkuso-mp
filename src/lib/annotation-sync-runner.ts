@@ -10,6 +10,7 @@ import {
   listAnnotatedFileIds,
   loadConflicts,
   loadSyncBase,
+  mergeStrokes,
   pageFingerprint,
   planSync,
   saveConflicts,
@@ -554,10 +555,10 @@ export async function resolveAnnotationConflict(args: {
       saveSyncBase(fileId, userId, base)
     } else if (choice === 'merge') {
       // 并集 = 本地在前、远端在后（绘制顺序 = 数组顺序，远端那份「在上层」）。
-      // 不去重：两版里各有一笔一模一样的（用户在两端做了同样的动作）也照样都留着 ——
-      // 「取并集」就是这个意思，而**擦除语义在这个模型里本就无法表达**（没有墓碑），
-      // 想做「谁擦了谁」的推理只会猜错。
-      const merged = [...localStrokes, ...fresh.strokes]
+      // **同一笔只留一条**（`mergeStrokes`）：两端都有的那一笔叠起来会深一层，荧光笔最明显。
+      // ⚠️ 它只去掉「完全同一笔」，**擦除语义仍然无法表达** —— 这个模型没有墓碑，
+      // 「一边画了 X、另一边把 X 擦了」分不清，并集会把擦掉的那笔带回来（合并前有预览）。
+      const merged = mergeStrokes(localStrokes, fresh.strokes)
       const mergedFp = pageFingerprint(merged)
       const outcome = await pushRemotePage(fileId, page, merged, fresh.version ?? '')
       // 与 'local' 分支同款：CAS 落空但服务端已经是这一份（重复提交 / 丢 ACK）也算成功

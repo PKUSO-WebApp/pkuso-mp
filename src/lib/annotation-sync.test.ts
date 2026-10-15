@@ -12,6 +12,7 @@ import {
   loadConflicts,
   loadSyncBase,
   markAnnoPending,
+  mergeStrokes,
   pageFingerprint,
   planSync,
   saveConflicts,
@@ -174,6 +175,30 @@ describe('包含关系（自动裁决的唯一依据）', () => {
     }
     expect(contentCovers([raw], [packed])).toBe(true)
     expect(contentCovers([packed], [raw])).toBe(true)
+  })
+})
+
+describe('mergeStrokes（「合并两版」取并集）', () => {
+  it('两边各自独有的笔都留下，本地在前、远端在后', () => {
+    const a = stroke(0.1)
+    const b = stroke(0.6)
+    expect(mergeStrokes([a], [b])).toEqual([a, b])
+  })
+
+  it('⚠️ 两端都有的同一笔只留一条（否则半透明荧光笔叠起来深一层）', () => {
+    const same = stroke(0.3, 0.4, '#f5d90a')
+    // 两版的数据分别读自本地与远端 ⇒ 必然是**不同对象、相同内容**：判重必须看内容
+    const copy: AnnoStroke = { ...same, points: same.points.map((p) => [p[0], p[1]]) }
+    expect(mergeStrokes([same], [copy])).toEqual([same])
+  })
+
+  it('零点笔迹不占位（与指纹 / 包含关系同一套归一化）', () => {
+    const empty: AnnoStroke = { color: '#e5484d', width: 0.004, points: [] }
+    expect(mergeStrokes([empty], [empty])).toEqual([])
+  })
+
+  it('两版都空 ⇒ 空', () => {
+    expect(mergeStrokes([], [])).toEqual([])
   })
 })
 
