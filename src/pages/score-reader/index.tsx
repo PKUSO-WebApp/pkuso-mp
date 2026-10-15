@@ -66,6 +66,7 @@ import {
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawStrokeOn, eraseStrokesAt } from './lib/anno-draw'
 import { inkFor, type LiveInk } from './lib/ink'
+import { createInkQueue, type InkQueue } from './lib/ink-queue'
 import { touchEndAction, touchOf } from './lib/touch-end'
 import { lastPageKey } from './lib/last-page'
 import {
@@ -1944,6 +1945,8 @@ export default function ScoreReader() {
     // 画了一半就被打断（转双指 / 系统打断 / 收起批注）：把那条线从画面上抹掉。
     // 必须在清 ref 之前调——重画要用到「画在哪一页、哪一块」
     if (drawingRef.current) {
+      // 待画的那一帧先作废（它读 `strokePtsRef`，而下面紧接着就要清空它）
+      inkQueueRef.current?.cancel()
       repaintLiveStroke(null)
       reportClientError({
         event: 'score_reader_stroke_cancelled',
@@ -2143,10 +2146,27 @@ export default function ScoreReader() {
     paintInkOn(node, ctx, strokePageRef.current, live && live.length > 0 ? liveInkOf(live) : null, true)
   }
 
+  /**
+   * 「latest ref」：合帧队列里那一帧要画的是**当前**的笔色 / 线宽 / 工具。
+   * `repaintLiveStroke` 每次渲染都会重建（`liveInkOf` 读的是 state），而队列是长命的 ——
+   * 挂了直接引用就会一直用**第一帧**那套样式。
+   */
+  const paintLiveNowRef = useRef<() => void>(() => {})
+  paintLiveNowRef.current = () => repaintLiveStroke(strokePtsRef.current)
+
+  /** 实时笔迹的重画合帧（点照旧每个都入账，只有重画被压到每帧一次）—— 见 lib/ink-queue.ts */
+  const inkQueueRef = useRef<InkQueue | null>(null)
+  if (!inkQueueRef.current) {
+    inkQueueRef.current = createInkQueue({ paint: () => paintLiveNowRef.current() })
+  }
+
   const drawLiveSegment = (touch: { clientX: number; clientY: number }) => {
     if (!overlayCtxRef.current) return
     strokePtsRef.current.push(pointOf(touch.clientX, touch.clientY))
-    repaintLiveStroke(strokePtsRef.current)
+    // 点**照旧每个都入账**（上面那句），只把**重画**压到每帧一次：触控笔 120~240Hz、
+    // 比帧还密，而每个触点都清屏重画一整页会把 JS 占死 —— 这期间到达的 touchmove 被系统
+    // 丢掉，于是曲线在卡顿处被拉成直线（用户 2026-10-15 真机）。见 lib/ink-queue.ts
+    inkQueueRef.current?.request()
   }
 
   /**
@@ -2444,6 +2464,10 @@ export default function ScoreReader() {
   const finishStroke = () => {
     if (!drawingRef.current) return
     drawingRef.current = false
+    // ⚠️ 先作废待画的那一帧：下面的 `commitStrokePoints` 会把 `strokePtsRef` 清空，
+    // 而那一帧读的正是它 —— 让它跑就是「用空数据重画一遍」（线先消失、再由落定后的
+    // 重画补回来 ⇒ 又是一次闪）
+    inkQueueRef.current?.cancel()
     const pts = strokePtsRef.current
     strokePtsRef.current = []
     // 落在**落笔时定死的那一页**上（见 strokePageRef）：画布就是那一页，坐标就是页内的，
