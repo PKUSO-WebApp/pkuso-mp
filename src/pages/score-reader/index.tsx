@@ -351,6 +351,23 @@ export default function ScoreReader() {
    */
   const eraseSeedRef = useRef<{ clientX: number; clientY: number } | null>(null)
   const erasePendingRef = useRef<Array<{ clientX: number; clientY: number }>>([])
+  /**
+   * 落笔的**待落点**：与 `erasePendingRef` 同形，但这是 2026-10-15 才补上的那一半 ——
+   * 从前只有擦除有缓冲，绘制没有，于是 `beginStroke` 取 rect 那几十毫秒里到达的触点
+   * **直接掉进虚空** ⇒ 每一笔的开头缺一段（真机症状：写「3」「2」开头的圆弧被拉成直线）。
+   */
+  const strokePendingRef = useRef<Array<{ clientX: number; clientY: number }>>([])
+  /**
+   * 「抬手时 rect 还没回来」的那一笔（触控笔点得快，整笔都在 rect 查询窗口里）。
+   *
+   * ⚠️ 与擦除路径**有意分歧**：擦除抬手即作废（连续动作，人已离屏）；绘制抬手时这一笔
+   * 已经画完了 —— 作废就是「点 30 下一个都留不下」。所以这里存下来，交给那个还在飞的
+   * 异步块用**局部 rect** 落定（绝不碰全局 `overlayRectRef`：此刻可能已有新手势在用）。
+   *
+   * 它**不随 cancelStroke 清空** —— 快速连点时下一笔的 `beginStroke` 会调 cancelStroke，
+   * 清了就等于又把前一笔丢了。消费它的只有它自己那个异步块。
+   */
+  const strokeEndedRef = useRef<{ seed: { x: number; y: number }; page: number } | null>(null)
   const fileUrlRef = useRef('')
   /**
    * 页图本地记账的键：**与入口无关**（fileId + 页号）。绝不能用 URL 当键——`urls[0]` 是
@@ -1804,6 +1821,9 @@ export default function ScoreReader() {
     erasedRef.current = null
     eraseSeedRef.current = null
     erasePendingRef.current = []
+    strokePendingRef.current = []
+    // ⚠️ `strokeEndedRef` 这里**故意不清**：快速连点时下一笔的 beginStroke 会走到这儿，
+    // 清了就等于把上一笔又丢掉一次（见它的声明）。它只由自己那个异步块消费并清空。
   }
 
   /**
@@ -1821,6 +1841,46 @@ export default function ScoreReader() {
     return layer ? { page: p, layer } : null
   }
 
+  /**
+   * 把一串点落成一条笔迹（记一步撤销 + 落盘）。
+   *
+   * 两处共用：实时绘制抬手时的收尾，与「抬手时 rect 还没回来」那一笔的补落
+   * （见 `beginStroke` / `commitTapStroke`）—— 从前这两条路只有前者存在。
+   */
+  const commitStrokePoints = (pageNo: number, pts: [number, number][]) => {
+    if (pts.length === 0) return
+    const key = String(pageNo)
+    const before = annosRef.current[key] ?? []
+    // 荧光笔固定半透明；画笔不写这个字段（旧数据也没有，两边都按 1 读）
+    const stroke: AnnoStroke = {
+      color: penColor,
+      width: brushWidth,
+      points: pts,
+      alpha: tool === 'highlighter' ? HIGHLIGHTER_ALPHA : undefined,
+    }
+    pushHistory(pageNo, before)
+    persist({ ...annosRef.current, [key]: [...before, stroke] })
+  }
+
+  /**
+   * 补落一笔「抬手时才拿到 rect」的点击：**一个点**，坐标用这次查询到的 rect **局部**算。
+   *
+   * ⚠️ 绝不能走 `pointOf` / 写 `overlayRectRef`：这一笔回来时可能已有新手势在画，
+   * 拿它的 rect 覆盖全局就是「后一段手势坐标全错位」（那条注释见 beginStroke 里那处守卫）。
+   */
+  const commitTapStroke = (
+    pageNo: number,
+    seed: { x: number; y: number },
+    left: number,
+    top: number
+  ) => {
+    const { w, h } = viewSizeRef.current
+    if (!(w > 0) || !(h > 0)) return
+    commitStrokePoints(pageNo, [
+      [clamp((seed.x - left) / w, 0, 1), clamp((seed.y - top) / h, 0, 1)],
+    ])
+  }
+
   // 起笔：rect 必须当次现取（工具条显隐会挪动画布），取到之前不落笔——
   // 拿旧 rect 算出的首点会连出一条「从按钮到落笔处」的飞线
   const beginStroke = (touch: { clientX: number; clientY: number }) => {
@@ -1833,12 +1893,21 @@ export default function ScoreReader() {
     strokeSeedRef.current = seed
     strokeLayerRef.current = lane.layer
     strokePageRef.current = lane.page
+    strokePendingRef.current = []
     void (async () => {
       try {
         const { node, left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[lane.layer])
         // ⚠️ 先确认这段手势没被取代再写 rect：两次节点查询的返回顺序没有保证，晚到的那次
         // 会把**后一段手势**的 rect 覆盖成自己的（那块画布可能在别的位置）⇒ 坐标全错位
-        if (strokeSeedRef.current !== seed) return
+        if (strokeSeedRef.current !== seed) {
+          // 两种「不是我」：被新手势取代（作废），或**已经抬手**了（仍要落定，见 strokeEndedRef）。
+          // 后一种只落一个点 —— 用它自己的 rect 局部算坐标，**绝不碰全局 overlayRectRef**
+          if (strokeEndedRef.current?.seed === seed) {
+            strokeEndedRef.current = null
+            commitTapStroke(lane.page, seed, left, top)
+          }
+          return
+        }
         overlayRectRef.current = { left, top }
         // ⚠️ 这里**只取 ctx，绝不重设画布尺寸**：重设 = 清屏，而补画是异步的（要等节点查询）
         // ⇒ 一落笔整页笔迹先消失、几十~几百毫秒后才回来，反复落笔就是「批注时笔迹闪」。
@@ -1849,13 +1918,23 @@ export default function ScoreReader() {
         ctx.setTransform(rasterDpr(w, h), 0, 0, rasterDpr(w, h), 0, 0)
         overlayCtxRef.current = ctx
       } catch {
+        if (strokeEndedRef.current?.seed === seed) strokeEndedRef.current = null
         cancelStroke()
         return
       }
-      if (strokeSeedRef.current !== seed) return // 手指已抬起 / 已转双指 / 已换册
+      if (strokeSeedRef.current !== seed) return // 已转双指 / 已换册（抬手那种在上面那支处理过了）
       strokeSeedRef.current = null
       drawingRef.current = true
-      strokePtsRef.current = [pointOf(seed.x, seed.y)]
+      // 等待期间攒下的触点**连同起点一并入账** —— 少了这一句，每一笔的开头就是一条直线
+      //（从前只有擦除有这条缓冲，绘制的首点之后那几十毫秒直接掉进虚空）
+      const pending = strokePendingRef.current
+      strokePendingRef.current = []
+      strokePtsRef.current = [
+        pointOf(seed.x, seed.y),
+        ...pending.map((pt) => pointOf(pt.clientX, pt.clientY)),
+      ]
+      // 只有起点时不必重画（画不出东西，等下一个 move）；有攒下的点就得把那段补上屏
+      if (pending.length > 0) repaintLiveStroke(strokePtsRef.current)
     })()
   }
 
@@ -2108,6 +2187,13 @@ export default function ScoreReader() {
       if (touch) drawLiveSegment(touch)
       return
     }
+    // 落笔的 rect 还没回来：先攒着（与下面落擦那支同形）。少了这一支，这几十毫秒里到达的
+    // 触点就被丢弃 —— 真机上就是每一笔的开头被拉成一条直线（写「3」「2」的圆弧）
+    if (strokeSeedRef.current && e.touches.length === 1) {
+      const touch = e.touches[0]
+      if (touch) strokePendingRef.current.push({ clientX: touch.clientX, clientY: touch.clientY })
+      return
+    }
     if (eraseSeedRef.current && e.touches.length === 1) {
       // 落擦的 rect 还没回来：先攒着，别拿上一段手势的 rect 擦（见 beginErase）
       const touch = e.touches[0]
@@ -2191,21 +2277,9 @@ export default function ScoreReader() {
         drawingRef.current = false
         const pts = strokePtsRef.current
         strokePtsRef.current = []
-        if (pts.length > 0) {
-          // 落在**落笔时定死的那一页**上（见 strokePageRef）：画布就是那一页，坐标就是页内的，
-          // 不需要任何跨页切分
-          const key = String(strokePageRef.current)
-          const before = annosRef.current[key] ?? []
-          // 荧光笔固定半透明；画笔不写这个字段（旧数据也没有，两边都按 1 读）
-          const stroke: AnnoStroke = {
-            color: penColor,
-            width: brushWidth,
-            points: pts,
-            alpha: tool === 'highlighter' ? HIGHLIGHTER_ALPHA : undefined,
-          }
-          pushHistory(strokePageRef.current, before)
-          persist({ ...annosRef.current, [key]: [...before, stroke] })
-        }
+        // 落在**落笔时定死的那一页**上（见 strokePageRef）：画布就是那一页，坐标就是页内的，
+        // 不需要任何跨页切分
+        commitStrokePoints(strokePageRef.current, pts)
         strokeLayerRef.current = null
       }
       if (erasingRef.current) {
@@ -2216,6 +2290,11 @@ export default function ScoreReader() {
         if (before) pushHistory(strokePageRef.current, before)
         strokeLayerRef.current = null
       }
+      // 落笔还没等到 rect 就抬手了（触控笔点得快时整笔都落在那个窗口里）：**不作废** ——
+      // 交给还在飞的异步块用**局部 rect** 补落一个点（见 strokeEndedRef）。作废就是
+      // 「点 30 下一个都留不下」，而这一笔在用户那边确确实实是画了的。
+      const endedSeed = strokeSeedRef.current
+      if (endedSeed) strokeEndedRef.current = { seed: endedSeed, page: strokePageRef.current }
       strokeSeedRef.current = null
       // 落擦还没等到 rect 就抬手了：整段作废（与从前「点一下什么都没发生」一致）。
       // 必须清掉——否则那个异步块回来时手指早已不在屏上，却照样开擦
