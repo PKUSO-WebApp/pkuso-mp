@@ -16,6 +16,10 @@ import undoIconDark from '@/assets/icons/undo-2-dark.png'
 /** 工具按钮里的图标尺寸：与阅读器底栏那五个一致（素材统一 72×72，显示 18px） */
 const TOOL_ICON = 18
 
+/** 收起 / 展开那个 V 的边长（px，再乘显示档位）与它的**视觉重心下沉量**（见 chevronV） */
+const CHEVRON_PX = 9
+const CHEVRON_SINK = CHEVRON_PX * 0.354
+
 type AnnotationBarProps = {
   color: string
   width: number
@@ -31,15 +35,6 @@ type AnnotationBarProps = {
   onWidth: (width: number) => void
   onUndo: () => void
   onClear: () => void
-  /**
-   * 工具条是不是**收起**状态。收起 = 整条不在，只剩最右边那个 V。
-   *
-   * ⚠️ 状态由**调用方**持有，不只是为了持久化：收起时容器的宽度也得跟着变
-   * （`left-0 right-0` → `right-0`）—— 一条透明的整行 View 照样会吃掉触摸，
-   * 那就成了一条**看不见的禁区**（见 lib/pen-bar-collapsed.ts 的「为什么要有这个开关」）。
-   */
-  collapsed: boolean
-  onToggleCollapsed: () => void
 }
 
 /** 阅读器画笔工具条：颜色 / 粗细 / 撤销 / 清空（清空为二段确认防误触） */
@@ -54,8 +49,6 @@ export function AnnotationBar({
   onWidth,
   onUndo,
   onClear,
-  collapsed,
-  onToggleCollapsed,
 }: AnnotationBarProps) {
   const { t } = useT()
   const { mode } = useThemeContext()
@@ -63,6 +56,15 @@ export function AnnotationBar({
   const uiScale = useUiScaleFactor()
   const dark = mode === 'dark'
   const [confirmingClear, setConfirmingClear] = useState(false)
+  /**
+   * 收起状态：**只活在这一次批注会话里**，组件一卸载（退出批注）就没了。
+   *
+   * 这是用户 2026-10-16 定的**不是**「忘了持久化」：从底栏那个铅笔按钮进批注时，
+   * 工具条**必须**是展开的 —— 否则上次收起的记忆会让人以为「点了没反应」
+   *（他只看到谱面上一个很小的 V，根本不会意识到那是展开入口）。
+   * 组件随 `penOn` 挂载 / 卸载，所以「进来即展开」由构造保证，不靠谁记得去重置。
+   */
+  const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
     if (!confirmingClear) return
@@ -127,16 +129,19 @@ export function AnnotationBar({
    * 外层的 `text-text-muted`），大小跟显示档位。
    *
    * ⚠️ 转的是**盒子**：两条边（下 + 左）先构成一个「L」，绕中心转 -45° 成「v」，
-   * 转 135° 成「^」。用 flex 的 `items-center` 居中那个**未旋转**的盒子。
+   * 转 135° 成「^」。但转完的**视觉重心不在盒子中心** —— 两个端点在盒子中心那条线上，
+   * 交点却在中心下方 (√2/2)·N 处 ⇒ 视觉中心比盒子中心低 **0.354N**。不补的话它就比旁边
+   * 那几个图标低三四个像素（`CHEVRON_SINK`）。
    */
   const chevronV = (up: boolean) => (
     <View
       className='text-text-muted'
       style={{
-        width: `${9 * uiScale}px`,
-        height: `${9 * uiScale}px`,
+        width: `${CHEVRON_PX * uiScale}px`,
+        height: `${CHEVRON_PX * uiScale}px`,
         borderBottom: `${2 * uiScale}px solid currentColor`,
         borderLeft: `${2 * uiScale}px solid currentColor`,
+        marginTop: `${-CHEVRON_SINK * uiScale}px`,
         transform: up ? 'rotate(135deg)' : 'rotate(-45deg)',
       }}
     />
@@ -146,25 +151,15 @@ export function AnnotationBar({
   const toggleButton = (
     <View
       className='flex h-8 w-8 items-center justify-center'
+      // 收起时整条栏被 `visibility: hidden` 罩住，这一个按钮把自己放出来 ——
+      // 于是它**留在第一行的原位上**（收 / 展都不动），而其余部分既不上色也不吃触摸
+      style={collapsed ? { visibility: 'visible', pointerEvents: 'auto' } : undefined}
       ariaLabel={collapsed ? t('scoreReader.penBarExpand') : t('scoreReader.penBarCollapse')}
-      onClick={onToggleCollapsed}
+      onClick={() => setCollapsed((c) => !c)}
     >
       {chevronV(collapsed)}
     </View>
   )
-
-  // **收起**：整条栏都不在，只剩最右边这个 V。它自己那 32×32 是**唯一**还被占住的地方 ——
-  // 这正是「在被挡住的地方也能起笔」的做法（半透明 / 落笔让位都只能解决「看到」，因为
-  // 手指落在工具条上时触摸根本到不了画布）。
-  // ⚠️ 容器必须跟着收窄（调用方按 `collapsed` 改 `left-0 right-0` → `right-0`）：
-  // 一条**透明的**整行 View 照样会吃掉触摸，那就成了一条看不见的禁区。
-  if (collapsed) {
-    return (
-      <View className='flex flex-row justify-end px-3'>
-        <View className='flex flex-row items-center'>{toggleButton}</View>
-      </View>
-    )
-  }
 
   return (
     // ⚠️ 布局：**强制两行**（用户 2026-10-16 定）。原先靠 `flex-wrap` 自动换行 —— 装得下
@@ -174,7 +169,20 @@ export function AnnotationBar({
     //
     // （从前必须自动换行是因为这一栏在手机宽度上本来就装不下：左组 ≈224px + 右组 ≈234px
     //  + 内边距 ≈482px，而屏宽只有 375px。分成两行之后这个约束就不存在了。）
-    <View className='border-t border-border bg-surface'>
+    //
+    // ⚠️ **收起 = 整条 `visibility: hidden`，不是「不渲染」**（用户 2026-10-16 订正）：
+    // 不渲染会让布局盒子一起消失 ⇒ 那个 V 掉到「第一行与第二行之间」的位置（用户原话：
+    // 「位置 y 太低，应当和第一行其他按钮对齐，现在几乎在第 1.5 行」）。visibility 保留
+    // 布局盒 ⇒ V 原地不动；而被隐藏的节点**既不上色也不参与命中**（另加 `pointer-events`
+    // 兜底）⇒ 谱面上唯一还挡着东西的就是那个 32×32 的 V，其余全能落笔。
+    <View
+      className='border-t border-border bg-surface'
+      // ⚠️ 展开时**必须显式 `auto`**：`pointer-events` 是**继承**的，而外层容器为了收起时
+      // 不吃触摸设了 `none` —— 这里不接回来，整条栏的按钮会全部点不动（静默失效）。
+      style={
+        collapsed ? { visibility: 'hidden', pointerEvents: 'none' } : { pointerEvents: 'auto' }
+      }
+    >
       <View className='flex flex-row items-center px-3 pt-2'>
         <View className='flex flex-row items-center'>
           {/* 笔 / 荧光笔 / 擦：橡皮擦按整条删除，比「清空本页」好用（能只擦掉不想要的那几笔）。

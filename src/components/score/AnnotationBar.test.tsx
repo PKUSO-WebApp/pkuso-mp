@@ -38,25 +38,38 @@ afterEach(() => {
 })
 
 describe('AnnotationBar 的收起 / 展开', () => {
-  it('展开时两行都在（有清空按钮），右上角那个按钮是「收起」', () => {
-    render(<AnnotationBar {...props} collapsed={false} onToggleCollapsed={vi.fn()} />)
-    expect(screen.getByText('scoreReader.clear')).toBeTruthy()
+  it('一进来就是展开的（组件随批注会话挂载 ⇒ 下次进批注必然展开）', () => {
+    const { container } = render(<AnnotationBar {...props} />)
     expect(screen.getByLabelText('scoreReader.penBarCollapse')).toBeTruthy()
+    expect(screen.getByText('scoreReader.clear')).toBeTruthy()
+    expect((container.firstChild as HTMLElement).style.visibility).toBe('')
+    // ⚠️ 外层容器是 `pointer-events: none`（它是个透明的整行盒子，会吃触摸），
+    // 而这是**继承**属性 —— 这一层不显式接回 `auto`，整条栏的按钮会全部点不动
+    expect((container.firstChild as HTMLElement).style.pointerEvents).toBe('auto')
   })
 
-  it('收起时整条栏都不在，只剩最右边那个「展开」按钮', () => {
-    render(<AnnotationBar {...props} collapsed onToggleCollapsed={vi.fn()} />)
-    // 被收走的是**整条**：第二行（清空）不在，工具按钮也不在
-    expect(screen.queryByText('scoreReader.clear')).toBeNull()
-    expect(screen.queryByLabelText('scoreReader.pen')).toBeNull()
-    // 但必须留一个能把它叫回来的东西
-    expect(screen.getByLabelText('scoreReader.penBarExpand')).toBeTruthy()
-  })
-
-  it('点那个按钮 ⇒ 回调（收 / 展都是同一个入口）', () => {
-    const onToggle = vi.fn()
-    render(<AnnotationBar {...props} collapsed={false} onToggleCollapsed={onToggle} />)
+  it('收起：整条栏隐藏，但**布局盒子留着**（那个 V 因此不移位），且只有它能点', () => {
+    const { container } = render(<AnnotationBar {...props} />)
     fireEvent.click(screen.getByLabelText('scoreReader.penBarCollapse'))
-    expect(onToggle).toHaveBeenCalledTimes(1)
+
+    const root = container.firstChild as HTMLElement
+    // 隐藏而不是不渲染：不渲染会让 V 掉到两行之间（用户 2026-10-16 报的位置问题）
+    expect(root.style.visibility).toBe('hidden')
+    // 隐藏的盒子按几何照样命中，所以必须显式不吃触摸
+    expect(root.style.pointerEvents).toBe('none')
+
+    // V 自己放出来：看得见、也点得着
+    const btn = screen.getByLabelText('scoreReader.penBarExpand')
+    expect(btn.style.visibility).toBe('visible')
+    expect(btn.style.pointerEvents).toBe('auto')
+  })
+
+  it('再点一次 ⇒ 展开回来；工具与按钮都在', () => {
+    const { container } = render(<AnnotationBar {...props} />)
+    fireEvent.click(screen.getByLabelText('scoreReader.penBarCollapse'))
+    fireEvent.click(screen.getByLabelText('scoreReader.penBarExpand'))
+    expect((container.firstChild as HTMLElement).style.visibility).toBe('')
+    expect(screen.getByText('scoreReader.clear')).toBeTruthy()
+    expect(screen.getByLabelText('scoreReader.pen')).toBeTruthy()
   })
 })

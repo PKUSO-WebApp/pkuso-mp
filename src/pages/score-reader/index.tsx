@@ -54,7 +54,6 @@ import {
   Z_TOOLBAR,
 } from './lib/layout'
 import { loadReaderMode, saveReaderMode, type ReaderMode } from './lib/reader-mode'
-import { isPenBarCollapsed, setPenBarCollapsed } from './lib/pen-bar-collapsed'
 import {
   nextVisibleToRender,
   pageFromScroll,
@@ -149,6 +148,15 @@ const CANVAS_OVERLAY_SEL: Record<Layer, string> = {
   b: '#reader-overlay-b',
   c: '#reader-overlay-c',
 }
+
+/** 落笔中的停顿（见 `strokeDiagRef`）：间隔超过它就立刻报一条，每笔最多一条 */
+const STROKE_STALL_MS = 120
+/** 一次实时层重画超过它，就认为「这一拍不跟手」（读数进小结的 `maxPaintMs`） */
+const LIVE_PAINT_SLOW_MS = 24
+/** 超过这么多点的小结一律上报 —— 要的就是「耗时随点数怎么长」那条曲线 */
+const STROKE_SUMMARY_MIN_PTS = 400
+/** 整页重画（三块批注层）超过它 = 一次可见的卡顿；落笔期间发生尤其可疑 */
+const REDRAW_SLOW_MS = 80
 
 /**
  * 在飞的后台预绘制的控制块（见 `doPredraw`）：
@@ -316,19 +324,6 @@ export default function ScoreReader() {
   const [penOn, setPenOn] = useState(false)
   const [penColor, setPenColor] = useState<string>(PEN_COLORS[0])
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS[0])
-  /**
-   * 批注工具条收起（跨会话记住，见 lib/pen-bar-collapsed.ts 的「为什么要有这个开关」）。
-   *
-   * 状态放在**页面**而不是组件里，是因为它还要决定**外面那个容器的宽度**：收起时从
-   * `left-0 right-0` 变成 `right-0`。容器不收窄的话，一条透明的整行 View 会照样吃掉
-   * 触摸 —— 那就在谱面上留了一条**看不见的禁区**，正是这次要消灭的东西。
-   */
-  const [penBarCollapsed, setPenBarCollapsedState] = useState(() => isPenBarCollapsed())
-  const togglePenBar = () => {
-    const next = !penBarCollapsed
-    setPenBarCollapsedState(next)
-    setPenBarCollapsed(next)
-  }
   const [annos, setAnnos] = useState<AnnoDoc>({})
   /**
    * 批注的同步镜像：**读-改-写**的调用点一律读它，不读 state。
@@ -519,6 +514,28 @@ export default function ScoreReader() {
    * **直接掉进虚空** ⇒ 每一笔的开头缺一段（真机症状：写「3」「2」开头的圆弧被拉成直线）。
    */
   const strokePendingRef = useRef<Array<{ clientX: number; clientY: number }>>([])
+  /**
+   * 一次落笔的**停顿账**（只上报，不参与绘制）。
+   *
+   * 用户 2026-10-16：「长绘画时突然的停顿仍然存在，**且仍然没有任何相关的探针**」——
+   * 之前的埋点只量了「起笔到首点上屏」，那是**起笔那一刻**；笔画到一半卡住它看不见。
+   * 这里分开记三条线，因为它们指向完全不同的原因：
+   *
+   * - `maxGap`（两次 `touchmove` 之间的间隔）—— 大 = 那段时间 JS 被别人占着，
+   *   或系统把 move 丢了。后者在画面上表现为**那一段被拉成直线**（点没了）。
+   * - `maxPaint`（一次实时层重画花多久）—— **它随本笔点数线性增长**（每帧清屏 + 重画整条
+   *   在画的线，O(点数)/帧）。「越画越卡」如果成立，读数就该在这里随 `pts` 一起涨。
+   * - `moves` vs `paints` —— 合帧（`lib/ink-queue.ts`）到底合掉了多少。
+   */
+  const strokeDiagRef = useRef({
+    startAt: 0,
+    lastMoveAt: 0,
+    moves: 0,
+    paints: 0,
+    maxGap: 0,
+    maxPaint: 0,
+    stallReported: false,
+  })
   /**
    * 「抬手时 rect 还没回来」的那些笔（触控笔点得快，整笔都落在 rect 查询窗口里）。
    *
@@ -1719,6 +1736,7 @@ export default function ScoreReader() {
     // **并行**画这几块（原来是 `for ... await` 串行 ⇒ 三块分三个时间片，UD 模式下多块
     // 同时可见时，用户能看到「这一块更新了、那一块还没」）。每块内部「清屏 → 画完」仍然
     // 在同一个 JS 时间片里，所以并行**不会**让谁露出空白。
+    const t0 = Date.now()
     await Promise.all(
       ALL_LAYERS.map(async (l) => {
         const p = layerSlot[l]
@@ -1732,7 +1750,17 @@ export default function ScoreReader() {
     // 已落定的墨都重画完了 —— 这时候再清实时层，才不会露出「线没了、要等下一拍才回来」。
     // 正在画的时候不清（那会抹掉用户画到一半的线；它的内容归 `repaintLiveStroke` 维护）。
     if (!drawingRef.current) paintLiveLayer(null)
-  }, [layerSlot, paintLane, pageCount, viewSize, paintLiveLayer])
+    // 「整页重画」是 O(整页笔迹) 的同步阻塞 —— 几十笔的页上就是一次可见的卡顿。落笔期间
+    // 发生尤其可疑（那正是「画到一半突然顿住」的一种可能来源），所以把 `drawing` 一起记上
+    const ms = Date.now() - t0
+    if (ms > REDRAW_SLOW_MS) {
+      reportClientError({
+        event: 'score_reader_redraw_slow',
+        message: `整页重画 ${ms}ms`,
+        detail: { fileId, page: pageRef.current, drawing: drawingRef.current, ms },
+      })
+    }
+  }, [layerSlot, paintLane, pageCount, viewSize, paintLiveLayer, fileId])
 
   /**
    * 内存告警：只做**保守动作**（2026-10-09 讨论定下的 A 方案，2026-10-16 补上）。
@@ -2069,6 +2097,35 @@ export default function ScoreReader() {
    *（用户 2026-10-15 报）。只在**确实抹掉了一条正在画的线**时记一条 —— 正常收笔走
    * `finishStroke`，压根不经过这里，所以它不会吵。
    */
+  /**
+   * 一笔结束时把这笔的停顿账报出来（见 `strokeDiagRef`）。
+   *
+   * 门槛：有停顿 / 有慢重画 / 点数够多 —— 只报有信息量的，否则画一笔报一条会把表刷满。
+   */
+  const reportStrokeDiag = (outcome: string, pts: number) => {
+    const diag = strokeDiagRef.current
+    if (diag.moves === 0) return
+    const slow =
+      diag.maxGap > 60 || diag.maxPaint > LIVE_PAINT_SLOW_MS || pts >= STROKE_SUMMARY_MIN_PTS
+    if (!slow) return
+    reportClientError({
+      event: 'score_reader_stroke_summary',
+      message: `一笔：${pts} 点 / ${diag.paints} 次重画 / 最长停顿 ${diag.maxGap}ms / 最慢重画 ${diag.maxPaint}ms`,
+      detail: {
+        fileId,
+        page: strokePageRef.current,
+        tool,
+        outcome,
+        pts,
+        moves: diag.moves,
+        paints: diag.paints,
+        maxGapMs: diag.maxGap,
+        maxPaintMs: diag.maxPaint,
+        spanMs: Date.now() - diag.startAt,
+      },
+    })
+  }
+
   const cancelStroke = (reason: string) => {
     // 画了一半就被打断（转双指 / 系统打断 / 收起批注）：把那条线从画面上抹掉。
     // 必须在清 ref 之前调——重画要用到「画在哪一页、哪一块」
@@ -2081,6 +2138,9 @@ export default function ScoreReader() {
         message: `画到一半的线被抹掉：${reason}`,
         detail: { fileId, page: strokePageRef.current, pts: strokePtsRef.current.length },
       })
+      // ⚠️ 在清 `strokePtsRef` **之前**报：这条正被抹掉的线有多少点、卡了多久，是
+      // 「停顿 → 系统抢走触摸 → 一整笔消失」这条链的**唯一**证据（见 strokeDiagRef）
+      reportStrokeDiag(`cancelled:${reason}`, strokePtsRef.current.length)
     }
     drawingRef.current = false
     erasingRef.current = false
@@ -2201,6 +2261,16 @@ export default function ScoreReader() {
     strokeLayerRef.current = lane.layer
     strokePageRef.current = lane.page
     strokePendingRef.current = []
+    // 重新开一本停顿账（上一笔的已在 finishStroke / cancelStroke 里结掉）——见 strokeDiagRef
+    strokeDiagRef.current = {
+      startAt: Date.now(),
+      lastMoveAt: 0,
+      moves: 0,
+      paints: 0,
+      maxGap: 0,
+      maxPaint: 0,
+      stallReported: false,
+    }
     /**
      * 起笔（手指落下）到首点上屏的耗时 —— 诊断用，见下面那条上报。
      *
@@ -2298,7 +2368,14 @@ export default function ScoreReader() {
    */
   /** 重画**实时层**（传 `null` = 清空它）。它只装正在画的那一笔 —— 见 liveCtxRef 的注释 */
   const repaintLiveStroke = (live: [number, number][] | null) => {
+    // 停顿账：这一次重画花了多久（读数随点数涨 = 「越画越卡」成立）—— 见 strokeDiagRef
+    const diag = strokeDiagRef.current
+    const t0 = Date.now()
     paintLiveLayer(live && live.length > 0 ? liveInkOf(live) : null)
+    if (live === null) return // 清屏不算「重画这一笔」的账
+    diag.paints += 1
+    const ms = Date.now() - t0
+    if (ms > diag.maxPaint) diag.maxPaint = ms
   }
 
   /**
@@ -2318,6 +2395,31 @@ export default function ScoreReader() {
   const drawLiveSegment = (touch: { clientX: number; clientY: number }) => {
     if (!liveCtxRef.current) return
     strokePtsRef.current.push(pointOf(touch.clientX, touch.clientY))
+    // 停顿账：两次 move 之间隔了多久。**不进这里就永远看不见「画到一半卡住」** ——
+    // 起笔那条埋点只量到首点上屏为止（见 strokeDiagRef）
+    const diag = strokeDiagRef.current
+    const nowMs = Date.now()
+    if (diag.lastMoveAt > 0) {
+      const gap = nowMs - diag.lastMoveAt
+      if (gap > diag.maxGap) diag.maxGap = gap
+      if (gap > STROKE_STALL_MS && !diag.stallReported) {
+        diag.stallReported = true
+        reportClientError({
+          event: 'score_reader_stroke_stall',
+          message: `落笔中停顿 ${gap}ms`,
+          detail: {
+            fileId,
+            page: strokePageRef.current,
+            pts: strokePtsRef.current.length,
+            moves: diag.moves,
+            paints: diag.paints,
+            maxPaintMs: diag.maxPaint,
+          },
+        })
+      }
+    }
+    diag.lastMoveAt = nowMs
+    diag.moves += 1
     // 点**照旧每个都入账**（上面那句），只把**重画**压到每帧一次：触控笔 120~240Hz、
     // 比帧还密，而每个触点都清屏重画一整页会把 JS 占死 —— 这期间到达的 touchmove 被系统
     // 丢掉，于是曲线在卡顿处被拉成直线（用户 2026-10-15 真机）。见 lib/ink-queue.ts
@@ -2624,6 +2726,7 @@ export default function ScoreReader() {
     // 重画补回来 ⇒ 又是一次闪）
     inkQueueRef.current?.cancel()
     const pts = strokePtsRef.current
+    reportStrokeDiag('lift', pts.length)
     strokePtsRef.current = []
     // 落在**落笔时定死的那一页**上（见 strokePageRef）：画布就是那一页，坐标就是页内的，
     // 不需要任何跨页切分
@@ -3151,12 +3254,17 @@ export default function ScoreReader() {
         </View>
 
         {/* 批注工具条：悬浮在底栏之上（位置取底栏的**实测**高度——它已含安全区，不重复叠加）。
-            ⚠️ 收起时容器**必须一起收窄**（`left-0 right-0` → `right-0`）：透明的整行 View
-            照样吃触摸，不收窄就在谱面上留了一条看不见的禁区（见 penBarCollapsed 的注释） */}
+            ⚠️ 这一层**不吃触摸**（`pointerEvents: 'none'`）：它是个透明的整行盒子，而盒子
+            按几何命中 —— 不收手的话，工具条收起之后这片区域照样落不了笔（一条**看不见的
+            禁区**）。真正要接触摸的是里面那些按钮，由 AnnotationBar 自己 `auto` 回来。 */}
         {penOn ? (
           <View
-            className={penBarCollapsed ? 'absolute right-0' : 'absolute left-0 right-0'}
-            style={{ bottom: penBarBottom(barH.bottom), zIndex: Z_TOOLBAR }}
+            className='absolute left-0 right-0'
+            style={{
+              bottom: penBarBottom(barH.bottom),
+              zIndex: Z_TOOLBAR,
+              pointerEvents: 'none',
+            }}
           >
             <AnnotationBar
               color={penColor}
@@ -3172,8 +3280,6 @@ export default function ScoreReader() {
               onWidth={setPenWidth}
               onUndo={handleUndo}
               onClear={handleClear}
-              collapsed={penBarCollapsed}
-              onToggleCollapsed={togglePenBar}
             />
           </View>
         ) : null}
