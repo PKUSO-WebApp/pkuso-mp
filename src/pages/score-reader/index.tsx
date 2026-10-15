@@ -714,6 +714,21 @@ export default function ScoreReader() {
 
   // 退出页面即停泵、停动画、停预绘制——后台抓取/计时器不该在页面销毁后继续
   useUnload(() => {
+    // 页面**被销毁**（返回 / 重定向）时才走到这儿。这一条是给「横滑触发了返回手势之后
+    // 绘画内容消失」那个问题做判据的：用户 2026-10-16 说这条**非常可疑**。
+    // 与 `score_reader_stroke_cancelled` 对账就能把两种解释分开：
+    // - 只是手势抢走了触摸（页面还在）⇒ 有 cancelled、**没有** unload；
+    // - 手势真的把页面返回了 ⇒ cancelled 后面紧跟一条 unload。
+    reportClientError({
+      event: 'score_reader_unload',
+      message: '阅读器页面被销毁',
+      detail: {
+        fileId,
+        page: pageRef.current,
+        drawing: drawingRef.current,
+        pts: strokePtsRef.current.length,
+      },
+    })
     // 触发点 ②：把挂着的那次停笔防抖立刻发掉（最后一班车）。拿不到结果是有意的——
     // 页面正在卸载，请求发不发得出去都无所谓，欠账有联网恢复那条路兜
     if (fileId) flushAnnotationSync(fileId)

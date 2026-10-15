@@ -147,19 +147,33 @@ export function AnnotationBar({
     />
   )
 
-  /** 收起按钮：**没有背景**（用户 2026-10-16 定）—— 它就贴在谱面上，不该再压一块底色 */
+  /**
+   * 收起 / 展开按钮：**没有背景**（用户 2026-10-16 定）—— 它就贴在谱面上，不该再压一块底色。
+   *
+   * `pointerEvents: 'auto'` 是显式的：外层浮层为了「不吃触摸」设了 `none`，而它是**继承**属性。
+   */
   const toggleButton = (
     <View
       className='flex h-8 w-8 items-center justify-center'
-      // 收起时整条栏被 `visibility: hidden` 罩住，这一个按钮把自己放出来 ——
-      // 于是它**留在第一行的原位上**（收 / 展都不动），而其余部分既不上色也不吃触摸
-      style={collapsed ? { visibility: 'visible', pointerEvents: 'auto' } : undefined}
+      style={{ pointerEvents: 'auto' }}
       ariaLabel={collapsed ? t('scoreReader.penBarExpand') : t('scoreReader.penBarCollapse')}
       onClick={() => setCollapsed((c) => !c)}
     >
       {chevronV(collapsed)}
     </View>
   )
+
+  // **收起**：整条栏都不在，只剩最右边这个 V。它自己那 32×32 是**唯一**还被占住的地方 ——
+  // 这正是「在被挡住的地方也能起笔」的做法（半透明 / 落笔让位都只能解决「看到」）。
+  // ⚠️ 这一行的盒子要 `pointer-events: none`：它整行都是透明的，而盒子**按几何命中** ——
+  // 不收手就留下一条**看不见的禁区**（真正接触摸的是那个 V，它自己 `auto` 回来）。
+  if (collapsed) {
+    return (
+      <View className='flex flex-row justify-end px-3' style={{ pointerEvents: 'none' }}>
+        <View className='flex flex-row items-center'>{toggleButton}</View>
+      </View>
+    )
+  }
 
   return (
     // ⚠️ 布局：**强制两行**（用户 2026-10-16 定）。原先靠 `flex-wrap` 自动换行 —— 装得下
@@ -170,20 +184,19 @@ export function AnnotationBar({
     // （从前必须自动换行是因为这一栏在手机宽度上本来就装不下：左组 ≈224px + 右组 ≈234px
     //  + 内边距 ≈482px，而屏宽只有 375px。分成两行之后这个约束就不存在了。）
     //
-    // ⚠️ **收起 = 整条 `visibility: hidden`，不是「不渲染」**（用户 2026-10-16 订正）：
-    // 不渲染会让布局盒子一起消失 ⇒ 那个 V 掉到「第一行与第二行之间」的位置（用户原话：
-    // 「位置 y 太低，应当和第一行其他按钮对齐，现在几乎在第 1.5 行」）。visibility 保留
-    // 布局盒 ⇒ V 原地不动；而被隐藏的节点**既不上色也不参与命中**（另加 `pointer-events`
-    // 兜底）⇒ 谱面上唯一还挡着东西的就是那个 32×32 的 V，其余全能落笔。
+    // ⚠️ 收起按钮**绝对定死在栏的右上角**（`absolute right-3 top-2`），**不进第一行的流** ——
+    // 用户 2026-10-16 真机：「位置 y 太低，应当和第一行其他按钮对齐，现在几乎在第 1.5 行」。
+    // 钉坐标之后它和第一行那几个按钮**由构造同高**：两者都是 h-8（32px），且都从栏顶 +8px
+    // 开始（`top-2` 就是第一行的 `pt-2`）—— 不管 flex 在这套 WXSS 里怎么算，它都掉不下去。
     <View
-      className='border-t border-border bg-surface'
-      // ⚠️ 展开时**必须显式 `auto`**：`pointer-events` 是**继承**的，而外层容器为了收起时
-      // 不吃触摸设了 `none` —— 这里不接回来，整条栏的按钮会全部点不动（静默失效）。
-      style={
-        collapsed ? { visibility: 'hidden', pointerEvents: 'none' } : { pointerEvents: 'auto' }
-      }
+      className='relative border-t border-border bg-surface'
+      // ⚠️ 展开时**必须显式 `auto`**：`pointer-events` 是**继承**的，而外层容器（见下面收起
+      // 那一支的注释）为了不吃触摸设了 `none` —— 这里不接回来，整条栏的按钮会全部点不动。
+      style={{ pointerEvents: 'auto' }}
     >
-      <View className='flex flex-row items-center px-3 pt-2'>
+      {/* 右上角那个收起按钮。row 1 用 `pr-12` 给它让出位置（48px，够 32px 的按钮 + 3 处间隔） */}
+      <View className='absolute right-3 top-2'>{toggleButton}</View>
+      <View className='flex flex-row items-center px-3 pt-2 pr-12'>
         <View className='flex flex-row items-center'>
           {/* 笔 / 荧光笔 / 擦：橡皮擦按整条删除，比「清空本页」好用（能只擦掉不想要的那几笔）。
                 用**图标**而不是文字（用户 2026-10-10 定）：这一栏在英文下比中文长得多
@@ -209,8 +222,6 @@ export function AnnotationBar({
             />
           ))}
         </View>
-        {/* `ml-auto` 把它推到第一行最右（= 整条的右上角） */}
-        <View className='ml-auto flex flex-row items-center'>{toggleButton}</View>
       </View>
       <View className='flex flex-row items-center justify-end px-3 pb-2'>
         {widthsFor(tool).map(widthDot)}
