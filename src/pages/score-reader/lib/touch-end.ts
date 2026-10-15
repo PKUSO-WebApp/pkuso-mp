@@ -33,3 +33,20 @@ export function touchEndAction(args: {
   if (drawing && penId !== null && changedIds.includes(penId)) return 'stroke-only'
   return 'none'
 }
+
+/**
+ * 按 `identifier` 从当前触点里挑出**那一根**。
+ *
+ * 用途：绘画期间屏上可能不止一根手指（手掌 / 误触），而我们要继续用**落笔那根**
+ *（用户 2026-10-15 定：多指触碰不打断绘画，仍以最开始那根为触点）。
+ *
+ * `id` 为 `null`（没在画 / 老路径没记 id）时退回「只有一根」那种情况 ——
+ * 宁可这一拍不画，也不拿别的手指的坐标去画。
+ */
+export function touchOf<T extends { identifier: number }>(
+  touches: T[],
+  id: number | null
+): T | null {
+  if (id !== null) return touches.find((x) => x.identifier === id) ?? null
+  return touches.length === 1 ? touches[0] : null
+}

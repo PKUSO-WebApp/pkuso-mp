@@ -64,9 +64,9 @@ import {
   visibleRange,
 } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
-import { drawPolylineOn, drawStrokeOn, eraseStrokesAt } from './lib/anno-draw'
-import { inkFor } from './lib/ink'
-import { touchEndAction } from './lib/touch-end'
+import { drawStrokeOn, eraseStrokesAt } from './lib/anno-draw'
+import { inkFor, type LiveInk } from './lib/ink'
+import { touchEndAction, touchOf } from './lib/touch-end'
 import { lastPageKey } from './lib/last-page'
 import {
   isImageLayerBroken,
@@ -369,6 +369,11 @@ export default function ScoreReader() {
   /** 起笔待落点：touchstart 记下原始触点，rect 取到当次值后才成笔 */
   const strokeSeedRef = useRef<{ x: number; y: number } | null>(null)
   const overlayCtxRef = useRef<CanvasCtx | null>(null)
+  /**
+   * 与它成对的那块画布节点：**只为了查位图尺寸**（`ctx` 拿不到 `width/height`）。
+   * 生命周期与 `overlayCtxRef` 完全一致 —— 一起设、一起清。
+   */
+  const overlayNodeRef = useRef<CanvasNode | null>(null)
   const overlayRectRef = useRef<{ left: number; top: number } | null>(null)
   /**
    * 这一笔落在**哪一页**、画进**哪一块**批注画布（落笔时定死，抬手时按它归档）。
@@ -1508,6 +1513,61 @@ export default function ScoreReader() {
 
   // 批注层重绘：翻页 / 缩放 / 笔迹变化时按当前页恢复
   /**
+   * **唯一**一处往批注画布写墨的地方。
+   *
+   * 三条写路径全走它：整页重画（`paintLane`）、实时重画（`repaintLiveStroke`）、
+   * 乐观补一个点（`paintTapPoint`）。从前它们各写各的 —— 新加一条就得自己记得带上
+   * 「**还没入账的那一笔**」（正在画的线 / 刚落下的点），而「忘记」就是闪一下
+   *（`pkusoweb/批注绘制-结构调查.md` §2-2）。收进这里之后，「画布上该有什么」只有
+   * `inkFor` 一个答案来源。
+   *
+   * - `clear: true` —— 清屏，然后画「已落定的 + live」（**重画**语义）。
+   * - `clear: false` —— **不清屏**，只把 live 补上去（**追加**语义，乐观绘制用）。
+   *   ⚠️ 这时**绝不能**把已落定的那些再画一遍：重叠处会把半透明的荧光笔越描越深。
+   *
+   * 取节点（异步）留给调用方 —— 各条路径的取法与守卫不同（见它们各自的注释）。
+   */
+  const paintInkOn = useCallback(
+    (
+      node: CanvasNode,
+      ctx: CanvasCtx,
+      pageNo: number,
+      live: LiveInk | null,
+      clear: boolean
+    ): void => {
+      const { w, h } = viewSizeRef.current
+      if (!(w > 0) || !(h > 0)) return
+      const dpr = rasterDpr(w, h)
+      // ⚠️ 位图**必须已经是当前尺寸**才画：`setTransform` 只换坐标系、不换位图，尺寸对不上时
+      // 画出来的东西位置全错（甚至画出界看不见）。整页重画那条路会自己把尺寸摆正（见
+      // `paintLane`），所以这里只校验**追加**：不匹配就跳过 —— 那一笔已经入账了，
+      // 随后的整页重画会按正确尺寸把它画出来；丢的只是「立刻可见」那一拍。
+      if (!clear && (node.width !== Math.round(w * dpr) || node.height !== Math.round(h * dpr))) {
+        return
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      if (clear) ctx.clearRect(0, 0, w, h)
+      // 追加时不带上已落定的（`inkFor([], live)` 只产出 live 那一笔）
+      const strokes = clear
+        ? inkFor(annosRef.current[String(pageNo)] ?? [], live)
+        : inkFor([], live)
+      for (const s of strokes) drawStrokeOn(ctx, s, w, h)
+    },
+    []
+  )
+
+  /** 正在画的那一笔的样式（画笔的 `alpha` 是 `undefined` 而不是 1 —— 与落定时逐字一致） */
+  const liveInkOf = useCallback(
+    (points: [number, number][]): LiveInk => ({
+      points,
+      color: penColor,
+      width: brushWidth,
+      alpha: tool === 'highlighter' ? HIGHLIGHTER_ALPHA : undefined,
+    }),
+    [brushWidth, penColor, tool]
+  )
+
+  /**
    * 把某一块批注画布画成「它那一页现在该有的样子」。
    *
    * ⚠️ 只有尺寸真的不对时才重设画布（重设 = 清屏）。重绘本身是「查节点 → 清屏 → 画」
@@ -1533,23 +1593,16 @@ export default function ScoreReader() {
           overlay.width = bw
           overlay.height = bh
         }
-        const ctx = overlay.getContext('2d')
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-        ctx.clearRect(0, 0, w, h)
-        // ⚠️ 读**同步镜像**，不读闭包里的 `annos`：这个函数在 `await` 之后才画，而等待期间
-        // 完全可能又落了一笔（乐观绘制先上了屏、数据也刚进 annos）—— 拿旧闭包清屏重画就会
-        // 把它抹掉，紧接着下一次重画又画回来 ⇒ 真机上「快速点两下，第二笔闪几下」
-        //（用户 2026-10-15）。与 `repaintLiveStroke` 同一条纪律：它一直读的就是 annosRef。
-        // `inkFor(..., null)`：整页重画**只画已落定的** —— 正在画的那一块由上面那句守卫
-        // 直接跳过了（它的内容归 `repaintLiveStroke` 维护）
-        for (const s of inkFor(annosRef.current[String(pageNo)] ?? [], null)) {
-          drawStrokeOn(ctx, s, w, h)
-        }
+        // 尺寸摆正之后交给单入口：`clear: true` ⇒ 清屏 + 画「已落定的那一页」。
+        // ⚠️ 它读的仍然是**同步镜像** `annosRef`（在 `paintInkOn` 里）—— 这个函数在 `await`
+        // 之后才画，等待期间可能又落了一笔，拿旧闭包清屏重画就会把它抹掉、再画回来 ⇒
+        // 真机上「快速点两下，第二笔闪几下」（用户 2026-10-15）。
+        paintInkOn(overlay, overlay.getContext('2d'), pageNo, null, true)
       } catch {
         // 画布没挂载 / 未就绪：静默，下次状态变化会重试
       }
     },
-    [queryCanvasNode]
+    [paintInkOn, queryCanvasNode]
   )
 
   /**
@@ -1913,6 +1966,8 @@ export default function ScoreReader() {
     // 卸载重挂（批注层是按条件挂载的，见 JSX 里那处），它就成了指向已销毁节点的脏引用，
     // 之后往里画是**静默无效**（画面上什么都没有，也没有任何报错）。
     overlayCtxRef.current = null
+    // 与它成对的那块节点一起清（两者生命周期一致，见 overlayNodeRef 的声明）
+    overlayNodeRef.current = null
     // ⚠️ `strokeEndedRef` 这里**故意不清**：快速连点时下一笔的 beginStroke 会走到这儿，
     // 清了就等于把上一笔又丢掉一次（见它的声明）。它只由自己那个异步块消费并移除。
   }
@@ -1984,29 +2039,17 @@ export default function ScoreReader() {
    */
   const paintTapPoint = (
     node: CanvasNode,
+    pageNo: number,
     left: number,
     top: number,
     seed: { x: number; y: number }
   ) => {
     const { w, h } = viewSizeRef.current
     if (!(w > 0) || !(h > 0)) return
-    const ctx = node.getContext('2d')
-    const dpr = rasterDpr(w, h)
-    // ⚠️ 位图**必须已经是当前尺寸**才画：`setTransform` 只换坐标系、不换位图，尺寸对不上时
-    // 这个点会落在错误的位置（甚至画出界、看不见）。不匹配就跳过 —— 这一笔已经入账了，
-    // 随后的 `redrawOverlay` 会按正确尺寸把它画出来；丢的只是「立刻可见」那一拍，
-    // 好过把点画到错地方。
-    if (node.width !== Math.round(w * dpr) || node.height !== Math.round(h * dpr)) return
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    drawPolylineOn(
-      ctx,
-      [[clamp((seed.x - left) / w, 0, 1), clamp((seed.y - top) / h, 0, 1)]],
-      penColor,
-      brushWidth,
-      w,
-      h,
-      tool === 'highlighter' ? HIGHLIGHTER_ALPHA : 1
-    )
+    const pt: [number, number] = [clamp((seed.x - left) / w, 0, 1), clamp((seed.y - top) / h, 0, 1)]
+    // **追加**语义：不清屏、也不重画已落定的那些（重画会把半透明的荧光笔越描越深）。
+    // 位图尺寸的校验也在单入口里（不匹配就跳过 —— 这一笔已入账，随后的整页重画会画它）
+    paintInkOn(node, node.getContext('2d'), pageNo, liveInkOf([pt]), false)
   }
 
   // 起笔：rect 必须当次现取（工具条显隐会挪动画布），取到之前不落笔——
@@ -2035,7 +2078,7 @@ export default function ScoreReader() {
           if (idx >= 0) {
             const [tap] = strokeEndedRef.current.splice(idx, 1)
             // 先把点画上屏，再落定 —— 落定这条路上有整册序列化，用户不该等它
-            paintTapPoint(node as CanvasNode, left, top, tap.seed)
+            paintTapPoint(node as CanvasNode, tap.page, left, top, tap.seed)
             commitTapStroke(tap.page, tap.seed, left, top)
           }
           return
@@ -2049,6 +2092,8 @@ export default function ScoreReader() {
         const { w, h } = viewSizeRef.current
         ctx.setTransform(rasterDpr(w, h), 0, 0, rasterDpr(w, h), 0, 0)
         overlayCtxRef.current = ctx
+        // 与 ctx 成对存下来：`paintInkOn` 查位图尺寸要用节点（ctx 上没有 width/height）
+        overlayNodeRef.current = node as CanvasNode
       } catch {
         // 拿不到 rect：把这一笔从待落队列里摘掉 —— 留着就永远等不到人认领了
         const idx = strokeEndedRef.current.findIndex((x) => x.seed === seed)
@@ -2092,26 +2137,10 @@ export default function ScoreReader() {
    */
   const repaintLiveStroke = (live: [number, number][] | null) => {
     const ctx = overlayCtxRef.current
-    if (!ctx || !strokeLayerRef.current) return
-    const { w, h } = viewSizeRef.current
-    if (!(w > 0) || !(h > 0)) return
-    ctx.clearRect(0, 0, w, h)
-    // 「该画什么」全交给 `inkFor`：已落定的 + **还没入账的那一笔**（见 lib/ink.ts）。
-    // 从前这两类各由一条语句画，任何新增的写入者都得自己记得带上 live —— 而「忘记」
-    // 就是闪一下（结构调查 §2-2）。
-    const ink = inkFor(
-      annosRef.current[String(strokePageRef.current)] ?? [],
-      live && live.length > 0
-        ? {
-            points: live,
-            color: penColor,
-            width: brushWidth,
-            // 画笔是 `undefined` 而不是 1：与落定时 `commitStrokePoints` 的写法逐字一致
-            alpha: tool === 'highlighter' ? HIGHLIGHTER_ALPHA : undefined,
-          }
-        : null
-    )
-    for (const s of ink) drawStrokeOn(ctx, s, w, h)
+    const node = overlayNodeRef.current
+    if (!ctx || !node || !strokeLayerRef.current) return
+    // 重画语义：清屏 + 画「已落定的 + **还没入账的那一笔**」（全在单入口里，见 paintInkOn）
+    paintInkOn(node, ctx, strokePageRef.current, live && live.length > 0 ? liveInkOf(live) : null, true)
   }
 
   const drawLiveSegment = (touch: { clientX: number; clientY: number }) => {
@@ -2269,6 +2298,11 @@ export default function ScoreReader() {
     // 下面两处的基准位置（drag / pinch 的 pan）读的是同步镜像，差一帧就是「接着滑时先往回跳一下」
     flushPan()
     if (e.touches.length >= 2) {
+      // ⚠️ **正在画的时候，第二根手指（手掌 / 误触）不打断这一笔**（用户 2026-10-15 定）：
+      // 继续用落笔那根画（见 onTouchMove 里按 identifier 取触点）。从前这里直接
+      // cancelStroke + 转双指缩放 ⇒ 真机上「写着写着，手一碰，线整条消失」。
+      // 想缩放就先抬笔、再落两指。
+      if (drawingRef.current) return
       multiTouchRef.current = true
       cancelStroke('two-fingers')
       dragRef.current = null
@@ -2320,8 +2354,11 @@ export default function ScoreReader() {
   }
 
   const onTouchMove = (e: ITouchEvent) => {
-    if (drawingRef.current && e.touches.length === 1) {
-      const touch = e.touches[0]
+    if (drawingRef.current) {
+      // 按 `identifier` 挑出**画的那根**：屏上可能还有别的手指（手掌 / 误触），而它们
+      // **不打断**这一笔（见 onTouchStart 里那条）—— 所以这里不能要求「只剩一根手指」。
+      // 那根已经不在屏上时 `touchOf` 给 null，这一拍就不画（等它回来或抬手）。
+      const touch = touchOf(e.touches, strokeIdRef.current)
       if (touch) drawLiveSegment(touch)
       return
     }
