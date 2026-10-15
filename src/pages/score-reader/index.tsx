@@ -535,6 +535,12 @@ export default function ScoreReader() {
     maxGap: 0,
     maxPaint: 0,
     stallReported: false,
+    /** 起手点（**屏幕坐标**，见下）与取消前最后到达的 x */
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    /** 本笔期间出现过的**最大触点数**（手掌/第二指落下来过没有） */
+    maxTouches: 1,
   })
   /**
    * 「抬手时 rect 还没回来」的那些笔（触控笔点得快，整笔都落在 rect 查询窗口里）。
@@ -2137,6 +2143,12 @@ export default function ScoreReader() {
         maxGapMs: diag.maxGap,
         maxPaintMs: diag.maxPaint,
         spanMs: Date.now() - diag.startAt,
+        // 判断「被系统手势抢走」用（见 strokeDiagRef）：起手离**屏幕左沿**多远、
+        // 抢走前手指到哪儿了、这一笔期间有没有落下过第二个触点（手掌）
+        startX: diag.startX,
+        startY: diag.startY,
+        lastX: diag.lastX,
+        maxTouches: diag.maxTouches,
       },
     })
   }
@@ -2148,10 +2160,23 @@ export default function ScoreReader() {
       // 待画的那一帧先作废（它读 `strokePtsRef`，而下面紧接着就要清空它）
       inkQueueRef.current?.cancel()
       repaintLiveStroke(null)
+      const cd = strokeDiagRef.current
       reportClientError({
         event: 'score_reader_stroke_cancelled',
         message: `画到一半的线被抹掉：${reason}`,
-        detail: { fileId, page: strokePageRef.current, pts: strokePtsRef.current.length },
+        detail: {
+          fileId,
+          page: strokePageRef.current,
+          pts: strokePtsRef.current.length,
+          // ⚠️ 这几个字段是「被系统手势抢走」那条链**唯一**的判据（2026-10-16 研究结论）：
+          // 起手离屏幕左沿多远（`startX`）、抢走前手指到哪儿（`lastX`）、期间有没有第二触点
+          //（`maxTouches`）。缺了它们，几何解释与「忙 ⇒ 让路」解释在数据上分不开。
+          startX: cd.startX,
+          startY: cd.startY,
+          lastX: cd.lastX,
+          maxTouches: cd.maxTouches,
+          maxGapMs: cd.maxGap,
+        },
       })
       // ⚠️ 在清 `strokePtsRef` **之前**报：这条正被抹掉的线有多少点、卡了多久，是
       // 「停顿 → 系统抢走触摸 → 一整笔消失」这条链的**唯一**证据（见 strokeDiagRef）
@@ -2285,6 +2310,12 @@ export default function ScoreReader() {
       maxGap: 0,
       maxPaint: 0,
       stallReported: false,
+      // ⚠️ 记的是**屏幕坐标**（原始 clientX），不是页内坐标：要判的正是「起手离屏幕左沿
+      // 多远」——那决定了系统/客户端那层返回手势该不该启动（见 strokeDiagRef 的注释）
+      startX: Math.round(touch.clientX),
+      startY: Math.round(touch.clientY),
+      lastX: Math.round(touch.clientX),
+      maxTouches: 1,
     }
     /**
      * 起笔（手指落下）到首点上屏的耗时 —— 诊断用，见下面那条上报。
@@ -2434,6 +2465,7 @@ export default function ScoreReader() {
       }
     }
     diag.lastMoveAt = nowMs
+    diag.lastX = Math.round(touch.clientX)
     diag.moves += 1
     // 点**照旧每个都入账**（上面那句），只把**重画**压到每帧一次：触控笔 120~240Hz、
     // 比帧还密，而每个触点都清屏重画一整页会把 JS 占死 —— 这期间到达的 touchmove 被系统
@@ -2589,6 +2621,11 @@ export default function ScoreReader() {
     // 起手先补上一段手势的最后一拍：合帧队列里可能还压着 ≤1 帧的位移，
     // 下面两处的基准位置（drag / pinch 的 pan）读的是同步镜像，差一帧就是「接着滑时先往回跳一下」
     flushPan()
+    // 停顿账：正在画的这一笔期间，**落下过几个触点**（手掌 / 第二指）—— 见 strokeDiagRef。
+    // 这里以前完全看不见：多指那一支是静默 return 的。
+    if (drawingRef.current && e.touches.length > strokeDiagRef.current.maxTouches) {
+      strokeDiagRef.current.maxTouches = e.touches.length
+    }
     if (e.touches.length >= 2) {
       // ⚠️ **正在画的时候，第二根手指（手掌 / 误触）不打断这一笔**（用户 2026-10-15 定）：
       // 继续用落笔那根画（见 onTouchMove 里按 identifier 取触点）。从前这里直接
