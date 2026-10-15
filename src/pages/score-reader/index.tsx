@@ -1534,13 +1534,28 @@ export default function ScoreReader() {
       }
       // 写不进去（存储满 / 单键超限）以前是**完全静默**的：画面照旧、退出重进才发现丢了，
       // 线上一条线索都没有（评审抓出）。每册每次会话只报一次——存储满会一直失败。
-      if (fileId && !saveAnnoDoc(fileId, next) && !annoSaveFailRef.current) {
-        annoSaveFailRef.current = true
-        reportClientError({
-          event: 'score_reader_annotation_save_failed',
-          message: 'setStorageSync 失败（存储满/超限？）',
-          detail: { fileId, pages: Object.keys(next).length },
-        })
+      if (fileId) {
+        // 这一下是**同步阻塞主线程**的（compactDoc 整册序列化 + setStorageSync），真机手感
+        // 的关键就在它身上。超阈值记一条：下一轮要动「存储那条路」时靠数据说话，别猜
+        //（2026-10-15 平板笔验收：「点一下要等数百毫秒」）
+        const saveStart = Date.now()
+        const saved = saveAnnoDoc(fileId, next)
+        const saveCost = Date.now() - saveStart
+        if (saveCost > 80) {
+          reportClientError({
+            event: 'score_reader_annotation_save_slow',
+            message: 'saveAnnoDoc 阻塞超阈值',
+            detail: { fileId, ms: saveCost, pages: Object.keys(next).length },
+          })
+        }
+        if (!saved && !annoSaveFailRef.current) {
+          annoSaveFailRef.current = true
+          reportClientError({
+            event: 'score_reader_annotation_save_failed',
+            message: 'setStorageSync 失败（存储满/超限？）',
+            detail: { fileId, pages: Object.keys(next).length },
+          })
+        }
       }
     },
     [fileId]
@@ -1881,6 +1896,38 @@ export default function ScoreReader() {
     ])
   }
 
+  /**
+   * 把「抬手补落」的那**一个点**先画上屏（在落定之前）。
+   *
+   * 为什么不能等落定：`persist` 那条路要 `compactDoc` 遍历整册所有页所有笔迹所有点 +
+   * `JSON.stringify` + `setStorageSync`，是**同步阻塞**主线程的 —— 真机上数百毫秒。
+   * 等它来上屏就是「点下去半天不出东西」（用户 2026-10-15 报的正是这个）。
+   *
+   * 只用局部 ctx、不碰任何全局 ref：这块画布稍后会被 `redrawOverlay` 整块重画（`persist`
+   * 改 `annos` 就会触发它，其中已经包含这一笔）⇒ 两次画出来是同一份，不会闪、也不会留残留。
+   */
+  const paintTapPoint = (
+    node: CanvasNode,
+    left: number,
+    top: number,
+    seed: { x: number; y: number }
+  ) => {
+    const { w, h } = viewSizeRef.current
+    if (!(w > 0) || !(h > 0)) return
+    const ctx = node.getContext('2d')
+    const dpr = rasterDpr(w, h)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    drawPolylineOn(
+      ctx,
+      [[clamp((seed.x - left) / w, 0, 1), clamp((seed.y - top) / h, 0, 1)]],
+      penColor,
+      brushWidth,
+      w,
+      h,
+      tool === 'highlighter' ? HIGHLIGHTER_ALPHA : 1
+    )
+  }
+
   // 起笔：rect 必须当次现取（工具条显隐会挪动画布），取到之前不落笔——
   // 拿旧 rect 算出的首点会连出一条「从按钮到落笔处」的飞线
   const beginStroke = (touch: { clientX: number; clientY: number }) => {
@@ -1904,6 +1951,8 @@ export default function ScoreReader() {
           // 后一种只落一个点 —— 用它自己的 rect 局部算坐标，**绝不碰全局 overlayRectRef**
           if (strokeEndedRef.current?.seed === seed) {
             strokeEndedRef.current = null
+            // 先把点画上屏，再落定 —— 落定是数百毫秒的同步阻塞（见 paintTapPoint）
+            paintTapPoint(node as CanvasNode, left, top, seed)
             commitTapStroke(lane.page, seed, left, top)
           }
           return
@@ -1933,8 +1982,10 @@ export default function ScoreReader() {
         pointOf(seed.x, seed.y),
         ...pending.map((pt) => pointOf(pt.clientX, pt.clientY)),
       ]
-      // 只有起点时不必重画（画不出东西，等下一个 move）；有攒下的点就得把那段补上屏
-      if (pending.length > 0) repaintLiveStroke(strokePtsRef.current)
+      // **无条件**画一次：单点也是内容（点一下就该立刻看见一个点），不能等到抬手落定时
+      // 才由 redrawOverlay 补上 —— 落定那条路是数百毫秒的同步阻塞（见 paintTapPoint），
+      // 等它上屏就是用户说的「点了半天没反应」。有攒下的点时这一画顺带把开头那段补上。
+      repaintLiveStroke(strokePtsRef.current)
     })()
   }
 
@@ -2794,6 +2845,7 @@ export default function ScoreReader() {
             ready={handoff.ready}
             busy={handoff.busy}
             withAnno={handoff.withAnno}
+            hasAnno={handoff.hasAnno}
             preparing={handoff.preparing}
             onAnno={handoff.toggleAnno}
             onPick={handoff.pick}

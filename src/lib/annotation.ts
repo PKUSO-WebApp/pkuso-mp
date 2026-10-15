@@ -62,6 +62,27 @@ export function compactDoc(doc: AnnoDoc): AnnoDoc {
   return out
 }
 
+/**
+ * 这一册有没有**画得出来的**笔迹（零点笔迹不算 —— 与 `compactStroke` 同一套归一化）。
+ *
+ * 用途只有一个：「保存到…」面板上「是否带有批注？」那个开关能不能拨（用户 2026-10-15 定）。
+ * 没有笔迹时拨到「是」只会换来一句「这份谱还没有批注」—— 不如让它根本拨不动、固定为「否」。
+ *
+ * ⚠️ 判据只看**本地**（`loadAnnoDoc`）。进册时本来就有一轮拉取，所以正常路径上「本地没有」
+ * 就等于「哪儿都没有」；万一拉取失败而云端其实有，代价是这一次开关拨不动 ——
+ * 那比「拨了才发现合成不出来」好（少一个选项 vs 骗用户一次）。
+ */
+export function docHasInk(doc: AnnoDoc): boolean {
+  for (const key of Object.keys(doc)) {
+    const strokes = doc[key]
+    if (!Array.isArray(strokes)) continue
+    for (const s of strokes) {
+      if ((s?.points?.length ?? 0) > 0) return true
+    }
+  }
+  return false
+}
+
 export const PEN_COLORS = ['#e5484d', '#2f6fed', '#111827', '#f5a524'] as const
 
 /** 当前用哪支笔。橡皮擦也在里面：它和两支笔互斥，属于同一个「当前工具」 */

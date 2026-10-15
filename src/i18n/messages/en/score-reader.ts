@@ -46,7 +46,6 @@ export const scoreReader = {
     remoteVersion: 'Remote',
     mergeVersion: 'Merge both',
     useCurrent: 'Use this version',
-    empty: 'This version has no ink',
     raced: 'The cloud version changed again — please take another look.',
     failed: 'Failed. Check your connection and try again.',
     loadFailed: 'Could not load this page',

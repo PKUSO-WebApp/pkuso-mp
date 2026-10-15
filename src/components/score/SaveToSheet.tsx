@@ -25,6 +25,7 @@ export function SaveToSheet({
   ready,
   busy,
   withAnno,
+  hasAnno,
   preparing,
   onAnno,
   onPick,
@@ -37,6 +38,9 @@ export function SaveToSheet({
   busy: boolean
   /** 「是否带有批注？」：开了走云端合成（见 lib/annotated-pdf） */
   withAnno: boolean
+  /** 这一册**有没有笔迹**（`open` 时定的）。没有就固定为「否」且不可拨：拨上去只会换来
+   *  一句「这份谱还没有批注」（用户 2026-10-15 定） */
+  hasAnno: boolean
   /** 正在备文件（含云端合成）：这期间**不许拨**——换了选择就要重新备一份，
    *  半途改主意既没有意义，也会让「面板上那份到底是哪个」变得含糊 */
   preparing: boolean
@@ -64,9 +68,10 @@ export function SaveToSheet({
             云端合成的另一个文件），所以备文件期间这个开关是禁用的——见 usePdfHandoff */}
         <View className='flex flex-row items-center justify-between border-b border-border px-4 py-3'>
           <Text className='text-sm text-text'>{t('common.saveTo.withAnno')}</Text>
+          {/* `!hasAnno` ⇒ 固定为「否」且拨不动：拨上去只会换来一句「这份谱还没有批注」 */}
           <YesNoSwitch
-            value={withAnno}
-            disabled={busy || preparing}
+            value={withAnno && hasAnno}
+            disabled={busy || preparing || !hasAnno}
             ariaLabel={t('common.saveTo.withAnno')}
             onChange={onAnno}
           />

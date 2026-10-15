@@ -299,8 +299,6 @@ export default function AnnotationConflict() {
     setMessage(t('scoreReader.conflict.failed'))
   }
 
-  const shownStrokes = data ? strokesOf(side, data) : []
-
   return (
     <View className={`${darkClass} score-conflict-page flex h-full min-h-0 flex-col bg-page-bg`}>
       {chromeOn ? (
@@ -389,12 +387,8 @@ export default function AnnotationConflict() {
               </View>
             ))}
           </View>
-          {/* 空的一版也要说清：不然用户看到「一片空白」会以为加载失败 */}
-          {shownStrokes.length === 0 ? (
-            <Text className='mb-3 block text-center text-xs text-text-subtle'>
-              {t('scoreReader.conflict.empty')}
-            </Text>
-          ) : null}
+          {/* ⚠️ 这里**故意不提示「这一版没有笔迹」**（用户 2026-10-15 定）：要的是「看起来
+              怎么样」，不是「有没有」—— 一片空白本身就是那个答案 */}
           {message ? (
             <Text className='mb-3 block text-center text-xs text-danger'>{message}</Text>
           ) : null}
