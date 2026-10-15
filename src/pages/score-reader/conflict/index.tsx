@@ -27,12 +27,17 @@ import './index.scss'
  * **一页**（LR 的样子），复用两个现成的模块就够：`lib/page-image`（取图，含整册预下载的本地
  * 命中）与 `lib/anno-draw`（笔迹绘制）。两边画出来的一模一样，因为它们本来就是同一份实现。
  *
- * 交互（用户 2026-10-14 定）：
- *   - 上方：这一页的**实时预览**，下方一个开关切「本地版 / 云端版」；
- *   - 下方：两个选择按钮 + 「稍后处理」。
+ * 交互（2026-10-15 定稿）：
+ *   - 上方：这一页的**实时预览**，下方三个单选切「本地版 / 远端版 / 合并两版」；
+ *   - 下方：一个「使用这一版」提交按钮，作用于**当前选中的那一版**。
+ *   - **合并也能预览**：它是两版并集（用户 2026-10-15 定的语义），后果只有画出来才看得见
+ *     —— 这个模型没有 per-stroke id / 墓碑 ⇒「一边画了 X、另一边把 X 擦了」分不清，
+ *     并集会把擦掉的那笔带回来。看得见再点，是这一页存在的理由。
  *   - **两边都不丢**：选了本地，云端那份进服务端历史（推送 RPC 覆盖时归档）；
- *     选了云端，本地这份也会**先送进历史**（`archive_sheet_music_annotation`）再覆盖本地。
+ *     选了远端，本地这份也会**先送进历史**（`archive_sheet_music_annotation`）再覆盖本地；
+ *     选了合并，被顶掉的云端那份由推送 RPC 归档、本地那份的内容本来就在并集里。
  *     所以「都保留」不需要单独一个按钮 —— 它本来就是默认结果。
+ *   - 「稍后处理」**不在这一页**（2026-10-15 去掉：与导航栏返回同义）；入口弹层里那份留着。
  *
  * ⚠️ 一切都以**预览时看到的那个云端版本**为前提：用户看预览的时候云端若又变了，
  * 这一页**什么都不做**，只提示重新看一眼。拿旧选择去套新内容，等于让用户为一个他没见过的
@@ -44,7 +49,17 @@ const OVERLAY_ID = '#conflict-overlay'
 const BOX_ID = '#conflict-box'
 const STAGE_ID = '#conflict-stage'
 
-type Side = 'local' | 'remote'
+type Side = 'local' | 'remote' | 'merge'
+
+/**
+ * 某一版要画的笔迹。
+ *
+ * `'merge'` = 两版**并集**（本地在前、远端在后 —— 与 `resolveAnnotationConflict` 里那个
+ * 顺序必须一致，否则「预览看到的」与「提交上去的」不是同一份）。合并也能预览是刻意的：
+ * 并集的后果（被擦掉的那笔会回来）只有画出来才看得见。
+ */
+const strokesOf = (s: Side, d: ConflictPageState): AnnoStroke[] =>
+  s === 'local' ? d.local : s === 'remote' ? d.remote : [...d.local, ...d.remote]
 
 export default function AnnotationConflict() {
   const { t } = useT()
@@ -72,19 +87,52 @@ export default function AnnotationConflict() {
   const shownRef = useRef<AnnoStroke[]>([])
   const boxRef = useRef({ w: 0, h: 0 })
 
-  const queryNode = useCallback(
-    (sel: string): Promise<{ node: unknown; width: number; height: number }> =>
+  /**
+   * 查 **canvas** 节点（要 Node 实例）。
+   *
+   * ⚠️ `fields({ node: true })` 的 Node 实例**只有 canvas 这类组件给**，普通 View 返回 null
+   * ⇒ 这个函数只能喂那两块 canvas；量 View 的尺寸走 `probeSize`。
+   * 阅读器那边一直是分开的两个函数（`index.tsx` 的 `queryCanvasNode` / `probeCanvasSize`），
+   * 这里曾经把它们混成一个 —— 于是拿它去查 `#conflict-stage` 恒落进 else 分支，
+   * 整页直接进「读不到这一页的内容」的错误态（2026-10-15 真机）。
+   */
+  const queryCanvasNode = useCallback(
+    (sel: string): Promise<CanvasNode> =>
       new Promise((resolve, reject) => {
         Taro.createSelectorQuery()
           .select(sel)
           .fields({ node: true, size: true })
           .exec((res) => {
             const f = res?.[0]
-            if (f?.node) resolve({ node: f.node, width: f.width ?? 0, height: f.height ?? 0 })
+            if (f?.node) resolve(f.node as CanvasNode)
             else reject(new Error(t('scoreReader.conflict.loadFailed')))
           })
       }),
     [t]
+  )
+
+  /**
+   * 只问**布局尺寸**（普通 View 没有 Node 实例，所以这里**不能**要 `node`）。
+   *
+   * 用 `boundingClientRect` —— 与阅读器量 `#reader-stage` 同一条路。拿不到返回 **null 而不抛**：
+   * `waitForLayoutSize` 的 probe 契约就是「拿不到给 null，照画不误」。
+   */
+  const probeSize = useCallback(
+    (sel: string): Promise<{ width: number; height: number } | null> =>
+      new Promise((resolve) => {
+        Taro.createSelectorQuery()
+          .select(sel)
+          .boundingClientRect()
+          .exec((res) => {
+            const r = res?.[0] as { width?: number; height?: number } | null
+            resolve(
+              r && typeof r.width === 'number'
+                ? { width: r.width, height: typeof r.height === 'number' ? r.height : 0 }
+                : null
+            )
+          })
+      }),
+    []
   )
 
   /** 只重画批注层（切「本地版 / 云端版」走这条） */
@@ -109,42 +157,32 @@ export default function AnnotationConflict() {
    * 顺带它保证了那次 setData 已经落地 —— 画布此刻的位置就是最终位置。
    */
   const drawPage = useCallback(async () => {
-    const { node: pageNode } = await queryNode(CANVAS_ID)
-    const { node: overlayNode } = await queryNode(OVERLAY_ID)
-    overlayNodeRef.current = overlayNode as CanvasNode
+    const pageNode = await queryCanvasNode(CANVAS_ID)
+    const overlayNode = await queryCanvasNode(OVERLAY_ID)
+    overlayNodeRef.current = overlayNode
 
     // 舞台可用尺寸（减掉上下那两块的固定高度由 flex 布局负责，这里量的是它剩下的）
-    const stageSize = await queryNode(STAGE_ID)
-    const availW = stageSize.width
-    const availH = stageSize.height
+    const stageSize = await probeSize(STAGE_ID)
+    const availW = stageSize?.width ?? 0
+    const availH = stageSize?.height ?? 0
     if (!(availW > 0) || !(availH > 0)) throw new Error(t('scoreReader.conflict.loadFailed'))
 
-    const img = await loadPageImage(
-      pageNode as CanvasNode,
-      pageImageUrls(pdfUrlRef.current, page),
-      {
-        // 与阅读器**同一个键**：整册预下载过就直接命中本地文件，一次网络都不用
-        //（Key 必须与入口无关，见 lib/page-image 的 PageImageDeps.key）
-        key: `${fileId}#${page}`,
-      }
-    )
+    const img = await loadPageImage(pageNode, pageImageUrls(pdfUrlRef.current, page), {
+      // 与阅读器**同一个键**：整册预下载过就直接命中本地文件，一次网络都不用
+      //（Key 必须与入口无关，见 lib/page-image 的 PageImageDeps.key）
+      key: `${fileId}#${page}`,
+    })
     const scale = Math.min(availW / (img.width || 1), availH / (img.height || 1))
     const w = Math.max(1, Math.round((img.width || 1) * scale))
     const h = Math.max(1, Math.round((img.height || 1) * scale))
     boxRef.current = { w, h }
     setBox({ w, h })
 
-    await waitForLayoutSize(
-      async () => {
-        const got = await queryNode(BOX_ID)
-        return { width: got.width, height: got.height }
-      },
-      { width: w, height: h }
-    )
+    await waitForLayoutSize(() => probeSize(BOX_ID), { width: w, height: h })
     const dpr = rasterDpr(w, h)
-    paintPageImage(pageNode as CanvasNode, img.img, Math.round(w * dpr), Math.round(h * dpr))
+    paintPageImage(pageNode, img.img, Math.round(w * dpr), Math.round(h * dpr))
     paintOverlay(shownRef.current)
-  }, [fileId, page, paintOverlay, queryNode, t])
+  }, [fileId, page, paintOverlay, probeSize, queryCanvasNode, t])
 
   /** 读两份内容并起一帧 */
   const load = useCallback(async () => {
@@ -188,10 +226,10 @@ export default function AnnotationConflict() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** 切预览（本地 / 云端）：只重画批注层 */
+  /** 切预览（本地 / 远端 / 合并）：只重画批注层 */
   const switchSide = (next: Side) => {
     if (!data || next === side) return
-    shownRef.current = next === 'local' ? data.local : data.remote
+    shownRef.current = strokesOf(next, data)
     setSide(next)
     paintOverlay(shownRef.current)
   }
@@ -230,7 +268,7 @@ export default function AnnotationConflict() {
     setMessage(t('scoreReader.conflict.failed'))
   }
 
-  const shownStrokes = data ? (side === 'local' ? data.local : data.remote) : []
+  const shownStrokes = data ? strokesOf(side, data) : []
 
   return (
     <View className={`${darkClass} score-conflict-page flex h-full min-h-0 flex-col bg-page-bg`}>
@@ -292,7 +330,7 @@ export default function AnnotationConflict() {
       <View className='border-t border-border bg-surface px-4 py-3 pb-safe'>
         {/* 切换：看的是哪一版。两个按钮是**单选的开关**（与批注栏那三支工具同款形态） */}
         <View className='mb-3 flex flex-row items-center justify-center'>
-          {(['local', 'remote'] as Side[]).map((s) => (
+          {(['local', 'remote', 'merge'] as Side[]).map((s) => (
             <View
               key={s}
               className={`mr-2 rounded-full border px-4 py-2 ${
@@ -303,7 +341,9 @@ export default function AnnotationConflict() {
               <Text className='text-xs text-text'>
                 {s === 'local'
                   ? t('scoreReader.conflict.localVersion')
-                  : t('scoreReader.conflict.remoteVersion')}
+                  : s === 'remote'
+                    ? t('scoreReader.conflict.remoteVersion')
+                    : t('scoreReader.conflict.mergeVersion')}
               </Text>
             </View>
           ))}
@@ -317,28 +357,22 @@ export default function AnnotationConflict() {
         {message ? (
           <Text className='mb-3 block text-center text-xs text-danger'>{message}</Text>
         ) : null}
-        {/* 两个选择按钮：预览没出来（加载中 / 失败）时**点了也不做事**（`canResolve`），
-            置灰只是把这件事画出来 —— 见 resolve 的注释 */}
+        {/* 单个提交按钮：作用于**当前预览的那一版**（上面那排选中的那个）。
+            先看清再落库 —— 两个「用 xx 版」并成一个，不会误触直接裁决。
+            预览没出来（加载中 / 失败）时**点了也不做事**（`canResolve`），置灰只是把这件事画出来
+            —— 见 resolve 的注释。
+            ⚠️ 「稍后处理」在这一页**已去掉**（用户 2026-10-15 定：它与导航栏返回同义）。
+            入口弹层那份「稍后处理」是一等公民（那里没有别的退出方式），**别跟着一起删**
+            —— 见 components/score/AnnotationConflictSheet.tsx。 */}
         <View className='flex flex-row'>
           <View
-            className={`mr-2 flex-1 rounded-full border border-border bg-card px-3 py-3 text-center ${
+            className={`flex-1 rounded-full border border-border bg-card px-3 py-3 text-center ${
               canResolve ? '' : 'opacity-50'
             }`}
-            onClick={() => void resolve('local')}
+            onClick={() => void resolve(side)}
           >
-            <Text className='text-sm text-text'>{t('scoreReader.conflict.useLocal')}</Text>
+            <Text className='text-sm text-text'>{t('scoreReader.conflict.useCurrent')}</Text>
           </View>
-          <View
-            className={`ml-2 flex-1 rounded-full border border-border bg-card px-3 py-3 text-center ${
-              canResolve ? '' : 'opacity-50'
-            }`}
-            onClick={() => void resolve('remote')}
-          >
-            <Text className='text-sm text-text'>{t('scoreReader.conflict.useRemote')}</Text>
-          </View>
-        </View>
-        <View className='mt-3 py-2 text-center' onClick={() => void Taro.navigateBack()}>
-          <Text className='text-sm text-text-muted'>{t('scoreReader.conflict.later')}</Text>
         </View>
       </View>
     </View>

@@ -506,15 +506,20 @@ export type ResolveResult = {
  * - `'remote'` —— 采纳远端：**先把本地这份送进服务端历史**再覆盖本地。
  *   少了这一步，「用远端版」就是一次不可逆的丢弃；而服务端自始至终没见过本地那份，
  *   它自己归档不了。
+ * - `'merge'`  —— 两版取**并集**（用户 2026-10-15 定）：合并结果既推上远端也落本地。
+ *   被顶掉的远端那份由推送 RPC 自动归档，本地那份的内容本来就在并集里 ⇒ 两边都不丢。
+ *   ⚠️ 这个模型里没有 per-stroke id / 墓碑 ⇒ **分不清「一边画了 X、另一边把 X 擦了」**，
+ *   并集会把擦掉的那笔带回来。用户是看着合并预览点的，知情即可（方案 §5 论证过的是
+ *   「自动合并不可行」，这里做的是手动并集，语义不同）。
  *
- * ⚠️ 两种选择都以 `shownVersion`（预览时那一版的版本号）为前提：远端若在用户看预览的
+ * ⚠️ 三种选择都以 `shownVersion`（预览时那一版的版本号）为前提：远端若在用户看预览的
  * 时候又变了，就**什么都不做**并回 `raced` —— 让用户重新看一遍再选。按新内容套用旧选择，
  * 等于让用户为一个他没见过的版本做决定。
  */
 export async function resolveAnnotationConflict(args: {
   fileId: string
   page: number
-  choice: 'local' | 'remote'
+  choice: 'local' | 'remote' | 'merge'
   shownVersion: string | null
 }): Promise<ResolveResult> {
   const { fileId, page, choice, shownVersion } = args
@@ -546,6 +551,29 @@ export async function resolveAnnotationConflict(args: {
       if (!same) return { ok: false, reason: 'raced' }
       const base = loadSyncBase(fileId, userId)
       base[String(page)] = { fp: localFp, version: outcome.version ?? undefined }
+      saveSyncBase(fileId, userId, base)
+    } else if (choice === 'merge') {
+      // 并集 = 本地在前、远端在后（绘制顺序 = 数组顺序，远端那份「在上层」）。
+      // 不去重：两版里各有一笔一模一样的（用户在两端做了同样的动作）也照样都留着 ——
+      // 「取并集」就是这个意思，而**擦除语义在这个模型里本就无法表达**（没有墓碑），
+      // 想做「谁擦了谁」的推理只会猜错。
+      const merged = [...localStrokes, ...fresh.strokes]
+      const mergedFp = pageFingerprint(merged)
+      const outcome = await pushRemotePage(fileId, page, merged, fresh.version ?? '')
+      // 与 'local' 分支同款：CAS 落空但服务端已经是这一份（重复提交 / 丢 ACK）也算成功
+      const same = outcome.ok || pageFingerprint(outcome.remote ?? []) === mergedFp
+      if (!same) return { ok: false, reason: 'raced' }
+      const doc: AnnoDoc = { ...loadAnnoDoc(fileId) }
+      doc[String(page)] = merged
+      // ⚠️ 与 'remote' 分支同一条纪律：写盘失败就**不推进基线**，否则下次同步会拿旧本地
+      // 把刚合并上去的内容顶回去
+      if (!saveAnnoDoc(fileId, doc)) {
+        reportFailure('score_reader_annotation_save_failed', fileId, page, new Error('save_failed'))
+        return { ok: false, reason: 'failed' }
+      }
+      adoptListener?.(fileId, doc)
+      const base = loadSyncBase(fileId, userId)
+      base[String(page)] = { fp: mergedFp, version: outcome.version ?? undefined }
       saveSyncBase(fileId, userId, base)
     } else {
       const remoteFp = pageFingerprint(fresh.strokes)
