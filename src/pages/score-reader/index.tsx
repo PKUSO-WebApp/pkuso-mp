@@ -140,6 +140,9 @@ const CANVAS_SEL: Record<Layer, string> = {
 }
 
 /** 批注画布：**每块页画布各一层**（跟着自己那一页走，见 strokeLayerRef 的注释） */
+/** 实时层（第四块批注画布）：只装「正在画的那一笔」，见 `liveCtxRef` 的注释 */
+const LIVE_SEL = '#reader-live'
+
 const CANVAS_OVERLAY_SEL: Record<Layer, string> = {
   a: '#reader-overlay-a',
   b: '#reader-overlay-b',
@@ -369,12 +372,99 @@ export default function ScoreReader() {
   const strokePtsRef = useRef<[number, number][]>([])
   /** 起笔待落点：touchstart 记下原始触点，rect 取到当次值后才成笔 */
   const strokeSeedRef = useRef<{ x: number; y: number } | null>(null)
-  const overlayCtxRef = useRef<CanvasCtx | null>(null)
+  const queryCanvasNode = useCallback(
+    (id: string): Promise<{ node: unknown; left: number; top: number }> =>
+      new Promise((resolve, reject) => {
+        Taro.createSelectorQuery()
+          .select(id)
+          .fields({ node: true, size: true, rect: true })
+          .exec((res) => {
+            const field = res?.[0]
+            if (field?.node) {
+              resolve({
+                node: field.node,
+                left: field.left ?? 0,
+                top: field.top ?? 0,
+              })
+            } else reject(new Error(t('scoreReader.notFound')))
+          })
+      }),
+    [t]
+  )
+
   /**
-   * 与它成对的那块画布节点：**只为了查位图尺寸**（`ctx` 拿不到 `width/height`）。
-   * 生命周期与 `overlayCtxRef` 完全一致 —— 一起设、一起清。
+   * **实时层**（第四块批注画布，`#reader-live`）的 ctx 与节点。
+   *
+   * 实时层**只装「正在画的那一笔」**，与「已落定层」（`#reader-overlay-a|b|c`）分开。
+   * 为什么必须分开：半透明的分段描边会自己叠深，所以「正在画的线」只能**清屏后一次性
+   * 画完整条**（规范：同一条路径单次 `stroke()` 走并集语义，见 `lib/ink.ts`）；而清屏若发生
+   * 在已落定层上，就会把那些笔迹一并抹掉 ⇒ 只能连它们一起重画 ⇒ 成本 O(整页)（2026-10-15
+   * 之前一直如此）。分开之后，实时层的清屏只抹自己，成本降到 O(当前这一笔)。
+   *
+   * 附带的结构收益：`paintLane` 不必再「跳过正在落笔的那一块」—— 实时墨根本不在它那块上。
    */
-  const overlayNodeRef = useRef<CanvasNode | null>(null)
+  const liveCtxRef = useRef<CanvasCtx | null>(null)
+  /** 与它成对的节点：**只为了查位图尺寸**（`ctx` 拿不到 `width/height`）。生命周期与 ctx 一致 */
+  const liveNodeRef = useRef<CanvasNode | null>(null)
+  /**
+   * 实时层摆在哪一块的位置上（`layerStyle(liveLayer)`）。
+   *
+   * 它是 state 而不是从 `strokeLayerRef` 读 —— 后者是 ref，改它不触发渲染，而实时层的
+   * 位置**必须**在起笔画第一个点之前就位。落笔时 `setLiveLayer(lane.layer)`，紧接着那次
+   * 「查已落定层 rect」的跨线程往返足够让这次渲染落地（真机上若发现错位，就是这条假设不成立）。
+   */
+  const [liveLayer, setLiveLayer] = useState<Layer>('b')
+  /** 实时层**已经摆到**哪一块上（在 effect 里更新 ⇒ 它落后于渲染，正是「摆放落地」的凭据） */
+  const liveAlignedRef = useRef<Layer | null>(null)
+  const liveAlignWaitersRef = useRef<Array<() => void>>([])
+  useEffect(() => {
+    liveAlignedRef.current = liveLayer
+    const waiters = liveAlignWaitersRef.current
+    liveAlignWaitersRef.current = []
+    for (const done of waiters) done()
+  }, [liveLayer])
+  /**
+   * 等「实时层真的摆到 `l` 那一块上」。
+   *
+   * `setLiveLayer` 是异步的（要过一次渲染 + setData），而**落笔必须等它落地** —— 否则
+   * 第一个点会按「新位置」的坐标画到「旧位置」的画布上（真机表现：点飞到别处）。
+   * 已经在位时**同步返回**，所以正常连续落笔没有额外开销。
+   */
+  const alignLiveLayer = useCallback((l: Layer): Promise<void> => {
+    if (liveAlignedRef.current === l) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      liveAlignWaitersRef.current.push(resolve)
+      setLiveLayer(l)
+    })
+  }, [])
+  /**
+   * 实时层的 ctx / 节点（**缓存**）。
+   *
+   * 它一直挂载（`penOn` 期间），节点不会换 ⇒ ctx 也就不用每次落笔重取；`penOn` 打开时
+   * 预取一次（见那个 effect），这里是**兜底**（预取失败 / 时序没赶上时现取一次）。
+   */
+  const ensureLiveCtx = useCallback(async (): Promise<CanvasCtx | null> => {
+    if (liveCtxRef.current && liveNodeRef.current) return liveCtxRef.current
+    try {
+      const { node } = await queryCanvasNode(LIVE_SEL)
+      const n = node as CanvasNode
+      liveNodeRef.current = n
+      liveCtxRef.current = n.getContext('2d')
+      return liveCtxRef.current
+    } catch {
+      return null
+    }
+  }, [queryCanvasNode])
+  // 批注一打开就把实时层的 ctx 预取下来（它随后一直挂着，节点不换 ⇒ 这份缓存长期有效）。
+  // 预取失败不报错：落笔时 `ensureLiveCtx` 会再兜一次。
+  useEffect(() => {
+    if (!penOn) {
+      liveCtxRef.current = null
+      liveNodeRef.current = null
+      return
+    }
+    void ensureLiveCtx()
+  }, [penOn, ensureLiveCtx])
   const overlayRectRef = useRef<{ left: number; top: number } | null>(null)
   /**
    * 这一笔落在**哪一页**、画进**哪一块**批注画布（落笔时定死，抬手时按它归档）。
@@ -778,26 +868,6 @@ export default function ScoreReader() {
     const timer = setTimeout(measureStage, 0)
     return () => clearTimeout(timer)
   }, [measureStage, stage])
-
-  const queryCanvasNode = useCallback(
-    (id: string): Promise<{ node: unknown; left: number; top: number }> =>
-      new Promise((resolve, reject) => {
-        Taro.createSelectorQuery()
-          .select(id)
-          .fields({ node: true, size: true, rect: true })
-          .exec((res) => {
-            const field = res?.[0]
-            if (field?.node) {
-              resolve({
-                node: field.node,
-                left: field.left ?? 0,
-                top: field.top ?? 0,
-              })
-            } else reject(new Error(t('scoreReader.notFound')))
-          })
-      }),
-    [t]
-  )
 
   /**
    * 只问画布**当前的布局尺寸**（`size: true` 那一份），用于首帧「等布局落地」
@@ -1529,32 +1599,39 @@ export default function ScoreReader() {
    * 取节点（异步）留给调用方 —— 各条路径的取法与守卫不同（见它们各自的注释）。
    */
   const paintInkOn = useCallback(
-    (
-      node: CanvasNode,
-      ctx: CanvasCtx,
-      pageNo: number,
-      live: LiveInk | null,
-      clear: boolean
-    ): void => {
+    (node: CanvasNode, ctx: CanvasCtx, base: AnnoStroke[], live: LiveInk | null): void => {
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return
       const dpr = rasterDpr(w, h)
-      // ⚠️ 位图**必须已经是当前尺寸**才画：`setTransform` 只换坐标系、不换位图，尺寸对不上时
-      // 画出来的东西位置全错（甚至画出界看不见）。整页重画那条路会自己把尺寸摆正（见
-      // `paintLane`），所以这里只校验**追加**：不匹配就跳过 —— 那一笔已经入账了，
-      // 随后的整页重画会按正确尺寸把它画出来；丢的只是「立刻可见」那一拍。
-      if (!clear && (node.width !== Math.round(w * dpr) || node.height !== Math.round(h * dpr))) {
-        return
+      const bw = Math.round(w * dpr)
+      const bh = Math.round(h * dpr)
+      // 尺寸不对就重设（重设 = 清屏）。对两层都安全：实时层只有 live（马上重画一遍），
+      // 已落定层本来就是整页重画 —— 谁也不欠谁。
+      if (node.width !== bw || node.height !== bh) {
+        node.width = bw
+        node.height = bh
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      if (clear) ctx.clearRect(0, 0, w, h)
-      // 追加时不带上已落定的（`inkFor([], live)` 只产出 live 那一笔）
-      const strokes = clear
-        ? inkFor(annosRef.current[String(pageNo)] ?? [], live)
-        : inkFor([], live)
-      for (const s of strokes) drawStrokeOn(ctx, s, w, h)
+      ctx.clearRect(0, 0, w, h)
+      for (const s of inkFor(base, live)) drawStrokeOn(ctx, s, w, h)
     },
     []
+  )
+
+  /**
+   * 把**实时层**画成「正在画的那一笔」该有的样子（传 `null` = 清空它）。
+   *
+   * `base` 恒为**空数组**：这一层只装那一笔。正因如此，这里的清屏不会碰到任何已落定的
+   * 笔迹 —— 成本是 O(当前这一笔)，而不是分层之前的 O(整页)。
+   */
+  const paintLiveLayer = useCallback(
+    (live: LiveInk | null) => {
+      const node = liveNodeRef.current
+      const ctx = liveCtxRef.current
+      if (!node || !ctx) return
+      paintInkOn(node, ctx, [], live)
+    },
+    [paintInkOn]
   )
 
   /** 正在画的那一笔的样式（画笔的 `alpha` 是 `undefined` 而不是 1 —— 与落定时逐字一致） */
@@ -1581,24 +1658,13 @@ export default function ScoreReader() {
       if (!(w > 0) || !(h > 0)) return
       try {
         const { node } = await queryCanvasNode(CANVAS_OVERLAY_SEL[l])
-        // ⚠️ 等待期间可能已经落笔了：**这时绝不能碰这块画布**——清屏会抹掉正画着的那一笔，
-        // 而重设尺寸还会让画笔手里那个 ctx 失效（之后画什么都不出来，真机反馈
-        // 「连续快速批注后完全不再显示，直到下一笔才恢复」）。落笔那一块由 drawLiveSegment
-        // 增量维护，收笔后 annos 变化自然会重画一次。
-        if (drawingRef.current && strokeLayerRef.current === l) return
         const overlay = node as CanvasNode
-        const dpr = rasterDpr(w, h)
-        const bw = Math.round(w * dpr)
-        const bh = Math.round(h * dpr)
-        if (overlay.width !== bw || overlay.height !== bh) {
-          overlay.width = bw
-          overlay.height = bh
-        }
-        // 尺寸摆正之后交给单入口：`clear: true` ⇒ 清屏 + 画「已落定的那一页」。
-        // ⚠️ 它读的仍然是**同步镜像** `annosRef`（在 `paintInkOn` 里）—— 这个函数在 `await`
-        // 之后才画，等待期间可能又落了一笔，拿旧闭包清屏重画就会把它抹掉、再画回来 ⇒
-        // 真机上「快速点两下，第二笔闪几下」（用户 2026-10-15）。
-        paintInkOn(overlay, overlay.getContext('2d'), pageNo, null, true)
+        // ⚠️ **这里删掉了一条守卫**（2026-10-15 分层）：从前是「正在落笔的那一块直接 return」
+        // ——因为清屏会抹掉画到一半的那条线。现在实时墨在**另一块**画布上（`#reader-live`），
+        // 这块随时重画都安全 ⇒「谁清屏抹谁」从结构上消失。
+        // 而「读的是**同步镜像** `annosRef`」这条纪律在 `paintInkOn` 里 —— 它保证 await
+        // 期间新落定的那一笔也被画上（否则就是「快速点两下，第二笔闪几下」）。
+        paintInkOn(overlay, overlay.getContext('2d'), annosRef.current[String(pageNo)] ?? [], null)
       } catch {
         // 画布没挂载 / 未就绪：静默，下次状态变化会重试
       }
@@ -1620,10 +1686,34 @@ export default function ScoreReader() {
     for (const l of ALL_LAYERS) {
       const p = layerSlot[l]
       if (p === null) continue
-      if (drawingRef.current && strokeLayerRef.current === l) continue
+      // ⚠️ 这里（以及 `paintLane` 里）**各删掉了一条守卫**（2026-10-15 分层）：从前是
+      // 「正在落笔的那一块跳过」—— 因为清屏会抹掉画到一半的那条线。现在实时墨在**另一块**
+      // 画布上（`#reader-live`），这块随时重画都安全，「谁清屏抹谁」从结构上消失。
       await paintLane(l, p)
     }
-  }, [layerSlot, paintLane, pageCount, viewSize])
+    // 已落定的墨都重画完了 —— 这时候再清实时层，才不会露出「线没了、要等下一拍才回来」。
+    // 正在画的时候不清（那会抹掉用户画到一半的线；它的内容归 `repaintLiveStroke` 维护）。
+    if (!drawingRef.current) paintLiveLayer(null)
+  }, [layerSlot, paintLane, pageCount, viewSize, paintLiveLayer])
+
+  /**
+   * 内存告警：只做**保守动作**（2026-10-09 讨论定下的 A 方案，2026-10-16 补上）。
+   *
+   * 停预下载泵 + 让在飞的预绘制作废 —— 省的是**后台**那部分开销，**绝不碰已上屏的位图**
+   * （碰了就要引出「重现」路径：下一帧得按需重画，用户看到的是闪一下，风险大于收益）。
+   *
+   * ⚠️ 这是我们唯一没兜住的情况：每块画布上限 12M px（≈48MB），高缩放时合计可到 ~285MB，
+   * 而线上**一条分配失败的上报都没有** —— 所以它是**防御性**的，不是已发生的事故。
+   * 分层（T11）之后会多一块画布，这条因此更要紧。
+   */
+  useEffect(() => {
+    const onWarn = () => {
+      prefetchPumpRef.current?.stop()
+      invalidatePredraw('memory-warning')
+    }
+    Taro.onMemoryWarning?.(onWarn)
+    return () => Taro.offMemoryWarning?.(onWarn)
+  }, [invalidatePredraw])
 
   useEffect(() => {
     // ⚠️ 依赖里必须有 layerSlot：批注层是跟着「这块画布显示着哪一页」走的，
@@ -1968,9 +2058,8 @@ export default function ScoreReader() {
     // 它代表「**这一段手势**用的 ctx」，手势结束就该失效 —— 留着的话，万一那块画布被
     // 卸载重挂（批注层是按条件挂载的，见 JSX 里那处），它就成了指向已销毁节点的脏引用，
     // 之后往里画是**静默无效**（画面上什么都没有，也没有任何报错）。
-    overlayCtxRef.current = null
-    // 与它成对的那块节点一起清（两者生命周期一致，见 overlayNodeRef 的声明）
-    overlayNodeRef.current = null
+    liveCtxRef.current = null
+    liveNodeRef.current = null
     // ⚠️ `strokeEndedRef` 这里**故意不清**：快速连点时下一笔的 beginStroke 会走到这儿，
     // 清了就等于把上一笔又丢掉一次（见它的声明）。它只由自己那个异步块消费并移除。
   }
@@ -2040,19 +2129,12 @@ export default function ScoreReader() {
    * 只用局部 ctx、不碰任何全局 ref：这块画布稍后会被 `redrawOverlay` 整块重画（`persist`
    * 改 `annos` 就会触发它，其中已经包含这一笔）⇒ 两次画出来是同一份，不会闪、也不会留残留。
    */
-  const paintTapPoint = (
-    node: CanvasNode,
-    pageNo: number,
-    left: number,
-    top: number,
-    seed: { x: number; y: number }
-  ) => {
+  /** 乐观补落的那**一个点**（抬手早于 rect 的那一笔）：直接画进实时层 —— 那里只有它 */
+  const paintTapPoint = (left: number, top: number, seed: { x: number; y: number }) => {
     const { w, h } = viewSizeRef.current
     if (!(w > 0) || !(h > 0)) return
     const pt: [number, number] = [clamp((seed.x - left) / w, 0, 1), clamp((seed.y - top) / h, 0, 1)]
-    // **追加**语义：不清屏、也不重画已落定的那些（重画会把半透明的荧光笔越描越深）。
-    // 位图尺寸的校验也在单入口里（不匹配就跳过 —— 这一笔已入账，随后的整页重画会画它）
-    paintInkOn(node, node.getContext('2d'), pageNo, liveInkOf([pt]), false)
+    paintLiveLayer(liveInkOf([pt]))
   }
 
   // 起笔：rect 必须当次现取（工具条显隐会挪动画布），取到之前不落笔——
@@ -2071,9 +2153,15 @@ export default function ScoreReader() {
     strokePendingRef.current = []
     void (async () => {
       try {
-        const { node, left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[lane.layer])
-        // ⚠️ 先确认这段手势没被取代再写 rect：两次节点查询的返回顺序没有保证，晚到的那次
-        // 会把**后一段手势**的 rect 覆盖成自己的（那块画布可能在别的位置）⇒ 坐标全错位
+        // 两件事**并行**：
+        // ① `alignLiveLayer` —— 让实时层摆到这一页上，并**等它真的落地**（不等的话，第一个点
+        //    会按新位置的坐标画到旧位置的画布上 ⇒ 真机上「点飞到别处」）
+        // ② 量这一页那块**已落定层**的 rect —— 坐标换算的基准；它不依赖实时层的摆位
+        const [, geom] = await Promise.all([
+          alignLiveLayer(lane.layer),
+          queryCanvasNode(CANVAS_OVERLAY_SEL[lane.layer]),
+        ])
+        const { left, top } = geom
         if (strokeSeedRef.current !== seed) {
           // 两种「不是我」：被新手势取代（作废），或**已经抬手**了（仍要落定，见 strokeEndedRef）。
           // 后一种只落一个点 —— 用它自己的 rect 局部算坐标，**绝不碰全局 overlayRectRef**
@@ -2081,22 +2169,18 @@ export default function ScoreReader() {
           if (idx >= 0) {
             const [tap] = strokeEndedRef.current.splice(idx, 1)
             // 先把点画上屏，再落定 —— 落定这条路上有整册序列化，用户不该等它
-            paintTapPoint(node as CanvasNode, tap.page, left, top, tap.seed)
+            paintTapPoint(left, top, tap.seed)
             commitTapStroke(tap.page, tap.seed, left, top)
           }
           return
         }
         overlayRectRef.current = { left, top }
-        // ⚠️ 这里**只取 ctx，绝不重设画布尺寸**：重设 = 清屏，而补画是异步的（要等节点查询）
-        // ⇒ 一落笔整页笔迹先消失、几十~几百毫秒后才回来，反复落笔就是「批注时笔迹闪」。
-        // 画布尺寸/已有笔迹由 paintLane 负责（它只在尺寸真的不对时才重设，且清屏与重画
-        // 在同一个 JS 时间片里完成，看不出中间态）。
-        const ctx = (node as CanvasNode).getContext('2d')
-        const { w, h } = viewSizeRef.current
-        ctx.setTransform(rasterDpr(w, h), 0, 0, rasterDpr(w, h), 0, 0)
-        overlayCtxRef.current = ctx
-        // 与 ctx 成对存下来：`paintInkOn` 查位图尺寸要用节点（ctx 上没有 width/height）
-        overlayNodeRef.current = node as CanvasNode
+        // 实时层的 ctx：缓存命中时**同步**返回（正常路径没有额外等待），兜底才现查一次。
+        // ⚠️ 坐标系的 `setTransform` 不在这儿设 —— 每次绘制都走 `paintInkOn`，它自己会设。
+        if (!(await ensureLiveCtx())) {
+          cancelStroke('no-live-layer')
+          return
+        }
       } catch {
         // 拿不到 rect：把这一笔从待落队列里摘掉 —— 留着就永远等不到人认领了
         const idx = strokeEndedRef.current.findIndex((x) => x.seed === seed)
@@ -2138,12 +2222,9 @@ export default function ScoreReader() {
    * 另外 `paintLane` 在落笔期间**故意不碰**这块画布（见那里的注释），所以这段期间的画面
    * 本来就只由这里维护。
    */
+  /** 重画**实时层**（传 `null` = 清空它）。它只装正在画的那一笔 —— 见 liveCtxRef 的注释 */
   const repaintLiveStroke = (live: [number, number][] | null) => {
-    const ctx = overlayCtxRef.current
-    const node = overlayNodeRef.current
-    if (!ctx || !node || !strokeLayerRef.current) return
-    // 重画语义：清屏 + 画「已落定的 + **还没入账的那一笔**」（全在单入口里，见 paintInkOn）
-    paintInkOn(node, ctx, strokePageRef.current, live && live.length > 0 ? liveInkOf(live) : null, true)
+    paintLiveLayer(live && live.length > 0 ? liveInkOf(live) : null)
   }
 
   /**
@@ -2161,7 +2242,7 @@ export default function ScoreReader() {
   }
 
   const drawLiveSegment = (touch: { clientX: number; clientY: number }) => {
-    if (!overlayCtxRef.current) return
+    if (!liveCtxRef.current) return
     strokePtsRef.current.push(pointOf(touch.clientX, touch.clientY))
     // 点**照旧每个都入账**（上面那句），只把**重画**压到每帧一次：触控笔 120~240Hz、
     // 比帧还密，而每个触点都清屏重画一整页会把 JS 占死 —— 这期间到达的 touchmove 被系统
@@ -2887,6 +2968,19 @@ export default function ScoreReader() {
                 />
               ) : null
             )}
+            {/* 实时层（第四块）：**只装「正在画的那一笔」**（2026-10-15 分层，见 liveCtxRef）。
+                ⚠️ 挂在批注层**之后**、zIndex 取 4（高于批注层的 1/3）—— 实时线永远该压在最上面，
+                这与从前「已落定先画、live 后画」的顺序一致。
+                挂载条件只看 `penOn`：**不要**跟「该页有没有笔迹」走 —— 那会让它在切页时反复
+                创建销毁（社区的 canvas 崩溃案例几乎都出在反复创建上）。没在画时它是块透明画布。 */}
+            {penOn ? (
+              <Canvas
+                type='2d'
+                id='reader-live'
+                className='absolute top-0 block'
+                style={{ ...layerStyle(liveLayer), zIndex: 4 }}
+              />
+            ) : null}
             {/* 还没渲染出来的页：各自中心一个转圈。
                 ⚠️ 它们是**内容框的子节点**（内容坐标系），所以样式里**没有 `pan`**——
                 滚动时这几个节点的样式一个字节都不变，每帧只有内容框自己在动。
