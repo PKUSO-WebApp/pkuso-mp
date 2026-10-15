@@ -65,6 +65,7 @@ import {
 } from './lib/strip'
 import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
 import { drawStrokeOn, eraseStrokesAt } from './lib/anno-draw'
+import { inkUpdateFor, type InkWorld } from './lib/anno-changes'
 import { inkFor, type LiveInk } from './lib/ink'
 import { createInkQueue, type InkQueue } from './lib/ink-queue'
 import { touchEndAction, touchOf } from './lib/touch-end'
@@ -157,6 +158,8 @@ const LIVE_PAINT_SLOW_MS = 24
 const STROKE_SUMMARY_MIN_PTS = 400
 /** 整页重画（三块批注层）超过它 = 一次可见的卡顿；落笔期间发生尤其可疑 */
 const REDRAW_SLOW_MS = 80
+/** 增量补一笔（只查一次节点 + 画一条路径）超过它就该看一眼了 */
+const INK_APPEND_SLOW_MS = 40
 
 /**
  * 在飞的后台预绘制的控制块（见 `doPredraw`）：
@@ -491,6 +494,23 @@ export default function ScoreReader() {
   }, [penOn, ensureLiveCtx])
   const overlayRectRef = useRef<{ left: number; top: number } | null>(null)
   /**
+   * **位图是按哪份「世界」画出来的** —— 见 `lib/anno-changes.ts` 里那条不变量
+   *（「每块批注画布的位图 == 它那一页在 `annos` 里的样子」）。
+   *
+   * 有了它，「有东西变了」才能被翻译成「**变了什么**」：只有世界没动、且恰好是某一页末尾
+   * 多了一笔时，才把那**一笔**补上去；其余一切（换页 / 缩放 / 撤销 / 擦除 / 清空 / 云端合入 /
+   * 批注开关）照旧整份重画。
+   *
+   * 记的时机**必须**是「那一次画真的画完了」：异步回来发现世界已经变了（世代号对不上）、
+   * 或者那一次根本没画（手势中 / 尺寸未就绪），就**什么都不记** —— 下一次会拿更旧的快照去比，
+   * 结果是多画一次（保守方向），而不是少画（画面停在旧样子）。
+   */
+  const appliedInkRef = useRef<InkWorld | null>(null)
+  /** 世代号：异步补画 / 重画回来时判断「我还是不是最新的那一次」（§1.3 里唯一做对的那种守卫） */
+  const inkGenRef = useRef(0)
+  /** 诊断计数：这一会话补了几次、整份重画了几次 —— 没有它就没法确认快路真的在走 */
+  const inkStatRef = useRef({ appends: 0, resyncs: 0 })
+  /**
    * 这一笔落在**哪一页**、画进**哪一块**批注画布（落笔时定死，抬手时按它归档）。
    *
    * 批注层是**每块页画布各配一层**（`#reader-overlay-a|b|c`，跟着自己那一页的偏移走）：
@@ -541,6 +561,8 @@ export default function ScoreReader() {
     lastX: 0,
     /** 本笔期间出现过的**最大触点数**（手掌/第二指落下来过没有） */
     maxTouches: 1,
+    /** 这一页那块画布的**屏幕左边缘**（`startX - pageLeft` = 离谱面左边多少 px） */
+    pageLeft: 0,
   })
   /**
    * 「抬手时 rect 还没回来」的那些笔（触控笔点得快，整笔都落在 rect 查询窗口里）。
@@ -733,6 +755,11 @@ export default function ScoreReader() {
         page: pageRef.current,
         drawing: drawingRef.current,
         pts: strokePtsRef.current.length,
+        // 这一会话里位图更新走了哪条路：增量补了几次 / 整份重画了几次。
+        // ⚠️ 这条读数是给「增量那条路真的在走吗」用的 —— 如果 appends 恒为 0，
+        // 说明快路一次都没命中（判据太严 / 参数对不上），而那**不会**表现为错误
+        inkAppends: inkStatRef.current.appends,
+        inkResyncs: inkStatRef.current.resyncs,
       },
     })
     // 触发点 ②：把挂着的那次停笔防抖立刻发掉（最后一班车）。拿不到结果是有意的——
@@ -1744,16 +1771,63 @@ export default function ScoreReader() {
   )
 
   /**
+   * 把**一笔**补到它那一块上（增量；判据见 `lib/anno-changes.ts`）。
+   *
+   * 与 `paintLane` 的差别只有一个：**不清屏、也不重画别的笔迹** ⇒ 成本 O(这一笔)，
+   * 与这一页已经有几十笔无关。而 `paintLane` 那条路是 O(整页)，实测 **139–156ms/笔**
+   *（2026-10-16 dev 库），而且随墨量增长 —— 那正是「每写一笔卡一下 / 越画越卡」。
+   *
+   * ⚠️ 这是**第二个写入口**（第一个是 `paintInkOn` 的整份重建）。它和「6+1 条路径各写各的」
+   * 不是一回事：**用哪一条是 `inkUpdateFor` 算出来的**，不是调用方自己判断的 —— 谁想绕过它
+   * 直接写，先去看那个纯函数与它的用例。
+   *
+   * 返回「画成功了没有」：调用方只有拿到 true 才敢把「位图已同步」记下来。
+   */
+  const appendStrokeToLane = useCallback(
+    async (layer: Layer, pageNo: number, stroke: AnnoStroke): Promise<boolean> => {
+      const { w, h } = viewSizeRef.current
+      if (!(w > 0) || !(h > 0)) return false
+      try {
+        const { node } = await queryCanvasNode(CANVAS_OVERLAY_SEL[layer])
+        // 等节点回来期间这一块可能已经换了页 —— 与 `paintLane` 同一条守卫
+        if (layerSlotRef.current[layer] !== pageNo) return false
+        const overlay = node as CanvasNode
+        const dpr = rasterDpr(w, h)
+        const bw = Math.round(w * dpr)
+        const bh = Math.round(h * dpr)
+        if (overlay.width !== bw || overlay.height !== bh) {
+          // 尺寸不对 = 这块位图是空的（重设尺寸就是清屏）⇒ 补一笔会缺前面那些墨，只能整份重画。
+          // 理论上走不到：尺寸由 viewSize 决定，而它变了 `inkUpdateFor` 会判 resync。留着兜底。
+          paintInkOn(overlay, overlay.getContext('2d'), annosRef.current[String(pageNo)] ?? [], null)
+          return true
+        }
+        const ctx = overlay.getContext('2d')
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        // 只画这一条路径：同一条路径一次 `stroke()` 走并集语义，与整份重画时那一笔的样子一致
+        drawStrokeOn(ctx, stroke, w, h)
+        return true
+      } catch {
+        // 画布没挂载 / 未就绪：静默。**不记快照** ⇒ 下一次会保守地整份重画
+        return false
+      }
+    },
+    [paintInkOn, queryCanvasNode]
+  )
+
+  /**
    * 重画**每块**批注画布。
    *
    * ⚠️ **正在落笔的那一块一律跳过**：重画要清屏，会把用户画到一半的笔迹（与这一页已有的
    * 笔迹）抹掉再补上——真机上就是「批注时笔迹闪」。它的内容由 `drawLiveSegment` 增量维护，
    * 收笔后（annos 变化）自然会重画一次。落擦**不**跳过：擦除就是要把画面改掉。
+   *
+   * 返回值：**这一趟到底画了没有**。中途退出（手势中 / 尺寸未就绪）返回 false —— 调用方
+   * 只有拿到 true 才敢记「位图已同步」，否则会记下一个「已经画好了」的假账。
    */
-  const redrawOverlay = useCallback(async () => {
-    if (viewSize.w <= 0 || viewSize.h <= 0 || pageCount <= 0) return
+  const redrawOverlay = useCallback(async (): Promise<boolean> => {
+    if (viewSize.w <= 0 || viewSize.h <= 0 || pageCount <= 0) return false
     // 手势中不重画：内容框被拉伸时位图跟着缩放即可，停手后由 gestureTick 补画
-    if (pinchRef.current) return
+    if (pinchRef.current) return false
     // **并行**画这几块（原来是 `for ... await` 串行 ⇒ 三块分三个时间片，UD 模式下多块
     // 同时可见时，用户能看到「这一块更新了、那一块还没」）。每块内部「清屏 → 画完」仍然
     // 在同一个 JS 时间片里，所以并行**不会**让谁露出空白。
@@ -1778,9 +1852,17 @@ export default function ScoreReader() {
       reportClientError({
         event: 'score_reader_redraw_slow',
         message: `整页重画 ${ms}ms`,
-        detail: { fileId, page: pageRef.current, drawing: drawingRef.current, ms },
+        detail: {
+          fileId,
+          page: pageRef.current,
+          drawing: drawingRef.current,
+          ms,
+          appends: inkStatRef.current.appends,
+          resyncs: inkStatRef.current.resyncs,
+        },
       })
     }
+    return true
   }, [layerSlot, paintLane, pageCount, viewSize, paintLiveLayer, fileId])
 
   /**
@@ -1802,10 +1884,67 @@ export default function ScoreReader() {
     return () => Taro.offMemoryWarning?.(onWarn)
   }, [invalidatePredraw])
 
+  /**
+   * 批注层的更新入口：**先问「变了什么」，再决定做多少**（判据是纯函数 `inkUpdateFor`）。
+   *
+   * 从前这里是无条件 `redrawOverlay()` —— 任何一次 `annos` 变化都整份重画三块，实测
+   * 139–156ms/笔，且随页面墨量增长（用户原话：「越画越卡」）。现在只有「这一页末尾多了一笔」
+   * 走增量，其余照旧整份重画。
+   *
+   * ⚠️ 依赖里必须有 layerSlot：批注层是跟着「这块画布显示着哪一页」走的，
+   * 换页 / 切模式 / 换册都会改它，少一个就会出现「切换模式后批注层还留在旧位置」。
+   * ⚠️ 依赖里的每一项都进了那份快照（除了 `tool` —— 换工具不改变任何已有位图，见
+   * `InkWorld` 的注释）；少写一项就会出现「该重画却没重画」，用例里每种都有一条。
+   */
   useEffect(() => {
-    // ⚠️ 依赖里必须有 layerSlot：批注层是跟着「这块画布显示着哪一页」走的，
-    // 换页 / 切模式 / 换册都会改它，少一个就会出现「切换模式后批注层还留在旧位置」
-    if (docTick > 0) void redrawOverlay()
+    if (docTick <= 0) return
+    const now: InkWorld = {
+      // 读**同步镜像**：这块位图是 `paintLane` / `appendStrokeToLane` 画的，它们读的也是它
+      annos: annosRef.current,
+      docTick,
+      page,
+      slots: { a: layerSlot.a, b: layerSlot.b, c: layerSlot.c },
+      w: viewSize.w,
+      h: viewSize.h,
+      penOn,
+      gestureTick,
+    }
+    const update = inkUpdateFor(appliedInkRef.current, now)
+    if (update.kind === 'none') return
+    const gen = ++inkGenRef.current
+    if (update.kind === 'append') {
+      const t0 = Date.now()
+      void appendStrokeToLane(update.layer, now.slots[update.layer] as number, update.stroke).then(
+        (ok) => {
+          // 那一笔的墨已经落到已落定层上了 ⇒ 把实时层清掉（不清就是画两遍，荧光笔会明显更深）。
+          // 先补后清，中间没有上屏机会，所以看不出接缝
+          if (!drawingRef.current) paintLiveLayer(null)
+          if (inkGenRef.current === gen) {
+            if (ok) {
+              inkStatRef.current.appends += 1
+              appliedInkRef.current = now
+            }
+            // 失败不记快照：下一次拿旧快照去比 ⇒ 认不出增量 ⇒ 整份重画（保守方向）
+            const ms = Date.now() - t0
+            if (ms > INK_APPEND_SLOW_MS) {
+              reportClientError({
+                event: 'score_reader_ink_append_slow',
+                message: `补一笔 ${ms}ms`,
+                detail: { fileId, page: now.page, ms, pts: update.stroke.points.length },
+              })
+            }
+          }
+        }
+      )
+      return
+    }
+    void redrawOverlay().then((painted) => {
+      if (inkGenRef.current !== gen) return
+      inkStatRef.current.resyncs += 1
+      // ⚠️ 只有真画了才记「位图已同步」。中途退出（手势中 / 尺寸未就绪）记下去就是**假账**：
+      // 下一次会以为位图是对的，从此少画那一笔
+      if (painted) appliedInkRef.current = now
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docTick, page, viewSize, annos, gestureTick, layerSlot, tool, penOn])
 
@@ -2143,6 +2282,9 @@ export default function ScoreReader() {
         maxGapMs: diag.maxGap,
         maxPaintMs: diag.maxPaint,
         spanMs: Date.now() - diag.startAt,
+        // 位图更新走了哪条路（增量 / 整份重画）—— 快路没在走的话，得从这儿看出来
+        inkAppends: inkStatRef.current.appends,
+        inkResyncs: inkStatRef.current.resyncs,
         // 判断「被系统手势抢走」用（见 strokeDiagRef）：起手离**屏幕左沿**多远、
         // 抢走前手指到哪儿了、这一笔期间有没有落下过第二个触点（手掌）
         startX: diag.startX,
@@ -2316,6 +2458,8 @@ export default function ScoreReader() {
       startY: Math.round(touch.clientY),
       lastX: Math.round(touch.clientX),
       maxTouches: 1,
+      // 谱面左边缘的屏幕坐标：rect 回来后才填得上（见那个异步块）—— 在此之前是 0
+      pageLeft: 0,
     }
     /**
      * 起笔（手指落下）到首点上屏的耗时 —— 诊断用，见下面那条上报。
@@ -2354,6 +2498,11 @@ export default function ScoreReader() {
           return
         }
         overlayRectRef.current = { left, top }
+        // 停顿账里也记一份**谱面左边缘的屏幕坐标**：`startX` 是屏幕坐标，而要紧的是
+        // 「离**谱面**左边多远」—— 缩放适配时两者重合（`boxW` = 屏宽），放大后才分开。
+        // 用户 2026-10-16 提醒的正是这一点：「贴最左侧」在谱面上不是一种姿势，
+        // 那就是**每条谱表的行首**（弓法/指法/力度都写在那一带）
+        strokeDiagRef.current.pageLeft = Math.round(left)
         // 实时层的 ctx：缓存命中时**同步**返回（正常路径没有额外等待），兜底才现查一次。
         // ⚠️ 坐标系的 `setTransform` 不在这儿设 —— 每次绘制都走 `paintInkOn`，它自己会设。
         if (!(await ensureLiveCtx())) {
