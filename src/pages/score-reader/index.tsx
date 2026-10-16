@@ -164,6 +164,15 @@ const STROKE_STALL_MS = 120
 const LIVE_PAINT_SLOW_MS = 24
 /** 超过这么多点的小结一律上报 —— 要的就是「耗时随点数怎么长」那条曲线 */
 const STROKE_SUMMARY_MIN_PTS = 400
+/**
+ * **临时诊断探针**：起手在这个宽度内的笔**一律上报**（2026-10-16 加，量完就删）。
+ *
+ * 为什么需要它：现有门槛（停顿 > 60ms / 重画 > 24ms / 点数 ≥ 400）有个**盲点** ——
+ * 「起点在左侧、**却**没被扣留」那件事**永远不会上报**，而那正是要测的那一格：
+ * 左沿那条判带到底多宽，取决于「哪一侧开始干净」，光看被扣留的那些笔是量不出来的。
+ * （带内那侧不靠它：一被扣留就有 > 60ms 的停顿，短的也照报。）
+ */
+const LEFT_EDGE_PROBE_PX = 120
 /** 整页重画（三块批注层）超过它 = 一次可见的卡顿；落笔期间发生尤其可疑 */
 const REDRAW_SLOW_MS = 80
 /** 增量补一笔（只查一次节点 + 画一条路径）超过它就该看一眼了 */
@@ -2296,7 +2305,11 @@ export default function ScoreReader() {
     const diag = strokeDiagRef.current
     if (diag.moves === 0) return
     const slow =
-      diag.maxGap > 60 || diag.maxPaint > LIVE_PAINT_SLOW_MS || pts >= STROKE_SUMMARY_MIN_PTS
+      diag.maxGap > 60 ||
+      diag.maxPaint > LIVE_PAINT_SLOW_MS ||
+      pts >= STROKE_SUMMARY_MIN_PTS ||
+      // 临时探针：起手贴左沿的笔一律上报（见 LEFT_EDGE_PROBE_PX 的注释 —— 量完删掉这一条）
+      diag.startX <= LEFT_EDGE_PROBE_PX
     if (!slow) return
     reportClientError({
       event: 'score_reader_stroke_summary',
