@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
@@ -14,6 +14,7 @@ import { routeAfterLogin } from '@/lib/post-auth-route'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { DIAG_HEADER, newDiagId } from '@/lib/diag'
 import { supabase } from '@/lib/supabase'
+import { touchSession } from '@/lib/device-session'
 import { invokeFunction } from '@/lib/functions'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
@@ -21,8 +22,15 @@ import './index.scss'
 type LoginMode = 'code' | 'password'
 
 export default function LoginPage() {
-  const { ready, user, restoreFailed, forcedOffline, forcedOfflineAt, clearForcedOffline } =
-    useUser()
+  const {
+    ready,
+    user,
+    restoreFailed,
+    forcedOffline,
+    forcedOfflineKind,
+    markForcedOffline,
+    clearForcedOffline,
+  } = useUser()
   const { submitting: wechatSubmitting, loginWithWechat } = useWechatLogin()
   const { sending: codeSending, countdown, isCountingDown, sendCode } = useSendLoginCode()
   const darkClass = useThemeClass()
@@ -37,6 +45,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+
+  // 登录成功后登记本设备（touch_session_v2）；被设为「不信任」的设备会被服务端明确拒绝：
+  // 撤销刚建立的会话（scope 必须给 local——默认的 global 会把该用户其他设备一起登出）
+  // 并复用强制下线弹窗提示。返回 false = 已按「拒绝登录」处理，调用方不要再往下走。
+  const registerThisDevice = useCallback(async (): Promise<boolean> => {
+    const touched = await touchSession(supabase)
+    if (!touched.rejected) return true
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+    markForcedOffline()
+    return false
+  }, [markForcedOffline])
 
   useEffect(() => {
     if (!ready || !user) return
@@ -160,6 +179,8 @@ export default function LoginPage() {
           setErrorMsg(t('login.loginFailed'))
           return
         }
+        // 登记本设备：被设为「不信任」的设备在这里被服务端拒绝（device_rejected）
+        if (!(await registerThisDevice())) return
         await routeAfterLogin(supabase)
       } else {
         reportClientError({
@@ -206,6 +227,8 @@ export default function LoginPage() {
         }
         return
       }
+      // 登记本设备：被设为「不信任」的设备在这里被服务端拒绝（device_rejected）
+      if (!(await registerThisDevice())) return
       await routeAfterLogin(supabase)
     } catch {
       setErrorMsg(t('login.networkError'))
@@ -231,6 +254,11 @@ export default function LoginPage() {
     setErrorMsg('')
     try {
       const result = await loginWithWechat()
+      // 本设备被设为「不信任」：hook 已撤销刚建立的会话，这里只负责复用强制下线弹窗
+      if (result.rejected) {
+        markForcedOffline()
+        return
+      }
       if (result.error) setErrorMsg(result.error)
     } catch (err) {
       // 这里是「微信登录失败，请重试」的唯一来源：loginWithWechat 内部任何未兜住的
@@ -395,7 +423,11 @@ export default function LoginPage() {
 
   return (
     <>
-      <ForceOfflineModal opened={forcedOffline} at={forcedOfflineAt} onClose={clearForcedOffline} />
+      <ForceOfflineModal
+        opened={forcedOffline}
+        kind={forcedOfflineKind}
+        onClose={clearForcedOffline}
+      />
       {content}
     </>
   )

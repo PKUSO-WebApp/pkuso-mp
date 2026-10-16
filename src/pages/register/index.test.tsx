@@ -26,6 +26,13 @@ const mocks = vi.hoisted(() => ({
   setSession: vi.fn(async () => ({ error: null })),
   getUser: vi.fn(async () => ({ data: { user: null }, error: null })),
   routeAfterLogin: vi.fn(async () => undefined),
+  // 注册成功后要登记本设备（touch_session_v2）；被拒时走强制下线弹窗
+  rpc: vi.fn(async (): Promise<{ data: unknown; error: unknown }> => ({
+    data: [{ token: 't', trusted: true }],
+    error: null,
+  })),
+  signOut: vi.fn(async () => ({ error: null })),
+  markForcedOffline: vi.fn(),
 }))
 
 vi.mock('@tarojs/components', () => {
@@ -88,13 +95,23 @@ vi.mock('@tarojs/taro', () => ({
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 // ready 必须为 true：页面在 !ready 时渲染「加载中」并早退，表单根本不会出现
-vi.mock('@/context/user-context', () => ({ useUser: () => ({ ready: true, user: null }) }))
+vi.mock('@/context/user-context', () => ({
+  useUser: () => ({
+    ready: true,
+    user: null,
+    forcedOffline: false,
+    forcedOfflineKind: null,
+    markForcedOffline: mocks.markForcedOffline,
+    clearForcedOffline: vi.fn(),
+  }),
+}))
 vi.mock('@/hooks/usePlaceholderStyle', () => ({ usePlaceholderStyle: () => 'color: #71717a' }))
 vi.mock('@/lib/post-auth-route', () => ({ routeAfterLogin: mocks.routeAfterLogin }))
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    auth: { getUser: mocks.getUser, setSession: mocks.setSession },
+    auth: { getUser: mocks.getUser, setSession: mocks.setSession, signOut: mocks.signOut },
     functions: { invoke: mocks.invoke },
+    rpc: mocks.rpc,
   },
 }))
 vi.mock('@/i18n', async () => {
@@ -157,6 +174,8 @@ beforeEach(() => {
   route.params = {}
   mocks.invoke.mockResolvedValue({ data: { access_token: 'at', refresh_token: 'rt' }, error: null })
   mocks.setSession.mockResolvedValue({ error: null })
+  mocks.rpc.mockResolvedValue({ data: [{ token: 't', trusted: true }], error: null })
+  mocks.signOut.mockResolvedValue({ error: null })
 })
 
 afterEach(() => {
@@ -301,5 +320,32 @@ describe('注册页', () => {
       expect(mocks.setSession).toHaveBeenCalledWith({ access_token: 'at', refresh_token: 'rt' })
     )
     await waitFor(() => expect(mocks.routeAfterLogin).toHaveBeenCalled())
+  })
+
+  it('注册成功后登记本设备（touch_session_v2）', async () => {
+    render(<Register />)
+    await fillValidForm()
+    await waitFor(() => expect(screen.getByText('提交')).toBeTruthy())
+    fireEvent.click(screen.getByText('提交'))
+
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalled())
+    expect(mocks.rpc).toHaveBeenCalledWith('touch_session_v2', {
+      p_device_id: expect.stringMatching(/^[a-z0-9]{8,64}$/),
+      p_name: expect.any(String),
+      p_platform: expect.any(String),
+    })
+  })
+
+  it('本设备被设为不信任：撤销刚建的会话、弹强制下线通知、不路由', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { message: 'device_rejected' } })
+    render(<Register />)
+    await fillValidForm()
+    await waitFor(() => expect(screen.getByText('提交')).toBeTruthy())
+    fireEvent.click(screen.getByText('提交'))
+
+    await waitFor(() => expect(mocks.markForcedOffline).toHaveBeenCalled())
+    // scope 必须给 local：默认的 global 会把该用户其他设备的会话一并撤销
+    expect(mocks.signOut).toHaveBeenCalledWith({ scope: 'local' })
+    expect(mocks.routeAfterLogin).not.toHaveBeenCalled()
   })
 })

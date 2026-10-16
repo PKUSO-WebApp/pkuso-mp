@@ -9,15 +9,25 @@ import LoginPage from './index'
 
 // @tarojs/components mock
 vi.mock('@tarojs/components', () => {
-  const create = (tag: 'div' | 'span' | 'button' | 'input') => (props: any) => {
+  const create = (tag: 'div' | 'span' | 'button') => (props: any) => {
     const { hoverClass, catchMove, ...rest } = props
     return React.createElement(tag, rest)
+  }
+  // Taro 的 Input 事件是 e.detail.value（而非浏览器的 e.target.value）：
+  // 用受控的 onChange 桥接，fireEvent.change 才能驱动页面里的 onInput
+  const input = (props: any) => {
+    const { hoverClass, catchMove, onInput, ...rest } = props
+    return React.createElement('input', {
+      ...rest,
+      onChange: (e: { target?: { value?: string } }) =>
+        onInput?.({ detail: { value: e?.target?.value } }),
+    })
   }
   return {
     View: create('div'),
     Text: create('span'),
     Button: create('button'),
-    Input: create('input'),
+    Input: input,
   }
 })
 
@@ -74,8 +84,10 @@ const { ctx } = vi.hoisted(() => {
     user: null,
     ready: true,
     restoreFailed: false,
-    forcedOfflineAt: null,
     forcedOffline: false,
+    forcedOfflineKind: null,
+    markForcedOffline: vi.fn(),
+    kickSelf: vi.fn(),
     clearForcedOffline: vi.fn(),
   }
   return { ctx: state }
@@ -100,12 +112,15 @@ const { authMock, supabaseMock } = vi.hoisted(() => {
     data: { access_token: 'at', refresh_token: 'rt' },
     error: null,
   })
+  // touch_session_v2 / get_my_session_v2 都走 rpc：默认「本设备已登记且被信任」
+  const rpcMock = vi.fn().mockResolvedValue({ data: [{ token: 't', trusted: true }], error: null })
   return {
     authMock: auth,
     supabaseMock: {
       auth,
       from: fromMock,
       functions: { invoke: functionsInvokeMock },
+      rpc: rpcMock,
     },
   }
 })
@@ -157,6 +172,7 @@ describe('LoginPage', () => {
     ctx.session = null
     ctx.restoreFailed = false
     ctx.forcedOffline = false
+    ctx.forcedOfflineKind = null
     authMock.getUser.mockReset()
     authMock.getUser.mockResolvedValue({ data: { user: { id: 'u1' } } })
     authMock.signOut.mockReset()
@@ -189,6 +205,9 @@ describe('LoginPage', () => {
       data: { access_token: 'at', refresh_token: 'rt' },
       error: null,
     })
+    supabaseMock.rpc.mockReset()
+    supabaseMock.rpc.mockResolvedValue({ data: [{ token: 't', trusted: true }], error: null })
+    ;(ctx.markForcedOffline as ReturnType<typeof vi.fn>).mockReset()
   })
 
   afterEach(() => {
@@ -265,6 +284,76 @@ describe('LoginPage', () => {
   it('强制离线时显示 ForceOfflineModal', () => {
     ctx.forcedOffline = true
     renderPage()
-    expect(screen.getByText('账号已在其他设备登录')).toBeTruthy()
+    expect(screen.getByText('该设备已被拒绝登录')).toBeTruthy()
+  })
+
+  it('被「删除设备」踢下线时（kind=deleted）弹窗换文案：已从账号中移除', () => {
+    ctx.forcedOffline = true
+    ctx.forcedOfflineKind = 'deleted'
+    renderPage()
+    expect(screen.getByText('该设备已从账号中移除')).toBeTruthy()
+    expect(screen.queryByText('该设备已被拒绝登录')).toBeNull()
+  })
+
+  // --- 本设备登记（touch_session_v2）---
+
+  /** 填邮箱 + 验证码并点登录（验证码模式） */
+  const submitCodeLogin = async () => {
+    fireEvent.change(screen.getByPlaceholderText('name@example.com'), {
+      target: { value: 'u1@example.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('请输入验证码'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: '登录' }))
+  }
+
+  it('验证码登录成功后登记本设备；被拒绝时撤会话 + 弹强制下线弹窗 + 不路由', async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: null,
+      error: { message: 'device_rejected' },
+    })
+    renderPage()
+    await submitCodeLogin()
+
+    await waitFor(() => expect(ctx.markForcedOffline).toHaveBeenCalled())
+    // scope 必须给 local：默认的 global 会把该用户其他设备的会话一并撤销
+    expect(authMock.signOut).toHaveBeenCalledWith({ scope: 'local' })
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
+  })
+
+  it('验证码登录成功且本设备未被拒绝：登记后照常路由', async () => {
+    renderPage()
+    await submitCodeLogin()
+
+    await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalledWith(supabaseMock))
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('touch_session_v2', {
+      p_device_id: expect.stringMatching(/^[a-z0-9]{8,64}$/),
+      p_name: expect.any(String),
+      p_platform: expect.any(String),
+    })
+    expect(ctx.markForcedOffline).not.toHaveBeenCalled()
+  })
+
+  it('密码登录被拒绝：同样撤销会话并弹强制下线弹窗', async () => {
+    supabaseMock.auth.signInWithPassword.mockResolvedValue({ data: {}, error: null })
+    supabaseMock.rpc.mockResolvedValue({ data: null, error: { message: 'device_rejected' } })
+    renderPage()
+    fireEvent.click(screen.getByText('用密码登录'))
+    fireEvent.change(screen.getByPlaceholderText('name@example.com'), {
+      target: { value: 'u1@example.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('请输入密码'), { target: { value: 'pw123456' } })
+    fireEvent.click(screen.getByRole('button', { name: '登录' }))
+
+    await waitFor(() => expect(ctx.markForcedOffline).toHaveBeenCalled())
+    expect(authMock.signOut).toHaveBeenCalledWith({ scope: 'local' })
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
+  })
+
+  it('微信登录返回 rejected：弹强制下线弹窗，不把 rejected 当错误文案渲染', async () => {
+    loginWithWechatMock.mockResolvedValue({ error: null, rejected: true })
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '微信授权登录' }))
+    await waitFor(() => expect(ctx.markForcedOffline).toHaveBeenCalled())
+    expect(screen.queryByText('微信登录失败，请重试')).toBeNull()
   })
 })

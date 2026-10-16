@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useUser, type User } from '@/context/user-context'
 import { supabase as defaultClient } from '@/lib/supabase'
-import { clearSessionToken, markIntentionalSignOut } from '@/lib/single-session'
+import { clearLegacySessionToken, markIntentionalSignOut } from '@/lib/device-session'
 import { logDiag } from '@/lib/session-diag'
 import type { Session } from '@supabase/supabase-js'
 
@@ -41,14 +41,14 @@ export function useAuth(client: typeof defaultClient = defaultClient): UseAuthRe
   )
 
   const signOut = useCallback(async (): Promise<void> => {
-    // 标记为主动登出，避免 onAuthStateChange 的 SIGNED_OUT 被误判为「被其他设备挤下线」
+    // 标记为主动登出，避免 onAuthStateChange 的 SIGNED_OUT 被误判为「被踢下线」
     markIntentionalSignOut()
     logDiag('sign_out_intentional')
     // scope 必须显式给 local：Supabase 默认是 global，会撤销该用户**所有设备**的会话。
-    // 而这里的语义只是「本机退出」——紧接着就是 clearSessionToken()（只清本机令牌）。
+    // 而这里的语义只是「本机退出」——紧接着就是 clearLegacySessionToken()（只清本机残留）。
     const { error: authError } = await client.auth.signOut({ scope: 'local' })
-    // 清空本机单设备会话令牌，避免残留令牌干扰下次登录的挤下线判定
-    clearSessionToken()
+    // 顺手清掉旧单设备模型的令牌残留（新模型下它已不是判据，但留着没用）
+    clearLegacySessionToken()
     if (authError) {
       setError(authError.message)
     }

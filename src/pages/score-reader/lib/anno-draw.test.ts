@@ -42,11 +42,13 @@ describe('drawPolylineOn', () => {
     ])
   })
 
-  it('首点 moveTo、其余 lineTo（少一笔多余的连线）', () => {
+  it('单点笔迹补一条零长度线段（否则 stroke() 什么都不画）', () => {
     const { calls, ctx } = fakeCtx()
     drawPolylineOn(ctx as never, [[0.1, 0.1]], '#f00', 0.004, 100, 100)
-    expect(calls.filter((c) => c.startsWith('lineTo'))).toEqual([])
-    expect(calls.filter((c) => c.startsWith('moveTo'))).toHaveLength(1)
+    // ⚠️ 这一次 lineTo 是**故意**留的，别当成「多余的连线」删掉：路径只有 moveTo 时
+    // `stroke()` 一个像素都不画 ⇒ 真机上「点一下什么都没发生」（2026-10-15 平板笔验收：
+    // 点 30 下一个都留不下）。同点线段 + round lineCap = 直径等于线宽的圆点。
+    expect(calls).toEqual(['beginPath', 'moveTo(10,10)', 'lineTo(10,10)', 'stroke'])
   })
 
   it('空点集什么都不画', () => {

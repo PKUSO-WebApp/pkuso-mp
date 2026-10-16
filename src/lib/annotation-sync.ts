@@ -2,42 +2,64 @@ import Taro from '@tarojs/taro'
 import { compactStroke, type AnnoDoc, type AnnoStroke } from './annotation'
 
 /**
- * 批注上云的**纯逻辑**：内容指纹、三方差分、以及两种记账的读写。
+ * 批注上云的**纯逻辑**：内容指纹、三方差分、以及三种记账（基线 / 欠账标记 / 冲突记录）的读写。
  *
  * 这一层不 import supabase（那会在缺 env 时**导入即抛**，测试连模块都加载不了）——
  * 网络那半边在 annotation-sync-runner.ts。两者的分界是「能不能只靠本地状态算出来」。
  *
- * ## 为什么是「指纹对账」而不是时间戳
+ * ## 判定用「内容指纹」，写入用「版本号」——两把不同的尺子
  *
- * 客户端时钟不可信（时区、漂移、回拨），而「这一页的内容是不是我上次推上去的那份」
- * 用内容本身就能回答：为每册记一份**上次同步成功时每页的指纹**，本地现在算出来的对不上
- * 就是有欠账。这不依赖任何内存态，所以**进程被强杀也不丢**——欠账是可推导的，不是被记住的。
+ * - **指纹**（`pageFingerprint`，客户端算）：回答「这一页的内容是不是我上次同步的那一份」。
+ *   它不依赖任何内存态，所以**进程被强杀也不丢**——欠账是可推导的，不是被记住的。
+ * - **版本号**（`version`，**服务端**算的 md5）：推送时的 CAS 令牌。客户端**只存不造**，
+ *   原样把上次拉到的那个字符串带回去即可 ⇒「客户端报一个假的版本号」这条口子不存在，
+ *   也不必在客户端复刻 jsonb 的规范化文本。
  *
- * ## 为什么冲突要「两边都不动」
+ * ## 冲突：不再替用户选，也不再静默丢
  *
- * 「先拉后推」挡掉绝大多数并发；只剩「本地离线改过、同一页在别处也改过」这一种。
- * 那时两边都有用户真花时间画的东西，**静默选一边就是无声地丢**。所以这一页不上传也不覆盖，
- * 分叉留着（本地那份还在本地、服务端那份还在服务端），只上报一条。
+ * 从前两边都改过时按 LWW 用**设备时钟**判先后——时钟不可信，而且输的那一份是**静默丢掉**的。
+ * 现在：先看包含关系（一份完整包含另一份 ⇒ 取超集那一边，两边都没丢，不打扰用户），
+ * 互不包含的**真分叉**才记下来、交给用户选。选择之前两边都不动。
  */
 
-/** 上次同步成功时，每页的内容指纹（页码字符串 → 指纹） */
-export type SyncBase = Record<string, string>
+/** 上次同步成功时，每页的内容指纹 + 服务端那一页的版本号 */
+export type BaseEntry = {
+  fp: string
+  /**
+   * 服务端那一行的 `version`。**客户端只存不造**，而且服务端也可能返回空。
+   * 缺 = 这条基线记于此机制之前（老版本写的）⇒ 推送时按无条件写处理。
+   */
+  version?: string
+}
+export type SyncBase = Record<string, BaseEntry>
 
 /** 服务端一行的形态（查询回来的原始行） */
 export type RemotePage = {
   page: number
   strokes: AnnoStroke[]
-  /** 服务端那一行的 `updated_at`（epoch ms）。**由触发器盖章**，客户端的钟伪造不了它 */
+  /** 服务端那一行的 `version`（CAS 令牌）；没有（异常形态）当缺 */
+  version: string | null
+  /** 服务端那一行的 `updated_at`（epoch ms）。**只作诊断**，不参与任何判定 */
   updatedAt: number
 }
 
 export const annoSyncKey = (fileId: string) => `score-annotation-sync:${fileId}`
 
+/**
+ * 冲突记录：这一册有哪些页处在「两边都改过、还没解决」的状态。
+ *
+ * 为什么要落盘（而不是只在内存里）：冲突是**在别处发现的**——用户画完退出、后台同步才发现，
+ * 那一刻没有界面可以问。记录留着，下次进这一册（或下一次同步）才提示得到。
+ * 它也是**可推导的**：每次同步都会按当前的三方差分重算一遍，所以记录永远会被刷新，
+ * 不存在「用户已经在别处解决了、这里还挂着」的死记录。
+ */
+export const annoConflictKey = (fileId: string) => `score-annotation-conflict:${fileId}`
+
 /** 全局「可能有欠账」标记：真时下次联网要把**所有**有批注的册对一遍账 */
 export const ANNO_PENDING_KEY = 'score-annotation-pending'
 
 /**
- * 列册用的前缀。注意它与 annoSyncKey 不冲突——`score-annotation-sync:x` 后面跟的是 `-`
+ * 列册用的前缀。注意它与 annoSyncKey / annoConflictKey 都不冲突——那两个后面跟的是 `-`
  * 而不是 `:`，所以不会以 `score-annotation:` 开头。
  */
 const ANNO_KEY_PREFIX = 'score-annotation:'
@@ -79,20 +101,106 @@ export function pageFingerprint(strokes: AnnoStroke[]): string {
 /** 空页的指纹（`[]` 的指纹是个常量，比较时直接用） */
 export const EMPTY_FP = pageFingerprint([])
 
-export type SyncPlan = {
-  /** 本地改过、远端没动 ⇒ 上传 */
-  toPush: Array<{ page: number; strokes: AnnoStroke[]; fp: string }>
-  /** 远端改过、本地没动 ⇒ 落回本地 */
-  toAdopt: Array<{ page: number; strokes: AnnoStroke[]; fp: string }>
+/**
+ * 单笔的规范键：与指纹同一套归一化（先 compact、零点笔迹当不存在）。
+ *
+ * 用途只有一个——判**包含关系**（见 contentCovers）。它比指纹细一档：指纹回答「整页一不一样」，
+ * 它回答「这一笔在不在那边」。两者必须同源，否则会出现「整页相同、笔迹却互不包含」这种自相矛盾。
+ */
+export function strokeKey(stroke: AnnoStroke): string | null {
+  const c = compactStroke(stroke)
+  if (c.points.length === 0) return null
+  return `${c.color}|${c.width}|${c.alpha ?? 1}|${c.points.map((p) => `${p[0]},${p[1]}`).join(';')}`
+}
+
+/**
+ * 两版笔迹**取并集**（冲突解决页「合并两版」用的那一步）：本地在前、远端在后。
+ *
+ * **同一笔只留一条**，判据就是 `strokeKey`（颜色 / 线宽 / alpha / 点序列全同）。两端都有的
+ * 那一笔叠加起来会**深一层** —— 荧光笔最明显（同一道高亮在两版里各一份），用户 2026-10-15
+ * 真机报的就是这个。只是「画得像」不算同一笔：这一层没有可靠判据，宁可都留着（这个模型里
+ * 没有 per-stroke id，位置相近的两笔本来就分不开）。
+ *
+ * 复用 `strokeKey` 还白拿一件事：判重与指纹 / 包含关系**同一套归一化**（先 compact、零点
+ * 笔迹当不存在），不会出现「包含关系说这两版一样、合并却留下两笔」这种自相矛盾。
+ */
+export function mergeStrokes(local: AnnoStroke[], remote: AnnoStroke[]): AnnoStroke[] {
+  const seen = new Set<string>()
+  const out: AnnoStroke[] = []
+  const all = [...(Array.isArray(local) ? local : []), ...(Array.isArray(remote) ? remote : [])]
+  for (const s of all) {
+    const key = strokeKey(s)
+    if (key === null || seen.has(key)) continue // null = 零点笔迹：不渲染，也不该占位
+    seen.add(key)
+    out.push(s)
+  }
+  return out
+}
+
+/** 笔迹的**多重集**计数（同一笔重复画两次是两笔，不是一笔） */
+function strokeCounts(strokes: AnnoStroke[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const s of Array.isArray(strokes) ? strokes : []) {
+    const key = strokeKey(s)
+    if (key === null) continue
+    out.set(key, (out.get(key) ?? 0) + 1)
+  }
+  return out
+}
+
+/**
+ * `sub` 的每一笔都在 `sup` 里（**按份数**）。
+ *
+ * 用多重集而不是集合：同一个位置画两笔与画一笔是两份内容，按集合比会把「少画了一笔」
+ * 也算成包含，那就等于静默丢一笔。
+ */
+export function contentCovers(sub: AnnoStroke[], sup: AnnoStroke[]): boolean {
+  const a = strokeCounts(sub)
+  if (a.size === 0) return true
+  const b = strokeCounts(sup)
+  for (const [key, n] of a) {
+    if ((b.get(key) ?? 0) < n) return false
+  }
+  return true
+}
+
+export type PushAction = {
+  page: number
+  strokes: AnnoStroke[]
+  fp: string
   /**
-   * 两边都改过的页。**它们已按 LWW 裁决完**（见 planSync），列在这里只为上报与对账——
-   * 不再有「悬着不动」的页（那种页会永久卡住：推不上去、也不自愈）。
+   * CAS 的期望值：
+   * - 字符串 = 期望服务端那一页的版本恰好是它；
+   * - `''` = 期望那一页**还不存在**（首次写）；
+   * - `null` = 无条件覆盖（这条基线记于本机制之前，没有版本可比 —— 用户 2026-10-14 定：不挡）。
    */
+  expected: string | null
+}
+
+export type AdoptAction = {
+  page: number
+  strokes: AnnoStroke[]
+  fp: string
+  version: string | null
+  /**
+   * **做这次判定时**本地那一页的指纹。落盘前要拿它复核一遍：拉取是网络往返，
+   * 这期间用户可能正好在改这一页 —— 那份判定就过期了，不能再拿它覆盖本地
+   *（否则用户在拉取窗口里画的笔迹会被「收下的远端内容」顶掉）。
+   */
+  localFp: string
+}
+
+export type SyncPlan = {
+  /** 本地改过、远端没动 ⇒ 上传（带 CAS 期望值） */
+  toPush: PushAction[]
+  /** 远端改过、本地没动（或包含关系判给远端）⇒ 落回本地 */
+  toAdopt: AdoptAction[]
+  /** 已经一致（含「碰巧改成同一份」）⇒ 把基线推到当前指纹与版本即可 */
+  inSync: Array<{ page: number; fp: string; version: string | null }>
+  /** 真分叉（互不包含）：两边都不动，只记下来交给用户选 */
   conflicts: number[]
-  /** 已经一致（含「碰巧改成同一份」）⇒ 把基线推到当前指纹即可 */
-  inSync: Array<{ page: number; fp: string }>
-  /** 冲突里判给**远端**的那些页（诊断用：判给本地的没在这里） */
-  lwwRemote: number[]
+  /** 被**包含关系**自动裁决掉的页（不打扰用户）——诊断用，不进任何上报 */
+  autoMerged: Array<{ page: number; took: 'local' | 'remote' }>
 }
 
 /** 页码的键可能是别人写坏的值；只接受 >=1 的整数，其余当不存在 */
@@ -105,23 +213,18 @@ function toPage(key: string): number | null {
  * 三方差分：本地 / 基线（上次同步成功时）/ 远端 → 该做什么。
  *
  * 「基线」是判定的支点：某一边与基线相同 ⇒ 那一边**没动**，另一边的变化就是要传播的。
- * 两边都与基线不同 ⇒ 两边都动过 ⇒ 冲突。
+ * 两边都与基线不同 ⇒ 两边都动过 ⇒ 先按包含关系自动裁决，互不包含才是真分叉。
  *
- * 基线**缺失**（这一页从没同步过：功能上线前画的、或离线画的）时只能靠「哪边是空的」判：
- * 一边空一边有内容，方向是明确的；两边都有内容而内容不同，无从判断谁新谁旧 —— 算冲突。
+ * 基线**缺失**（这一页从没同步过：功能上线前画的、或离线画的）时不能猜谁新谁旧——同样交给
+ * 包含关系判，判不了就是冲突。
  */
-export function planSync(
-  local: AnnoDoc,
-  base: SyncBase,
-  remote: RemotePage[],
-  mtime: Record<string, number> = {}
-): SyncPlan {
+export function planSync(local: AnnoDoc, base: SyncBase, remote: RemotePage[]): SyncPlan {
   const remoteMap = new Map<number, AnnoStroke[]>()
-  const remoteAt = new Map<number, number>()
+  const remoteVer = new Map<number, string | null>()
   for (const row of remote) {
     if (!Number.isInteger(row.page) || row.page < 1) continue
     remoteMap.set(row.page, Array.isArray(row.strokes) ? row.strokes : [])
-    remoteAt.set(row.page, Number.isFinite(row.updatedAt) ? row.updatedAt : 0)
+    remoteVer.set(row.page, typeof row.version === 'string' && row.version ? row.version : null)
   }
 
   const pages = new Set<number>()
@@ -135,50 +238,81 @@ export function planSync(
   }
   for (const p of remoteMap.keys()) pages.add(p)
 
-  const plan: SyncPlan = { toPush: [], toAdopt: [], conflicts: [], inSync: [], lwwRemote: [] }
+  const plan: SyncPlan = { toPush: [], toAdopt: [], inSync: [], conflicts: [], autoMerged: [] }
+
+  /**
+   * 两边都动过时唯一的自动裁决：**谁包含谁**。
+   *
+   * 它挡掉的正是最常见的一类「冲突」：一台设备接着另一台画（本地就是「远端 ∪ 我这几笔」）。
+   * 取超集那一边两边都不丢——子集那一份的每一笔都在超集里，所以这**不是**静默丢数据，
+   * 与 LWW 有本质区别。互不包含（各画了对方没有的笔）才记成冲突。
+   *
+   * ⚠️ **「一边空了」不算包含**（`baseFp` 那条早退）：空集被一切内容包含，于是
+   * 「我把这一页擦空、别人在这一页上又画了」会被判成「本地 ⊆ 远端 ⇒ 收下」——
+   * 那等于**替用户撤销了他的擦除**。笔迹记不住「少了一笔」，只有在基线的对照下
+   * 「变空」才是可辨认的编辑 ⇒ 基线说这一页原本有内容时，这一支交给用户选
+   *（方案 §4：一边画了 X、另一边把 X 擦了，集合层面分不出来，只能问）。
+   */
+  const byInclusion = (
+    page: number,
+    localStrokes: AnnoStroke[],
+    remoteStrokes: AnnoStroke[],
+    l: string,
+    r: string,
+    rv: string | null,
+    baseFp: string | undefined
+  ) => {
+    if (baseFp !== undefined && baseFp !== EMPTY_FP && (l === EMPTY_FP || r === EMPTY_FP)) {
+      plan.conflicts.push(page)
+      return
+    }
+    if (contentCovers(remoteStrokes, localStrokes)) {
+      // 远端 ⊆ 本地 ⇒ 推本地（超集）。expected 用**刚读到的**远端版本 ⇒ 正常情况下一次就成
+      plan.toPush.push({ page, strokes: localStrokes, fp: l, expected: rv ?? '' })
+      plan.autoMerged.push({ page, took: 'local' })
+      return
+    }
+    if (contentCovers(localStrokes, remoteStrokes)) {
+      // 本地 ⊆ 远端 ⇒ 直接收下远端（本地那几笔远端都有）
+      plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r, version: rv, localFp: l })
+      plan.autoMerged.push({ page, took: 'remote' })
+      return
+    }
+    plan.conflicts.push(page)
+  }
+
   for (const page of [...pages].sort((x, y) => x - y)) {
     const key = String(page)
     const localStrokes = local[key] ?? []
     const remoteStrokes = remoteMap.get(page) ?? []
     const l = pageFingerprint(localStrokes)
     const r = pageFingerprint(remoteStrokes)
+    const rv = remoteVer.get(page) ?? null
     const b = base[key]
 
     if (l === r) {
-      plan.inSync.push({ page, fp: l })
+      plan.inSync.push({ page, fp: l, version: rv })
       continue
     }
     if (b === undefined) {
-      if (l === EMPTY_FP) plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r })
-      else if (r === EMPTY_FP) plan.toPush.push({ page, strokes: localStrokes, fp: l })
-      else plan.conflicts.push(page)
+      // 没有基线 ⇒ 没有「谁动过」可依据，只能看包含关系。这里**不**套用「一边空了 ⇒ 冲突」
+      // 那条：没有基线就无从知道这一页原本有没有内容 —— 一边有一边空时方向是明确的
+      //（没基线的那本册第一次同步就落在这里，猜成冲突会让所有旧数据都弹一次窗）
+      byInclusion(page, localStrokes, remoteStrokes, l, r, rv, undefined)
       continue
     }
-    if (r === b) {
-      plan.toPush.push({ page, strokes: localStrokes, fp: l })
+    if (r === b.fp) {
+      // 远端 == 基线 ⇒ 远端没动、本地改了 ⇒ 推。expected 取基线里记的版本
+      plan.toPush.push({ page, strokes: localStrokes, fp: l, expected: b.version ?? null })
       continue
     }
-    if (l === b) {
-      plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r })
+    if (l === b.fp) {
+      // 本地 == 基线 ⇒ 本地没动、远端改了 ⇒ 收下
+      plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r, version: rv, localFp: l })
       continue
     }
-    // 两边都动过 ⇒ **LWW**（用户 2026-10-10 定，暂时）：比「本地这一页最后改动的时间」
-    // 与「服务端那一行的 updated_at」。相等时判给本地——用户在看着本机这份。
-    //
-    // ⚠️ 从前这里是「两边都不动」，而那样**会永久卡住**：基线不动 ⇒ 每次同步都判出同一个
-    // 冲突 ⇒ 本地改动永远推不上去，也不自愈（实测形态：某页连报 5 次冲突，合成带批注的
-    // PDF 时函数读到的是服务端那份旧内容）。
-    //
-    // ⚠️ 缺 mtime（= 这一页的改动发生在本机制之前）时判给**本地**：无从比较时偏向
-    // 「用户手上这份」，而且这样旧数据第一次同步就能解开僵局。
-    const localAt = mtime[key] ?? Number.POSITIVE_INFINITY
-    plan.conflicts.push(page)
-    if (localAt >= (remoteAt.get(page) ?? 0)) {
-      plan.toPush.push({ page, strokes: localStrokes, fp: l })
-    } else {
-      plan.lwwRemote.push(page)
-      plan.toAdopt.push({ page, strokes: remoteStrokes, fp: r })
-    }
+    // 两边都动过
+    byInclusion(page, localStrokes, remoteStrokes, l, r, rv, b.fp)
   }
   return plan
 }
@@ -194,11 +328,22 @@ export function planSync(
 export type SyncRecord = {
   userId: string
   base: SyncBase
-  /**
-   * 每页**本地内容**最后改动的时间（设备时钟，epoch ms）。**只用于冲突时的 LWW 裁决**，
-   * 不参与「有没有欠账」的判定（那个仍然只看内容指纹）。缺 = 这次改动发生在本机制之前。
-   */
-  mtime?: Record<string, number>
+}
+
+/** 旧版基线是「页码 → 指纹」的纯字符串表；读进来一律补成 BaseEntry（version 缺 = 老数据） */
+function normalizeBase(raw: unknown): SyncBase | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const out: SyncBase = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = { fp: v }
+    else if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const e = v as { fp?: unknown; version?: unknown }
+      if (typeof e.fp !== 'string') continue
+      out[k] =
+        typeof e.version === 'string' && e.version ? { fp: e.fp, version: e.version } : { fp: e.fp }
+    }
+  }
+  return out
 }
 
 export function loadSyncBase(fileId: string, userId: string): SyncBase {
@@ -209,73 +354,61 @@ export function loadSyncBase(fileId: string, userId: string): SyncBase {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
     const record = parsed as Partial<SyncRecord>
     if (record.userId !== userId) return {}
-    if (!record.base || typeof record.base !== 'object' || Array.isArray(record.base)) return {}
-    const out: SyncBase = {}
-    for (const [k, v] of Object.entries(record.base as Record<string, unknown>)) {
-      if (typeof v === 'string') out[k] = v
-    }
-    return out
+    return normalizeBase(record.base) ?? {}
   } catch {
     return {}
   }
 }
 
-function readRecord(fileId: string): SyncRecord | null {
-  try {
-    const raw = Taro.getStorageSync(annoSyncKey(fileId))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-    return parsed as SyncRecord
-  } catch {
-    return null
-  }
-}
-
-/** 取这一册每页本地改动的时刻（给 LWW 用）。换账号一律当没有——与服务端那行对不上 */
-export function loadMtime(fileId: string, userId: string): Record<string, number> {
-  const record = readRecord(fileId)
-  if (!record || record.userId !== userId) return {}
-  const raw = record.mtime
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  const out: Record<string, number> = {}
-  for (const [k, v] of Object.entries(raw)) {
-    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v
-  }
-  return out
-}
-
-/**
- * 记「这一页的本地内容刚被改过」。**没有记账就什么都不做**——第一次同步会建它；
- * 而在那之前发生的改动本来就无从比较，LWW 会按「缺 mtime ⇒ 判给本地」处理。
- */
-export function markLocalEdit(fileId: string, pages: string[], now: number): void {
-  if (pages.length === 0) return
-  const record = readRecord(fileId)
-  if (!record || typeof record.userId !== 'string') return
-  const mtime = { ...(record.mtime ?? {}) }
-  for (const page of pages) mtime[page] = now
-  try {
-    Taro.setStorageSync(annoSyncKey(fileId), JSON.stringify({ ...record, mtime }))
-  } catch {
-    // 写不进去只是 LWW 少一条依据，不影响别的
-  }
-}
-
 /** 写基线失败（存储满）只会让下次多推一遍，不影响正确性，故只回布尔不抛 */
-export function saveSyncBase(
-  fileId: string,
-  userId: string,
-  base: SyncBase,
-  mtime: Record<string, number> = {}
-): boolean {
+export function saveSyncBase(fileId: string, userId: string, base: SyncBase): boolean {
   try {
-    const record: SyncRecord = { userId, base, mtime }
+    const record: SyncRecord = { userId, base }
     Taro.setStorageSync(annoSyncKey(fileId), JSON.stringify(record))
     return true
   } catch {
     return false
   }
+}
+
+/** 读这一册未解决的冲突页（**按账号隔离**，理由同基线）。坏数据一律当没有 */
+export function loadConflicts(fileId: string, userId: string): number[] {
+  try {
+    const raw = Taro.getStorageSync(annoConflictKey(fileId))
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
+    const record = parsed as { userId?: unknown; pages?: unknown }
+    if (record.userId !== userId || !Array.isArray(record.pages)) return []
+    return record.pages
+      .map((p) => Number(p))
+      .filter((p) => Number.isInteger(p) && p >= 1)
+      .sort((x, y) => x - y)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 覆盖写这一册的冲突页。**空数组 = 删掉这条记录**（没有冲突就该没有记录，
+ * 不然「有没有冲突」会变成一份会腐烂的副本）。
+ */
+export function saveConflicts(fileId: string, userId: string, pages: number[]): void {
+  try {
+    const unique = [...new Set(pages.filter((p) => Number.isInteger(p) && p >= 1))].sort(
+      (x, y) => x - y
+    )
+    if (unique.length === 0) Taro.removeStorageSync(annoConflictKey(fileId))
+    else Taro.setStorageSync(annoConflictKey(fileId), JSON.stringify({ userId, pages: unique }))
+  } catch {
+    // 记不下只是下次少提示一次；冲突本身还在（判定完全由内容推导），不会因此丢东西
+  }
+}
+
+/** 从冲突记录里摘掉一页（解决完一页就调它——不必等下一次同步） */
+export function clearConflictPage(fileId: string, userId: string, page: number): void {
+  const rest = loadConflicts(fileId, userId).filter((p) => p !== page)
+  saveConflicts(fileId, userId, rest)
 }
 
 /**

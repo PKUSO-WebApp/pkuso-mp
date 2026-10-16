@@ -13,13 +13,7 @@ import type { CanvasCtx } from './types'
  * 批注层这块**透明画布**上的：它与谱面（下面那块画布）之间是普通的 alpha 合成，
  * 于是纸色照样透出来 —— 那就是荧光笔的样子，不需要 `globalCompositeOperation`。
  */
-export function styleFor(
-  ctx: CanvasCtx,
-  color: string,
-  width: number,
-  w: number,
-  alpha = 1
-): void {
+export function styleFor(ctx: CanvasCtx, color: string, width: number, w: number, alpha = 1): void {
   ctx.strokeStyle = color
   ctx.lineWidth = Math.max(1, width * w)
   ctx.lineCap = 'round'
@@ -43,8 +37,17 @@ export function drawPolylineOn(
   pts.forEach(([x, y], i) => {
     const px = x * w
     const py = y * h
-    if (i === 0) ctx.moveTo(px, py)
-    else ctx.lineTo(px, py)
+    if (i === 0) {
+      ctx.moveTo(px, py)
+      // 单点笔迹（快速点一下就抬手，全程没有 touchmove）：**只有 moveTo 的路径 `stroke()`
+      // 什么都不画** ⇒ 屏幕上「点一下什么都没发生」，而数据里已经多了一笔（擦除还擦得掉它）。
+      // 触控笔点得快时尤其明显（2026-10-15 真机：「点 30 下一个都留不下」）。
+      // 补一条零长度线段 —— round lineCap 会把它画成直径 = lineWidth 的圆点，
+      // 颜色 / 线宽 / 不透明度全走上面那套样式，不必另开 fill 分支。
+      if (pts.length === 1) ctx.lineTo(px, py)
+    } else {
+      ctx.lineTo(px, py)
+    }
   })
   ctx.stroke()
 }
