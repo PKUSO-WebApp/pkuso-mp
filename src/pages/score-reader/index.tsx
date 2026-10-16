@@ -3490,6 +3490,14 @@ export default function ScoreReader() {
           // 给它一个显式 z 之后，舞台里的东西整体就是**一层**，工具条/徽标/教程/面板都在它之上，
           // 层序变成确定的，不再依赖"每个画布的 z 恰好比工具条小"这种默契。
           className='absolute inset-0 overflow-hidden'
+          // ⚠️ **`catchMove` 是这一层的关键，别删**（2026-10-16 adb 实测，同一台机）：
+          // 它的作用是给这一层挂 `catch:touchmove` —— 即 Web 端 `preventDefault` 在小程序里的对应物，
+          // 把这段触摸**认领**下来、不再往页面冒泡。微信那条左沿返回手势**只在内容没有认领时**
+          // 才能一路仲裁到 55 CSS px；认领之后它只拿得到最外面 ~20 CSS px。
+          // 实测（同机、同方法）：`bind` ⇒ 带 = 55 CSS px（155 物理）；`catch` ⇒ 16–20 CSS px；
+          // 金山文档（H5 在 web-view 里、浏览器层认领）≈ 20 CSS px —— 这一行就是它那条窄带的等价物。
+          // 最外面那 ~20 px 拿不回来（微信的不可让部分），金山文档也一样。
+          catchMove
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
