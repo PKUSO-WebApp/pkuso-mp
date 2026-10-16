@@ -19,6 +19,12 @@ import { reportClientError } from '@/lib/error-report'
  *   E `2d`      —— 同 A，但页面配置 `navigationStyle: 'custom'`（二手说法称它会禁掉原生右滑返回）
  *   F `2d`      —— 同 A，但页面里**挂一个 `show={false}` 的 `page-container`**（官方文档说页面内存在
  *                  该容器时右滑会去关它；若「挂着不显示」也算数，那就是个零成本开关）
+ *   G `catch`   —— 同 A，但整屏画布的 `touchmove` 用 **`catch`** 接（`catchMove`）。小程序里唯一
+ *                  对应 Web 端「把这段手势声明成自己的」（`preventDefault` / `touch-action:none`）
+ *                  的写法 —— 前六个变体**全是 `bind`**，这一支从没试过。
+ *                  背景（2026-10-16 adb 实测，同一台机）：金山文档那条左沿带 ≈55 物理 px
+ *                  ≈20 CSS px，止于**他们自己内容的起点**；我们 55 CSS px = 155 物理 px。
+ *                  G 要回答的就是：把触摸"认领"下来，能不能把 155 压到 20。
  *
  * 判据全是同一套：**起手 x / 一笔内最长停顿 / 有没有被 `touch-cancel`**。落笔由人做，
  * 读数直接进 dev 库（见下面 `stroke_probe_*`），所以小程序侧不需要人抄数字。
@@ -26,7 +32,7 @@ import { reportClientError } from '@/lib/error-report'
  * **验完就删**：这份文件 + `pages/stroke-probe*` 两个页面 + `app.config.ts` 里那两条路由
  * + 分享面板里那个入口。别把它留在正式线上。
  */
-export type ProbeKind = '2d' | 'legacy' | 'webview' | 'pcontainer'
+export type ProbeKind = '2d' | 'legacy' | 'webview' | 'pcontainer' | 'catch'
 
 /** H5 探针（`docs/stroke-probe.html`，经 jsDelivr 指我们公开仓库）—— 与 D 变体配对 */
 export const PROBE_H5_URL =
@@ -40,6 +46,7 @@ const VARIANTS: Array<{ v: string; url: string }> = [
   { v: 'D', url: '/pages/stroke-probe/index?v=D&k=webview' },
   { v: 'E', url: '/pages/stroke-probe-custom/index?v=E&k=2d' },
   { v: 'F', url: '/pages/stroke-probe/index?v=F&k=pcontainer' },
+  { v: 'G', url: '/pages/stroke-probe/index?v=G&k=catch' },
 ]
 
 type Diag = {
@@ -68,8 +75,8 @@ export function ProbeSurface({
   const lastPtRef = useRef<{ x: number; y: number; t: number } | null>(null)
   const wRef = useRef(0)
   const hRef = useRef(0)
-  /** F 变体与 A/C 的差别只在于「页面里多挂了一个容器」，画布本身走 2d 那条路 */
-  const is2d = kind === '2d' || kind === 'pcontainer'
+  /** F/G 与 A 的差别只在于「页面里多挂了容器」或「触摸用 catch 接」，画布本身走 2d 那条路 */
+  const is2d = kind === '2d' || kind === 'pcontainer' || kind === 'catch'
 
   /**
    * 去重闸：C 变体的触摸**可能同时命中老式画布和包着它的 View**（原生组件是否冒泡随渲染路径而异），
@@ -281,6 +288,9 @@ export function ProbeSurface({
   return (
     <View
       className='fixed left-0 right-0 top-0 bottom-0'
+      // G：`catchMove` = 这层用 `catch:touchmove` 接（不再往页面冒泡）—— 小程序里唯一对应
+      // Web 端 `preventDefault` / `touch-action:none` 的"把这段手势声明成自己的"的写法
+      catchMove={kind === 'catch'}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
