@@ -72,6 +72,18 @@ describe('AnnotationBar 的收起 / 展开', () => {
     expect(toggle.className).not.toContain('absolute')
   })
 
+  it('V 的视觉重心补偿走 transform，**不能**走 margin（margin 会被 flex 折半 ⇒ 永远偏低）', () => {
+    render(<AnnotationBar {...props} />)
+    const toggle = screen.getByLabelText('scoreReader.penBarCollapse')
+    const chevron = toggle.firstElementChild as HTMLElement
+    const style = chevron.getAttribute('style') ?? ''
+    // 旋转后视觉重心比盒子中心低 0.354N，得往上顶；而 flex 的 items-center 按 **margin box**
+    // 居中 ⇒ 用 margin 顶只走一半（2026-10-16 真机量到偏低 1.59pt = 3.18/2）
+    expect(style).toContain('translateY(-')
+    expect(style).not.toContain('margin-top')
+    expect(style).toContain('rotate(')
+  })
+
   it('再点一次 ⇒ 展开回来；工具与按钮都在', () => {
     render(<AnnotationBar {...props} />)
     fireEvent.click(screen.getByLabelText('scoreReader.penBarCollapse'))

@@ -132,6 +132,10 @@ export function AnnotationBar({
    * 转 135° 成「^」。但转完的**视觉重心不在盒子中心** —— 两个端点在盒子中心那条线上，
    * 交点却在中心下方 (√2/2)·N 处 ⇒ 视觉中心比盒子中心低 **0.354N**。不补的话它就比旁边
    * 那几个图标低三四个像素（`CHEVRON_SINK`）。
+   *
+   * ⚠️ 补的时候**只能走 `transform`**：给它加负 margin 的话，flex 的 `items-center` 只让它
+   * 走一半（按 margin box 居中），于是永远低 0.354N/2 —— 这个坑连踩三次（`9a297be` 加功能、
+   * `b9854c3` 挪回第一行、`258e68f` 钉坐标），直到 2026-10-16 真机上量到那 1.59pt。
    */
   const chevronV = (up: boolean) => (
     <View
@@ -141,8 +145,14 @@ export function AnnotationBar({
         height: `${CHEVRON_PX * uiScale}px`,
         borderBottom: `${2 * uiScale}px solid currentColor`,
         borderLeft: `${2 * uiScale}px solid currentColor`,
-        marginTop: `${-CHEVRON_SINK * uiScale}px`,
-        transform: up ? 'rotate(135deg)' : 'rotate(-45deg)',
+        // ⚠️ 这一顶**必须是 transform，不能是 margin**（2026-10-16 真机定案）：
+        // flex 的 `items-center` 按「**margin box** 居中」算 ⇒ 负 margin 只让盒子走一半
+        //（borderBoxTop = (H−h)/2 − m/2），视觉重心于是永远停在中心下方 0.354N/2。
+        // 真机上量到的偏移正是 1.59pt（= 3.18/2，N=9）——「改了三次都还是偏低」就是它。
+        // transform 不参与布局，位移是全额生效的。
+        transform: `translateY(${-CHEVRON_SINK * uiScale}px) ${
+          up ? 'rotate(135deg)' : 'rotate(-45deg)'
+        }`,
       }}
     />
   )
