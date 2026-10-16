@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Taro from '@tarojs/taro'
 import {
-  ANNO_WIDTHS,
   HIGHLIGHTER_ALPHA,
+  HIGHLIGHTER_WIDTHS,
+  PEN_WIDTHS,
   annoStorageKey,
   compactDoc,
   compactStroke,
   loadAnnoDoc,
   saveAnnoDoc,
+  widthsFor,
   type AnnoDoc,
 } from './annotation'
 
@@ -169,15 +171,30 @@ describe('annotation compaction', () => {
 })
 
 describe('笔刷档位', () => {
-  // 2026-10-16 用户定：两支笔**共用一张档位表**（数量一样），选中的那一档**各存各的**
-  // （见阅读器里的 penWidth / hlWidth）⇒ 从前那个「按工具分表 + effectiveWidth 兜底」的
-  // 机制整个删掉了，这里锁住现在这张表。
-  it('档位表：两支笔共用，且比原来最细的 4‰ 多一级更细的 2‰', () => {
-    expect(ANNO_WIDTHS).toEqual([0.002, 0.004, 0.008, 0.016, 0.024, 0.032])
+  // 2026-10-16 用户定：两支笔**选中的档各存各的**（见阅读器里的 penWidth / hlWidth），
+  // 档位表**各四档、数量一样**，但取值范围不同：画笔去掉最粗两档、荧光笔去掉最细两档。
+  it('画笔四档：最细 2‰，且**不含**最粗的两档（24/32‰）', () => {
+    expect(PEN_WIDTHS).toEqual([0.002, 0.004, 0.008, 0.016])
   })
 
-  it('最细一档真的更细（0.002 < 原来的 0.004）', () => {
-    expect(ANNO_WIDTHS[0]).toBeLessThan(0.004)
+  it('荧光笔四档：去掉最细两档，其余在原来 8/16/24/32‰ 上增粗 25%', () => {
+    // 8‰×1.25=10‰、16×1.25=20、24×1.25=30、32×1.25=40
+    expect(HIGHLIGHTER_WIDTHS).toEqual([0.01, 0.02, 0.03, 0.04])
+    HIGHLIGHTER_WIDTHS.forEach((w, i) => {
+      expect(w).toBeCloseTo([0.008, 0.016, 0.024, 0.032][i] * 1.25, 6)
+    })
+  })
+
+  it('两支笔档数一样（都是四档），且都**不含**对方的极端档', () => {
+    expect(PEN_WIDTHS.length).toBe(HIGHLIGHTER_WIDTHS.length)
+    expect(Math.min(...HIGHLIGHTER_WIDTHS)).toBeGreaterThan(Math.min(...PEN_WIDTHS))
+    expect(Math.max(...PEN_WIDTHS)).toBeLessThan(Math.max(...HIGHLIGHTER_WIDTHS))
+  })
+
+  it('两把工具各拿各的表（橡皮擦走画笔那份）', () => {
+    expect(widthsFor('pen')).toBe(PEN_WIDTHS)
+    expect(widthsFor('eraser')).toBe(PEN_WIDTHS)
+    expect(widthsFor('highlighter')).toBe(HIGHLIGHTER_WIDTHS)
   })
 
   it('荧光笔固定 50% 不透明', () => {

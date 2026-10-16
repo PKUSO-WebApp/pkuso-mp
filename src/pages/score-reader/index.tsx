@@ -15,9 +15,10 @@ import { SaveToSheet } from '@/components/score/SaveToSheet'
 import { usePdfHandoff } from '@/hooks/usePdfHandoff'
 // 顶栏图标（Lucide 系列，72×72 PNG；暗色用 -dark 变体）
 import {
-  ANNO_WIDTHS,
   HIGHLIGHTER_ALPHA,
+  HIGHLIGHTER_WIDTHS,
   PEN_COLORS,
+  PEN_WIDTHS,
   loadAnnoDoc,
   saveAnnoDoc,
   type AnnoDoc,
@@ -347,10 +348,11 @@ export default function ScoreReader() {
   /**
    * 线宽**两支笔各存各的**（用户 2026-10-16 定：互不影响、完全分离）。
    * 原先是一份共用状态，从荧光笔切回画笔时还得把 32‰ 钳到 8‰ —— 现在不需要了：
-   * 档位表两支笔共用（`ANNO_WIDTHS`），**选中的那一档各记各的**，切工具原样保留。
+   * 档位表各取各的（`widthsFor`，各四档），**选中的那一档各记各的**，切工具原样保留。
+   * 默认值取各自表里的第二档（画笔 4‰ / 荧光笔 20‰）。
    */
-  const [penWidth, setPenWidth] = useState<number>(ANNO_WIDTHS[1])
-  const [hlWidth, setHlWidth] = useState<number>(ANNO_WIDTHS[1])
+  const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS[1])
+  const [hlWidth, setHlWidth] = useState<number>(HIGHLIGHTER_WIDTHS[1])
   const [annos, setAnnos] = useState<AnnoDoc>({})
   /**
    * 批注的同步镜像：**读-改-写**的调用点一律读它，不读 state。
@@ -2878,10 +2880,20 @@ export default function ScoreReader() {
    */
   const resolveTouchEnd = (g: Drag, end?: { clientX: number; clientY: number }) => {
     if (isTap(g, Date.now())) {
+      // ⚠️ **有工具气泡开着时，点谱面 = 退出该工具、回到阅览状态**（用户 2026-10-16 定）。
+      // 从前只能再点一次底栏那个按钮才关得掉，而且关掉菜单之后气泡状态还留着
+      //（下次开菜单它又冒出来）。现在这一下**既关气泡也收菜单**，并且不翻页 / 不滚动 ——
+      //「退出」优先于「翻页」：想翻页就再点一下（第一次点击的语义是"我先不要工具了"）。
+      if (bottomPanel !== 'none') {
+        setBottomPanel('none')
+        setMenuOn(false)
+        return
+      }
       // 灰带优先：菜单关着时上下两条灰带**任意位置**的**点击**都只开关菜单，不翻页/不滚动。
       // ⚠️ 只管点击——**滑动照常翻页**（见下面 swipeDir 那一段）：拇指在屏幕下沿横滑是最省力
       // 的翻页姿势，灰带又是不可见的，在那里让手势静默失效会被读成「翻页失灵」（2026-10-09 定）。
       if (g.band) {
+        setBottomPanel('none') // 菜单收掉时气泡一并收掉，免得下次开菜单它又冒出来
         setMenuOn((on) => !on)
         return
       }
@@ -2889,6 +2901,7 @@ export default function ScoreReader() {
       // （20/60/20，点上下方滚动一页的距离）——分区判据见 lib/layout.ts
       const zone = ud ? zoneOnAxis(g.relY, containerH, ZONE_SPLITS_UD) : zoneFor(g.relX, containerW)
       if (zone === 'menu') {
+        setBottomPanel('none')
         setMenuOn((on) => !on)
         return
       }
@@ -3207,6 +3220,21 @@ export default function ScoreReader() {
     if (before.length === 0) return // 没笔迹就没有可撤销的一步
     pushHistory(page, before)
     persist({ ...annosRef.current, [key]: [] })
+  }
+
+  /**
+   * 「完成」（批注栏右上角）：**退出批注、回到阅览状态**（用户 2026-10-16 定）。
+   *
+   * 与底栏那个铅笔按钮是同一个出口的两条路；与左下角「收起」的区别是：收起只把这条栏
+   * 藏起来（还在批注里，笔仍可写），完成是真的出去、连底栏菜单一起收掉（"阅览状态"）。
+   */
+  const finishPen = () => {
+    cancelStroke('finish-pen')
+    dragRef.current = null
+    multiTouchRef.current = false
+    setPenOn(false)
+    setBottomPanel('none')
+    setMenuOn(false)
   }
 
   const togglePen = () => {
@@ -3694,6 +3722,7 @@ export default function ScoreReader() {
               onWidth={setToolWidth}
               onUndo={handleUndo}
               onClear={handleClear}
+              onDone={finishPen}
             />
           </View>
         ) : null}

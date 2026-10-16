@@ -30,6 +30,7 @@ const props = {
   onWidth: vi.fn(),
   onUndo: vi.fn(),
   onClear: vi.fn(),
+  onDone: vi.fn(),
 }
 
 afterEach(() => {
@@ -60,28 +61,39 @@ describe('AnnotationBar 的收起 / 展开', () => {
     expect((container.firstChild as HTMLElement).style.pointerEvents).toBe('none')
   })
 
-  it('收起按钮在**第一行的流里**：与画笔/颜料同一行，且不再用 absolute 钉坐标', () => {
+  it('两个出口分在两角（2026-10-16 用户定）：「完成」在第一行右上，「收起」在第二行左下', () => {
     render(<AnnotationBar {...props} />)
-    const toggle = screen.getByLabelText('scoreReader.penBarCollapse')
-    // 画笔按钮 → 左组 → 第一行；收起按钮的直接父节点必须就是同一行
-    // ⇒ 它与画笔/颜料的垂直居中由 `items-center` 保证，不靠任何独立算出来的坐标。
-    //（2026-10-16 之前是 `absolute right-3 top-2`，真机上 V 比旁边那几个按钮低一截）
-    const firstRow = screen.getByLabelText('scoreReader.pen').parentElement?.parentElement
-    expect(toggle.parentElement).toBe(firstRow)
-    expect(toggle.className).toContain('ml-auto')
-    expect(toggle.className).not.toContain('absolute')
+    const pen = screen.getByLabelText('scoreReader.pen')
+    const firstRow = pen.parentElement?.parentElement // 工具组 → 第一行
+    const done = screen.getByLabelText('scoreReader.penDone')
+    const collapse = screen.getByLabelText('scoreReader.penBarCollapse')
+    // 「完成」在第一行里（它外层是那个 `ml-auto` 盒子）—— 与工具/色块同一行的行尾
+    expect(done.parentElement?.parentElement).toBe(firstRow)
+    // 「收起」在第二行里（第一行的下一个兄弟节点）
+    expect(collapse.parentElement).toBe(firstRow?.nextElementSibling)
+    // 都不是钉坐标（那条路踩过 `.ui-scale` 下不重合的坑）
+    expect(collapse.className).not.toContain('absolute')
+    expect(done.className).not.toContain('absolute')
   })
 
-  it('V 的视觉重心补偿走 transform，**不能**走 margin（margin 会被 flex 折半 ⇒ 永远偏低）', () => {
+  it('**只有「展开」带背景**（用户 2026-10-16 定：无背景的它在 UD 模式下几乎看不见）', () => {
     render(<AnnotationBar {...props} />)
-    const toggle = screen.getByLabelText('scoreReader.penBarCollapse')
-    const chevron = toggle.firstElementChild as HTMLElement
-    const style = chevron.getAttribute('style') ?? ''
-    // 旋转后视觉重心比盒子中心低 0.354N，得往上顶；而 flex 的 items-center 按 **margin box**
-    // 居中 ⇒ 用 margin 顶只走一半（2026-10-16 真机量到偏低 1.59pt = 3.18/2）
-    expect(style).toContain('translateY(-')
-    expect(style).not.toContain('margin-top')
-    expect(style).toContain('rotate(')
+    const collapse = screen.getByLabelText('scoreReader.penBarCollapse')
+    // 收起：不带底色（它就在栏里，和色块/档位同一层）
+    expect(collapse.className).not.toContain('bg-card')
+    // 展开：带底色（收起之后它是唯一贴在谱面上的东西）
+    fireEvent.click(collapse)
+    const expand = screen.getByLabelText('scoreReader.penBarExpand')
+    expect(expand.className).toContain('bg-card')
+    expect(expand.className).toContain('border')
+  })
+
+  it('点「完成」⇒ 回调 onDone（退出批注），且不会顺手清空/撤销', () => {
+    render(<AnnotationBar {...props} />)
+    fireEvent.click(screen.getByLabelText('scoreReader.penDone'))
+    expect(props.onDone).toHaveBeenCalledTimes(1)
+    expect(props.onClear).not.toHaveBeenCalled()
+    expect(props.onUndo).not.toHaveBeenCalled()
   })
 
   it('再点一次 ⇒ 展开回来；工具与按钮都在', () => {

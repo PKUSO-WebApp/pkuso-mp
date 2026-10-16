@@ -21,11 +21,16 @@ export const scoreReader = {
   pen: '笔',
   eraser: '橡皮',
   undo: '撤销',
-  /** 批注栏右上角那个 V 按钮（图标按钮，没有可读文字 ⇒ 文案只做 ariaLabel）。
-   *  为什么要能收起：工具条是浮层，手指落在它上面**触摸到不了画布** ——
+  /** 「收起」按钮的 ariaLabel（它**有**可见文字，见下面 *Label；这条只说清"收起的是什么"）。
+   *  为什么要能收起：工具条是浮层，手指落在它上面**触摸不到画布** ——
    *  被它盖住的那一条既看不到、也起不了笔（用户 2026-10-16 报）。 */
   penBarCollapse: '收起工具条',
   penBarExpand: '展开工具条',
+  /** 按钮上**看得见**的字（2026-10-16 用户定：把原来的 V 图标换成文字） */
+  penBarCollapseLabel: '收起',
+  penBarExpandLabel: '展开',
+  /** 批注栏右上角「完成」：**退出批注、回到阅览**（与左下角「收起」不是一回事） */
+  penDone: '完成',
   /** 带页码：UD 下「本页」歧义（见 AnnotationBar 的 clearPage） */
   clear: '清空第 {page} 页',
   clearConfirm: '确认？',

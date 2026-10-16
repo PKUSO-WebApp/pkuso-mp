@@ -3,7 +3,7 @@ import { View, Button, Image } from '@tarojs/components'
 import { useT } from '@/i18n'
 import { useThemeContext } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
-import { ANNO_WIDTHS, PEN_COLORS, type AnnoTool } from '@/lib/annotation'
+import { PEN_COLORS, widthsFor, type AnnoTool } from '@/lib/annotation'
 import penIcon from '@/assets/icons/pen.png'
 import penIconDark from '@/assets/icons/pen-dark.png'
 import highlighterIcon from '@/assets/icons/highlighter.png'
@@ -15,10 +15,6 @@ import undoIconDark from '@/assets/icons/undo-2-dark.png'
 
 /** 工具按钮里的图标尺寸：与阅读器底栏那五个一致（素材统一 72×72，显示 18px） */
 const TOOL_ICON = 18
-
-/** 收起 / 展开那个 V 的边长（px，再乘显示档位）与它的**视觉重心下沉量**（见 chevronV） */
-const CHEVRON_PX = 9
-const CHEVRON_SINK = CHEVRON_PX * 0.354
 
 type AnnotationBarProps = {
   color: string
@@ -35,6 +31,11 @@ type AnnotationBarProps = {
   onWidth: (width: number) => void
   onUndo: () => void
   onClear: () => void
+  /**
+   * 「完成」：**退出批注**、回到阅览状态（用户在批注栏右上角，2026-10-16 定）。
+   * 与「收起」的区别：收起只把这条栏藏起来、还留在批注里（笔仍可写）；完成是真的出去。
+   */
+  onDone: () => void
 }
 
 /** 阅读器画笔工具条：颜色 / 粗细 / 撤销 / 清空（清空为二段确认防误触） */
@@ -49,6 +50,7 @@ export function AnnotationBar({
   onWidth,
   onUndo,
   onClear,
+  onDone,
 }: AnnotationBarProps) {
   const { t } = useT()
   const { mode } = useThemeContext()
@@ -101,7 +103,7 @@ export function AnnotationBar({
   )
 
   /**
-   * 档位两支笔**共用一张表**（`ANNO_WIDTHS`），但**选中的那一档各存各的**
+   * 档位**按当前工具取表**（画笔四档 / 荧光笔四档，`widthsFor`），而**选中的那一档各存各的**
    * （阅读器里的 `penWidth` / `hlWidth`）⇒ 传进来的 `width` 就是当前工具自己的值，
    * 直接比即可，不需要再从别的档位兜底。
    */
@@ -122,90 +124,63 @@ export function AnnotationBar({
   )
 
   /**
-   * 收起 / 展开的那个 V —— **用两条边旋 45° 画**，不用字符、也不用图片。
-   *
-   * 为什么不用字符：那要赌系统字体里有没有那个字形（`⌄` / `∨` 各平台不一致，缺字形就是
-   * 一个方框或一条豆腐）；画出来则处处一样。颜色跟语义 token（`currentColor` 取的是
-   * 外层的 `text-text-muted`），大小跟显示档位。
-   *
-   * ⚠️ 转的是**盒子**：两条边（下 + 左）先构成一个「L」，绕中心转 -45° 成「v」，
-   * 转 135° 成「^」。但转完的**视觉重心不在盒子中心** —— 两个端点在盒子中心那条线上，
-   * 交点却在中心下方 (√2/2)·N 处 ⇒ 视觉中心比盒子中心低 **0.354N**。不补的话它就比旁边
-   * 那几个图标低三四个像素（`CHEVRON_SINK`）。
-   *
-   * ⚠️ 补的时候**只能走 `transform`**：给它加负 margin 的话，flex 的 `items-center` 只让它
-   * 走一半（按 margin box 居中），于是永远低 0.354N/2 —— 这个坑连踩三次（`9a297be` 加功能、
-   * `b9854c3` 挪回第一行、`258e68f` 钉坐标），直到 2026-10-16 真机上量到那 1.59pt。
-   */
-  const chevronV = (up: boolean) => (
-    <View
-      className='text-text-muted'
-      style={{
-        width: `${CHEVRON_PX * uiScale}px`,
-        height: `${CHEVRON_PX * uiScale}px`,
-        borderBottom: `${2 * uiScale}px solid currentColor`,
-        borderLeft: `${2 * uiScale}px solid currentColor`,
-        // ⚠️ 这一顶**必须是 transform，不能是 margin**（2026-10-16 真机定案）：
-        // flex 的 `items-center` 按「**margin box** 居中」算 ⇒ 负 margin 只让盒子走一半
-        //（borderBoxTop = (H−h)/2 − m/2），视觉重心于是永远停在中心下方 0.354N/2。
-        // 真机上量到的偏移正是 1.59pt（= 3.18/2，N=9）——「改了三次都还是偏低」就是它。
-        // transform 不参与布局，位移是全额生效的。
-        transform: `translateY(${-CHEVRON_SINK * uiScale}px) ${
-          up ? 'rotate(135deg)' : 'rotate(-45deg)'
-        }`,
-      }}
-    />
-  )
-
-  /**
-   * 收起 / 展开按钮：**没有背景**（用户 2026-10-16 定）—— 它就贴在谱面上，不该再压一块底色。
+   * 文字按钮（2026-10-16 用户定：把原来那个「V」换成字）：
+   * - **收起**：**不带背景** —— 它就在栏里，和色块 / 档位同一层，不需要再压一块底色；
+   * - **展开**：**必须带背景** —— 收起之后它是唯一贴在谱面上的东西，没有底色时在 UD 模式下
+   *   几乎看不见（用户原话：「现在在 UD 模式下，无背景的上箭头按钮很难看到」）。
    *
    * `pointerEvents: 'auto'` 是显式的：外层浮层为了「不吃触摸」设了 `none`，而它是**继承**属性。
    */
-  const toggleButton = (
-    <View
-      // `ml-auto` 把它推到行尾（在流里，见下面展开那一支的注释）；`shrink-0` 保证窄屏 /
-      // 大显示档位下它不被压扁 —— 它是唯一的收起入口，压扁就等于点不到。
-      className='ml-auto flex h-8 w-8 shrink-0 items-center justify-center'
+  const textButton = (
+    label: string,
+    ariaLabel: string,
+    onTap: () => void,
+    withBg: boolean
+  ) => (
+    <Button
+      className={`flex h-8 shrink-0 items-center justify-center rounded-full px-3 text-xs ${
+        withBg ? 'border border-border bg-card text-text' : 'text-text-muted'
+      }`}
       style={{ pointerEvents: 'auto' }}
-      ariaLabel={collapsed ? t('scoreReader.penBarExpand') : t('scoreReader.penBarCollapse')}
-      onClick={() => setCollapsed((c) => !c)}
+      ariaLabel={ariaLabel}
+      onClick={onTap}
     >
-      {chevronV(collapsed)}
-    </View>
+      {label}
+    </Button>
   )
 
-  // **收起**：整条栏都不在，只剩最右边这个 V。它自己那 32×32 是**唯一**还被占住的地方 ——
+  // **收起**：整条栏都不在，只剩这一个「展开」。它自己那几十像素是**唯一**还被占住的地方 ——
   // 这正是「在被挡住的地方也能起笔」的做法（半透明 / 落笔让位都只能解决「看到」）。
   // ⚠️ 这一行的盒子要 `pointer-events: none`：它整行都是透明的，而盒子**按几何命中** ——
-  // 不收手就留下一条**看不见的禁区**（真正接触摸的是那个 V，它自己 `auto` 回来）。
+  // 不收手就留下一条**看不见的禁区**（真正接触摸的是那个按钮，它自己 `auto` 回来）。
   if (collapsed) {
     return (
       <View className='flex flex-row justify-end px-3' style={{ pointerEvents: 'none' }}>
-        <View className='flex flex-row items-center'>{toggleButton}</View>
+        {textButton(
+          t('scoreReader.penBarExpandLabel'),
+          t('scoreReader.penBarExpand'),
+          () => setCollapsed(false),
+          true
+        )}
       </View>
     )
   }
 
   return (
     // ⚠️ 布局：**强制两行**（用户 2026-10-16 定）。原先靠 `flex-wrap` 自动换行 —— 装得下
-    // 一行、装不下两行，于是**收起按钮的位置会随屏宽 / 语言在「右上角」与「第二行」之间跳**，
-    // 而它正是用户要伸手去点的那个。现在：第一行 = 工具 + 色块 …… 右上角收起按钮；
-    // 第二行 = 粗细 + 撤销 + 清空，整行靠右。
+    // 一行、装不下两行，于是收起按钮的位置会随屏宽 / 语言在「右上角」与「第二行」之间跳，
+    // 而它正是用户要伸手去点的那个。现在写死两行：
+    //   第一行 = 工具 + 色块 …… **右上角「完成」**
+    //   第二行 = **左下角「收起」** …… 粗细 + 撤销 + 清空（整组靠右）
+    // 两个出口分在两角是 2026-10-16 用户定的：右上「完成」＝**真的退出批注、回到阅览**
+    //（底栏菜单也收掉），左下「收起」＝只把这条栏藏起来（还在批注里，笔仍可写）。
     //
     // （从前必须自动换行是因为这一栏在手机宽度上本来就装不下：左组 ≈224px + 右组 ≈234px
     //  + 内边距 ≈482px，而屏宽只有 375px。分成两行之后这个约束就不存在了。）
     //
-    // ⚠️ 收起按钮**在第一行的流里**（`ml-auto` 推到行尾），垂直位置由 `items-center` 决定 ——
-    // 这是 2026-10-16 的**第二次订正**：上一次是把它 `absolute right-3 top-2` 钉死坐标
-    //（用户当时报「位置 y 太低，几乎在第 1.5 行」），而钉坐标用的是**另一条**计算路径
-    //（`top-2` 与第一行的 `pt-2` 各自 `calc(var(--spacing) * 2)`，在 `.ui-scale` 下还要再乘
-    // 档位系数），真机上就是不重合 —— 用户再次报「高度不对，要和第一行的颜料/画笔按钮居中
-    // 对齐」。放进流里之后两者是同一个 flex 行的 `items-center`，**同高由构造保证**，
-    // 没有任何独立算出来的坐标可以漂。
-    //
-    // 位置与从前一致：行尾 + `px-3` 正好等于原来的 `right-3`；而原来给它让位的 `pr-12`
-    //（48px）比它自己（32px）还宽 ⇒ 去掉之后这一行反而更窄。
+    // ⚠️ 两个按钮都在**流里**（不是钉坐标）：钉坐标那条路踩过的坑是「`top-2` 与第一行的
+    // `pt-2` 各自算一遍 `calc(var(--spacing) * 2)`，在 `.ui-scale` 下还要再乘档位系数，
+    // 真机上就是不重合」——放进流里之后，同高由同一个 flex 行的 `items-center` 保证。
     <View
       className='border-t border-border bg-surface'
       // ⚠️ 展开时**必须显式 `auto`**：`pointer-events` 是**继承**的，而外层容器（见下面收起
@@ -238,37 +213,50 @@ export function AnnotationBar({
             />
           ))}
         </View>
-        {toggleButton}
+        {/* 「完成」在**右上角**（用户 2026-10-16 定）：它才是「我不想批注了」的那个出口，
+            与左下角的「收起」（只是把这条栏藏起来、还在批注里）分得开 */}
+        <View className='ml-auto flex flex-row items-center'>
+          {textButton(t('scoreReader.penDone'), t('scoreReader.penDone'), onDone, true)}
+        </View>
       </View>
-      <View className='flex flex-row items-center justify-end px-3 pb-2'>
-        {ANNO_WIDTHS.map(widthDot)}
-        {/* 这一页没有任何笔迹时**根本不渲染**撤销（用户 2026-10-08 定）：一个点不动的
-            按钮只会让人以为坏了。清空仍保留（它有二次确认，不会误触） */}
-        {/* 撤销：图标（`undo-2`）。文案仍留着做 `ariaLabel` —— 图标按钮没有可读文字了 */}
-        {canUndo ? (
+      <View className='flex flex-row items-center px-3 pb-2'>
+        {/* 「收起」在**左下角**（用户 2026-10-16 定）：伸手可及，也不跟右边那组抢位置 */}
+        {textButton(
+          t('scoreReader.penBarCollapseLabel'),
+          t('scoreReader.penBarCollapse'),
+          () => setCollapsed(true),
+          false
+        )}
+        <View className='ml-auto flex flex-row items-center'>
+          {widthsFor(tool).map(widthDot)}
+          {/* 这一页没有任何笔迹时**根本不渲染**撤销（用户 2026-10-08 定）：一个点不动的
+              按钮只会让人以为坏了。清空仍保留（它有二次确认，不会误触） */}
+          {/* 撤销：图标（`undo-2`）。文案仍留着做 `ariaLabel` —— 图标按钮没有可读文字了 */}
+          {canUndo ? (
+            <Button
+              className='ml-2 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card p-0'
+              ariaLabel={t('scoreReader.undo')}
+              onClick={onUndo}
+            >
+              <Image
+                src={dark ? undoIconDark : undoIcon}
+                style={{ width: `${TOOL_ICON * uiScale}px`, height: `${TOOL_ICON * uiScale}px` }}
+              />
+            </Button>
+          ) : null}
           <Button
-            className='ml-2 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card p-0'
-            ariaLabel={t('scoreReader.undo')}
-            onClick={onUndo}
+            className={`ml-2 rounded-full border px-3 py-1 text-xs ${
+              confirmingClear
+                ? 'border-danger bg-danger text-danger-foreground'
+                : 'border-border bg-card text-text'
+            }`}
+            onClick={handleClear}
           >
-            <Image
-              src={dark ? undoIconDark : undoIcon}
-              style={{ width: `${TOOL_ICON * uiScale}px`, height: `${TOOL_ICON * uiScale}px` }}
-            />
+            {confirmingClear
+              ? t('scoreReader.clearConfirm')
+              : t('scoreReader.clear', { page: clearPage })}
           </Button>
-        ) : null}
-        <Button
-          className={`ml-2 rounded-full border px-3 py-1 text-xs ${
-            confirmingClear
-              ? 'border-danger bg-danger text-danger-foreground'
-              : 'border-border bg-card text-text'
-          }`}
-          onClick={handleClear}
-        >
-          {confirmingClear
-            ? t('scoreReader.clearConfirm')
-            : t('scoreReader.clear', { page: clearPage })}
-        </Button>
+        </View>
       </View>
     </View>
   )

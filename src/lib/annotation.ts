@@ -95,16 +95,27 @@ export type AnnoTool = 'pen' | 'highlighter' | 'eraser'
 export const HIGHLIGHTER_ALPHA = 0.5
 
 /**
- * 画笔/荧光笔共用的线宽档位（相对页宽归一化；1× 页面下 0.002 ≈ 0.7px、0.032 ≈ 11px）。
+ * 画笔四档（相对页宽归一化；1× 页面下 0.002 ≈ 0.7px、0.016 ≈ 5.6px）。
  *
  * ⚠️ **两条旧口径 2026-10-16 被用户改掉了，别再按旧注释当判据**：
  * ① 粗细原先是「**两支笔共用一份状态**」（切工具会互相带着走，还要一个 `effectiveWidth`
- *    把画笔钳到 8‰）；现在是**两支笔各存各的选择**（见阅读器里的 `penWidth` / `hlWidth`）
- *    ⇒ 那种钳制与兜底**不再需要**，删掉。
- * ② 粗的三档原先是**只给荧光笔**的（旧理由：「画笔那么粗只会糊」）。用户 2026-10-16 要求
- *    「画笔和高亮的粗细数量一样」，并且比原来最细的 4‰ **再细一级** ⇒ 两支笔共用这一张表。
+ *    把画笔钳到 8‰）；现在是**两支笔各存各的选择**（见阅读器里的 `penWidth` / `hlWidth`）。
+ * ② 档位表一度两支笔共用（为了「数量一样」）；用户当天晚些又定：**画笔去掉最粗的两档**
+ *    （16/24/32‰ 里去掉 24/32 —— 画笔那么粗只会糊），**荧光笔去掉最细的两档**（2/4‰）。
+ *    两支笔**各四档**，数量仍然一样。
  */
-export const ANNO_WIDTHS = [0.002, 0.004, 0.008, 0.016, 0.024, 0.032] as const
+export const PEN_WIDTHS = [0.002, 0.004, 0.008, 0.016] as const
+
+/**
+ * 荧光笔四档（相对页宽归一化）。在原来的 8/16/24/32‰ 基础上**整体增粗 25%**
+ * ⇒ 10/20/30/40‰（用户 2026-10-16 定：涂色整条盖住，细的不好用；最细两档已去掉）。
+ */
+export const HIGHLIGHTER_WIDTHS = [0.01, 0.02, 0.03, 0.04] as const
+
+/** 当前工具能选的线宽档位（橡皮擦走画笔那一份 —— 它不画墨，只要个"当前档位"） */
+export function widthsFor(tool: AnnoTool): readonly number[] {
+  return tool === 'highlighter' ? HIGHLIGHTER_WIDTHS : PEN_WIDTHS
+}
 
 export function loadAnnoDoc(fileId: string): AnnoDoc {
   try {
