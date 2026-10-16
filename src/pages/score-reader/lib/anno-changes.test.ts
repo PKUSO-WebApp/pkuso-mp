@@ -77,7 +77,9 @@ describe('singleStrokeAdded：这次是不是「恰好某一页末尾多了一�
 
   it('两页同时多笔 ⇒ 不认', () => {
     const s = stroke()
-    expect(singleStrokeAdded({ 1: [s], 2: [s] }, { 1: [s, stroke(0.2)], 2: [s, stroke(0.3)] })).toBeNull()
+    expect(
+      singleStrokeAdded({ 1: [s], 2: [s] }, { 1: [s, stroke(0.2)], 2: [s, stroke(0.3)] })
+    ).toBeNull()
   })
 
   it('整页没了 / 空页 → 空页 ⇒ 不认', () => {

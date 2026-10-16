@@ -1784,12 +1784,18 @@ export default function ScoreReader() {
    * 返回「画成功了没有」：调用方只有拿到 true 才敢把「位图已同步」记下来。
    */
   const appendStrokeToLane = useCallback(
-    async (layer: Layer, pageNo: number, stroke: AnnoStroke): Promise<boolean> => {
+    async (layer: Layer, pageNo: number, stroke: AnnoStroke, gen: number): Promise<boolean> => {
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return false
       try {
         const { node } = await queryCanvasNode(CANVAS_OVERLAY_SEL[layer])
-        // 等节点回来期间这一块可能已经换了页 —— 与 `paintLane` 同一条守卫
+        // ⚠️ 两条守卫，都必须在**画之前**：
+        // ① 这一块可能已经换了页 —— 与 `paintLane` 同一条；
+        // ② 这期间可能已经有更新的一次决策（连着落两笔时会是「整份重画」，它画的是**最新**
+        //    的 `annos`，本来就包含这一笔）⇒ 这一次补画必须**作废**：不作废就是同一笔被画两遍，
+        //    半透明的荧光笔会明显深一截。世代号（`inkGenRef`）就是为这个存在的 —— 这是
+        //    §1.3 里唯一做对的那种异步守卫形态，别改成布尔标志或引用比对。
+        if (inkGenRef.current !== gen) return false
         if (layerSlotRef.current[layer] !== pageNo) return false
         const overlay = node as CanvasNode
         const dpr = rasterDpr(w, h)
@@ -1798,7 +1804,12 @@ export default function ScoreReader() {
         if (overlay.width !== bw || overlay.height !== bh) {
           // 尺寸不对 = 这块位图是空的（重设尺寸就是清屏）⇒ 补一笔会缺前面那些墨，只能整份重画。
           // 理论上走不到：尺寸由 viewSize 决定，而它变了 `inkUpdateFor` 会判 resync。留着兜底。
-          paintInkOn(overlay, overlay.getContext('2d'), annosRef.current[String(pageNo)] ?? [], null)
+          paintInkOn(
+            overlay,
+            overlay.getContext('2d'),
+            annosRef.current[String(pageNo)] ?? [],
+            null
+          )
           return true
         }
         const ctx = overlay.getContext('2d')
@@ -1914,28 +1925,31 @@ export default function ScoreReader() {
     const gen = ++inkGenRef.current
     if (update.kind === 'append') {
       const t0 = Date.now()
-      void appendStrokeToLane(update.layer, now.slots[update.layer] as number, update.stroke).then(
-        (ok) => {
-          // 那一笔的墨已经落到已落定层上了 ⇒ 把实时层清掉（不清就是画两遍，荧光笔会明显更深）。
-          // 先补后清，中间没有上屏机会，所以看不出接缝
-          if (!drawingRef.current) paintLiveLayer(null)
-          if (inkGenRef.current === gen) {
-            if (ok) {
-              inkStatRef.current.appends += 1
-              appliedInkRef.current = now
-            }
-            // 失败不记快照：下一次拿旧快照去比 ⇒ 认不出增量 ⇒ 整份重画（保守方向）
-            const ms = Date.now() - t0
-            if (ms > INK_APPEND_SLOW_MS) {
-              reportClientError({
-                event: 'score_reader_ink_append_slow',
-                message: `补一笔 ${ms}ms`,
-                detail: { fileId, page: now.page, ms, pts: update.stroke.points.length },
-              })
-            }
+      void appendStrokeToLane(
+        update.layer,
+        now.slots[update.layer] as number,
+        update.stroke,
+        gen
+      ).then((ok) => {
+        // 那一笔的墨已经落到已落定层上了 ⇒ 把实时层清掉（不清就是画两遍，荧光笔会明显更深）。
+        // 先补后清，中间没有上屏机会，所以看不出接缝
+        if (!drawingRef.current) paintLiveLayer(null)
+        if (inkGenRef.current === gen) {
+          if (ok) {
+            inkStatRef.current.appends += 1
+            appliedInkRef.current = now
+          }
+          // 失败不记快照：下一次拿旧快照去比 ⇒ 认不出增量 ⇒ 整份重画（保守方向）
+          const ms = Date.now() - t0
+          if (ms > INK_APPEND_SLOW_MS) {
+            reportClientError({
+              event: 'score_reader_ink_append_slow',
+              message: `补一笔 ${ms}ms`,
+              detail: { fileId, page: now.page, ms, pts: update.stroke.points.length },
+            })
           }
         }
-      )
+      })
       return
     }
     void redrawOverlay().then((painted) => {
