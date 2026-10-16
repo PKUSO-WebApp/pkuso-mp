@@ -2082,8 +2082,8 @@ export default function ScoreReader() {
 
   // 缩放停稳后报一次（首次挂载也会报一条 —— 那次是「进阅读器」的基准读数）
   useEffect(() => {
-    const t = setTimeout(() => reportBitmapLedger('zoom-settle'), ZOOM_SETTLE_MS)
-    return () => clearTimeout(t)
+    const settleTimer = setTimeout(() => reportBitmapLedger('zoom-settle'), ZOOM_SETTLE_MS)
+    return () => clearTimeout(settleTimer)
   }, [zoom, reportBitmapLedger])
 
   /**
