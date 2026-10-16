@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.15"
   }
   public: {
     Tables: {
@@ -313,6 +313,8 @@ export type Database = {
           content: string
           created_at: string
           id: string
+          kind: string | null
+          meta: Json | null
           read_at: string | null
           title: string
           user_id: string
@@ -322,6 +324,8 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          kind?: string | null
+          meta?: Json | null
           read_at?: string | null
           title: string
           user_id: string
@@ -331,6 +335,8 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          kind?: string | null
+          meta?: Json | null
           read_at?: string | null
           title?: string
           user_id?: string
@@ -759,6 +765,41 @@ export type Database = {
         }
         Relationships: []
       }
+      sheet_music_annotation_history: {
+        Row: {
+          file_id: string
+          page: number
+          replaced_at: string
+          strokes: Json
+          user_id: string
+          version: string
+        }
+        Insert: {
+          file_id: string
+          page: number
+          replaced_at?: string
+          strokes: Json
+          user_id: string
+          version?: string
+        }
+        Update: {
+          file_id?: string
+          page?: number
+          replaced_at?: string
+          strokes?: Json
+          user_id?: string
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_music_annotation_history_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music_files"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sheet_music_annotations: {
         Row: {
           file_id: string
@@ -766,6 +807,7 @@ export type Database = {
           strokes: Json
           updated_at: string
           user_id: string
+          version: string | null
         }
         Insert: {
           file_id: string
@@ -773,6 +815,7 @@ export type Database = {
           strokes?: Json
           updated_at?: string
           user_id: string
+          version?: string | null
         }
         Update: {
           file_id?: string
@@ -780,6 +823,7 @@ export type Database = {
           strokes?: Json
           updated_at?: string
           user_id?: string
+          version?: string | null
         }
         Relationships: [
           {
@@ -983,6 +1027,42 @@ export type Database = {
           },
         ]
       }
+      user_devices: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          device_id: string
+          last_seen_at: string
+          name: string
+          platform: string | null
+          token: string
+          trusted: boolean
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          device_id: string
+          last_seen_at?: string
+          name?: string
+          platform?: string | null
+          token?: string
+          trusted?: boolean
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          device_id?: string
+          last_seen_at?: string
+          name?: string
+          platform?: string | null
+          token?: string
+          trusted?: boolean
+          user_id?: string
+        }
+        Relationships: []
+      }
       verification_codes: {
         Row: {
           code: string
@@ -1080,6 +1160,10 @@ export type Database = {
       }
     }
     Functions: {
+      archive_sheet_music_annotation: {
+        Args: { p_file_id: string; p_page: number; p_strokes: Json }
+        Returns: undefined
+      }
       cancel_leave_on_sign_in: {
         Args: { p_rehearsal_id: number }
         Returns: {
@@ -1095,6 +1179,10 @@ export type Database = {
         Returns: boolean
       }
       cleanup_client_error_logs: { Args: never; Returns: number }
+      delete_device: {
+        Args: { p_device_id: string; p_self_device_id: string }
+        Returns: undefined
+      }
       ensure_attendance_roster: {
         Args: { p_rehearsal_ids?: number[] }
         Returns: number
@@ -1118,11 +1206,52 @@ export type Database = {
           session_token: string
         }[]
       }
+      get_my_session_v2: {
+        Args: { p_device_id: string }
+        Returns: {
+          deleted_at: string
+          last_seen_at: string
+          token: string
+          trusted: boolean
+        }[]
+      }
       is_admin: { Args: never; Returns: boolean }
+      list_my_devices: {
+        Args: never
+        Returns: {
+          created_at: string
+          device_id: string
+          last_seen_at: string
+          name: string
+          platform: string
+          trusted: boolean
+        }[]
+      }
       log_client_errors: { Args: { rows: Json }; Returns: undefined }
+      push_sheet_music_annotation: {
+        Args: {
+          p_expected_version?: string
+          p_file_id: string
+          p_page: number
+          p_strokes: Json
+        }
+        Returns: {
+          ok: boolean
+          strokes: Json
+          version: string
+        }[]
+      }
       rehearsal_is_upcoming: {
         Args: { p_end: string; p_start: string }
         Returns: boolean
+      }
+      set_device_trust: {
+        Args: {
+          p_device_id: string
+          p_self_device_id: string
+          p_trusted: boolean
+        }
+        Returns: undefined
       }
       sign_in_attendance_location: {
         Args: {
@@ -1145,6 +1274,22 @@ export type Database = {
           session_started_at: string
           session_token: string
         }[]
+      }
+      touch_session_v2: {
+        Args: { p_device_id: string; p_name?: string; p_platform?: string }
+        Returns: {
+          token: string
+          trusted: boolean
+        }[]
+      }
+      trim_sheet_music_annotation_history: {
+        Args: {
+          p_file_id: string
+          p_keep?: number
+          p_page: number
+          p_user_id: string
+        }
+        Returns: undefined
       }
     }
     Enums: {
