@@ -81,11 +81,42 @@ describe('AnnotationBar 的收起 / 展开', () => {
     const collapse = screen.getByLabelText('scoreReader.penBarCollapse')
     // 收起：不带底色（它就在栏里，和色块/档位同一层）
     expect(collapse.className).not.toContain('bg-card')
+    expect(collapse.className).not.toContain('bg-primary')
     // 展开：带底色（收起之后它是唯一贴在谱面上的东西）
     fireEvent.click(collapse)
     const expand = screen.getByLabelText('scoreReader.penBarExpand')
     expect(expand.className).toContain('bg-card')
     expect(expand.className).toContain('border')
+  })
+
+  it('「完成」用主色实底（用户 2026-10-16 定：bg-card 在栏上太糊，不像按钮）', () => {
+    render(<AnnotationBar {...props} />)
+    const done = screen.getByLabelText('scoreReader.penDone')
+    expect(done.className).toContain('bg-primary')
+    expect(done.className).toContain('text-primary-foreground')
+  })
+
+  it('收起之后的「展开」在**左边**（与「收起」同侧，用户 2026-10-16 定）', () => {
+    const { container } = render(<AnnotationBar {...props} />)
+    fireEvent.click(screen.getByLabelText('scoreReader.penBarCollapse'))
+    const row = container.firstChild as HTMLElement
+    expect(row.className).toContain('justify-start')
+    expect(row.className).not.toContain('justify-end')
+  })
+
+  it('「收起」「完成」与「清空」是**同一套尺寸**（用户 2026-10-16 订正：上一版比清空高出一截）', () => {
+    render(<AnnotationBar {...props} />)
+    const clear = screen.getByText('scoreReader.clear')
+    const collapse = screen.getByLabelText('scoreReader.penBarCollapse')
+    const done = screen.getByLabelText('scoreReader.penDone')
+    for (const b of [collapse, done, clear]) {
+      expect(b.className).toContain('rounded-full')
+      expect(b.className).toContain('px-3')
+      expect(b.className).toContain('py-1')
+      expect(b.className).toContain('text-xs')
+      // 高度由 padding 决定 ⇒ 不许再写死 h-8（那正是和清空不统一的地方）
+      expect(b.className).not.toContain('h-8')
+    }
   })
 
   it('点「完成」⇒ 回调 onDone（退出批注），且不会顺手清空/撤销', () => {

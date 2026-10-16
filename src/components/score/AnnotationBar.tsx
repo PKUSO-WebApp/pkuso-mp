@@ -32,8 +32,9 @@ type AnnotationBarProps = {
   onUndo: () => void
   onClear: () => void
   /**
-   * 「完成」：**退出批注**、回到阅览状态（用户在批注栏右上角，2026-10-16 定）。
+   * 「完成」：**退出批注**（用户在批注栏右上角，2026-10-16 定）。
    * 与「收起」的区别：收起只把这条栏藏起来、还留在批注里（笔仍可写）；完成是真的出去。
+   * ⚠️ 它**不负责收底栏菜单** —— 那是"点谱面"那两下的事（先关气泡、再关底栏）。
    */
   onDone: () => void
 }
@@ -129,17 +130,28 @@ export function AnnotationBar({
    * - **展开**：**必须带背景** —— 收起之后它是唯一贴在谱面上的东西，没有底色时在 UD 模式下
    *   几乎看不见（用户原话：「现在在 UD 模式下，无背景的上箭头按钮很难看到」）。
    *
+   * ⚠️ **尺寸与形状跟「清空」逐字一致**（用户 2026-10-16 第二次订正：那一版我给了 `h-8` +
+   * flex 居中，比清空高出一截，看着像另一套控件）。所以这里就照抄清空那串：
+   * `rounded-full border px-3 py-1 text-xs` —— **高度由 padding 决定，不写死**；
+   * 不带背景的那个把 `border`/`bg` 都设成透明（**盒子仍然一样大**，只是看不见边框与底色）。
+   *
    * `pointerEvents: 'auto'` 是显式的：外层浮层为了「不吃触摸」设了 `none`，而它是**继承**属性。
    */
   const textButton = (
     label: string,
     ariaLabel: string,
     onTap: () => void,
-    withBg: boolean
+    tone: 'plain' | 'boxed' | 'primary'
   ) => (
     <Button
-      className={`flex h-8 shrink-0 items-center justify-center rounded-full px-3 text-xs ${
-        withBg ? 'border border-border bg-card text-text' : 'text-text-muted'
+      className={`rounded-full border px-3 py-1 text-xs ${
+        tone === 'primary'
+          ? // 「完成」用主色实底：它才是这一栏里最该被看见的那个动作（用户 2026-10-16 定：
+            // 原来的 bg-card 在 bg-surface 上太糊，看不出是个按钮）
+            'border-primary bg-primary text-primary-foreground'
+          : tone === 'boxed'
+            ? 'border-border bg-card text-text'
+            : 'border-transparent bg-transparent text-text-muted'
       }`}
       style={{ pointerEvents: 'auto' }}
       ariaLabel={ariaLabel}
@@ -155,12 +167,15 @@ export function AnnotationBar({
   // 不收手就留下一条**看不见的禁区**（真正接触摸的是那个按钮，它自己 `auto` 回来）。
   if (collapsed) {
     return (
-      <View className='flex flex-row justify-end px-3' style={{ pointerEvents: 'none' }}>
+      <View
+        className='flex flex-row items-center justify-start px-3'
+        style={{ pointerEvents: 'none' }}
+      >
         {textButton(
           t('scoreReader.penBarExpandLabel'),
           t('scoreReader.penBarExpand'),
           () => setCollapsed(false),
-          true
+          'boxed'
         )}
       </View>
     )
@@ -216,7 +231,7 @@ export function AnnotationBar({
         {/* 「完成」在**右上角**（用户 2026-10-16 定）：它才是「我不想批注了」的那个出口，
             与左下角的「收起」（只是把这条栏藏起来、还在批注里）分得开 */}
         <View className='ml-auto flex flex-row items-center'>
-          {textButton(t('scoreReader.penDone'), t('scoreReader.penDone'), onDone, true)}
+          {textButton(t('scoreReader.penDone'), t('scoreReader.penDone'), onDone, 'primary')}
         </View>
       </View>
       <View className='flex flex-row items-center px-3 pb-2'>
@@ -225,7 +240,7 @@ export function AnnotationBar({
           t('scoreReader.penBarCollapseLabel'),
           t('scoreReader.penBarCollapse'),
           () => setCollapsed(true),
-          false
+          'plain'
         )}
         <View className='ml-auto flex flex-row items-center'>
           {widthsFor(tool).map(widthDot)}
