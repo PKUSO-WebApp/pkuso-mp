@@ -5,6 +5,7 @@ import { useNotifications } from '@/hooks/useNotifications'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { ListState } from '@/components/ui/ListState'
 import { formatDateTimeInChina } from '@/lib/date-utils'
+import { noticeText } from '@/lib/notification-text'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import type { NotificationCategory, NotificationRow } from '@/types/database'
@@ -156,22 +157,26 @@ export default function NotificationSystemPage() {
           }
           onRetry={() => void load()}
         >
-          {visible.map((msg) => (
-            <View
-              key={msg.id}
-              className='relative mb-2 rounded-xl border border-border bg-card p-3'
-            >
-              <View className='flex items-start justify-between gap-2 pr-16'>
-                <Text className='min-w-0 flex-1 text-sm font-medium text-text'>{msg.title}</Text>
-                <Text className='flex-shrink-0 text-xs text-text-muted'>
-                  {formatDateTimeInChina(msg.created_at)}
+          {visible.map((msg) => {
+            // 服务端只落一条行，**语言在这里定**：认得的 kind 走 i18n，其余原样显示服务端文案
+            //（见 lib/notification-text.ts）
+            const time = formatDateTimeInChina(msg.created_at)
+            const text = noticeText(msg, time, t)
+            return (
+              <View
+                key={msg.id}
+                className='relative mb-2 rounded-xl border border-border bg-card p-3'
+              >
+                <View className='flex items-start justify-between gap-2 pr-16'>
+                  <Text className='min-w-0 flex-1 text-sm font-medium text-text'>{text.title}</Text>
+                  <Text className='flex-shrink-0 text-xs text-text-muted'>{time}</Text>
+                </View>
+                <Text className='mt-1 block whitespace-pre-line text-xs leading-relaxed text-text-muted'>
+                  {text.content}
                 </Text>
               </View>
-              <Text className='mt-1 block whitespace-pre-line text-xs leading-relaxed text-text-muted'>
-                {msg.content}
-              </Text>
-            </View>
-          ))}
+            )
+          })}
         </ListState>
       </View>
     </View>

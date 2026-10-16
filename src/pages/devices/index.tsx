@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
@@ -7,7 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { getOrCreateDeviceId } from '@/lib/device-id'
-import { deleteDevice, listMyDevices, setDeviceTrust, type DeviceInfo } from '@/lib/device-session'
+import { deleteDevice, listMyDevices, selfFirst, setDeviceTrust, type DeviceInfo } from '@/lib/device-session'
 import { supabase } from '@/lib/supabase'
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import './index.scss'
@@ -95,6 +95,10 @@ export default function DevicesPage() {
   const deleteDeviceInfo = devices.find((d) => d.deviceId === confirmDeleteId)
   const deleteBusy = !!confirmDeleteId && busyId === confirmDeleteId
 
+  // **本机始终排最前**（`selfFirst` 只改显示顺序，不动拉取结果）：用户打开这一页最先要找的
+  // 就是「这台」—— 它既是「我正在用哪台」的答案，也是别的那几台上「拿哪一行去比对」的参照。
+  const ordered = useMemo(() => selfFirst(devices, selfDeviceId), [devices, selfDeviceId])
+
   return (
     <View className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg px-4 pb-safe`}>
       <ScrollView scrollY className='flex-1 min-h-0 mt-1'>
@@ -109,7 +113,7 @@ export default function DevicesPage() {
           onRetry={() => void load()}
         >
           <View className='pb-4'>
-            {devices.map((device) => {
+            {ordered.map((device) => {
               const isSelf = device.deviceId === selfDeviceId
               const busy = busyId === device.deviceId
               return (

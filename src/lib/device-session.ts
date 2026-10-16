@@ -147,6 +147,28 @@ export async function listMyDevices(
   }
 }
 
+/**
+ * 把**本机**挪到列表最前，其余保持服务端给的相对顺序（用户 2026-10-16 定）。
+ *
+ * 为什么在客户端做：`list_my_devices` 的排序讲的是「已信任优先」，本机排第几要看它在服务端
+ * 的创建时间与信任态。可用户打开这一页最先要找的就是「这台」—— 它既是「我正在用哪台」的答案，
+ * 也是别的那几台上「我该拿哪一行去比对」的参照。排在最上面就不用每次滚动着找。
+ *
+ * ⚠️ 只改**显示顺序**：拉取结果仍是唯一真相（页面用 useMemo 从它派生，不写回 state），
+ * 所以接口返回的顺序、以及「操作后重新拉一遍」那条纪律都不受影响。
+ *
+ * 纯函数：本机已在最前（或压根不在列表里）时**返回同一个引用** —— 别为一次无变化的排序
+ * 制造新数组，那会让下游的 memo 白跑一遍。
+ */
+export function selfFirst<T extends { deviceId: string }>(
+  devices: T[],
+  selfDeviceId: string
+): T[] {
+  const self = devices.find((d) => d.deviceId === selfDeviceId)
+  if (!self || devices[0] === self) return devices
+  return [self, ...devices.filter((d) => d !== self)]
+}
+
 export type SetTrustResult = { ok: boolean; reason?: 'cannot_untrust_self' }
 
 /**

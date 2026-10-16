@@ -7,6 +7,7 @@ import {
   deleteDevice,
   listMyDevices,
   markIntentionalSignOut,
+  selfFirst,
   setDeviceTrust,
   touchSession,
   verifySession,
@@ -253,5 +254,47 @@ describe('本地残留与主动登出标志', () => {
     markIntentionalSignOut()
     expect(consumeIntentionalSignOut()).toBe(true)
     expect(consumeIntentionalSignOut()).toBe(false)
+  })
+})
+
+describe('selfFirst：本机在最顶', () => {
+  const d = (id: string) => ({
+    deviceId: id,
+    name: id,
+    platform: '',
+    trusted: true,
+    createdAt: '',
+    lastSeenAt: '',
+  })
+  const ids = (list: { deviceId: string }[]) => list.map((x) => x.deviceId)
+
+  it('本机在中间 ⇒ 挪到最前，其余保持服务端给的相对顺序', () => {
+    expect(ids(selfFirst([d('a'), d('b'), d('self'), d('c')], 'self'))).toEqual([
+      'self',
+      'a',
+      'b',
+      'c',
+    ])
+  })
+
+  it('本机已在最前 ⇒ 返回**同一个引用**（不为一次无变化的排序制造新数组）', () => {
+    const list = [d('self'), d('a')]
+    expect(selfFirst(list, 'self')).toBe(list)
+  })
+
+  it('列表里没有本机（device_id 变了 / 本机那行被删了）⇒ 原样返回，不抛', () => {
+    const list = [d('a'), d('b')]
+    expect(selfFirst(list, 'ghost')).toBe(list)
+  })
+
+  it('空列表 ⇒ 原样返回', () => {
+    const list: { deviceId: string }[] = []
+    expect(selfFirst(list, 'self')).toBe(list)
+  })
+
+  it('不改原数组（页面从拉取结果派生，不写回 state）', () => {
+    const list = [d('a'), d('self')]
+    void selfFirst(list, 'self')
+    expect(ids(list)).toEqual(['a', 'self'])
   })
 })
