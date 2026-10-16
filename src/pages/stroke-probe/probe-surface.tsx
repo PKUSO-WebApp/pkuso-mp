@@ -65,10 +65,25 @@ export function ProbeSurface({
   const drawingRef = useRef(false)
   const pathRef = useRef<[number, number][]>([])
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
+  const lastPtRef = useRef<{ x: number; y: number; t: number } | null>(null)
   const wRef = useRef(0)
   const hRef = useRef(0)
   /** F 变体与 A/C 的差别只在于「页面里多挂了一个容器」，画布本身走 2d 那条路 */
   const is2d = kind === '2d' || kind === 'pcontainer'
+
+  /**
+   * 去重闸：C 变体的触摸**可能同时命中老式画布和包着它的 View**（原生组件是否冒泡随渲染路径而异），
+   * 那样每个点都会被记两次（`pts`/`moves` 翻倍）。判定用「同一个坐标在 40ms 内重复出现」——
+   * 探针只关心**触摸间隔**，丢掉一个孪生样本不影响任何读数。
+   */
+  const isDup = (t: { clientX: number; clientY: number }) => {
+    const x = Math.round(t.clientX)
+    const y = Math.round(t.clientY)
+    const now = Date.now()
+    const l = lastPtRef.current
+    lastPtRef.current = { x, y, t: now }
+    return !!l && l.x === x && l.y === y && now - l.t < 40
+  }
 
   const report = (outcome: string) => {
     const d = diagRef.current
@@ -111,6 +126,7 @@ export function ProbeSurface({
   const onTouchStart = (e: any) => {
     const t = e.touches?.[0]
     if (!t) return
+    if (isDup(t)) return
     if (!diagRef.current) {
       const info = Taro.getSystemInfoSync()
       wRef.current = info.windowWidth
@@ -134,6 +150,7 @@ export function ProbeSurface({
     const d = diagRef.current
     const t = e.touches?.[0]
     if (!d || !t) return
+    if (isDup(t)) return
     const now = Date.now()
     if (d.lastAt > 0) {
       const gap = now - d.lastAt
