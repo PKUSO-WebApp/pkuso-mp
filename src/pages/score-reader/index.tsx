@@ -2880,20 +2880,20 @@ export default function ScoreReader() {
    */
   const resolveTouchEnd = (g: Drag, end?: { clientX: number; clientY: number }) => {
     if (isTap(g, Date.now())) {
-      // ⚠️ **有工具气泡开着时，点谱面 = 退出该工具、回到阅览状态**（用户 2026-10-16 定）。
+      // ⚠️ **有工具气泡开着时，点谱面 = 退出该工具**（用户 2026-10-16 定），而且是**分两步**的：
+      // 第一下**只关气泡**（底栏菜单留着，还能马上开另一个工具）；再点一下才轮到下面那几条
+      // （中间分区 / 灰带 ⇒ 关掉底栏）。一次全关是错的 —— 用户明确要"先关工具、再关底栏"。
+      //
       // 从前只能再点一次底栏那个按钮才关得掉，而且关掉菜单之后气泡状态还留着
-      //（下次开菜单它又冒出来）。现在这一下**既关气泡也收菜单**，并且不翻页 / 不滚动 ——
-      //「退出」优先于「翻页」：想翻页就再点一下（第一次点击的语义是"我先不要工具了"）。
+      //（下次开菜单它又冒出来）。这一下也不翻页 / 不滚动：「退出工具」优先于「翻页」。
       if (bottomPanel !== 'none') {
         setBottomPanel('none')
-        setMenuOn(false)
         return
       }
       // 灰带优先：菜单关着时上下两条灰带**任意位置**的**点击**都只开关菜单，不翻页/不滚动。
       // ⚠️ 只管点击——**滑动照常翻页**（见下面 swipeDir 那一段）：拇指在屏幕下沿横滑是最省力
       // 的翻页姿势，灰带又是不可见的，在那里让手势静默失效会被读成「翻页失灵」（2026-10-09 定）。
       if (g.band) {
-        setBottomPanel('none') // 菜单收掉时气泡一并收掉，免得下次开菜单它又冒出来
         setMenuOn((on) => !on)
         return
       }
@@ -2901,7 +2901,6 @@ export default function ScoreReader() {
       // （20/60/20，点上下方滚动一页的距离）——分区判据见 lib/layout.ts
       const zone = ud ? zoneOnAxis(g.relY, containerH, ZONE_SPLITS_UD) : zoneFor(g.relX, containerW)
       if (zone === 'menu') {
-        setBottomPanel('none')
         setMenuOn((on) => !on)
         return
       }
