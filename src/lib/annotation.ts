@@ -62,6 +62,27 @@ export function compactDoc(doc: AnnoDoc): AnnoDoc {
   return out
 }
 
+/**
+ * 这一册有没有**画得出来的**笔迹（零点笔迹不算 —— 与 `compactStroke` 同一套归一化）。
+ *
+ * 用途只有一个：「保存到…」面板上「是否带有批注？」那个开关能不能拨（用户 2026-10-15 定）。
+ * 没有笔迹时拨到「是」只会换来一句「这份谱还没有批注」—— 不如让它根本拨不动、固定为「否」。
+ *
+ * ⚠️ 判据只看**本地**（`loadAnnoDoc`）。进册时本来就有一轮拉取，所以正常路径上「本地没有」
+ * 就等于「哪儿都没有」；万一拉取失败而云端其实有，代价是这一次开关拨不动 ——
+ * 那比「拨了才发现合成不出来」好（少一个选项 vs 骗用户一次）。
+ */
+export function docHasInk(doc: AnnoDoc): boolean {
+  for (const key of Object.keys(doc)) {
+    const strokes = doc[key]
+    if (!Array.isArray(strokes)) continue
+    for (const s of strokes) {
+      if ((s?.points?.length ?? 0) > 0) return true
+    }
+  }
+  return false
+}
+
 export const PEN_COLORS = ['#e5484d', '#2f6fed', '#111827', '#f5a524'] as const
 
 /** 当前用哪支笔。橡皮擦也在里面：它和两支笔互斥，属于同一个「当前工具」 */
@@ -73,32 +94,27 @@ export type AnnoTool = 'pen' | 'highlighter' | 'eraser'
  */
 export const HIGHLIGHTER_ALPHA = 0.5
 
-/** 画笔线宽两档（相对页宽归一化，1× 页面约 1.4px / 2.8px） */
-export const PEN_WIDTHS = [0.004, 0.008] as const
+/**
+ * 画笔四档（相对页宽归一化；1× 页面下 0.002 ≈ 0.7px、0.016 ≈ 5.6px）。
+ *
+ * ⚠️ **两条旧口径 2026-10-16 被用户改掉了，别再按旧注释当判据**：
+ * ① 粗细原先是「**两支笔共用一份状态**」（切工具会互相带着走，还要一个 `effectiveWidth`
+ *    把画笔钳到 8‰）；现在是**两支笔各存各的选择**（见阅读器里的 `penWidth` / `hlWidth`）。
+ * ② 档位表一度两支笔共用（为了「数量一样」）；用户当天晚些又定：**画笔去掉最粗的两档**
+ *    （16/24/32‰ 里去掉 24/32 —— 画笔那么粗只会糊），**荧光笔去掉最细的两档**（2/4‰）。
+ *    两支笔**各四档**，数量仍然一样。
+ */
+export const PEN_WIDTHS = [0.002, 0.004, 0.008, 0.016] as const
 
 /**
- * 荧光笔五档。粗的三档（16/24/32‰）**只给荧光笔**（用户 2026-10-10 定）：
- * 涂色本来就要整条盖住，而画笔那么粗只会糊。
+ * 荧光笔四档（相对页宽归一化）。在原来的 8/16/24/32‰ 基础上**整体增粗 25%**
+ * ⇒ 10/20/30/40‰（用户 2026-10-16 定：涂色整条盖住，细的不好用；最细两档已去掉）。
  */
-export const HIGHLIGHTER_WIDTHS = [0.004, 0.008, 0.016, 0.024, 0.032] as const
+export const HIGHLIGHTER_WIDTHS = [0.01, 0.02, 0.03, 0.04] as const
 
-/** 画笔能用的最粗一档 —— 比它粗的一律按它兜底（见 effectiveWidth） */
-export const PEN_MAX_WIDTH = 0.008
-
-/** 当前工具能选的线宽档位 */
+/** 当前工具能选的线宽档位（橡皮擦走画笔那一份 —— 它不画墨，只要个"当前档位"） */
 export function widthsFor(tool: AnnoTool): readonly number[] {
   return tool === 'highlighter' ? HIGHLIGHTER_WIDTHS : PEN_WIDTHS
-}
-
-/**
- * 真正落到笔迹上的线宽。
- *
- * 粗细是**两支笔共用一份状态**的（切工具时不用记两套选择），而画笔画不出 16‰ 以上
- * ⇒ 从荧光笔切回画笔时，选中的档位可能不在画笔的档位里。**按 8‰ 兜底**（用户 2026-10-10 定）。
- * 显示选中态的那一圈也要用它，否则会出现「一个档位都没选中」。
- */
-export function effectiveWidth(tool: AnnoTool, width: number): number {
-  return tool === 'highlighter' ? width : Math.min(width, PEN_MAX_WIDTH)
 }
 
 export function loadAnnoDoc(fileId: string): AnnoDoc {

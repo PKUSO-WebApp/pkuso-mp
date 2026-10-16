@@ -5,11 +5,13 @@ import { Card } from '@/components/ui/Card'
 import { PageLoading } from '@/components/ui/PageLoading'
 import { TextField } from '@/components/ui/FormFields'
 import { LanguageToggle } from '@/components/ui/LanguageToggle'
+import { ForceOfflineModal } from '@/components/force-offline-modal'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { INSTRUMENT_ORDER } from '@/constants/instruments'
 import { supabase } from '@/lib/supabase'
+import { touchSession } from '@/lib/device-session'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { getAcademicYearLabel } from '@/lib/academic-year'
 import { invokeFunction } from '@/lib/functions'
@@ -41,7 +43,8 @@ function getSeasonLabels(t: TFn) {
 }
 
 export default function RegisterPage() {
-  const { ready, user } = useUser()
+  const { ready, user, forcedOffline, forcedOfflineKind, markForcedOffline, clearForcedOffline } =
+    useUser()
   const darkClass = useThemeClass()
   const { t, locale, setLocale } = useT()
   const placeholderStyle = usePlaceholderStyle()
@@ -173,6 +176,15 @@ export default function RegisterPage() {
           setErrorMsg(t('register.registerFailed'))
           return
         }
+        // 登记本设备（touch_session_v2）：被设为「不信任」的设备在注册成功后同样会被
+        // 服务端拒绝。撤销刚建立的会话（scope 必须给 local——默认的 global 会把该用户
+        // 其他设备的会话一并撤销），并复用强制下线弹窗提示。
+        const touched = await touchSession(supabase)
+        if (touched.rejected) {
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+          markForcedOffline()
+          return
+        }
         Taro.showToast({ title: t('register.registerSuccess'), icon: 'none' })
         await routeAfterLogin(supabase)
       }
@@ -189,221 +201,232 @@ export default function RegisterPage() {
   }
 
   return (
-    <View
-      className={`${darkClass} pk-register flex flex-col items-center bg-page-bg px-5 pt-8 pb-safe`}
-    >
-      <Card className='w-full px-5 py-6'>
-        <View className='mb-4 flex items-center justify-between'>
-          <Text className='text-xl font-semibold text-text'>{t('register.title')}</Text>
-          <LanguageToggle locale={locale} onChange={setLocale} />
-        </View>
+    <>
+      <ForceOfflineModal
+        opened={forcedOffline}
+        kind={forcedOfflineKind}
+        onClose={clearForcedOffline}
+      />
+      <View
+        className={`${darkClass} pk-register flex flex-col items-center bg-page-bg px-5 pt-8 pb-safe`}
+      >
+        <Card className='w-full px-5 py-6'>
+          <View className='mb-4 flex items-center justify-between'>
+            <Text className='text-xl font-semibold text-text'>{t('register.title')}</Text>
+            <LanguageToggle locale={locale} onChange={setLocale} />
+          </View>
 
-        <TextField
-          className='mb-3'
-          labelClass='text-sm font-medium text-text-muted'
-          label={t('register.nameLabel')}
-          placeholder={t('register.namePlaceholder')}
-          value={fullName}
-          onInput={(e) => {
-            setErrorMsg(null)
-            setFullName(e.detail.value)
-          }}
-          placeholderStyle={placeholderStyle}
-        />
-
-        <TextField
-          className='mb-3'
-          labelClass='text-sm font-medium text-text-muted'
-          label={t('register.emailLabel')}
-          placeholder={t('register.emailPlaceholder')}
-          value={email}
-          onInput={(e) => {
-            setErrorMsg(null)
-            setEmail(e.detail.value)
-          }}
-          placeholderStyle={placeholderStyle}
-        />
-
-        {/* 声部选择 */}
-        <View className='mb-3'>
-          <Text className='mb-1 block text-sm font-medium text-text-muted'>
-            {t('register.instrumentLabel')}
-          </Text>
-          <Picker
-            mode='selector'
-            range={getInstrumentOptions(t) as unknown as string[]}
-            value={instrumentIndex ?? 0}
-            onChange={(e) => {
+          <TextField
+            className='mb-3'
+            labelClass='text-sm font-medium text-text-muted'
+            label={t('register.nameLabel')}
+            placeholder={t('register.namePlaceholder')}
+            value={fullName}
+            onInput={(e) => {
               setErrorMsg(null)
-              setInstrumentIndex(Number(e.detail.value))
+              setFullName(e.detail.value)
             }}
-          >
-            <View className='flex h-[var(--size-control-h)] w-full items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
-              <Text
-                className={`text-sm ${instrumentIndex !== null ? 'text-text' : 'text-text-muted'}`}
-              >
-                {instrumentIndex !== null
-                  ? getInstrumentOptions(t)[instrumentIndex]
-                  : t('register.instrumentPlaceholder')}
-              </Text>
-              <Text className='text-xs text-text-muted'>▼</Text>
-            </View>
-          </Picker>
-        </View>
+            placeholderStyle={placeholderStyle}
+          />
 
-        <TextField
-          className='mb-3'
-          labelClass='text-sm font-medium text-text-muted'
-          label={t('register.collegeLabel')}
-          placeholder={t('register.collegePlaceholder')}
-          value={college}
-          onInput={(e) => {
-            setErrorMsg(null)
-            setCollege(e.detail.value)
-          }}
-          placeholderStyle={placeholderStyle}
-        />
+          <TextField
+            className='mb-3'
+            labelClass='text-sm font-medium text-text-muted'
+            label={t('register.emailLabel')}
+            placeholder={t('register.emailPlaceholder')}
+            value={email}
+            onInput={(e) => {
+              setErrorMsg(null)
+              setEmail(e.detail.value)
+            }}
+            placeholderStyle={placeholderStyle}
+          />
 
-        {/* 入团时间 */}
-        <View className='mb-3'>
-          <Text className='mb-1 block text-sm font-medium text-text-muted'>
-            {t('register.joinDateLabel')}
-          </Text>
-          <View className='flex w-full gap-2'>
+          {/* 声部选择 */}
+          <View className='mb-3'>
+            <Text className='mb-1 block text-sm font-medium text-text-muted'>
+              {t('register.instrumentLabel')}
+            </Text>
             <Picker
               mode='selector'
-              range={YEAR_OPTIONS}
-              value={yearIndex ?? 0}
+              range={getInstrumentOptions(t) as unknown as string[]}
+              value={instrumentIndex ?? 0}
               onChange={(e) => {
                 setErrorMsg(null)
-                setYearIndex(Number(e.detail.value))
+                setInstrumentIndex(Number(e.detail.value))
               }}
-              className='flex-1'
             >
-              <View className='flex h-[var(--size-control-h)] w-full min-w-0 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
-                <Text className={`text-sm ${yearIndex !== null ? 'text-text' : 'text-text-muted'}`}>
-                  {yearIndex !== null ? YEAR_OPTIONS[yearIndex] : t('register.yearPlaceholder')}
-                </Text>
-                <Text className='text-xs text-text-muted'>▼</Text>
-              </View>
-            </Picker>
-            <Picker
-              mode='selector'
-              range={getSeasonLabels(t) as unknown as string[]}
-              value={seasonIndex ?? 0}
-              onChange={(e) => {
-                setErrorMsg(null)
-                setSeasonIndex(Number(e.detail.value))
-              }}
-              className='flex-1'
-            >
-              <View className='flex h-[var(--size-control-h)] w-full min-w-0 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
+              <View className='flex h-[var(--size-control-h)] w-full items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
                 <Text
-                  className={`text-sm ${seasonIndex !== null ? 'text-text' : 'text-text-muted'}`}
+                  className={`text-sm ${instrumentIndex !== null ? 'text-text' : 'text-text-muted'}`}
                 >
-                  {seasonIndex !== null
-                    ? getSeasonLabels(t)[seasonIndex]
-                    : t('register.seasonPlaceholder')}
+                  {instrumentIndex !== null
+                    ? getInstrumentOptions(t)[instrumentIndex]
+                    : t('register.instrumentPlaceholder')}
                 </Text>
                 <Text className='text-xs text-text-muted'>▼</Text>
               </View>
             </Picker>
           </View>
-        </View>
 
-        {/* 在团情况 */}
-        <View className='mb-3 flex items-center justify-between'>
-          <Text className='text-sm font-medium text-text-muted'>
-            {t('register.enrollmentStatusLabel')}
-          </Text>
-          <View className='flex gap-4'>
-            <View
-              className='flex-1 flex items-center gap-2'
-              onClick={() => {
-                setErrorMsg(null)
-                setInOrchestra(true)
-              }}
-            >
-              <View
-                className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
-                  inOrchestra === true ? 'border-primary bg-primary' : 'border-border bg-page-bg'
-                }`}
-              >
-                {inOrchestra === true && (
-                  <View className='h-2.5 w-2.5 rounded-full bg-primary-foreground' />
-                )}
-              </View>
-              <Text className='text-sm text-text'>{t('register.enrollmentStatusEnrolled')}</Text>
-            </View>
-            <View
-              className='flex-1 flex items-center gap-2'
-              onClick={() => {
-                setErrorMsg(null)
-                setInOrchestra(false)
-              }}
-            >
-              <View
-                className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
-                  inOrchestra === false ? 'border-primary bg-primary' : 'border-border bg-page-bg'
-                }`}
-              >
-                {inOrchestra === false && (
-                  <View className='h-2.5 w-2.5 rounded-full bg-primary-foreground' />
-                )}
-              </View>
-              <Text className='text-sm text-text'>{t('register.enrollmentStatusNotEnrolled')}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* 协议 */}
-        <View className='mb-3 flex items-center' onClick={() => setAgreed((v) => !v)}>
-          <View
-            className={`mr-2 flex h-5 w-5 items-center justify-center rounded border ${
-              agreed ? 'border-primary bg-primary' : 'border-border bg-page-bg'
-            }`}
-          >
-            {agreed ? <Text className='text-xs text-primary-foreground'>✓</Text> : null}
-          </View>
-          <Text className='text-sm text-text-muted'>{t('common.agreement.checkbox')}</Text>
-          <Text
-            className='text-sm text-primary'
-            onClick={(e) => {
-              e.stopPropagation()
-              void Taro.navigateTo({ url: '/pages/agreement/index' })
+          <TextField
+            className='mb-3'
+            labelClass='text-sm font-medium text-text-muted'
+            label={t('register.collegeLabel')}
+            placeholder={t('register.collegePlaceholder')}
+            value={college}
+            onInput={(e) => {
+              setErrorMsg(null)
+              setCollege(e.detail.value)
             }}
+            placeholderStyle={placeholderStyle}
+          />
+
+          {/* 入团时间 */}
+          <View className='mb-3'>
+            <Text className='mb-1 block text-sm font-medium text-text-muted'>
+              {t('register.joinDateLabel')}
+            </Text>
+            <View className='flex w-full gap-2'>
+              <Picker
+                mode='selector'
+                range={YEAR_OPTIONS}
+                value={yearIndex ?? 0}
+                onChange={(e) => {
+                  setErrorMsg(null)
+                  setYearIndex(Number(e.detail.value))
+                }}
+                className='flex-1'
+              >
+                <View className='flex h-[var(--size-control-h)] w-full min-w-0 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
+                  <Text
+                    className={`text-sm ${yearIndex !== null ? 'text-text' : 'text-text-muted'}`}
+                  >
+                    {yearIndex !== null ? YEAR_OPTIONS[yearIndex] : t('register.yearPlaceholder')}
+                  </Text>
+                  <Text className='text-xs text-text-muted'>▼</Text>
+                </View>
+              </Picker>
+              <Picker
+                mode='selector'
+                range={getSeasonLabels(t) as unknown as string[]}
+                value={seasonIndex ?? 0}
+                onChange={(e) => {
+                  setErrorMsg(null)
+                  setSeasonIndex(Number(e.detail.value))
+                }}
+                className='flex-1'
+              >
+                <View className='flex h-[var(--size-control-h)] w-full min-w-0 items-center justify-between overflow-hidden rounded-xl border border-border bg-muted px-3'>
+                  <Text
+                    className={`text-sm ${seasonIndex !== null ? 'text-text' : 'text-text-muted'}`}
+                  >
+                    {seasonIndex !== null
+                      ? getSeasonLabels(t)[seasonIndex]
+                      : t('register.seasonPlaceholder')}
+                  </Text>
+                  <Text className='text-xs text-text-muted'>▼</Text>
+                </View>
+              </Picker>
+            </View>
+          </View>
+
+          {/* 在团情况 */}
+          <View className='mb-3 flex items-center justify-between'>
+            <Text className='text-sm font-medium text-text-muted'>
+              {t('register.enrollmentStatusLabel')}
+            </Text>
+            <View className='flex gap-4'>
+              <View
+                className='flex-1 flex items-center gap-2'
+                onClick={() => {
+                  setErrorMsg(null)
+                  setInOrchestra(true)
+                }}
+              >
+                <View
+                  className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                    inOrchestra === true ? 'border-primary bg-primary' : 'border-border bg-page-bg'
+                  }`}
+                >
+                  {inOrchestra === true && (
+                    <View className='h-2.5 w-2.5 rounded-full bg-primary-foreground' />
+                  )}
+                </View>
+                <Text className='text-sm text-text'>{t('register.enrollmentStatusEnrolled')}</Text>
+              </View>
+              <View
+                className='flex-1 flex items-center gap-2'
+                onClick={() => {
+                  setErrorMsg(null)
+                  setInOrchestra(false)
+                }}
+              >
+                <View
+                  className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+                    inOrchestra === false ? 'border-primary bg-primary' : 'border-border bg-page-bg'
+                  }`}
+                >
+                  {inOrchestra === false && (
+                    <View className='h-2.5 w-2.5 rounded-full bg-primary-foreground' />
+                  )}
+                </View>
+                <Text className='text-sm text-text'>
+                  {t('register.enrollmentStatusNotEnrolled')}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* 协议 */}
+          <View className='mb-3 flex items-center' onClick={() => setAgreed((v) => !v)}>
+            <View
+              className={`mr-2 flex h-5 w-5 items-center justify-center rounded border ${
+                agreed ? 'border-primary bg-primary' : 'border-border bg-page-bg'
+              }`}
+            >
+              {agreed ? <Text className='text-xs text-primary-foreground'>✓</Text> : null}
+            </View>
+            <Text className='text-sm text-text-muted'>{t('common.agreement.checkbox')}</Text>
+            <Text
+              className='text-sm text-primary'
+              onClick={(e) => {
+                e.stopPropagation()
+                void Taro.navigateTo({ url: '/pages/agreement/index' })
+              }}
+            >
+              {t('common.agreement.linkText')}
+            </Text>
+          </View>
+
+          {errorMsg ? (
+            <View className='mb-3 rounded-xl bg-danger-bg px-3 py-2 text-center text-sm text-danger'>
+              {errorMsg}
+            </View>
+          ) : null}
+
+          <Button
+            hoverClass='none'
+            className='flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
+            disabled={submitting}
+            onClick={() => void handleSubmit()}
           >
-            {t('common.agreement.linkText')}
+            {submitting ? t('register.submitting') : t('register.submit')}
+          </Button>
+        </Card>
+
+        <View className='mt-4 text-center'>
+          <Text className='text-sm text-text-muted'>
+            {t('register.hasAccount')}{' '}
+            <Text
+              className='font-medium text-primary'
+              onClick={() => void Taro.reLaunch({ url: '/pages/login/index' })}
+            >
+              {t('register.goLogin')}
+            </Text>
           </Text>
         </View>
-
-        {errorMsg ? (
-          <View className='mb-3 rounded-xl bg-danger-bg px-3 py-2 text-center text-sm text-danger'>
-            {errorMsg}
-          </View>
-        ) : null}
-
-        <Button
-          hoverClass='none'
-          className='flex h-[var(--size-control-h-lg)] w-full items-center justify-center rounded-2xl bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60'
-          disabled={submitting}
-          onClick={() => void handleSubmit()}
-        >
-          {submitting ? t('register.submitting') : t('register.submit')}
-        </Button>
-      </Card>
-
-      <View className='mt-4 text-center'>
-        <Text className='text-sm text-text-muted'>
-          {t('register.hasAccount')}{' '}
-          <Text
-            className='font-medium text-primary'
-            onClick={() => void Taro.reLaunch({ url: '/pages/login/index' })}
-          >
-            {t('register.goLogin')}
-          </Text>
-        </Text>
       </View>
-    </View>
+    </>
   )
 }

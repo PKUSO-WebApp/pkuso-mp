@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import Taro from '@tarojs/taro'
 import { useT } from '@/i18n'
 import { describeError, reportClientError } from '@/lib/error-report'
+import { docHasInk, loadAnnoDoc } from '@/lib/annotation'
 import { ensureSavedPdf, userDataRoot, type FsLike } from '@/lib/pdf-save'
 import { AnnotatedPdfError, composeAnnotatedPdf } from '@/lib/annotated-pdf'
 import { syncAnnotationFile } from '@/lib/annotation-sync-runner'
@@ -68,6 +69,13 @@ export function usePdfHandoff() {
    * 想要带批注的人通常每一份都想要。
    */
   const [withAnno, setWithAnno] = useState(false)
+  /**
+   * 这一册有没有画得出来的笔迹（**开面板那一刻**定，见 `open`）。
+   *
+   * 没有时「是否带有批注？」**固定为「否」且不可拨**（用户 2026-10-15 定）：拨上去只会换来
+   * 一句「这份谱还没有批注」。判据见 `lib/annotation` 的 `docHasInk`。
+   */
+  const [hasAnno, setHasAnno] = useState(false)
   /**
    * 已就绪的那份是**哪一次准备**（`reqKeyOf`）。
    *
@@ -235,9 +243,15 @@ export function usePdfHandoff() {
   /** 打开面板（针对 `m` 这一份文件），并立刻开始备文件（面板会显示「正在准备文件…」） */
   const open = (m: PdfHandoffMeta) => {
     if (busy) return
+    // 有没有笔迹在这一刻定：没有就把开关压回「否」（它同时也是「固定为否」的落点 ——
+    // 面板上那个开关会被禁用，这里再压一次值，两道闸）
+    const has = docHasInk(loadAnnoDoc(m.fileId))
+    setHasAnno(has)
+    const anno = has && withAnno
+    if (anno !== withAnno) setWithAnno(anno)
     setMeta(m)
     setSheetOn(true)
-    void prepare(m, withAnno)
+    void prepare(m, anno)
   }
 
   /**
@@ -246,7 +260,8 @@ export function usePdfHandoff() {
    * 再按新选择重来。当前这一册的元数据用渲染闭包里的 `meta`——它正是开关所在的那一次渲染。
    */
   const toggleAnno = (next: boolean) => {
-    if (busy || next === withAnno) return
+    // `!hasAnno` = 这一册根本没有笔迹：开关在面板上已经禁用了，这是第二道闸
+    if (busy || !hasAnno || next === withAnno) return
     setWithAnno(next)
     // ⚠️ **刻意不动 `pdfRef` / `readyId`**：让就绪判定自己说「手上这份已经不对了」——
     // `ready` 里那条「`pdfRef.anno === withAnno`」正是为此存在的。在这里顺手清空的话，
@@ -294,6 +309,8 @@ export function usePdfHandoff() {
     labels,
     platform,
     withAnno,
+    /** 这一册有没有笔迹：没有时面板上「是否带有批注？」固定为「否」且不可拨 */
+    hasAnno,
     toggleAnno,
     open,
     close,

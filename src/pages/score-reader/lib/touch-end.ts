@@ -1,0 +1,52 @@
+/**
+ * 抬手那一刻该走哪条路 —— 从 `onTouchEnd` 里抽出来的**判据**。
+ *
+ * 之所以值得单独一个文件：这条判据管的事故不止一次。从前只有「所有手指都离开」才收尾
+ * ⇒「写着字、另一根手指搭在屏上」时这一笔**永远不提交**，而剩下那根手指还会继续往同一条
+ * 笔迹里塞点（平板笔调研 §2-2）。它长在 2700 行的页面里时只能真机验；抽成纯函数之后
+ * 三种分支都能用用例钉住。
+ */
+
+export type TouchEndAction =
+  /** 屏上已经没有手指：走**完整**收尾（含 drag 重置与 tap 分类） */
+  | 'full'
+  /** 还有别的手指，但**画的那根**抬起了：只收这一笔，drag / pinch / multiTouch 一概不动 */
+  | 'stroke-only'
+  /** 抬起的不是画的那根：什么都不做 */
+  | 'none'
+
+export function touchEndAction(args: {
+  /** 这一刻屏上还剩几根手指 */
+  touchesLeft: number
+  /** 本次事件里变化的那些手指的 identifier（`changedTouches`） */
+  changedIds: number[]
+  /** 此刻是否真有一段绘制在进行 */
+  drawing: boolean
+  /** 画的那根手指的 identifier（没在画时为 null） */
+  penId: number | null
+}): TouchEndAction {
+  const { touchesLeft, changedIds, drawing, penId } = args
+  // 一根不剩 ⇒ 无论画没画，完整收尾那条路都要走（它还要重置 drag、做 tap 分类）
+  if (touchesLeft === 0) return 'full'
+  // 还有手指在屏上：只有当**画的那根**确实抬起了、而且我们真的在画，才单独收这一笔。
+  // `penId === null`（没在画 / 是老路径没记 id）时一律不动 —— 宁可少收，不可错收。
+  if (drawing && penId !== null && changedIds.includes(penId)) return 'stroke-only'
+  return 'none'
+}
+
+/**
+ * 按 `identifier` 从当前触点里挑出**那一根**。
+ *
+ * 用途：绘画期间屏上可能不止一根手指（手掌 / 误触），而我们要继续用**落笔那根**
+ *（用户 2026-10-15 定：多指触碰不打断绘画，仍以最开始那根为触点）。
+ *
+ * `id` 为 `null`（没在画 / 老路径没记 id）时退回「只有一根」那种情况 ——
+ * 宁可这一拍不画，也不拿别的手指的坐标去画。
+ */
+export function touchOf<T extends { identifier: number }>(
+  touches: T[],
+  id: number | null
+): T | null {
+  if (id !== null) return touches.find((x) => x.identifier === id) ?? null
+  return touches.length === 1 ? touches[0] : null
+}

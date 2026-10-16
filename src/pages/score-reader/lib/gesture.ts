@@ -97,3 +97,44 @@ export function snapZoom(raw: number, detent = 1, band = ZOOM_SNAP_BAND): number
   if (raw < detent - band) return raw + band
   return detent
 }
+
+/**
+ * 「第二指是捏合还是手掌」的窗口 —— 只在**批注模式下正在画**的时候才问这个问题。
+ *
+ * 背景：批注模式从前一律「正在画就不打断」（2026-10-15 为真机「写着写着、手一碰，线整条
+ * 消失」加的守卫），代价是**批注模式下根本捏合不了**：第一根手指落下就起笔，第二指永远撞
+ * 守卫（把取 rect 改成同步之后，连原来那条 ~100ms 的空窗也没了）。
+ *
+ * 修法不是取消守卫，而是**给它加一个窗口**：第二指在起笔后 ≤150ms 落下、**且这一笔还没动**
+ * ⇒ 两根手指是一起落下的，判捏合（撤掉这一笔、进双指）；晚于窗口、或这一笔已经在动
+ * ⇒ 是写着写着落下来的手掌，照旧不打断。
+ *
+ * 150 取自「守卫生效前那条路」的实际窗口（那时落笔要跨线程取 rect，~100ms 里第二指挤得进来）。
+ */
+export const PINCH_GRACE_MS = 150
+/** 窗口内还允许的笔迹位移（屏幕 px；手指的物理量，不随屏幕缩放）—— 超过它就算「已经在画了」 */
+export const PINCH_GRACE_MAX_MOVE_PX = 8
+/** 窗口内还允许的点数（起点 + 攒下的触点）—— 与位移互为保险，防「瞬间划出去又划回来」 */
+export const PINCH_GRACE_MAX_PTS = 2
+
+/**
+ * 第二指落下时，要不要把它当捏合（撤掉这一笔、进双指）？
+ *
+ * ⚠️ 调用方只在 `drawing` 为真时问它（没在画时双指本来就是捏合）。
+ * 三个条件缺一不可 —— 其中「没动」是**手掌与捏合的分界**：捏合是两指几乎同时落下
+ *（第一指还没来得及画出东西），手掌是「写着写着」才落下来的，那时笔迹已经在动了。
+ */
+export function pinchGraceActive(input: {
+  /** 落笔到现在多久（ms） */
+  sinceStartMs: number
+  /** 这一笔现有的点数 */
+  pts: number
+  /** 这一笔从起点到最后一个点的**屏幕**位移（px） */
+  movedPx: number
+}): boolean {
+  return (
+    input.sinceStartMs <= PINCH_GRACE_MS &&
+    input.pts <= PINCH_GRACE_MAX_PTS &&
+    input.movedPx < PINCH_GRACE_MAX_MOVE_PX
+  )
+}

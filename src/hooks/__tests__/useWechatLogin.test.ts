@@ -34,7 +34,9 @@ type InvokeResponse = { data: unknown; error: unknown }
 function mockClient(
   invokeResponse: InvokeResponse,
   setSessionResult:
-    { data: { session: { user: { id: string } } }; error: null } | { error: { message: string } }
+    { data: { session: { user: { id: string } } }; error: null } | { error: { message: string } },
+  /** touch_session_v2 的返回（默认：本设备已登记且被信任） */
+  rpcResponse: InvokeResponse = { data: [{ token: 't-local', trusted: true }], error: null }
 ) {
   return {
     functions: {
@@ -42,11 +44,9 @@ function mockClient(
     },
     auth: {
       setSession: vi.fn().mockResolvedValue(setSessionResult),
+      signOut: vi.fn().mockResolvedValue({ error: null }),
     },
-    rpc: vi.fn().mockResolvedValue({
-      data: [{ session_token: 't-local', session_started_at: '2026-08-22T10:00:00Z' }],
-      error: null,
-    }),
+    rpc: vi.fn().mockResolvedValue(rpcResponse),
   }
 }
 
@@ -140,6 +140,58 @@ describe('useWechatLogin', () => {
     const res = await act(() => result.current.loginWithWechat())
     expect(res.error).toBe('微信登录失败，请重试')
     expect(routeAfterLoginMock).not.toHaveBeenCalled()
+  })
+
+  // --- 设备登记（touch_session_v2）---
+
+  it('登录成功后登记本设备：rpc 带 device_id / name / platform', async () => {
+    taroMock.login.mockResolvedValue({ code: 'wx-code-1' })
+    const c = mockClient(
+      { data: { access_token: 'at', refresh_token: 'rt' }, error: null },
+      sessionOk()
+    )
+    const { result } = renderHook(() => useWechatLogin(c as never))
+    const res = await act(() => result.current.loginWithWechat())
+
+    expect(res.rejected).toBeFalsy()
+    expect(c.rpc).toHaveBeenCalledWith('touch_session_v2', {
+      p_device_id: expect.stringMatching(/^[a-z0-9]{8,64}$/),
+      p_name: expect.any(String),
+      p_platform: expect.any(String),
+    })
+    expect(routeAfterLoginMock).toHaveBeenCalledWith(c)
+  })
+
+  it('本设备被设为不信任（device_rejected）：撤销会话、不路由、rejected=true', async () => {
+    taroMock.login.mockResolvedValue({ code: 'wx-code-1' })
+    const c = mockClient(
+      { data: { access_token: 'at', refresh_token: 'rt' }, error: null },
+      sessionOk(),
+      { data: null, error: { message: 'device_rejected: 该设备已被设为不信任' } }
+    )
+    const { result } = renderHook(() => useWechatLogin(c as never))
+    const res = await act(() => result.current.loginWithWechat())
+
+    expect(res).toMatchObject({ error: null, rejected: true })
+    // scope 必须给 local：默认的 global 会把该用户其他设备的会话一并撤销
+    expect(c.auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
+  })
+
+  it('登记失败但不是被拒（网络抖动）：不阻断登录，照常路由', async () => {
+    taroMock.login.mockResolvedValue({ code: 'wx-code-1' })
+    const c = mockClient(
+      { data: { access_token: 'at', refresh_token: 'rt' }, error: null },
+      sessionOk(),
+      { data: null, error: { message: 'TypeError: Failed to fetch' } }
+    )
+    const { result } = renderHook(() => useWechatLogin(c as never))
+    const res = await act(() => result.current.loginWithWechat())
+
+    expect(res.rejected).toBeFalsy()
+    expect(res.error).toBeNull()
+    expect(c.auth.signOut).not.toHaveBeenCalled()
+    expect(routeAfterLoginMock).toHaveBeenCalledWith(c)
   })
 
   it('防重复提交：提交中二次调用直接拒绝', async () => {

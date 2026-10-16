@@ -2,6 +2,7 @@
 
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { loadAnnoDoc } from '@/lib/annotation'
 import { usePdfHandoff } from '../usePdfHandoff'
 
 // supabase 模块加载即校验环境变量 ⇒ 必须桩掉（仓里的惯例）
@@ -47,6 +48,13 @@ vi.mock('@/lib/error-report', () => ({
   reportClientError,
 }))
 
+// 「这一册有没有笔迹」由 `open()` 读一次（判据是 `docHasInk`）。这里只桩掉**读盘**那一步，
+// 判据本身用真的 —— 于是「有没有笔迹」在用例里是一行 mockReturnValue 的事。
+vi.mock('@/lib/annotation', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/annotation')>('@/lib/annotation')
+  return { ...actual, loadAnnoDoc: vi.fn() }
+})
+
 const meta = (fileId = 'f1') => ({
   fileId,
   url: () => 'https://x.supabase.co/storage/v1/object/public/sheet-music/a.pdf',
@@ -60,6 +68,21 @@ const meta = (fileId = 'f1') => ({
 const savedCall = (i = 0) => ensureSavedPdf.mock.calls[i][0] as Record<string, unknown>
 
 beforeEach(() => {
+  // 默认「这一册有笔迹」——没有笔迹时开关被禁用（那一组用例自己改这个桩）
+  vi.mocked(loadAnnoDoc)
+    .mockReset()
+    .mockReturnValue({
+      '1': [
+        {
+          color: '#e5484d',
+          width: 0.004,
+          points: [
+            [0.1, 0.1],
+            [0.2, 0.2],
+          ] as [number, number][],
+        },
+      ],
+    })
   ensureSavedPdf
     .mockReset()
     .mockImplementation(async (opts: { fileId: string }) => ({
@@ -96,6 +119,20 @@ afterEach(() => {
 })
 
 describe('usePdfHandoff：是否带有批注', () => {
+  it('这一册没有笔迹：固定为「否」且拨不动（拨了不发起合成）', async () => {
+    vi.mocked(loadAnnoDoc).mockReturnValue({})
+    const { result } = renderHook(() => usePdfHandoff())
+    act(() => result.current.open(meta()))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    expect(result.current.hasAnno).toBe(false)
+    expect(result.current.withAnno).toBe(false)
+    // 拨它：状态不动，也不去云端合成（不然只会换来一句「这份谱还没有批注」）
+    act(() => result.current.toggleAnno(true))
+    expect(result.current.withAnno).toBe(false)
+    expect(composeAnnotatedPdf).not.toHaveBeenCalled()
+  })
+
   it('默认不带批注：不调云端合成，直接下原件', async () => {
     const { result } = renderHook(() => usePdfHandoff())
     act(() => result.current.open(meta()))
@@ -131,8 +168,11 @@ describe('usePdfHandoff：是否带有批注', () => {
 
   it('⚠️ 合成之前必须**先同步**：函数读的是服务端那份，本地没推上去就会少画几笔', async () => {
     const { result } = renderHook(() => usePdfHandoff())
-    act(() => result.current.toggleAnno(true))
+    // ⚠️ 顺序必须「先 open 再拨」：`hasAnno`（这一册有没有笔迹）是在 open 那一刻定的，
+    // 而没笔迹时开关拨不动 —— 这也正是真机上的唯一顺序（面板不开，哪来的开关）
     act(() => result.current.open(meta()))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    act(() => result.current.toggleAnno(true))
 
     await waitFor(() => expect(composeAnnotatedPdf).toHaveBeenCalled())
     expect(syncAnnotationFile).toHaveBeenCalledWith('f1')
@@ -141,8 +181,10 @@ describe('usePdfHandoff：是否带有批注', () => {
 
   it('带批注那条把三段耗时报上来（真机没有 Network 面板，只能自己报）', async () => {
     const { result } = renderHook(() => usePdfHandoff())
-    act(() => result.current.toggleAnno(true))
     act(() => result.current.open(meta()))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    act(() => result.current.toggleAnno(true))
+    await waitFor(() => expect(composeAnnotatedPdf).toHaveBeenCalled())
 
     await waitFor(() => expect(result.current.ready).toBe(true))
     const logged = reportClientError.mock.calls
@@ -281,8 +323,9 @@ describe('usePdfHandoff：是否带有批注', () => {
   it('合成失败（别的错因）：上报，且出口始终不可点', async () => {
     composeAnnotatedPdf.mockRejectedValue(new Error('boom'))
     const { result } = renderHook(() => usePdfHandoff())
-    act(() => result.current.toggleAnno(true))
     act(() => result.current.open(meta()))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    act(() => result.current.toggleAnno(true))
 
     await waitFor(() => expect(reportClientError).toHaveBeenCalled())
     expect(result.current.ready).toBe(false)

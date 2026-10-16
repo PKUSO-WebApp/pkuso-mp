@@ -14,6 +14,7 @@ import { notification } from './notification'
 import { postCreate } from './post-create'
 import { postEdit } from './post-edit'
 import { profileInfo } from './profile-info'
+import { devices } from './devices'
 import { leaveRequest } from './leave-request'
 import { schedule } from './schedule'
 import { leaveRequests } from './leave-requests'
@@ -43,6 +44,7 @@ export const en: typeof zhCN = {
   postCreate,
   postEdit,
   profileInfo,
+  devices,
   leaveRequest,
   schedule,
   leaveRequests,

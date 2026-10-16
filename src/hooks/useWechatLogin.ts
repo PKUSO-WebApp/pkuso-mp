@@ -5,9 +5,14 @@ import { describeError, reportClientError } from '@/lib/error-report'
 import { DIAG_HEADER, newDiagId } from '@/lib/diag'
 import { routeAfterLogin } from '@/lib/post-auth-route'
 import { invokeFunction } from '@/lib/functions'
+import { touchSession } from '@/lib/device-session'
 import { useT } from '@/i18n'
 
-export type WechatLoginResult = { error: string | null }
+export type WechatLoginResult = {
+  error: string | null
+  /** 本设备被设为「不信任」，服务端拒绝登录（会话已撤销，调用方负责提示） */
+  rejected?: boolean
+}
 
 /**
  * 微信登录（桥接 Edge Function wechat-auth）：
@@ -166,7 +171,16 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         return { error: t('login.wechatLoginFailed') }
       }
 
-      // 4. 按 profile 状态路由入口
+      // 4. 登记本设备（touch_session_v2）：被设为不信任的设备在这里被服务端拒绝
+      const touched = await touchSession(client)
+      if (touched.rejected) {
+        // 本设备已被设为「不信任」：撤销刚建立的会话，由调用方弹强制下线通知。
+        // scope 必须给 local —— 默认的 global 会把该用户其他设备的会话一并撤销。
+        await client.auth.signOut({ scope: 'local' }).catch(() => {})
+        return { error: null, rejected: true }
+      }
+
+      // 5. 按 profile 状态路由入口
       await routeAfterLogin(client)
       return { error: null }
     } finally {

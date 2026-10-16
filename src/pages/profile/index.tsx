@@ -509,6 +509,15 @@ export default function Profile() {
                   {t('profile.settings.account')}
                 </Text>
               </View>
+              {/* 登录设备：本账号已登录的设备列表，可把别的设备设为「不信任」（本机不给这个入口） */}
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => void Taro.navigateTo({ url: '/pages/devices/index' })}
+              >
+                <Text className='text-sm font-medium text-text'>
+                  {t('profile.settings.devices')}
+                </Text>
+              </View>
               {/* 考勤：本人考勤历史，起止日期过滤（打开时才挂载查询组件） */}
               <View
                 className='border-b border-border px-4 py-3'

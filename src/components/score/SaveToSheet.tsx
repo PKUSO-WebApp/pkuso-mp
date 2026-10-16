@@ -25,9 +25,11 @@ export function SaveToSheet({
   ready,
   busy,
   withAnno,
+  hasAnno,
   preparing,
   onAnno,
   onPick,
+  onHistory,
   onClose,
 }: {
   kinds: HandoffKind[]
@@ -37,11 +39,19 @@ export function SaveToSheet({
   busy: boolean
   /** 「是否带有批注？」：开了走云端合成（见 lib/annotated-pdf） */
   withAnno: boolean
+  /** 这一册**有没有笔迹**（`open` 时定的）。没有就固定为「否」且不可拨：拨上去只会换来
+   *  一句「这份谱还没有批注」（用户 2026-10-15 定） */
+  hasAnno: boolean
   /** 正在备文件（含云端合成）：这期间**不许拨**——换了选择就要重新备一份，
    *  半途改主意既没有意义，也会让「面板上那份到底是哪个」变得含糊 */
   preparing: boolean
   onAnno: (v: boolean) => void
   onPick: (kind: HandoffKind) => void
+  /**
+   * 「恢复云端历史」那一行。**只有阅读器给**（声部页那份 PDF 面板只负责把文件送出去，
+   * 没有"当前在哪一页、本地有哪些笔迹"这些上下文）⇒ 不给就整行不渲染。
+   */
+  onHistory?: () => void
   onClose: () => void
 }) {
   const { t } = useT()
@@ -64,9 +74,10 @@ export function SaveToSheet({
             云端合成的另一个文件），所以备文件期间这个开关是禁用的——见 usePdfHandoff */}
         <View className='flex flex-row items-center justify-between border-b border-border px-4 py-3'>
           <Text className='text-sm text-text'>{t('common.saveTo.withAnno')}</Text>
+          {/* `!hasAnno` ⇒ 固定为「否」且拨不动：拨上去只会换来一句「这份谱还没有批注」 */}
           <YesNoSwitch
-            value={withAnno}
-            disabled={busy || preparing}
+            value={withAnno && hasAnno}
+            disabled={busy || preparing || !hasAnno}
             ariaLabel={t('common.saveTo.withAnno')}
             onChange={onAnno}
           />
@@ -89,6 +100,14 @@ export function SaveToSheet({
             </Text>
           </View>
         ))}
+        {/* 「恢复云端历史」：拿到被覆盖掉的那几版，进冲突解决页挑一版（或与本地的合并）。
+            它**不受 `canPick` 影响** —— 那一位管的是"本地 PDF 备好了没"，而这条走的是
+            云端历史 + 冲突页，跟那份 PDF 文件没关系 */}
+        {onHistory ? (
+          <View className='border-b border-border px-4 py-4' onClick={onHistory}>
+            <Text className='text-sm text-text'>{t('scoreReader.history.entry')}</Text>
+          </View>
+        ) : null}
         <View className='px-4 py-4' onClick={onClose}>
           <Text className='block text-center text-sm text-text-muted'>
             {t('common.saveTo.cancel')}

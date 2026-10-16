@@ -198,9 +198,11 @@ const RETRY_SLOW_MS = 4000
  * RPC 排除，包括纯读的那几个——而它们恰恰最该重试。
  *
  * 为什么不能放宽成「重试所有 POST」：POST 里绝大多数**不能**重试，而且后果不是变慢而是出错：
- * - `/rest/v1/rpc/touch_session`：会**轮换** `profiles.session_token`。多轮换一次，
- *   两次响应乱序时本地存的就不是 DB 最新值 → verifySession 判为「被踢」→ 弹强制下线
- *   并清本机会话。**这是唯一能造成「用户莫名被登出」的路径。**
+ * - `/rest/v1/rpc/touch_session`（老的单设备版）：会**轮换** `profiles.session_token`。
+ *   多轮换一次，两次响应乱序时本地存的就不是 DB 最新值 → verifySession 判为「被踢」→
+ *   弹强制下线并清本机会话。**这是唯一能造成「用户莫名被登出」的路径。**
+ *   ⚠️ 它的替代品 `touch_session_v2` **没有这个危害**（见 FAILOVER_ONLY_POSTS 的注释），
+ *   所以那条理由不适用于 v2 —— 别照着老的那条把 v2 也排除掉。
  * - `POST /rest/v1/<表>`：全是 insert，库端没有幂等键 → 重复请假单 / 重复帖子。
  * - `functions/v1/wechat-auth` 与 `register-with-wechat`：入参是**一次性** wx code，
  *   重试必然拿作废的 code 再问一次，把「其实成功了」显示成失败。
@@ -218,6 +220,9 @@ const RETRY_SLOW_MS = 4000
 export const RETRYABLE_READ_POSTS = [
   '/rest/v1/rpc/check_data_versions',
   '/rest/v1/rpc/get_my_session',
+  // 多设备版的自查（15 秒轮询 + 回前台）。**纯读**（STABLE、不写库），
+  // 而且是「我被踢了没有」的唯一信息来源 —— 漏读一次的后果是那台设备不知道自己该下线
+  '/rest/v1/rpc/get_my_session_v2',
   // 收益最高的一条：它失败时 routeAfterLogin 会把已审核通过的成员降级扔到「等待审核」页
   '/rest/v1/rpc/get_my_profile_entry',
 ]
@@ -251,6 +256,13 @@ export const RETRYABLE_READ_POSTS = [
  * 名单是**精确匹配**（见 isFailoverOnly）：加一条就得能单独说清理由。
  */
 export const FAILOVER_ONLY_POSTS = [
+  // 多设备版的登记（登录 / 冷启动）。加它的理由与登录那几条同源：它踩在登录链路上，
+  // 而登录链路的病恰恰是「生效的那条路不通」。
+  // 为什么它不像老的 `touch_session` 那样被排除：老那条重发的危害是「轮换 session_token
+  // ⇒ 本地存到旧值 ⇒ 判为被踢」（见 RETRYABLE_READ_POSTS 的注释），而**新模型的踢人判据
+  // 是 `trusted`，与 token 无关** —— 重发一次最坏只是多刷一次 last_seen_at，
+  // 新设备的那条通知也不会重复（第二次查到行已存在）。
+  '/rest/v1/rpc/touch_session_v2',
   '/functions/v1/wechat-auth',
   '/functions/v1/register-with-wechat',
   '/functions/v1/login-with-code',

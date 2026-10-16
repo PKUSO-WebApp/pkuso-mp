@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   blockedByEdgeGuard,
   isTap,
+  pinchGraceActive,
   snapZoom,
   swipeDir,
   swipeMinPx,
+  PINCH_GRACE_MAX_MOVE_PX,
+  PINCH_GRACE_MAX_PTS,
+  PINCH_GRACE_MS,
   SWIPE_MIN_CEIL_PX,
   SWIPE_MIN_FLOOR_PX,
   TAP_MAX_MOVE_PX,
@@ -113,5 +117,38 @@ describe('blockedByEdgeGuard', () => {
   it('只作用于右滑；左滑与点击分区不受影响', () => {
     expect(blockedByEdgeGuard(5, 1)).toBe(false)
     expect(blockedByEdgeGuard(5, 0)).toBe(false)
+  })
+})
+
+describe('pinchGraceActive（第二指：捏合还是手掌）', () => {
+  const at = (
+    o: Partial<{ sinceStartMs: number; pts: number; movedPx: number }> = {}
+  ): { sinceStartMs: number; pts: number; movedPx: number } => ({
+    sinceStartMs: 80,
+    pts: 1,
+    movedPx: 0,
+    ...o,
+  })
+
+  it('起笔后极短时间内落下、且这一笔还没动 ⇒ 判捏合', () => {
+    expect(pinchGraceActive(at())).toBe(true)
+  })
+
+  it('晚于窗口 ⇒ 不判捏合（写着写着落下来的手掌，照旧不打断这一笔）', () => {
+    expect(pinchGraceActive(at({ sinceStartMs: PINCH_GRACE_MS + 1 }))).toBe(false)
+  })
+
+  it('边界：正好 150ms 仍算窗口内', () => {
+    expect(pinchGraceActive(at({ sinceStartMs: PINCH_GRACE_MS }))).toBe(true)
+  })
+
+  it('窗口内但这一笔已经画动了 ⇒ 不判捏合（「有没有动」就是手掌与捏合的分界）', () => {
+    expect(pinchGraceActive(at({ movedPx: PINCH_GRACE_MAX_MOVE_PX }))).toBe(false)
+    expect(pinchGraceActive(at({ movedPx: PINCH_GRACE_MAX_MOVE_PX - 0.1 }))).toBe(true)
+  })
+
+  it('窗口内但点数已经很多 ⇒ 不判捏合（位移被夹住的瞬间划出去又划回来也拦得住）', () => {
+    expect(pinchGraceActive(at({ pts: PINCH_GRACE_MAX_PTS + 1 }))).toBe(false)
+    expect(pinchGraceActive(at({ pts: PINCH_GRACE_MAX_PTS }))).toBe(true)
   })
 })
