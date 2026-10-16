@@ -8,6 +8,7 @@ import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass, useThemeContext } from '@/context/theme-context'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
 import { AnnotationConflictSheet } from '@/components/score/AnnotationConflictSheet'
+import { AnnotationHistorySheet } from '@/components/score/AnnotationHistorySheet'
 import { ReaderToolbar, type ReaderPanel } from '@/components/score/ReaderToolbar'
 import { ReaderTutorial } from '@/components/score/ReaderTutorial'
 import { SaveToSheet } from '@/components/score/SaveToSheet'
@@ -25,6 +26,12 @@ import {
   type AnnoTool,
 } from '@/lib/annotation'
 import { markAnnoPending } from '@/lib/annotation-sync'
+import {
+  groupHistoryBatches,
+  listAnnotationHistory,
+  type HistoryBatch,
+  type HistoryPage,
+} from '@/lib/annotation-history'
 import {
   flushAnnotationSync,
   loadConflictPages,
@@ -344,6 +351,10 @@ export default function ScoreReader() {
    */
   const [conflictPages, setConflictPages] = useState<number[]>([])
   const [conflictOn, setConflictOn] = useState(false)
+  /** 「恢复云端历史」面板（分享子菜单里的入口）：批次列表 + 该批的页 */
+  const [historyOn, setHistoryOn] = useState(false)
+  const [historyBatches, setHistoryBatches] = useState<HistoryBatch[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
   /**
    * 当前工具：画笔 / 荧光笔 / 橡皮擦（橡皮擦按**整条**删除，见 eraseAtPoints + eraseStrokesAt）。
    * 三选一而不是两个布尔——「笔和擦同时开着」这种状态本来就不该存在。
@@ -3110,6 +3121,46 @@ export default function ScoreReader() {
    * `url` 传**取值函数**而不是值：`fileUrlRef` 是 ref，渲染期读会拿到空串。
    */
   const handoff = usePdfHandoff()
+
+  /**
+   * 「恢复云端历史」（分享子菜单里的入口）：先拉这一册的归档**元数据**并按覆盖批次聚好，
+   * 再开面板 —— 内容等用户点进某一批才拉（整册连内容能到几 MB，见 lib/annotation-history.ts）。
+   */
+  const openHistory = () => {
+    handoff.close()
+    setHistoryOn(true)
+    setHistoryLoading(true)
+    void listAnnotationHistory(fileId).then((rows) => {
+      setHistoryBatches(groupHistoryBatches(rows))
+      setHistoryLoading(false)
+    })
+  }
+
+  /**
+   * 选中一页的历史版本 ⇒ 交给**冲突解决页**去问「用历史 / 用本地 / 合并」。
+   *
+   * `h` = 那一版的版本号：冲突页据此把**对照侧**换成历史内容，而 CAS 基准仍是**实时远端**
+   *（见 `loadConflictPage` 的注释）—— 所以那三个选择全都成立。
+   */
+  const pickHistoryPage = (p: HistoryPage) => {
+    setHistoryOn(false)
+    const q = [
+      `file_id=${encodeURIComponent(fileId)}`,
+      `page=${p.entry.page}`,
+      `u=${encodeURIComponent(fileUrlRef.current)}`,
+      presetFileName ? `fn=${encodeURIComponent(presetFileName)}` : '',
+      `h=${encodeURIComponent(p.entry.version)}`,
+    ]
+      .filter(Boolean)
+      .join('&')
+    void Taro.navigateTo({ url: `/pages/score-reader/conflict/index?${q}` }).catch((err) => {
+      reportClientError({
+        event: 'score_reader_conflict_nav_failed',
+        message: describeError(err),
+        detail: { fileId, page: p.entry.page },
+      })
+    })
+  }
   /** 顶栏那个按钮要开的是**这一册**（元数据在 open 时给，见 usePdfHandoff 的注释） */
   const openHandoff = () => {
     // 「保存到…」也是底栏五个之一 ⇒ 开它就收掉另外两个（同 openPanel 的互斥理由）
@@ -3558,7 +3609,18 @@ export default function ScoreReader() {
             preparing={handoff.preparing}
             onAnno={handoff.toggleAnno}
             onPick={handoff.pick}
+            onHistory={openHistory}
             onClose={handoff.close}
+          />
+        ) : null}
+        {/* 「恢复云端历史」：与分享面板同一个 z（Z_SHEET），靠 DOM 顺序压在它上面 */}
+        {historyOn ? (
+          <AnnotationHistorySheet
+            fileId={fileId}
+            batches={historyBatches}
+            loading={historyLoading}
+            onPick={pickHistoryPage}
+            onClose={() => setHistoryOn(false)}
           />
         ) : null}
       </View>

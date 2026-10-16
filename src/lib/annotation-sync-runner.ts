@@ -2,6 +2,7 @@ import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { reportClientError } from '@/lib/error-report'
 import { loadAnnoDoc, saveAnnoDoc, type AnnoDoc, type AnnoStroke } from '@/lib/annotation'
+import { fetchArchivePage } from '@/lib/annotation-history'
 import type { Json } from '@/types/database.types'
 import {
   clearAnnoPending,
@@ -479,18 +480,43 @@ export async function loadConflictPages(fileId: string): Promise<number[]> {
   return loadConflicts(fileId, userId)
 }
 
-/** 冲突解决页要用的一页快照（本地一份、远端一份） */
+/** 冲突解决页要用的一页快照（本地一份、对照一份） */
 export type ConflictPageState = {
   local: AnnoStroke[]
+  /** 对照的那一份：默认是**实时远端**；从「恢复云端历史」进来时是那一版**历史内容** */
   remote: AnnoStroke[]
-  /** 远端那一行此刻的版本；**预览与提交都认它** —— 它一变就说明远端又动过 */
+  /** 远端那一行**此刻**的版本；**CAS 与提交都认它** —— 它一变就说明远端又动过。
+   *  ⚠️ 它**永远**是实时远端的版本，不是 `remote` 那一份的版本（历史对照时两者不同） */
   remoteVersion: string | null
+  /** 本次对照的是历史版本（`remote` 装的就是它）—— `resolve` 据此把「采纳」变成「推上去」 */
+  comparedArchiveVersion?: string
 }
 
-/** 读这一页的两份内容（冲突解决页的入口） */
-export async function loadConflictPage(fileId: string, page: number): Promise<ConflictPageState> {
+/**
+ * 读这一页的两份内容（冲突解决页的入口）。
+ *
+ * @param archiveVersion 「恢复云端历史」入口带来的历史版本号：把**那一版**当对照侧。
+ *   CAS 基准仍是实时远端（见 `remoteVersion` 的注释）—— 这正是「不改冲突页也能复用」的关键。
+ */
+export async function loadConflictPage(
+  fileId: string,
+  page: number,
+  archiveVersion?: string | null
+): Promise<ConflictPageState> {
   const local = loadAnnoDoc(fileId)[String(page)] ?? []
   const remote = await fetchRemotePage(fileId, page)
+  if (archiveVersion) {
+    const archived = await fetchArchivePage(fileId, page, archiveVersion)
+    // 取不到那一版就退回实时远端：宁可让用户看到一次普通的冲突，也不要拿空内容去对照
+    if (archived) {
+      return {
+        local,
+        remote: archived,
+        remoteVersion: remote.version,
+        comparedArchiveVersion: archiveVersion,
+      }
+    }
+  }
   return { local, remote: remote.strokes, remoteVersion: remote.version }
 }
 
@@ -522,8 +548,11 @@ export async function resolveAnnotationConflict(args: {
   page: number
   choice: 'local' | 'remote' | 'merge'
   shownVersion: string | null
+  /** 与 `loadConflictPage` 的第三参同源：「对照侧是历史版本」时，「采纳」= 把那一版
+   *  **推上云端**（只落本地的话，本地与云端不一致 ⇒ 下一次同步立刻又记成一次冲突） */
+  archiveVersion?: string | null
 }): Promise<ResolveResult> {
-  const { fileId, page, choice, shownVersion } = args
+  const { fileId, page, choice, shownVersion, archiveVersion } = args
   const userId = await currentUserId()
   if (!userId) return { ok: false, reason: 'no-user' }
 
@@ -543,6 +572,15 @@ export async function resolveAnnotationConflict(args: {
     const fresh = await fetchRemotePage(fileId, page)
     if ((fresh.version ?? null) !== (shownVersion ?? null)) return { ok: false, reason: 'raced' }
 
+    // 对照的那一份：默认是**实时远端**；从「恢复云端历史」进来时是那一版历史内容。
+    // ⚠️ 它与 CAS 基准是**两件事**：上面那句比的始终是实时远端的版本。
+    let compareStrokes = fresh.strokes
+    if (archiveVersion) {
+      const archived = await fetchArchivePage(fileId, page, archiveVersion)
+      if (!archived) return { ok: false, reason: 'failed' }
+      compareStrokes = archived
+    }
+
     const localStrokes = loadAnnoDoc(fileId)[String(page)] ?? []
     const localFp = pageFingerprint(localStrokes)
 
@@ -558,7 +596,7 @@ export async function resolveAnnotationConflict(args: {
       // **同一笔只留一条**（`mergeStrokes`）：两端都有的那一笔叠起来会深一层，荧光笔最明显。
       // ⚠️ 它只去掉「完全同一笔」，**擦除语义仍然无法表达** —— 这个模型没有墓碑，
       // 「一边画了 X、另一边把 X 擦了」分不清，并集会把擦掉的那笔带回来（合并前有预览）。
-      const merged = mergeStrokes(localStrokes, fresh.strokes)
+      const merged = mergeStrokes(localStrokes, compareStrokes)
       const mergedFp = pageFingerprint(merged)
       const outcome = await pushRemotePage(fileId, page, merged, fresh.version ?? '')
       // 与 'local' 分支同款：CAS 落空但服务端已经是这一份（重复提交 / 丢 ACK）也算成功

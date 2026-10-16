@@ -29,6 +29,7 @@ export function SaveToSheet({
   preparing,
   onAnno,
   onPick,
+  onHistory,
   onClose,
 }: {
   kinds: HandoffKind[]
@@ -46,6 +47,11 @@ export function SaveToSheet({
   preparing: boolean
   onAnno: (v: boolean) => void
   onPick: (kind: HandoffKind) => void
+  /**
+   * 「恢复云端历史」那一行。**只有阅读器给**（声部页那份 PDF 面板只负责把文件送出去，
+   * 没有"当前在哪一页、本地有哪些笔迹"这些上下文）⇒ 不给就整行不渲染。
+   */
+  onHistory?: () => void
   onClose: () => void
 }) {
   const { t } = useT()
@@ -94,6 +100,14 @@ export function SaveToSheet({
             </Text>
           </View>
         ))}
+        {/* 「恢复云端历史」：拿到被覆盖掉的那几版，进冲突解决页挑一版（或与本地的合并）。
+            它**不受 `canPick` 影响** —— 那一位管的是"本地 PDF 备好了没"，而这条走的是
+            云端历史 + 冲突页，跟那份 PDF 文件没关系 */}
+        {onHistory ? (
+          <View className='border-b border-border px-4 py-4' onClick={onHistory}>
+            <Text className='text-sm text-text'>{t('scoreReader.history.entry')}</Text>
+          </View>
+        ) : null}
         <View className='px-4 py-4' onClick={onClose}>
           <Text className='block text-center text-sm text-text-muted'>
             {t('common.saveTo.cancel')}

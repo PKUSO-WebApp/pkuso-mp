@@ -36,6 +36,16 @@ export const scoreReader = {
   highlighter: 'Highlighter',
   zoomPanel: 'Zoom',
   modeSwitch: 'Switch paging mode',
+  history: {
+    entry: 'Restore from cloud history',
+    title: 'Restore from cloud history',
+    empty: 'No cloud history yet',
+    back: 'Back',
+    batchRow: '{time} · {n} pages',
+    batchAt: '{time}',
+    batchEmpty: 'No annotated pages in this batch',
+    pageRow: 'Page {page} · {n} strokes',
+  },
   conflict: {
     title: '{count} page(s) with conflicting ink',
     intro:

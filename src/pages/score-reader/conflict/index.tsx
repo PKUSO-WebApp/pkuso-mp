@@ -73,6 +73,14 @@ export default function AnnotationConflict() {
   /** 这一册的 PDF 公开地址（阅读器带过来的；缺了回退查库，见 load） */
   const presetUrl = router.params.u ? decodeURIComponent(router.params.u) : ''
   const presetName = router.params.fn ? decodeURIComponent(router.params.fn) : ''
+  /**
+   * 「恢复云端历史」入口带来的历史版本号（`h`）。
+   *
+   * 有它时**对照侧**换成那一版历史内容，而 CAS 基准仍是**实时远端**（见 `loadConflictPage`）——
+   * 这正是复用本页的关键：UI、按钮、文案一个都不用改，三个选择照样成立
+   * （选历史那版 = 把它推上云端）。没有它时一切与从前**逐字相同**。
+   */
+  const archiveVersion = router.params.h ? decodeURIComponent(router.params.h) : ''
 
   const [data, setData] = useState<ConflictPageState | null>(null)
   const [side, setSide] = useState<Side>('local')
@@ -215,7 +223,7 @@ export default function AnnotationConflict() {
         }
         pdfUrlRef.current = url
       }
-      const state = await loadConflictPage(fileId, page)
+      const state = await loadConflictPage(fileId, page, archiveVersion || undefined)
       shownRef.current = state.local
       setData(state)
       setSide('local')
@@ -225,7 +233,7 @@ export default function AnnotationConflict() {
       setMessage(err instanceof Error ? err.message : t('scoreReader.conflict.loadFailed'))
       setStage('error')
     }
-  }, [drawPage, fileId, page, presetName, presetUrl, t])
+  }, [archiveVersion, drawPage, fileId, page, presetName, presetUrl, t])
 
   useEffect(() => {
     void load()
@@ -283,6 +291,8 @@ export default function AnnotationConflict() {
       page,
       choice,
       shownVersion: data.remoteVersion,
+      // 对照侧是历史版本时，「采纳」要把它推上云端（只落本地会立刻又变成一次冲突）
+      archiveVersion: archiveVersion || undefined,
     })
     setBusy(false)
     if (result.ok) {
