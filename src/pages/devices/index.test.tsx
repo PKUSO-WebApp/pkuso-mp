@@ -16,6 +16,7 @@ const SELF_DEVICE_ID = 'selfdevice0001'
 
 const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
+  kickSelf: vi.fn(),
   rpc: vi.fn(
     async (
       _fn: string,
@@ -50,6 +51,9 @@ vi.mock('@tarojs/taro', () => ({
 }))
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
+
+// 「操作前自查发现本机已不可信 ⇒ 直接踢出」用的是 context 里那条强制下线链路
+vi.mock('@/context/user-context', () => ({ useUser: () => ({ kickSelf: mocks.kickSelf }) }))
 
 vi.mock('@/lib/supabase', () => ({ supabase: { rpc: mocks.rpc } }))
 
@@ -127,6 +131,7 @@ const setDevices = (rows: unknown[]) => {
 describe('DevicesPage', () => {
   beforeEach(() => {
     mocks.showToast.mockReset()
+    mocks.kickSelf.mockReset()
     mocks.rpc.mockReset()
     setDevices(ALL_DEVICES)
   })
@@ -283,5 +288,51 @@ describe('DevicesPage', () => {
     await waitFor(() =>
       expect(mocks.showToast).toHaveBeenCalledWith({ title: '操作失败，请重试', icon: 'none' })
     )
+  })
+
+  // 规则 C（用户 2026-10-16 定）：做设备管理前先查发起方自己还在不在受信名单里，
+  // 发现自己已被设为不信任 / 已删除就**直接踢出**，而不是继续点、每次吃一个「操作失败」。
+  it('操作前自查发现本机已被设为不信任 ⇒ 直接踢出，且一个管理请求都不发', async () => {
+    mocks.rpc.mockImplementation(async (fn: string) => {
+      if (fn === 'list_my_devices') return { data: ALL_DEVICES, error: null }
+      // get_my_session_v2：本机这一行 trusted = false 且无墓碑 ⇒ 被设为不信任
+      if (fn === 'get_my_session_v2') return { data: [{ trusted: false, deleted_at: null }], error: null }
+      return { data: null, error: null }
+    })
+    render(<DevicesPage />)
+    fireEvent.click(await waitForListText('恢复信任'))
+
+    await waitFor(() => expect(mocks.kickSelf).toHaveBeenCalledWith('rejected'))
+    expect(rpcArgs('set_device_trust')).toHaveLength(0)
+  })
+
+  it('操作前自查发现本机已被删除 ⇒ 按「被删除」踢出（弹窗文案据此选）', async () => {
+    mocks.rpc.mockImplementation(async (fn: string) => {
+      if (fn === 'list_my_devices') return { data: ALL_DEVICES, error: null }
+      if (fn === 'get_my_session_v2')
+        return { data: [{ trusted: false, deleted_at: '2026-10-16T00:00:00Z' }], error: null }
+      return { data: null, error: null }
+    })
+    render(<DevicesPage />)
+    fireEvent.click(await waitForListText('恢复信任'))
+
+    await waitFor(() => expect(mocks.kickSelf).toHaveBeenCalledWith('deleted'))
+    expect(rpcArgs('set_device_trust')).toHaveLength(0)
+  })
+
+  it('服务端拒绝 caller_not_trusted（自查之后、RPC 之前被踢）⇒ 踢出', async () => {
+    mocks.rpc.mockImplementation(async (fn: string) => {
+      if (fn === 'list_my_devices') return { data: ALL_DEVICES, error: null }
+      // 自查那一刻本机还受信
+      if (fn === 'get_my_session_v2') return { data: [{ trusted: true, deleted_at: null }], error: null }
+      if (fn === 'set_device_trust') return { data: null, error: { message: 'caller_not_trusted' } }
+      return { data: null, error: null }
+    })
+    render(<DevicesPage />)
+    fireEvent.click(await waitForListText('恢复信任'))
+
+    await waitFor(() => expect(mocks.kickSelf).toHaveBeenCalled())
+    // 不是「操作失败」那种普通失败
+    expect(mocks.showToast).not.toHaveBeenCalledWith({ title: '操作失败，请重试', icon: 'none' })
   })
 })

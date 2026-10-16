@@ -5,9 +5,17 @@ import { Card } from '@/components/ui/Card'
 import { ListState } from '@/components/ui/ListState'
 import { Modal } from '@/components/ui/Modal'
 import { useThemeClass } from '@/context/theme-context'
+import { useUser } from '@/context/user-context'
 import { useT, useNavTitle } from '@/i18n'
 import { getOrCreateDeviceId } from '@/lib/device-id'
-import { deleteDevice, listMyDevices, selfFirst, setDeviceTrust, type DeviceInfo } from '@/lib/device-session'
+import {
+  deleteDevice,
+  listMyDevices,
+  selfFirst,
+  setDeviceTrust,
+  verifySession,
+  type DeviceInfo,
+} from '@/lib/device-session'
 import { supabase } from '@/lib/supabase'
 import { formatDateTimeInChina } from '@/lib/date-utils'
 import './index.scss'
@@ -28,6 +36,7 @@ import './index.scss'
  */
 export default function DevicesPage() {
   const darkClass = useThemeClass()
+  const { kickSelf } = useUser()
   const { t } = useT()
   useNavTitle('devices.navTitle')
 
@@ -64,11 +73,43 @@ export default function DevicesPage() {
     void load({ silent: true })
   })
 
+  /**
+   * 设备管理前的**自查**（用户 2026-10-16 定，规则 C）：本机若已被**设为不信任 / 删除**，
+   * 就不该还能操作别的设备 —— 而发现即**直接踢出**（`kickSelf` 走的是与 15 秒轮询完全
+   * 相同的那条链路：清会话 → 回登录页 → 弹窗说明是被拒还是被删）。
+   *
+   * 为什么要有这一道（服务端已经硬拦了）：那台设备在被心跳踢掉之前还有最长半分钟的窗口，
+   * 页面要在这半分钟里就把它请出去，而不是让它再点几下、每次都吃一个「操作失败」。
+   *
+   * 返回 false = 已经踢了，调用方别再往下走。
+   */
+  const ensureSelfTrusted = async (): Promise<boolean> => {
+    const v = await verifySession(supabase)
+    if (!v.kicked) return true
+    kickSelf(v.kind ?? 'rejected')
+    return false
+  }
+
+  /**
+   * 服务端明确拒绝（`caller_not_trusted`）：本机已经不可信了 —— 那是竞态窗口里发生的事
+   * （自查之后、RPC 到达之前被另一台设备设成了不信任）。现读一次原因再踢，
+   * 好让弹窗说清是「被设为不信任」还是「被删除设备」。
+   */
+  const kickAsUntrusted = async () => {
+    const v = await verifySession(supabase)
+    kickSelf(v.kicked ? (v.kind ?? 'rejected') : 'rejected')
+  }
+
   const applyTrust = async (device: DeviceInfo, trusted: boolean) => {
+    if (!(await ensureSelfTrusted())) return
     setBusyId(device.deviceId)
     const res = await setDeviceTrust(supabase, selfDeviceId, device.deviceId, trusted)
     setBusyId(null)
     if (!res.ok) {
+      if (res.reason === 'caller_not_trusted') {
+        await kickAsUntrusted()
+        return
+      }
       Taro.showToast({ title: t('devices.actionFailed'), icon: 'none' })
       return
     }
@@ -77,10 +118,15 @@ export default function DevicesPage() {
   }
 
   const applyDelete = async (device: DeviceInfo) => {
+    if (!(await ensureSelfTrusted())) return
     setBusyId(device.deviceId)
     const res = await deleteDevice(supabase, selfDeviceId, device.deviceId)
     setBusyId(null)
     if (!res.ok) {
+      if (res.reason === 'caller_not_trusted') {
+        await kickAsUntrusted()
+        return
+      }
       Taro.showToast({ title: t('devices.deleteFailed'), icon: 'none' })
       return
     }

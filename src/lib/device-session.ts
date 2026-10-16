@@ -169,7 +169,7 @@ export function selfFirst<T extends { deviceId: string }>(
   return [self, ...devices.filter((d) => d !== self)]
 }
 
-export type SetTrustResult = { ok: boolean; reason?: 'cannot_untrust_self' }
+export type SetTrustResult = { ok: boolean; reason?: 'cannot_untrust_self' | 'caller_not_trusted' }
 
 /**
  * 设为不信任（踢下线 + 此后拒绝该设备登录）/ 恢复信任。
@@ -177,6 +177,9 @@ export type SetTrustResult = { ok: boolean; reason?: 'cannot_untrust_self' }
  * **永远不能拒绝自己**：目标就是本机时直接返回、不发请求。服务端也会以
  * `cannot_untrust_self` 硬拦（客户端能藏按钮，藏不住一条直接调用的请求），
  * 这里挡一道是为了让界面没有任何「把自己拒之门外」的入口。
+ *
+ * `caller_not_trusted` = 服务端认出发起方自己已被设为不信任 / 已删除（规则 C）⇒
+ * 界面**直接踢出**本机（见 devices 页的 `ensureSelfTrusted`），不是弹个「操作失败」了事。
  */
 export async function setDeviceTrust(
   client: SupabaseClient<Database>,
@@ -191,14 +194,19 @@ export async function setDeviceTrust(
       p_device_id: deviceId,
       p_trusted: trusted,
     })
-    if (error) return { ok: false }
+    if (error) {
+      return {
+        ok: false,
+        reason: /caller_not_trusted/.test(error.message ?? '') ? 'caller_not_trusted' : undefined,
+      }
+    }
     return { ok: true }
   } catch {
     return { ok: false }
   }
 }
 
-export type DeleteDeviceResult = { ok: boolean; reason?: 'cannot_delete_self' }
+export type DeleteDeviceResult = { ok: boolean; reason?: 'cannot_delete_self' | 'caller_not_trusted' }
 
 /**
  * 删除设备：这台设备立刻下线、从设备列表里消失，**下一次它登录时被当作新设备**
@@ -220,7 +228,12 @@ export async function deleteDevice(
       p_self_device_id: selfDeviceId,
       p_device_id: deviceId,
     })
-    if (error) return { ok: false }
+    if (error) {
+      return {
+        ok: false,
+        reason: /caller_not_trusted/.test(error.message ?? '') ? 'caller_not_trusted' : undefined,
+      }
+    }
     return { ok: true }
   } catch {
     return { ok: false }

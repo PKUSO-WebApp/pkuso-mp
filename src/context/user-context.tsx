@@ -50,6 +50,14 @@ export type UserContextValue = {
   // 登录链路自己发现被拒（touch_session_v2 返回 device_rejected）时置位，复用同一条弹窗。
   // 该 RPC 只在一行「不信任且无墓碑」时拒绝 ⇒ 省略 kind 时按 'rejected' 处理
   markForcedOffline: (kind?: SessionKickKind) => void
+  /**
+   * **把本机踢下线**：与 15 秒轮询发现被踢时走的是同一条链路（清会话 → 回登录页 → 弹窗）。
+   *
+   * 给「设备管理前的自查」用（2026-10-16 用户定，规则 C）：在 `devices` 页操作别的设备之前
+   * 先查自己还在不在受信名单里，发现自己已被设为不信任 / 已被删除就**直接踢出** ——
+   * 那台设备本来就已经不可信了，把它留在页面上继续点按钮没有任何意义。
+   */
+  kickSelf: (kind: SessionKickKind) => void
   // 关闭强制下线弹窗（仅在登录页渲染，供用户确认后复位）
   clearForcedOffline: () => void
 }
@@ -57,7 +65,7 @@ export type UserContextValue = {
 const UserContext = createContext<UserContextValue | undefined>(undefined)
 
 // 走强制下线链路的原因，只用于诊断日志
-type KickReason = 'verify' | 'touch_rejected'
+type KickReason = 'verify' | 'touch_rejected' | 'admin_check'
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
@@ -134,6 +142,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setForcedOffline(true)
     setForcedOfflineKind(kind)
   }, [])
+
+  /**
+   * 设备管理前的自查发现本机已不可信 ⇒ 踢出（规则 C，见类型里的说明）。
+   * `kick` 自带「只走一次」的守卫（`forcedOfflineRef`），重复调用是空操作。
+   */
+  const kickSelf = useCallback(
+    (kind: SessionKickKind) => {
+      kick('admin_check', kind)
+    },
+    [kick]
+  )
 
   // 设置会话并（当会话存在时）登记本设备（touch_session_v2）：刷新本设备这一行。
   // 被设为不信任的设备在这里被服务端明确拒绝（device_rejected）⇒ 走强制下线链路。
@@ -304,6 +323,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       forcedOffline,
       forcedOfflineKind,
       markForcedOffline,
+      kickSelf,
       clearForcedOffline,
     }),
     [
@@ -314,6 +334,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       forcedOffline,
       forcedOfflineKind,
       markForcedOffline,
+      kickSelf,
       clearForcedOffline,
     ]
   )
