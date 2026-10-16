@@ -82,6 +82,10 @@ describe('AnnotationBar 的收起 / 展开', () => {
     // 收起：不带底色（它就在栏里，和色块/档位同一层）
     expect(collapse.className).not.toContain('bg-card')
     expect(collapse.className).not.toContain('bg-primary')
+    // ⚠️ 但**边框必须留着**：去掉它，可见高度就只剩那行字，和实心的「展开」站一起矮一截
+    //（用户 2026-10-16 截图反馈）。盒子一样大靠的是同一串 padding+边框，不是靠透明。
+    expect(collapse.className).toContain('border-border')
+    expect(collapse.className).not.toContain('border-transparent')
     // 展开：带底色（收起之后它是唯一贴在谱面上的东西）
     fireEvent.click(collapse)
     const expand = screen.getByLabelText('scoreReader.penBarExpand')

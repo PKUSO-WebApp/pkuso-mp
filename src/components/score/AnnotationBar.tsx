@@ -151,7 +151,10 @@ export function AnnotationBar({
             'border-primary bg-primary text-primary-foreground'
           : tone === 'boxed'
             ? 'border-border bg-card text-text'
-            : 'border-transparent bg-transparent text-text-muted'
+            : // 「收起」不带**底色**，但**边框留着**：边框一去掉，它可见的高度就只剩那行字，
+              // 和实心的「展开」/「完成」站在一起肉眼就是矮一截（用户 2026-10-16 截图反馈
+              // 「expand和collapse的高度不一样，看着很难受」）。盒子本来就一样大，缺的是轮廓。
+              'border-border bg-transparent text-text-muted'
       }`}
       style={{ pointerEvents: 'auto' }}
       ariaLabel={ariaLabel}
