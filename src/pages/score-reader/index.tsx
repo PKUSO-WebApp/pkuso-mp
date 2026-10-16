@@ -1767,12 +1767,66 @@ export default function ScoreReader() {
    * 一步到底（同一个 JS 时间片内完成），所以看不出中间态；但**落笔那一刻绝不能再清屏**
    * ——清了要等下一次异步补画才回来，真机上就是「一落笔整页笔迹闪一下」（见 beginStroke）。
    */
+  /**
+   * 三块**已落定层**画布的 `{ node, ctx }` 缓存（2026-10-16）。
+   *
+   * 为什么需要它：「抬笔 → 这一笔落到已落定层」原本要**等一趟 100ms 量级的节点查询**
+   *（`ink_append_slow` 实测 107–158ms/笔）。而**下一笔的第一个点上屏时会清实时层** ——
+   * 于是两笔挨得近时，旧那一笔在那 ~100ms 里**不在任何一块画布上**：真机上就是
+   * 「**快速画多笔时闪烁**」（旧笔消失一段再闪回来）。缓存之后落定是**同步**的 ——
+   * 抬笔的同一拍墨就落到落定层上，那个空窗关门。
+   *
+   * 生命周期（照实时层那份缓存的做法，区别是这里有三块、且挂载条件会翻转）：
+   *   · 该挂载却没缓存 ⇒ 预取一次（失败不报错，真画的时候会兜底现查）；
+   *   · **不该挂载 ⇒ 删掉**：节点随卸载销毁，留着就是把墨画进虚空（那正是 T10/W7 的形态）。
+   * ⚠️ 挂载判据必须与 JSX 里那条**逐字一致**（`penOn || 该页有笔迹`），否则缓存会与真实节点错位。
+   */
+  const overlayCtxRef = useRef<Partial<Record<Layer, { node: CanvasNode; ctx: CanvasCtx }>>>({})
+  useEffect(() => {
+    const cancelled: Partial<Record<Layer, boolean>> = {}
+    for (const l of ALL_LAYERS) {
+      const mounted = penOn || (annos[String(layerSlot[l] ?? 0)] ?? []).length > 0
+      if (!mounted) {
+        delete overlayCtxRef.current[l]
+        continue
+      }
+      if (overlayCtxRef.current[l]) continue
+      void (async () => {
+        try {
+          const { node } = await queryCanvasNode(CANVAS_OVERLAY_SEL[l])
+          if (cancelled[l]) return
+          const n = node as CanvasNode
+          overlayCtxRef.current[l] = { node: n, ctx: n.getContext('2d') }
+        } catch {
+          // 没查到（还没挂上 / 已被取代）：不记 —— 画的时候兜底现查一次
+        }
+      })()
+    }
+    return () => {
+      for (const l of ALL_LAYERS) cancelled[l] = true
+    }
+  }, [penOn, annos, layerSlot, queryCanvasNode])
+
   const paintLane = useCallback(
     async (l: Layer, pageNo: number): Promise<void> => {
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return
+      // **缓存命中就同步画完**（见 overlayCtxRef）：这条决定「抬笔 → 落定」之间有没有空窗，
+      // 而那正是「快速画多笔时旧笔闪一下」的成因。未命中才现查（多等 ~100ms，画面仍是旧样子）
+      const cached = overlayCtxRef.current[l]
+      if (cached) {
+        if (layerSlotRef.current[l] !== pageNo) return
+        paintInkOn(cached.node, cached.ctx, annosRef.current[String(pageNo)] ?? [], null)
+        return
+      }
       try {
         const { node } = await queryCanvasNode(CANVAS_OVERLAY_SEL[l])
+        // **用中学**：画布刚挂上时那次预取可能扑空（渲染层还没建出节点）⇒ 这里查到就写回缓存，
+        // 保证最多让一笔付一次查询。写的是**节点身份**，与页号守卫无关，故放在守卫之前。
+        {
+          const n = node as CanvasNode
+          overlayCtxRef.current[l] = { node: n, ctx: n.getContext('2d') }
+        }
         // ⚠️ 等待期间这一块**可能已经换了页**（翻页 / 切模式 / 换册）：按传进来的旧页号画，
         // 就是把 A 页的墨画到 B 页的画布上。读同步镜像复核一次 —— 不符就跳过，交给下一次
         // 重画（它由 `layerSlot` 变化触发，一定会来）。
@@ -1797,9 +1851,11 @@ export default function ScoreReader() {
    * 与 `paintLane` 的差别只有一个：**不清屏、也不重画别的笔迹** ⇒ 绘制量 O(这一笔)，
    * 与这一页已经有几十笔无关。而 `paintLane` 那条路是 O(整页)。
    *
-   * ⚠️ **别把这条当成"省下了 140ms"**（2026-10-16 订正）：实测「补一笔 **1 个点**」同样要
-   * 119–159ms、「整页重画」也不随墨增长（126/136/141ms）—— 那 ~140ms 花在**画布节点查询**
-   * 那一趟上，与画多少无关。两个写入口的差别在**绘制量**，不在那 140ms。
+   * ⚠️ **那 ~140ms 不是绘制量**（2026-10-16 订正）：实测「补一笔 **1 个点**」同样要 119–159ms、
+   * 「整页重画」也不随墨增长（126/136/141ms）—— 它花在**画布节点查询**那一趟上。
+   * **当天晚些时候已根治**：节点做成缓存（见 `overlayCtxRef`），两条路都降到 1–3ms
+   *（顺带把「快速画多笔时旧笔闪一下」也关掉了 —— 那个空窗就是这 100ms）。
+   * 两个写入口真正的差别在**绘制量**，与那 140ms 无关。
    * 数据与判读见记忆 `score-reader-draw-stall-data`。
    *
    * ⚠️ 这是**第二个写入口**（第一个是 `paintInkOn` 的整份重建）。它和「6+1 条路径各写各的」
@@ -1812,40 +1868,41 @@ export default function ScoreReader() {
     async (layer: Layer, pageNo: number, stroke: AnnoStroke, gen: number): Promise<boolean> => {
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return false
-      try {
-        const { node } = await queryCanvasNode(CANVAS_OVERLAY_SEL[layer])
-        // ⚠️ 两条守卫，都必须在**画之前**：
-        // ① 这一块可能已经换了页 —— 与 `paintLane` 同一条；
-        // ② 这期间可能已经有更新的一次决策（连着落两笔时会是「整份重画」，它画的是**最新**
-        //    的 `annos`，本来就包含这一笔）⇒ 这一次补画必须**作废**：不作废就是同一笔被画两遍，
-        //    半透明的荧光笔会明显深一截。世代号（`inkGenRef`）就是为这个存在的 —— 这是
-        //    §1.3 里唯一做对的那种异步守卫形态，别改成布尔标志或引用比对。
-        if (inkGenRef.current !== gen) return false
-        if (layerSlotRef.current[layer] !== pageNo) return false
-        const overlay = node as CanvasNode
-        const dpr = rasterDpr(w, h)
-        const bw = Math.round(w * dpr)
-        const bh = Math.round(h * dpr)
-        if (overlay.width !== bw || overlay.height !== bh) {
-          // 尺寸不对 = 这块位图是空的（重设尺寸就是清屏）⇒ 补一笔会缺前面那些墨，只能整份重画。
-          // 理论上走不到：尺寸由 viewSize 决定，而它变了 `inkUpdateFor` 会判 resync。留着兜底。
-          paintInkOn(
-            overlay,
-            overlay.getContext('2d'),
-            annosRef.current[String(pageNo)] ?? [],
-            null
-          )
-          return true
+      // 节点**优先取缓存**（同步）—— 见 `overlayCtxRef`：这一条决定「抬笔 → 落定」之间有没有
+      // 空窗，而那正是「快速画多笔时旧笔闪一下」的成因。未命中才现查一次。
+      let overlay = overlayCtxRef.current[layer]?.node
+      if (!overlay) {
+        try {
+          const n = (await queryCanvasNode(CANVAS_OVERLAY_SEL[layer])).node as CanvasNode
+          overlay = n
+          // 用中学：查到就写回缓存（见 `paintLane` 里同一条）
+          overlayCtxRef.current[layer] = { node: n, ctx: n.getContext('2d') }
+        } catch {
+          return false
         }
-        const ctx = overlay.getContext('2d')
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-        // 只画这一条路径：同一条路径一次 `stroke()` 走并集语义，与整份重画时那一笔的样子一致
-        drawStrokeOn(ctx, stroke, w, h)
-        return true
-      } catch {
-        // 画布没挂载 / 未就绪：静默。**不记快照** ⇒ 下一次会保守地整份重画
-        return false
       }
+      // ⚠️ 两条守卫，都必须在**画之前**：
+      // ① 这一块可能已经换了页 —— 与 `paintLane` 同一条；
+      // ② 这期间可能已经有更新的一次决策（连着落两笔时会是「整份重画」，它画的是**最新**
+      //    的 `annos`，本来就包含这一笔）⇒ 这一次补画必须**作废**：不作废就是同一笔被画两遍，
+      //    半透明的荧光笔会明显深一截。世代号（`inkGenRef`）就是为这个存在的 —— 这是
+      //    §1.3 里唯一做对的那种异步守卫形态，别改成布尔标志或引用比对。
+      if (inkGenRef.current !== gen) return false
+      if (layerSlotRef.current[layer] !== pageNo) return false
+      const dpr = rasterDpr(w, h)
+      const bw = Math.round(w * dpr)
+      const bh = Math.round(h * dpr)
+      if (overlay.width !== bw || overlay.height !== bh) {
+        // 尺寸不对 = 这块位图是空的（重设尺寸就是清屏）⇒ 补一笔会缺前面那些墨，只能整份重画。
+        // 理论上走不到：尺寸由 viewSize 决定，而它变了 `inkUpdateFor` 会判 resync。留着兜底。
+        paintInkOn(overlay, overlay.getContext('2d'), annosRef.current[String(pageNo)] ?? [], null)
+        return true
+      }
+      const ctx = overlay.getContext('2d')
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      // 只画这一条路径：同一条路径一次 `stroke()` 走并集语义，与整份重画时那一笔的样子一致
+      drawStrokeOn(ctx, stroke, w, h)
+      return true
     },
     [paintInkOn, queryCanvasNode]
   )
