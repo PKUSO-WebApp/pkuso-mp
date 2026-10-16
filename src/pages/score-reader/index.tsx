@@ -46,6 +46,7 @@ import type { SheetMusicFileRow } from '@/types/database'
 // 页面内部模块：留在分包目录内，保证被打进分包 chunk（见 lib/types.ts 顶部注释）
 import type { CanvasCtx, CanvasNode, Drag, Job, Layer, Pan, Pinch, Stage } from './lib/types'
 import { frameInk, rasterDpr, sampleEdgeColors } from './lib/raster'
+import { bytesToMB, createBitmapLedger } from './lib/raster-budget'
 import { waitForLayoutSize } from './lib/canvas-size'
 import { clamp, clampPan, touchDist, touchMid } from './lib/geometry'
 import { createPanQueue, type PanQueue } from './lib/pan-queue'
@@ -70,7 +71,14 @@ import {
   stripViewport,
   visibleRange,
 } from './lib/strip'
-import { blockedByEdgeGuard, isTap, snapZoom, swipeDir, swipeMinPx } from './lib/gesture'
+import {
+  blockedByEdgeGuard,
+  isTap,
+  pinchGraceActive,
+  snapZoom,
+  swipeDir,
+  swipeMinPx,
+} from './lib/gesture'
 import { drawStrokeOn, eraseStrokesAt } from './lib/anno-draw'
 import { inkUpdateFor, type InkWorld } from './lib/anno-changes'
 import { inkFor, type LiveInk } from './lib/ink'
@@ -167,6 +175,14 @@ const CANVAS_OVERLAY_SEL: Record<Layer, string> = {
   a: '#reader-overlay-a',
   b: '#reader-overlay-b',
   c: '#reader-overlay-c',
+}
+
+/**
+ * 批注层挂不挂载 —— **JSX 与位图账本共用这一处**。
+ * （写两遍必漂：一处改了、另一处会安静地算错账 / 判错层——账本要靠它决定「哪几块现在在挂」。）
+ */
+function overlayShown(l: Layer, pen: boolean, annosV: AnnoDoc, slot: LayerSlots): boolean {
+  return pen || (annosV[String(slot[l] ?? 0)] ?? []).length > 0
 }
 
 /** 落笔中的停顿（见 `strokeDiagRef`）：间隔超过它就立刻报一条，每笔最多一条 */
@@ -344,6 +360,19 @@ export default function ScoreReader() {
 
   // 批注：画笔开关、颜色、线宽、当前文件全部页笔迹
   const [penOn, setPenOn] = useState(false)
+  /**
+   * `penOn` 的同步镜像：**渲染期同步写**（同 `layerSlotRef` 那条纪律）—— 内存告警里那份
+   * 位图账快照发生在事件回调里，读闭包会晚一拍。
+   */
+  const penOnRef = useRef(penOn)
+  penOnRef.current = penOn
+  /**
+   * 位图账本（见 `lib/raster-budget.ts`）：记**我们自己分配的**画布位图字节数。
+   * 写入点只有两个尺寸来源 —— `paintPageImage`（三块页画布）与 `paintInkOn`（批注四块）。
+   */
+  const bitmapLedgerRef = useRef(createBitmapLedger())
+  /** 这一笔的落笔时刻 —— 判「第二指是捏合还是手掌」用（见 `pinchGraceActive`） */
+  const strokeStartedAtRef = useRef(0)
   const [penColor, setPenColor] = useState<string>(PEN_COLORS[0])
   /**
    * 线宽**两支笔各存各的**（用户 2026-10-16 定：互不影响、完全分离）。
@@ -1155,6 +1184,12 @@ export default function ScoreReader() {
       const tRender = Date.now()
       // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
       paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
+      // 位图账本：记这块**页画布**刚写进去的尺寸（尺寸由 paintPageImage 设，直接读回来）
+      bitmapLedgerRef.current.set(
+        CANVAS_SEL[layer],
+        (node as CanvasNode).width,
+        (node as CanvasNode).height
+      )
       const renderMs = Date.now() - tRender
       // 慢帧留证（每页每次会话一条）：loadMs 与 renderMs 分开记，本地命中与否也记
       if (loadMs > SLOW_LOAD_REPORT_MS && !slowReportedRef.current.has(target)) {
@@ -1390,6 +1425,11 @@ export default function ScoreReader() {
         // 让它显示成「没装东西」，也好过继续冒充旧页（UD 里会按旧页摆位、露出错内容）。
         setLayerSlot((prev) => (prev[layer] === null ? prev : { ...prev, [layer]: null }))
         paintPageImage(node as CanvasNode, img.img, Math.round(w * dpr), Math.round(h * dpr))
+        bitmapLedgerRef.current.set(
+          CANVAS_SEL[layer],
+          (node as CanvasNode).width,
+          (node as CanvasNode).height
+        )
         // 有墨校验：帧从画完到上屏之间隔着不确定时间（位图可能被系统回收），而图片模式
         // 没有自愈路径 —— 只丢弃、不重试（误丢的代价只是这一页走常规渲染 ~50ms）
         const ink = frameInk(node as CanvasNode)
@@ -1721,14 +1761,24 @@ export default function ScoreReader() {
    *   ⚠️ 这时**绝不能**把已落定的那些再画一遍：重叠处会把半透明的荧光笔越描越深。
    *
    * 取节点（异步）留给调用方 —— 各条路径的取法与守卫不同（见它们各自的注释）。
+   * `id` 是**这块画布的选择器**（只给位图账本用，见 `lib/raster-budget.ts`）——
+   * 它同时把「写的是哪一块」钉在调用点上。
    */
   const paintInkOn = useCallback(
-    (node: CanvasNode, ctx: CanvasCtx, base: AnnoStroke[], live: LiveInk | null): void => {
+    (
+      id: string,
+      node: CanvasNode,
+      ctx: CanvasCtx,
+      base: AnnoStroke[],
+      live: LiveInk | null
+    ): void => {
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return
       const dpr = rasterDpr(w, h)
       const bw = Math.round(w * dpr)
       const bh = Math.round(h * dpr)
+      // 位图账本（见 `lib/raster-budget.ts`）：每次上画都重新记一次这一块
+      bitmapLedgerRef.current.set(id, bw, bh)
       // 尺寸不对就重设（重设 = 清屏）。对两层都安全：实时层只有 live（马上重画一遍），
       // 已落定层本来就是整页重画 —— 谁也不欠谁。
       if (node.width !== bw || node.height !== bh) {
@@ -1753,7 +1803,7 @@ export default function ScoreReader() {
       const node = liveNodeRef.current
       const ctx = liveCtxRef.current
       if (!node || !ctx) return
-      paintInkOn(node, ctx, [], live)
+      paintInkOn(LIVE_SEL, node, ctx, [], live)
     },
     [paintInkOn]
   )
@@ -1825,7 +1875,13 @@ export default function ScoreReader() {
       const cached = overlayCtxRef.current[l]
       if (cached) {
         if (layerSlotRef.current[l] !== pageNo) return
-        paintInkOn(cached.node, cached.ctx, annosRef.current[String(pageNo)] ?? [], null)
+        paintInkOn(
+          CANVAS_OVERLAY_SEL[l],
+          cached.node,
+          cached.ctx,
+          annosRef.current[String(pageNo)] ?? [],
+          null
+        )
         return
       }
       try {
@@ -1846,7 +1902,13 @@ export default function ScoreReader() {
         // 这块随时重画都安全 ⇒「谁清屏抹谁」从结构上消失。
         // 而「读的是**同步镜像** `annosRef`」这条纪律在 `paintInkOn` 里 —— 它保证 await
         // 期间新落定的那一笔也被画上（否则就是「快速点两下，第二笔闪几下」）。
-        paintInkOn(overlay, overlay.getContext('2d'), annosRef.current[String(pageNo)] ?? [], null)
+        paintInkOn(
+          CANVAS_OVERLAY_SEL[l],
+          overlay,
+          overlay.getContext('2d'),
+          annosRef.current[String(pageNo)] ?? [],
+          null
+        )
       } catch {
         // 画布没挂载 / 未就绪：静默，下次状态变化会重试
       }
@@ -1904,7 +1966,13 @@ export default function ScoreReader() {
       if (overlay.width !== bw || overlay.height !== bh) {
         // 尺寸不对 = 这块位图是空的（重设尺寸就是清屏）⇒ 补一笔会缺前面那些墨，只能整份重画。
         // 理论上走不到：尺寸由 viewSize 决定，而它变了 `inkUpdateFor` 会判 resync。留着兜底。
-        paintInkOn(overlay, overlay.getContext('2d'), annosRef.current[String(pageNo)] ?? [], null)
+        paintInkOn(
+          CANVAS_OVERLAY_SEL[layer],
+          overlay,
+          overlay.getContext('2d'),
+          annosRef.current[String(pageNo)] ?? [],
+          null
+        )
         return true
       }
       const ctx = overlay.getContext('2d')
@@ -1977,14 +2045,46 @@ export default function ScoreReader() {
    * 而线上**一条分配失败的上报都没有** —— 所以它是**防御性**的，不是已发生的事故。
    * 分层（T11）之后会多一块画布，这条因此更要紧。
    */
+  /**
+   * 现在**挂载着**哪几块画布 —— 位图账本靠它算总数（账本只记尺寸、不管挂载，见
+   * `lib/raster-budget.ts` 的文件头）。判据与 JSX 共用 `overlayShown`，两处不会漂。
+   */
+  const bitmapIdsNow = useCallback((): string[] => {
+    const pen = penOnRef.current
+    return [
+      ...ALL_LAYERS.map((l) => CANVAS_SEL[l]),
+      ...ALL_LAYERS.filter((l) => overlayShown(l, pen, annosRef.current, layerSlotRef.current)).map(
+        (l) => CANVAS_OVERLAY_SEL[l]
+      ),
+      ...(pen ? [LIVE_SEL] : []),
+    ]
+  }, [])
+
   useEffect(() => {
-    const onWarn = () => {
+    const onWarn = (res?: { level?: number }) => {
       prefetchPumpRef.current?.stop()
       invalidatePredraw('memory-warning')
+      // 账本快照：**这是唯一能拿到「告警那一刻账上有多少」的机会**（#91 的第一步正是
+      // 「它到底会不会响、响的时候账是多少」）。读 refs，别读闭包里的旧 state。
+      const ids = bitmapIdsNow()
+      const bytes = bitmapLedgerRef.current.sumOf(ids)
+      reportClientError({
+        event: 'score_reader_memory_warning',
+        level: 'warn',
+        message: `内存告警 level ${res?.level ?? '?'}：位图账 ${bytesToMB(bytes)}MB`,
+        detail: {
+          fileId,
+          page: pageRef.current,
+          zoom: zoomRef.current,
+          penOn: penOnRef.current,
+          bitmapMB: bytesToMB(bytes),
+          bitmaps: bitmapLedgerRef.current.detail(ids),
+        },
+      })
     }
     Taro.onMemoryWarning?.(onWarn)
     return () => Taro.offMemoryWarning?.(onWarn)
-  }, [invalidatePredraw])
+  }, [invalidatePredraw, bitmapIdsNow, fileId])
 
   /**
    * 批注层的更新入口：**先问「变了什么」，再决定做多少**（判据是纯函数 `inkUpdateFor`）。
@@ -2356,6 +2456,19 @@ export default function ScoreReader() {
   }
 
   /**
+   * 这一笔从起点到最后一个点走了多少**屏幕** px —— 判「第二指是捏合还是手掌」用
+   *（点存的是页内归一化坐标，见 `pointOf`，所以乘回 viewSize 才是手指真正走的距离）。
+   */
+  const strokeMovedPx = (): number => {
+    const pts = strokePtsRef.current
+    if (pts.length < 2) return 0
+    const first = pts[0]!
+    const last = pts[pts.length - 1]!
+    const { w, h } = viewSizeRef.current
+    return Math.hypot((last[0] - first[0]) * w, (last[1] - first[1]) * h)
+  }
+
+  /**
    * 丢弃正在进行的这一笔 / 这一擦。
    *
    * `reason` **只用于诊断上报**：长时间拖动时「正在画的线突然消失」到底是谁干的
@@ -2390,6 +2503,8 @@ export default function ScoreReader() {
         // 位图更新走了哪条路（增量 / 整份重画）—— 快路没在走的话，得从这儿看出来
         inkAppends: inkStatRef.current.appends,
         inkResyncs: inkStatRef.current.resyncs,
+        // 位图账（MB）：和 zoom 一起读，就是「高缩放 + 批注时账上多少」的时间序列
+        bitmapMB: bytesToMB(bitmapLedgerRef.current.sumOf(bitmapIdsNow())),
         // 判断「被系统手势抢走」用（见 strokeDiagRef）：起手离**屏幕左沿**多远、
         // 抢走前手指到哪儿了、这一笔期间有没有落下过第二个触点（手掌）
         startX: diag.startX,
@@ -2595,6 +2710,7 @@ export default function ScoreReader() {
     strokePageRef.current = lane.page
     strokePendingRef.current = []
     // 重新开一本停顿账（上一笔的已在 finishStroke / cancelStroke 里结掉）——见 strokeDiagRef
+    strokeStartedAtRef.current = Date.now()
     strokeDiagRef.current = {
       startAt: Date.now(),
       lastMoveAt: 0,
@@ -2946,8 +3062,22 @@ export default function ScoreReader() {
       // ⚠️ **正在画的时候，第二根手指（手掌 / 误触）不打断这一笔**（用户 2026-10-15 定）：
       // 继续用落笔那根画（见 onTouchMove 里按 identifier 取触点）。从前这里直接
       // cancelStroke + 转双指缩放 ⇒ 真机上「写着写着，手一碰，线整条消失」。
-      // 想缩放就先抬笔、再落两指。
-      if (drawingRef.current) return
+      //
+      // 2026-10-16 补的那一半（判据 = 纯函数 `pinchGraceActive`）：一律不打断的代价是
+      // **批注模式下根本捏合不了** —— 第一指落下就起笔，第二指永远撞这条守卫（把取 rect
+      // 改成同步之后，连原来那条 ~100ms 的空窗也没了）。现在给守卫加窗口：第二指在起笔后
+      // ≤150ms 落下**且这一笔还没动** ⇒ 两指是一起落下的，判捏合（撤掉这一笔、进双指）；
+      // 晚于窗口 / 已经在动 ⇒ 是写着写着落下来的手掌，照旧不打断。
+      if (
+        drawingRef.current &&
+        !pinchGraceActive({
+          sinceStartMs: Date.now() - strokeStartedAtRef.current,
+          pts: strokePtsRef.current.length,
+          movedPx: strokeMovedPx(),
+        })
+      ) {
+        return
+      }
       multiTouchRef.current = true
       cancelStroke('two-fingers')
       dragRef.current = null
@@ -3577,7 +3707,7 @@ export default function ScoreReader() {
                 ⚠️ 不覆盖 layerStyle 的 zIndex：否则翻页动画里（滑出那块 z=3）笔迹会被自己
                 那一页盖住。同级 z 时**排在后面的在上**，所以批注层要放在页画布之后。 */}
             {ALL_LAYERS.map((l) =>
-              penOn || (annos[String(layerSlot[l] ?? 0)] ?? []).length > 0 ? (
+              overlayShown(l, penOn, annos, layerSlot) ? (
                 <Canvas
                   key={l}
                   type='2d'
