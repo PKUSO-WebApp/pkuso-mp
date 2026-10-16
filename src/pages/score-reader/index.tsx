@@ -15,10 +15,9 @@ import { SaveToSheet } from '@/components/score/SaveToSheet'
 import { usePdfHandoff } from '@/hooks/usePdfHandoff'
 // 顶栏图标（Lucide 系列，72×72 PNG；暗色用 -dark 变体）
 import {
+  ANNO_WIDTHS,
   HIGHLIGHTER_ALPHA,
   PEN_COLORS,
-  PEN_WIDTHS,
-  effectiveWidth,
   loadAnnoDoc,
   saveAnnoDoc,
   type AnnoDoc,
@@ -345,7 +344,13 @@ export default function ScoreReader() {
   // 批注：画笔开关、颜色、线宽、当前文件全部页笔迹
   const [penOn, setPenOn] = useState(false)
   const [penColor, setPenColor] = useState<string>(PEN_COLORS[0])
-  const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS[0])
+  /**
+   * 线宽**两支笔各存各的**（用户 2026-10-16 定：互不影响、完全分离）。
+   * 原先是一份共用状态，从荧光笔切回画笔时还得把 32‰ 钳到 8‰ —— 现在不需要了：
+   * 档位表两支笔共用（`ANNO_WIDTHS`），**选中的那一档各记各的**，切工具原样保留。
+   */
+  const [penWidth, setPenWidth] = useState<number>(ANNO_WIDTHS[1])
+  const [hlWidth, setHlWidth] = useState<number>(ANNO_WIDTHS[1])
   const [annos, setAnnos] = useState<AnnoDoc>({})
   /**
    * 批注的同步镜像：**读-改-写**的调用点一律读它，不读 state。
@@ -372,11 +377,11 @@ export default function ScoreReader() {
    */
   const [tool, setTool] = useState<AnnoTool>('pen')
   /**
-   * 真正落到笔迹上的线宽。粗细是**两支笔共用一份状态**的，而画笔画不出 16‰ 以上，
-   * 所以从荧光笔切回画笔时按 8‰ 兜底（见 effectiveWidth）——落笔与实时笔迹都用它，
-   * 免得「显示 8‰、画出来 32‰」。
+   * 当前工具正在用的线宽与它的写入口 —— 落笔与实时笔迹都用 `toolWidth`。
+   * 橡皮擦走画笔那一份（它不画墨，这个值只是"当前档位"的形式占位）。
    */
-  const brushWidth = effectiveWidth(tool, penWidth)
+  const toolWidth = tool === 'highlighter' ? hlWidth : penWidth
+  const setToolWidth = (w: number) => (tool === 'highlighter' ? setHlWidth(w) : setPenWidth(w))
   /**
    * 撤销栈：**一步 = 一次操作**（画一笔 / 擦掉若干笔），记该页「操作前」的笔迹。
    * 早先的撤销是「删掉当前页最后一笔」——有了橡皮擦就不能那样了：擦完再点撤销会删掉一笔
@@ -1756,10 +1761,10 @@ export default function ScoreReader() {
     (points: [number, number][]): LiveInk => ({
       points,
       color: penColor,
-      width: brushWidth,
+      width: toolWidth,
       alpha: tool === 'highlighter' ? HIGHLIGHTER_ALPHA : undefined,
     }),
-    [brushWidth, penColor, tool]
+    [toolWidth, penColor, tool]
   )
 
   /**
@@ -2516,7 +2521,7 @@ export default function ScoreReader() {
     // 荧光笔固定半透明；画笔不写这个字段（旧数据也没有，两边都按 1 读）
     const stroke: AnnoStroke = {
       color: penColor,
-      width: brushWidth,
+      width: toolWidth,
       points: pts,
       alpha: tool === 'highlighter' ? HIGHLIGHTER_ALPHA : undefined,
     }
@@ -3677,7 +3682,7 @@ export default function ScoreReader() {
           >
             <AnnotationBar
               color={penColor}
-              width={penWidth}
+              width={toolWidth}
               tool={tool}
               onTool={setTool}
               // 撤销按钮只在「栈顶那一步的页**正显示在屏幕上**」时给：撤销弹的是全局栈顶，
@@ -3686,7 +3691,7 @@ export default function ScoreReader() {
               canUndo={undoVisible}
               clearPage={page}
               onColor={setPenColor}
-              onWidth={setPenWidth}
+              onWidth={setToolWidth}
               onUndo={handleUndo}
               onClear={handleClear}
             />

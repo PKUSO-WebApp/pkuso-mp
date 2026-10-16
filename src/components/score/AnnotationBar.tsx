@@ -3,7 +3,7 @@ import { View, Button, Image } from '@tarojs/components'
 import { useT } from '@/i18n'
 import { useThemeContext } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
-import { PEN_COLORS, effectiveWidth, widthsFor, type AnnoTool } from '@/lib/annotation'
+import { ANNO_WIDTHS, PEN_COLORS, type AnnoTool } from '@/lib/annotation'
 import penIcon from '@/assets/icons/pen.png'
 import penIconDark from '@/assets/icons/pen-dark.png'
 import highlighterIcon from '@/assets/icons/highlighter.png'
@@ -101,11 +101,11 @@ export function AnnotationBar({
   )
 
   /**
-   * 档位与选中态都按**当前工具**算：荧光笔五档、画笔（含橡皮）两档。
-   * 选中态比较的是 `effectiveWidth` 而不是原始值 —— 从荧光笔切回画笔时原始值可能仍是
-   * 32‰，而画笔会按 8‰ 兜底，直接比原始值会「一个档位都没选中」。
+   * 档位两支笔**共用一张表**（`ANNO_WIDTHS`），但**选中的那一档各存各的**
+   * （阅读器里的 `penWidth` / `hlWidth`）⇒ 传进来的 `width` 就是当前工具自己的值，
+   * 直接比即可，不需要再从别的档位兜底。
    */
-  const shownWidth = effectiveWidth(tool, width)
+  const shownWidth = width
   const widthDot = (w: number) => (
     <View
       key={w}
@@ -241,7 +241,7 @@ export function AnnotationBar({
         {toggleButton}
       </View>
       <View className='flex flex-row items-center justify-end px-3 pb-2'>
-        {widthsFor(tool).map(widthDot)}
+        {ANNO_WIDTHS.map(widthDot)}
         {/* 这一页没有任何笔迹时**根本不渲染**撤销（用户 2026-10-08 定）：一个点不动的
             按钮只会让人以为坏了。清空仍保留（它有二次确认，不会误触） */}
         {/* 撤销：图标（`undo-2`）。文案仍留着做 `ariaLabel` —— 图标按钮没有可读文字了 */}
