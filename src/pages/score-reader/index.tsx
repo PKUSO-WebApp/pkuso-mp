@@ -2036,16 +2036,6 @@ export default function ScoreReader() {
   }, [layerSlot, paintLane, pageCount, viewSize, paintLiveLayer, fileId])
 
   /**
-   * 内存告警：只做**保守动作**（2026-10-09 讨论定下的 A 方案，2026-10-16 补上）。
-   *
-   * 停预下载泵 + 让在飞的预绘制作废 —— 省的是**后台**那部分开销，**绝不碰已上屏的位图**
-   * （碰了就要引出「重现」路径：下一帧得按需重画，用户看到的是闪一下，风险大于收益）。
-   *
-   * ⚠️ 这是我们唯一没兜住的情况：每块画布上限 12M px（≈48MB），高缩放时合计可到 ~285MB，
-   * 而线上**一条分配失败的上报都没有** —— 所以它是**防御性**的，不是已发生的事故。
-   * 分层（T11）之后会多一块画布，这条因此更要紧。
-   */
-  /**
    * 现在**挂载着**哪几块画布 —— 位图账本靠它算总数（账本只记尺寸、不管挂载，见
    * `lib/raster-budget.ts` 的文件头）。判据与 JSX 共用 `overlayShown`，两处不会漂。
    */
@@ -2059,6 +2049,53 @@ export default function ScoreReader() {
       ...(pen ? [LIVE_SEL] : []),
     ]
   }, [])
+
+  /**
+   * 报一次位图账（见 `lib/raster-budget.ts`）。
+   *
+   * ⚠️ 为什么要有这个**独立的**出口：账本原先只搭在 `score_reader_stroke_summary`（要求
+   * 慢/长的笔）与内存告警（要系统先吃紧）上 —— 两者在正常会话里都**不会**发生 ⇒ 账本
+   * 等于看不见（2026-10-16 真机实测：画了十几笔、进程已 1.5GB，两条一条都没触发）。
+   * 缩放停稳正是账本真正变化的时刻，且完全由用户驱动 ⇒ 频率天然低、信号正好；它也是
+   * 「缩回 100% 之后那几块位图到底有没有变小」的唯一读数。
+   */
+  const reportBitmapLedger = useCallback(
+    (reason: string) => {
+      const ids = bitmapIdsNow()
+      const bytes = bitmapLedgerRef.current.sumOf(ids)
+      reportClientError({
+        event: 'score_reader_bitmap_ledger',
+        message: `位图账 ${bytesToMB(bytes)}MB @ ${reason}`,
+        detail: {
+          fileId,
+          page: pageRef.current,
+          zoom: zoomRef.current,
+          penOn: penOnRef.current,
+          reason,
+          bitmapMB: bytesToMB(bytes),
+          bitmaps: bitmapLedgerRef.current.detail(ids),
+        },
+      })
+    },
+    [bitmapIdsNow, fileId]
+  )
+
+  // 缩放停稳后报一次（首次挂载也会报一条 —— 那次是「进阅读器」的基准读数）
+  useEffect(() => {
+    const t = setTimeout(() => reportBitmapLedger('zoom-settle'), ZOOM_SETTLE_MS)
+    return () => clearTimeout(t)
+  }, [zoom, reportBitmapLedger])
+
+  /**
+   * 内存告警：只做**保守动作**（2026-10-09 讨论定下的 A 方案，2026-10-16 补上）。
+   *
+   * 停预下载泵 + 让在飞的预绘制作废 —— 省的是**后台**那部分开销，**绝不碰已上屏的位图**
+   * （碰了就要引出「重现」路径：下一帧得按需重画，用户看到的是闪一下，风险大于收益）。
+   *
+   * ⚠️ 这是我们唯一没兜住的情况：每块画布上限 12M px（≈48MB），高缩放时合计可到 ~285MB，
+   * 而线上**一条分配失败的上报都没有** —— 所以它是**防御性**的，不是已发生的事故。
+   * 分层（T11）之后会多一块画布，这条因此更要紧。
+   */
 
   useEffect(() => {
     const onWarn = (res?: { level?: number }) => {
