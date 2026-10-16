@@ -69,6 +69,7 @@ import { inkUpdateFor, type InkWorld } from './lib/anno-changes'
 import { inkFor, type LiveInk } from './lib/ink'
 import { createInkQueue, type InkQueue } from './lib/ink-queue'
 import { touchEndAction, touchOf } from './lib/touch-end'
+import { keepInkOnCancel } from './lib/stroke-cancel'
 import { lastPageKey } from './lib/last-page'
 import {
   isImageLayerBroken,
@@ -2314,21 +2315,27 @@ export default function ScoreReader() {
   }
 
   const cancelStroke = (reason: string) => {
-    // 画了一半就被打断（转双指 / 系统打断 / 收起批注）：把那条线从画面上抹掉。
-    // 必须在清 ref 之前调——重画要用到「画在哪一页、哪一块」
+    // 画了一半就被打断 —— **分因处置**（判据在 `lib/stroke-cancel.ts`，有用例）：
+    //   · 平台把触摸抢走（`touch-cancel`）且全程单指 ⇒ **留下这一笔**。平台在 cancel 之前
+    //     通常已把扣住的点成批补送回来，我们手里就是一条完整的线；从前一律抹掉，用户看到的
+    //     是「画到一半整条消失」（真机数据里 26 笔贴左沿的笔有 13 笔如此）。
+    //   · 其余（另起一笔 / 转双指 / 收起批注 / 换页 / 换册 / 落笔失败）⇒ 照旧抹掉。
+    // 必须在清 ref 之前处理——落定与上报都要用到「画在哪一页、哪一块」
     if (drawingRef.current) {
-      // 待画的那一帧先作废（它读 `strokePtsRef`，而下面紧接着就要清空它）
-      inkQueueRef.current?.cancel()
-      repaintLiveStroke(null)
       const cd = strokeDiagRef.current
+      const keep = keepInkOnCancel(reason, cd.maxTouches)
+      // 待画的那一帧先作废（它读 `strokePtsRef`，而下面紧接着就要处理它）
+      inkQueueRef.current?.cancel()
       reportClientError({
         event: 'score_reader_stroke_cancelled',
-        message: `画到一半的线被抹掉：${reason}`,
+        message: keep ? `被平台抢走，这一笔已保留：${reason}` : `画到一半的线被抹掉：${reason}`,
         detail: {
           fileId,
           page: strokePageRef.current,
           pts: strokePtsRef.current.length,
-          // ⚠️ 这几个字段是「被系统手势抢走」那条链**唯一**的判据（2026-10-16 研究结论）：
+          // 「保留」这条新行为有没有真的在走 —— 恒为 false 不会报错，所以得看它
+          keptInk: keep,
+          // ⚠️ 这几个字段是「被平台抢走」那条链**唯一**的判据（2026-10-16 研究结论）：
           // 起手离屏幕左沿多远（`startX`）、抢走前手指到哪儿（`lastX`）、期间有没有第二触点
           //（`maxTouches`）。缺了它们，几何解释与「忙 ⇒ 让路」解释在数据上分不开。
           startX: cd.startX,
@@ -2338,9 +2345,15 @@ export default function ScoreReader() {
           maxGapMs: cd.maxGap,
         },
       })
-      // ⚠️ 在清 `strokePtsRef` **之前**报：这条正被抹掉的线有多少点、卡了多久，是
-      // 「停顿 → 系统抢走触摸 → 一整笔消失」这条链的**唯一**证据（见 strokeDiagRef）
-      reportStrokeDiag(`cancelled:${reason}`, strokePtsRef.current.length)
+      if (keep) {
+        // 走**落定**那条路：写 annos、存盘、记一步撤销，并由它清掉实时层（顺序见 commitLiveStroke）
+        commitLiveStroke(`cancelled:${reason}`)
+      } else {
+        repaintLiveStroke(null)
+        // ⚠️ 在清 `strokePtsRef` **之前**报：这条正被抹掉的线有多少点、卡了多久，是
+        // 「停顿 → 平台抢走触摸 → 一整笔消失」这条链的**唯一**证据（见 strokeDiagRef）
+        reportStrokeDiag(`cancelled:${reason}`, strokePtsRef.current.length)
+      }
     }
     drawingRef.current = false
     erasingRef.current = false
@@ -2446,13 +2459,20 @@ export default function ScoreReader() {
     if (!lane) return
     // ⚠️⚠️ **这里不许加「贴左沿不落笔」之类的守卫 —— 这类方案已被永久排除。**
     // 2026-10-16 用户定：**任何影响正常绘画/显示的方案都不采纳**（曾经试过一版，代价是
-    // 「最左那一条起不了笔」，当场被否）。要解决「从屏幕边缘横向拖动被系统返回手势抢走」，
+    // 「最左那一条起不了笔」，当场被否）。要解决「从屏幕边缘横向拖动被抢走」，
     // 只能在**不影响绘画**的前提下做，否则不做。
-    // 现状：**未做规避**。那类手势不只是 iOS —— Android 的手势导航左右边缘都抢。
-    // 核实过的结论：**WebView 渲染模式下关不掉**（通用 API 没有、`disableSwipeBack` 已失效、
-    // `page-container` 只拦「返回动作」且鸿蒙无效）；唯一官方出路是 Skyline 的
-    // `popGestureDirection`（把返回手势改成竖直），而那要求迁渲染引擎 —— 整个阅读器建立在
-    // WebView + canvas 2D 上，是独立的大工程。
+    // 现状：**未做规避**。三条订正（2026-10-16 调研结论，别再按旧的写）：
+    //   ① **不是 Android 系统返回手势** —— 实测机本身就是**三键导航**，而 AOSP 里三键导航下
+    //      系统返回手势压根不启动（`EdgeBackGestureHandler` 的 `!mUsingThreeButtonNav` 是硬条件）；
+    //   ② **`disableSwipeBack` 实测无效**（它就在包里而卡顿照旧；官方 2019-05-31 公告说自
+    //      7.0.5 起失效、现行文档已删该字段）；
+    //   ③ **`popGestureDirection` 不是出路** —— 枚举只有 horizontal/vertical/multi（**没有
+    //      `none`**），且只属于 Skyline 自定义路由的跳转配置：它**关不掉**手势，迁 Skyline 也换不来。
+    // 占有那条左沿带的是**微信客户端自己**的返回手势（起手贴左沿的笔会被扣住一段再成批补送，
+    // 或被直接 cancel；起手中段的毫无异常）。成因与杠杆清单：`pkusoweb/批注-边缘卡顿与返回手势-调研.md`
+    // **当前结论（2026-10-16）：受平台限制，暂时无法解决。** 除非出现新证据（客户端更新后行为变了、
+    // 官方新增开关、换机后症状变形），**不要再提新方案** —— `page-container` 那条也已排除：它拦的是
+    // 返回**动作**，而绝大多数被抢走的笔根本没有伴随返回动作。
     // 种子对象**同时是这段手势的身份**：下面按引用比对，判断 rect 回来时这段手势还在不在
     // （抬起 / 转双指 / 换册 / 又落了一笔都会把它换掉或清掉）
     const seed = { x: touch.clientX, y: touch.clientY }
@@ -2936,8 +2956,15 @@ export default function ScoreReader() {
     }
   }
 
-  /** 收掉正在画的那一笔（落定 + 清图层标记）。`onTouchEnd` 的两条路都走它 */
-  const finishStroke = () => {
+  /**
+   * 收掉正在画的那一笔（落定 + 存盘 + 清图层标记）。`outcome` **只决定埋点口径**
+   *（落定与否由调用方决定）—— 抬手与「平台抢走但保留」两条路都走它。
+   *
+   * ⚠️ 第一句必须是 `drawingRef.current = false`：落定层的重画 effect 拿「不在落笔中」当
+   * **清实时层**的条件（那两处 `if (!drawingRef.current) paintLiveLayer(null)`），
+   * 顺序反了就是同一条线画在两块画布上（荧光笔会叠深）。
+   */
+  const commitLiveStroke = (outcome: string) => {
     if (!drawingRef.current) return
     drawingRef.current = false
     // ⚠️ 先作废待画的那一帧：下面的 `commitStrokePoints` 会把 `strokePtsRef` 清空，
@@ -2945,13 +2972,16 @@ export default function ScoreReader() {
     // 重画补回来 ⇒ 又是一次闪）
     inkQueueRef.current?.cancel()
     const pts = strokePtsRef.current
-    reportStrokeDiag('lift', pts.length)
+    reportStrokeDiag(outcome, pts.length)
     strokePtsRef.current = []
     // 落在**落笔时定死的那一页**上（见 strokePageRef）：画布就是那一页，坐标就是页内的，
     // 不需要任何跨页切分
     commitStrokePoints(strokePageRef.current, pts)
     strokeLayerRef.current = null
   }
+
+  /** 抬手收笔。`onTouchEnd` 的两条路都走它 */
+  const finishStroke = () => commitLiveStroke('lift')
 
   /**
    * 落笔还没等到 rect 就抬手了（触控笔点得快时整笔都落在那个窗口里）：**不作废** ——

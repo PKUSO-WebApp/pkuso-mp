@@ -154,7 +154,9 @@ export function AnnotationBar({
    */
   const toggleButton = (
     <View
-      className='flex h-8 w-8 items-center justify-center'
+      // `ml-auto` 把它推到行尾（在流里，见下面展开那一支的注释）；`shrink-0` 保证窄屏 /
+      // 大显示档位下它不被压扁 —— 它是唯一的收起入口，压扁就等于点不到。
+      className='ml-auto flex h-8 w-8 shrink-0 items-center justify-center'
       style={{ pointerEvents: 'auto' }}
       ariaLabel={collapsed ? t('scoreReader.penBarExpand') : t('scoreReader.penBarCollapse')}
       onClick={() => setCollapsed((c) => !c)}
@@ -184,19 +186,23 @@ export function AnnotationBar({
     // （从前必须自动换行是因为这一栏在手机宽度上本来就装不下：左组 ≈224px + 右组 ≈234px
     //  + 内边距 ≈482px，而屏宽只有 375px。分成两行之后这个约束就不存在了。）
     //
-    // ⚠️ 收起按钮**绝对定死在栏的右上角**（`absolute right-3 top-2`），**不进第一行的流** ——
-    // 用户 2026-10-16 真机：「位置 y 太低，应当和第一行其他按钮对齐，现在几乎在第 1.5 行」。
-    // 钉坐标之后它和第一行那几个按钮**由构造同高**：两者都是 h-8（32px），且都从栏顶 +8px
-    // 开始（`top-2` 就是第一行的 `pt-2`）—— 不管 flex 在这套 WXSS 里怎么算，它都掉不下去。
+    // ⚠️ 收起按钮**在第一行的流里**（`ml-auto` 推到行尾），垂直位置由 `items-center` 决定 ——
+    // 这是 2026-10-16 的**第二次订正**：上一次是把它 `absolute right-3 top-2` 钉死坐标
+    //（用户当时报「位置 y 太低，几乎在第 1.5 行」），而钉坐标用的是**另一条**计算路径
+    //（`top-2` 与第一行的 `pt-2` 各自 `calc(var(--spacing) * 2)`，在 `.ui-scale` 下还要再乘
+    // 档位系数），真机上就是不重合 —— 用户再次报「高度不对，要和第一行的颜料/画笔按钮居中
+    // 对齐」。放进流里之后两者是同一个 flex 行的 `items-center`，**同高由构造保证**，
+    // 没有任何独立算出来的坐标可以漂。
+    //
+    // 位置与从前一致：行尾 + `px-3` 正好等于原来的 `right-3`；而原来给它让位的 `pr-12`
+    //（48px）比它自己（32px）还宽 ⇒ 去掉之后这一行反而更窄。
     <View
-      className='relative border-t border-border bg-surface'
+      className='border-t border-border bg-surface'
       // ⚠️ 展开时**必须显式 `auto`**：`pointer-events` 是**继承**的，而外层容器（见下面收起
       // 那一支的注释）为了不吃触摸设了 `none` —— 这里不接回来，整条栏的按钮会全部点不动。
       style={{ pointerEvents: 'auto' }}
     >
-      {/* 右上角那个收起按钮。row 1 用 `pr-12` 给它让出位置（48px，够 32px 的按钮 + 3 处间隔） */}
-      <View className='absolute right-3 top-2'>{toggleButton}</View>
-      <View className='flex flex-row items-center px-3 pt-2 pr-12'>
+      <View className='flex flex-row items-center px-3 pt-2'>
         <View className='flex flex-row items-center'>
           {/* 笔 / 荧光笔 / 擦：橡皮擦按整条删除，比「清空本页」好用（能只擦掉不想要的那几笔）。
                 用**图标**而不是文字（用户 2026-10-10 定）：这一栏在英文下比中文长得多
@@ -222,6 +228,7 @@ export function AnnotationBar({
             />
           ))}
         </View>
+        {toggleButton}
       </View>
       <View className='flex flex-row items-center justify-end px-3 pb-2'>
         {widthsFor(tool).map(widthDot)}

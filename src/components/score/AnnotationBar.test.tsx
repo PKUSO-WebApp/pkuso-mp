@@ -60,6 +60,18 @@ describe('AnnotationBar 的收起 / 展开', () => {
     expect((container.firstChild as HTMLElement).style.pointerEvents).toBe('none')
   })
 
+  it('收起按钮在**第一行的流里**：与画笔/颜料同一行，且不再用 absolute 钉坐标', () => {
+    render(<AnnotationBar {...props} />)
+    const toggle = screen.getByLabelText('scoreReader.penBarCollapse')
+    // 画笔按钮 → 左组 → 第一行；收起按钮的直接父节点必须就是同一行
+    // ⇒ 它与画笔/颜料的垂直居中由 `items-center` 保证，不靠任何独立算出来的坐标。
+    //（2026-10-16 之前是 `absolute right-3 top-2`，真机上 V 比旁边那几个按钮低一截）
+    const firstRow = screen.getByLabelText('scoreReader.pen').parentElement?.parentElement
+    expect(toggle.parentElement).toBe(firstRow)
+    expect(toggle.className).toContain('ml-auto')
+    expect(toggle.className).not.toContain('absolute')
+  })
+
   it('再点一次 ⇒ 展开回来；工具与按钮都在', () => {
     render(<AnnotationBar {...props} />)
     fireEvent.click(screen.getByLabelText('scoreReader.penBarCollapse'))
