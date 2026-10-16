@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+    <title>笔画探针（H5）</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #fff;
+        overflow: hidden;
+        touch-action: none;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        touch-action: none;
+      }
+      #hud {
+        position: fixed;
+        left: 0;
+        top: 0;
+        right: 0;
+        padding: 6px 10px;
+        font: 600 15px/1.5 -apple-system, system-ui, sans-serif;
+        color: #111;
+        background: #ffd54a;
+        white-space: pre-line;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud">画一笔看看…</div>
+    <script>
+      // 笔画探针（H5）—— 与小程序侧同名的探针页配对使用，用来回答：
+      // 「触摸落在 web-view 里的 H5 上时，微信的返回手势还会不会把触摸流扣住」。
+      // 一行在上屏后自动上报不了（H5 拿不到 client_error_logs 的写入凭据），
+      // 所以：数字显示在屏幕上给人看；同时用 wx.miniProgram.postMessage 捎给小程序侧
+      // （web-view 的 message 只在特定时机送达，通常是页面销毁/返回时 —— 够用）。
+      var c = document.getElementById('c')
+      var hud = document.getElementById('hud')
+      var ctx = c.getContext('2d')
+      var dpr = window.devicePixelRatio || 1
+      function fit() {
+        c.width = Math.round(window.innerWidth * dpr)
+        c.height = Math.round(window.innerHeight * dpr)
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        ctx.lineWidth = 2
+        ctx.lineJoin = 'round'
+        ctx.lineCap = 'round'
+        ctx.strokeStyle = '#e5484d'
+      }
+      fit()
+      window.addEventListener('resize', fit)
+
+      var strokes = []
+      var cur = null
+      function report() {
+        if (!cur) return
+        var s = {
+          startX: Math.round(cur.x0),
+          startY: Math.round(cur.y0),
+          maxGapMs: Math.round(cur.maxGap),
+          pts: cur.pts,
+          moves: cur.moves,
+          spanMs: Math.round(performance.now() - cur.t0),
+          outcome: cur.outcome,
+        }
+        strokes.push(s)
+        hud.textContent =
+          '起手 x=' + s.startX + '　最长停顿 ' + s.maxGapMs + 'ms\n' +
+          '点数 ' + s.pts + '　结局 ' + s.outcome + '\n' +
+          '（共 ' + strokes.length + ' 笔；点页面外无效，用系统返回退出）'
+        try {
+          wx.miniProgram.postMessage({ data: { probe: 'stroke', strokes: strokes.slice(-8) } })
+        } catch (e) {}
+        cur = null
+      }
+
+      c.addEventListener(
+        'touchstart',
+        function (e) {
+          var t = e.touches[0]
+          if (!t) return
+          fit()
+          cur = {
+            x0: t.clientX,
+            y0: t.clientY,
+            t0: performance.now(),
+            lastAt: performance.now(),
+            maxGap: 0,
+            pts: 1,
+            moves: 0,
+            outcome: 'lift',
+            path: [[t.clientX, t.clientY]],
+          }
+          ctx.beginPath()
+          ctx.moveTo(t.clientX, t.clientY)
+        },
+        { passive: true }
+      )
+      c.addEventListener(
+        'touchmove',
+        function (e) {
+          if (!cur) return
+          var t = e.touches[0]
+          if (!t) return
+          var now = performance.now()
+          var gap = now - cur.lastAt
+          if (gap > cur.maxGap) cur.maxGap = gap
+          cur.lastAt = now
+          cur.moves++
+          cur.pts++
+          cur.path.push([t.clientX, t.clientY])
+          ctx.lineTo(t.clientX, t.clientY)
+          ctx.stroke()
+        },
+        { passive: true }
+      )
+      function end(ev) {
+        if (!cur) return
+        cur.outcome = ev === 'cancel' ? 'cancelled' : 'lift'
+        report()
+      }
+      c.addEventListener('touchend', function () { end('lift') }, { passive: true })
+      c.addEventListener('touchcancel', function () { end('cancel') }, { passive: true })
+      window.addEventListener('pagehide', function () { end('lift') })
+    </script>
+  </body>
+</html>

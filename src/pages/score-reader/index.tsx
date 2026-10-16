@@ -3717,6 +3717,11 @@ export default function ScoreReader() {
             onAnno={handoff.toggleAnno}
             onPick={handoff.pick}
             onHistory={openHistory}
+            onProbe={() => {
+              // ⚠️ **临时入口**（2026-10-16）：笔画探针 A 变体；页内右上角那排按钮可切 B–F。量完删。
+              handoff.close()
+              void Taro.navigateTo({ url: '/pages/stroke-probe/index?v=A&k=2d' })
+            }}
             onClose={handoff.close}
           />
         ) : null}

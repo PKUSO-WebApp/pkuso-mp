@@ -37,6 +37,12 @@ export default defineAppConfig({
     'pages/score/index',
     'pages/score-detail/index',
     'pages/score-part/index',
+    // ⚠️ **临时诊断页**（2026-10-16，量完就删这两条 + 两个目录）：
+    // 四个结构变体对照，用来回答「微信左沿判定带的宽度跟页面结构有没有关系」。
+    // 入口在阅读器的「分享」子菜单里。
+    'pages/stroke-probe/index',
+    'pages/stroke-probe-free/index',
+    'pages/stroke-probe-custom/index',
   ],
   // 独立分包：阅读器单独成包（只被 pages/score-reader 自己引用）。
   // 这里**曾经**装着 pdf.js 运行时（wechat-miniprogram-pdf，1.61MB，当年是为了不把
