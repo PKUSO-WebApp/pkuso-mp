@@ -168,18 +168,26 @@ export function AnnotationBar({
   // 这正是「在被挡住的地方也能起笔」的做法（半透明 / 落笔让位都只能解决「看到」）。
   // ⚠️ 这一行的盒子要 `pointer-events: none`：它整行都是透明的，而盒子**按几何命中** ——
   // 不收手就留下一条**看不见的禁区**（真正接触摸的是那个按钮，它自己 `auto` 回来）。
+  //
+  // ⚠️⚠️ **`pb-2` + 内层 `h-8` 都不能省**（2026-10-16 真机按像素量出来的）：展开态的按钮
+  // 站在第二行里，而那一行的高度是 **32 CSS px**（撤销按钮 / 档位点的 `h-8` 撑起来的），
+  // 我那 23.5px 的 pill 在里头**垂直居中** ⇒ 它比行底高 12px；收起态这一行若只放 pill，
+  // 行高的差（12px）加上缺掉的 `pb-2`（8px）≈ 20px ⇒ 收起的一瞬间按钮会往下掉一截
+  //（真机上量到 35 物理 px）。补上这两样，两个状态的「收起/展开」落在**同一个 y**。
   if (collapsed) {
     return (
       <View
-        className='flex flex-row items-center justify-start px-3'
+        className='flex flex-row items-center justify-start px-3 pb-2'
         style={{ pointerEvents: 'none' }}
       >
-        {textButton(
-          t('scoreReader.penBarExpandLabel'),
-          t('scoreReader.penBarExpand'),
-          () => setCollapsed(false),
-          'boxed'
-        )}
+        <View className='flex h-8 flex-row items-center'>
+          {textButton(
+            t('scoreReader.penBarExpandLabel'),
+            t('scoreReader.penBarExpand'),
+            () => setCollapsed(false),
+            'boxed'
+          )}
+        </View>
       </View>
     )
   }

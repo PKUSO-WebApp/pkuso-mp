@@ -108,6 +108,17 @@ describe('AnnotationBar 的收起 / 展开', () => {
     expect(row.className).not.toContain('justify-end')
   })
 
+  it('收起态与展开态**同一高度**：外行 `pb-2` + 内层 `h-8`（少了它按钮会掉下去一截）', () => {
+    const { container } = render(<AnnotationBar {...props} />)
+    fireEvent.click(screen.getByLabelText('scoreReader.penBarCollapse'))
+    const row = container.firstChild as HTMLElement
+    // 展开态第二行的行高是 32px（撤销/档位点的 h-8），收起态要复刻这个行高 +
+    // 同样的底距，两个状态的按钮才落在同一个 y（真机上量到过 35px 的落差）
+    expect(row.className).toContain('pb-2')
+    const inner = row.firstElementChild as HTMLElement
+    expect(inner.className).toContain('h-8')
+  })
+
   it('「收起」「完成」与「清空」是**同一套尺寸**（用户 2026-10-16 订正：上一版比清空高出一截）', () => {
     render(<AnnotationBar {...props} />)
     const clear = screen.getByText('scoreReader.clear')
