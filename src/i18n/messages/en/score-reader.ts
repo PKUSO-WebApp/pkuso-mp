@@ -37,7 +37,7 @@ export const scoreReader = {
   zoomPanel: 'Zoom',
   modeSwitch: 'Switch paging mode',
   history: {
-    entry: 'Restore from cloud history',
+    entry: 'Restore annotation history',
     title: 'Restore from cloud history',
     empty: 'No cloud history yet',
     back: 'Back',

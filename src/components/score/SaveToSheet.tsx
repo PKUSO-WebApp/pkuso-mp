@@ -30,7 +30,6 @@ export function SaveToSheet({
   onAnno,
   onPick,
   onHistory,
-  onProbe,
   onClose,
 }: {
   kinds: HandoffKind[]
@@ -48,8 +47,6 @@ export function SaveToSheet({
   preparing: boolean
   onAnno: (v: boolean) => void
   onPick: (kind: HandoffKind) => void
-  /** ⚠️ **临时入口**（2026-10-16）：跳到笔画探针的结构变体对照页。量完删。 */
-  onProbe?: () => void
   /**
    * 「恢复云端历史」那一行。**只有阅读器给**（声部页那份 PDF 面板只负责把文件送出去，
    * 没有"当前在哪一页、本地有哪些笔迹"这些上下文）⇒ 不给就整行不渲染。
@@ -109,12 +106,6 @@ export function SaveToSheet({
         {onHistory ? (
           <View className='border-b border-border px-4 py-4' onClick={onHistory}>
             <Text className='text-sm text-text'>{t('scoreReader.history.entry')}</Text>
-          </View>
-        ) : null}
-        {/* ⚠️ **临时入口**（2026-10-16）：笔画探针的结构变体对照页。量完连这一块一起删。 */}
-        {onProbe ? (
-          <View className='border-b border-border px-4 py-4' onClick={onProbe}>
-            <Text className='text-sm text-text'>笔画探针（临时）</Text>
           </View>
         ) : null}
         <View className='px-4 py-4' onClick={onClose}>
