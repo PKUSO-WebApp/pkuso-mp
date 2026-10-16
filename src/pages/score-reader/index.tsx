@@ -2418,6 +2418,37 @@ export default function ScoreReader() {
   }
 
   /**
+   * 这一页那块**批注画布**此刻的屏幕 rect —— **从状态推，不查节点**（2026-10-16）。
+   *
+   * 从前每次落笔都要跑一趟 `createSelectorQuery().fields({ node, size, rect })`，而真机实测
+   * **那一趟是 100ms 量级**（`ink_append_slow` 的读数：只查一次节点 + 画一条路径就要 108–164ms）
+   * ——「手指落下 → 笔迹出现」那段延迟几乎全是它（`stroke_start_slow` 稳定 124–160ms）。
+   *
+   * 可这个 rect 本来就能算：**舞台 rect + 内容框位移 + 本层摆位**，三样都在手里 ——
+   * 舞台 rect 由 `measureStage` 维护（挂载 / `stage` 变化 / 转屏时报废重量），内容框位移就是
+   * `panRef`（JSX 里那个 `left: pan.x / top: pan.y`），本层摆位是 `layerStyle` 的两条
+   *（LR 是 0，UD 是 `pageTop(页, 视口高)`）。⇒ 落笔这条路上**一次跨线程往返都不剩**。
+   *
+   * ⚠️ **别再改回「缓存上次量到的 rect」**：那样它会跨「滚动 / 缩放 / 工具条显隐」失效
+   *（试过、撤过，见 `beginStroke` 里那条注释）。这里推出来的只依赖 `stageRectRef` 的新鲜度，
+   * 而它的失效时机 = `measureStage` 的调用时机 —— **要加新的会挪动舞台的东西，就往
+   * `measureStage` 的调用点上加**，别再在这一层另搞一份记账。
+   *
+   * @param pageNo 这一页**已经定死的那一页**（UD 下按手指位置算出来的，见 `laneUnderPoint`），
+   *   不是「这块画布现在装着哪一页」—— 两者在正常路径上一致，但落笔认定的那个才是权威。
+   */
+  const laneRectOf = useCallback(
+    (pageNo: number) => ({
+      left: stageRectRef.current.left + panRef.current.x,
+      top:
+        stageRectRef.current.top +
+        panRef.current.y +
+        (modeRef.current === 'ud' ? pageTop(pageNo, viewSizeRef.current.h) : 0),
+    }),
+    []
+  )
+
+  /**
    * 把一串点落成一条笔迹（记一步撤销 + 落盘）。
    *
    * 两处共用：实时绘制抬手时的收尾，与「抬手时 rect 还没回来」那一笔的补落
@@ -2531,6 +2562,9 @@ export default function ScoreReader() {
      * ctx」靠 `penOn` 时预取、且不再按手势清空（见 `cancelStroke` 里那条订正）。
      */
     const startedAt = Date.now()
+    /** 分段计时（起点都是 `startedAt`）：等实时层摆位 / 推 rect / 其余。见下面那条上报 */
+    let alignedAt = 0
+    let rectAt = 0
     // ⚠️ **不**用「上次量到的 rect」抢着把第一个点画上屏（2026-10-16 试过又撤掉）。
     // 那个 rect 会在滚动 / 缩放 / 工具条显隐之后失效，而这些时机全在两次落笔**之间** ——
     // 于是它先把点画在**错的地方**、再由下面那次重画纠正过来，用户看到的是一次跳变。
@@ -2538,15 +2572,14 @@ export default function ScoreReader() {
     // 真想把这最后一次往返也拿掉，得让实时层不再依赖「量 rect」——那是另一个结构改动。
     void (async () => {
       try {
-        // 两件事**并行**：
         // ① `alignLiveLayer` —— 让实时层摆到这一页上，并**等它真的落地**（不等的话，第一个点
         //    会按新位置的坐标画到旧位置的画布上 ⇒ 真机上「点飞到别处」）
-        // ② 量这一页那块**已落定层**的 rect —— 坐标换算的基准；它不依赖实时层的摆位
-        const [, geom] = await Promise.all([
-          alignLiveLayer(lane.layer),
-          queryCanvasNode(CANVAS_OVERLAY_SEL[lane.layer]),
-        ])
-        const { left, top } = geom
+        await alignLiveLayer(lane.layer)
+        alignedAt = Date.now()
+        // ② 坐标基准的 rect —— **从状态推**（见 `laneRectOf`）：从前这里是第二次跨线程往返，
+        //    真机实测 100ms 量级，而它只是三个已知量之和
+        const { left, top } = laneRectOf(lane.page)
+        rectAt = Date.now()
         if (strokeSeedRef.current !== seed) {
           // 两种「不是我」：被新手势取代（作废），或**已经抬手**了（仍要落定，见 strokeEndedRef）。
           // 后一种只落一个点 —— 用它自己的 rect 局部算坐标，**绝不碰全局 overlayRectRef**
@@ -2596,12 +2629,22 @@ export default function ScoreReader() {
       // 诊断：起笔到首点上屏的**全程**耗时。它一路上有两次跨线程往返（等实时层摆位 + 量 rect），
       // 真机上是「手指落下到笔迹出现」的那段延迟（用户 2026-10-16 报 ~300ms）。
       // 超阈值记一条 —— 用来判断「实时层提前摆位」有没有把第二次往返收回去。
-      const startCost = Date.now() - startedAt
-      if (startCost > 120) {
+      const doneAt = Date.now()
+      const startCost = doneAt - startedAt
+      // 门槛 60ms（原 120ms）：这段的目标是 10–20ms —— 改完若还在 60ms 以上，必须看得见
+      if (startCost > 60) {
         reportClientError({
           event: 'score_reader_stroke_start_slow',
           message: `起笔到上屏 ${startCost}ms`,
-          detail: { fileId, page: strokePageRef.current, layer: lane.layer },
+          detail: {
+            fileId,
+            page: strokePageRef.current,
+            layer: lane.layer,
+            // **分段**：等实时层摆位 / 推 rect（改完应当≈0）/ 其余（取 ctx + 入账 + 首画）
+            alignMs: alignedAt - startedAt,
+            rectMs: rectAt - alignedAt,
+            tailMs: doneAt - rectAt,
+          },
         })
       }
     })()
@@ -2700,23 +2743,17 @@ export default function ScoreReader() {
     strokePageRef.current = lane.page
     const seed = { clientX: touch.clientX, clientY: touch.clientY }
     eraseSeedRef.current = seed
-    void (async () => {
-      try {
-        const { left, top } = await queryCanvasNode(CANVAS_OVERLAY_SEL[lane.layer])
-        // 同 beginStroke：先确认这段手势还在，别把**后一段**手势的 rect 覆盖成自己的
-        if (eraseSeedRef.current !== seed) return
-        overlayRectRef.current = { left, top }
-      } catch {
-        cancelStroke('begin-erase-failed')
-        return
-      }
-      if (eraseSeedRef.current !== seed) return // 手指已抬起 / 已转双指 / 已换册：整段作废
-      eraseSeedRef.current = null
-      erasingRef.current = true
-      const pending = erasePendingRef.current
-      erasePendingRef.current = []
-      eraseAtPoints([seed, ...pending])
-    })()
+    // ⚠️ 这里**不再有 await**（2026-10-16）：rect 从状态推（见 `laneRectOf`），于是「等 rect
+    // 期间攒下的触点」那个窗口不存在了 —— 擦除与落笔一样，一次跨线程往返都不剩。
+    // 那条缓冲（`erasePendingRef`）留着无害（永远是空的），也留给将来真需要异步的改动。
+    const { left, top } = laneRectOf(lane.page)
+    if (eraseSeedRef.current !== seed) return // 手指已抬起 / 已换册：整段作废
+    overlayRectRef.current = { left, top }
+    eraseSeedRef.current = null
+    erasingRef.current = true
+    const pending = erasePendingRef.current
+    erasePendingRef.current = []
+    eraseAtPoints([seed, ...pending])
   }
 
   /**
