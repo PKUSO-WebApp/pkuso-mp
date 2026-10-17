@@ -1,9 +1,10 @@
 ﻿// @vitest-environment jsdom
 
 import React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { PostRowWithAuthor } from '@/types/database'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import PostEdit from './index'
 
 const SAMPLE: PostRowWithAuthor[] = [
@@ -81,33 +82,23 @@ vi.mock('@/hooks/usePosts', () => ({
 }))
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 describe('编辑活动页', () => {
+  beforeEach(() => resetTestLocale())
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+  })
+
+  it('英文环境：占位符与保存按钮显示英文', async () => {
+    setTestLocale('en')
+    render(<PostEdit />)
+    await screen.findByDisplayValue('我的重奏')
+    expect(screen.getByPlaceholderText('Enter a title')).toBeTruthy()
+    expect(screen.getByText('Save')).toBeTruthy()
+    expect(screen.getByText('Cancel')).toBeTruthy()
   })
 
   it('加载并预填帖子数据', async () => {

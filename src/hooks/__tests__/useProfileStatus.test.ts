@@ -2,17 +2,18 @@
 
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import { useProfileStatus } from '../useProfileStatus'
 
-const { userCtx, mockT } = vi.hoisted(() => ({
+const { userCtx } = vi.hoisted(() => ({
   userCtx: { user: null as { id: string } | null },
-  mockT: (k: string) => k,
 }))
 vi.mock('@/context/user-context', () => ({ useUser: () => userCtx }))
 
-vi.mock('@/i18n', () => ({
-  useT: () => ({ t: mockT, locale: 'zh-CN', setLocale: vi.fn() }),
-}))
+vi.mock('@/i18n', async () => {
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
+})
 
 // 模块加载即校验环境变量，mock 掉 supabase 模块（测试显式传 client）
 vi.mock('@/lib/supabase', () => ({ supabase: {} }))
@@ -28,6 +29,7 @@ function mockClient(responses: Array<{ data: Row[]; error: { message: string } |
 
 describe('useProfileStatus', () => {
   beforeEach(() => {
+    resetTestLocale()
     userCtx.user = { id: 'u1' }
   })
 
@@ -52,7 +54,17 @@ describe('useProfileStatus', () => {
     client.rpc.mockRejectedValue(new Error('fetch failed'))
     const { result } = renderHook(() => useProfileStatus(client as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.error).toBe('common.errors.loadFailed')
+    expect(result.current.error).toBe('数据加载失败，请重试')
+    expect(result.current.profile).toBeNull()
+  })
+
+  it('英文环境：查询失败归一化为英文文案', async () => {
+    setTestLocale('en')
+    const client = mockClient([{ data: [], error: null }])
+    client.rpc.mockRejectedValue(new Error('fetch failed'))
+    const { result } = renderHook(() => useProfileStatus(client as never))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.error).toBe('Failed to load data, please retry')
     expect(result.current.profile).toBeNull()
   })
 

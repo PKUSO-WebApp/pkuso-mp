@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
 import React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import Taro from '@tarojs/taro'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import Index from './index'
 
 vi.mock('@tarojs/components', () => {
@@ -104,32 +105,23 @@ vi.mock('@/hooks/useAttendance', () => ({
 }))
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 describe('首页排练页', () => {
+  beforeEach(() => resetTestLocale())
   afterEach(() => {
     cleanup()
+  })
+
+  it('英文环境：tab 标签显示英文，切到 History 能过滤', () => {
+    setTestLocale('en')
+    render(<Index />)
+    expect(screen.getByText('Full Ensemble')).toBeTruthy()
+    expect(screen.getByText('History')).toBeTruthy()
+    fireEvent.click(screen.getByText('History'))
+    expect(screen.getByText('历史合排1')).toBeTruthy()
+    expect(screen.queryByText('未来合排')).toBeNull()
   })
 
   it('默认「合排」tab 不显示已结束的历史合排', () => {

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
 import React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import { ForceOfflineModal } from './force-offline-modal'
 
 vi.mock('@tarojs/components', () => {
@@ -14,28 +15,8 @@ vi.mock('@tarojs/components', () => {
 })
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 // 多设备模型下这条通知有两种原因（kind），共用同一个弹窗、两套文案：
@@ -43,7 +24,15 @@ vi.mock('@/i18n', async () => {
 // - deleted ：本设备被「删除设备」—— 同样下线，但下次登录会被当作新设备。
 // 「另一设备于 X 登录了你的账号」那套文案随顶号模型一起退场，别再断言它。
 describe('ForceOfflineModal', () => {
+  beforeEach(() => resetTestLocale())
   afterEach(() => cleanup())
+
+  it('英文环境：显示英文标题与确认按钮', () => {
+    setTestLocale('en')
+    render(<ForceOfflineModal opened onClose={() => {}} />)
+    expect(screen.getByText('This device has been denied sign-in')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'OK' })).toBeTruthy()
+  })
 
   it('opened=false 时不渲染', () => {
     render(<ForceOfflineModal opened={false} onClose={() => {}} />)

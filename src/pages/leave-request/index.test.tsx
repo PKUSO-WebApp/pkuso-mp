@@ -3,6 +3,7 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import LeaveRequest from './index'
 
@@ -116,28 +117,8 @@ vi.mock('@/lib/supabase', () => ({
   },
 }))
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 /** 渲染页面并等它拉完「我的申请」进入表单态 */
@@ -161,6 +142,7 @@ function pickAttachment(path: string) {
 }
 
 beforeEach(() => {
+  resetTestLocale()
   mocks.fetchMine.mockResolvedValue([])
   mocks.create.mockResolvedValue(true)
   mocks.cancelRequest.mockResolvedValue(true)
@@ -173,6 +155,14 @@ afterEach(() => {
 })
 
 describe('请假申请页', () => {
+  it('英文环境：表单占位符、提交与附件入口显示英文', async () => {
+    setTestLocale('en')
+    await renderForm(103)
+    expect(screen.getByPlaceholderText('Please enter the leave reason')).toBeTruthy()
+    expect(screen.getByText('Add Attachment')).toBeTruthy()
+    expect(screen.getByText('Submit Request')).toBeTruthy()
+  })
+
   it('理由为空时提交被拦截，不写库', async () => {
     await renderForm(101)
     fireEvent.click(screen.getByText('提交申请'))

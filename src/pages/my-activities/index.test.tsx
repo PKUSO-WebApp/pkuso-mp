@@ -1,9 +1,10 @@
 ﻿// @vitest-environment jsdom
 
 import React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { PostRowWithAuthor } from '@/types/database'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import MyActivities from './index'
 
 const mocks = vi.hoisted(() => ({
@@ -100,33 +101,24 @@ vi.mock('@/hooks/usePosts', () => ({
 }))
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 describe('我的活动管理页', () => {
+  beforeEach(() => resetTestLocale())
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+  })
+
+  it('英文环境：声部、联系方式与管理员锁定提示显示英文', () => {
+    setTestLocale('en')
+    render(<MyActivities />)
+    expect(screen.getByText('Current sections: 小提琴')).toBeTruthy()
+    expect(screen.getByText('Missing sections: 中提')).toBeTruthy()
+    expect(screen.getByText('Contact: wx123')).toBeTruthy()
+    expect(screen.getByText('Contact: None')).toBeTruthy()
+    expect(screen.getByText('Locked by admin — cannot be unlocked by you')).toBeTruthy()
   })
 
   it('渲染我发布的活动，并展示声部与联系方式（团建联系方式为空显示「无」）', () => {

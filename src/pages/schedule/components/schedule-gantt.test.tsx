@@ -1,8 +1,9 @@
 ﻿// @vitest-environment jsdom
 
 import React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import { getScheduleColorClass, parseTimeToHours, ScheduleGantt } from './schedule-gantt'
 
 const { taroMock } = vi.hoisted(() => ({
@@ -40,28 +41,8 @@ const mockGetAuthorName = vi.fn(() => '张三')
 const mockEnsureAuthorName = vi.fn(async () => '张三')
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 describe('schedule-gantt 纯函数', () => {
   it('getScheduleColorClass 按 id 哈希循环分配 7 色', () => {
@@ -84,6 +65,26 @@ describe('schedule-gantt 纯函数', () => {
 })
 
 describe('ScheduleGantt 删除预约', () => {
+  beforeEach(() => resetTestLocale())
+
+  it('英文环境：删除入口显示英文', () => {
+    setTestLocale('en')
+    const remove = vi.fn(async () => true)
+    render(
+      <ScheduleGantt
+        schedules={[makeSchedule()]}
+        selectedDate='2026-01-01'
+        user={{ id: 'u1' }}
+        remove={remove}
+        getAuthorName={mockGetAuthorName}
+        ensureAuthorName={mockEnsureAuthorName}
+      />
+    )
+    fireEvent.click(screen.getByText('我的预约'))
+    expect(screen.getByText('Delete Booking')).toBeTruthy()
+    expect(screen.queryByText('删除预约')).toBeNull()
+  })
+
   it('创建者可删除：点击预约块 → 显示「删除预约」→ 确认后调用 remove', async () => {
     const remove = vi.fn(async () => true)
     render(

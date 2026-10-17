@@ -3,6 +3,7 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import Score from './index'
 
 const { authState } = vi.hoisted(() => ({
@@ -44,25 +45,12 @@ vi.mock('@/components/ui/ListState', () => ({
 }))
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  const t = (k: string, p?: Record<string, unknown>) => get(k, p)
-  return { useT: () => ({ t, locale: 'zh-CN', setLocale: () => {} }), useNavTitle: vi.fn() }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 beforeEach(() => {
+  resetTestLocale()
   authState.user = { id: 'u1' }
   authState.role = 'member'
 })
@@ -80,6 +68,16 @@ describe('谱务 tab 页的角色闸门', () => {
     render(<Score />)
 
     expect(screen.queryByText(/^BLOCKED:/)).toBeNull()
+  })
+
+  it('英文环境：游客提示显示英文', () => {
+    setTestLocale('en')
+    authState.user = null
+    authState.role = 'admin'
+    render(<Score />)
+
+    expect(screen.getByText('Please log in on the "Me" page to view')).toBeTruthy()
+    expect(screen.queryByText('请在「我的」页面登录以查看')).toBeNull()
   })
 
   it('游客优先走游客分支，不被角色闸门误伤', () => {

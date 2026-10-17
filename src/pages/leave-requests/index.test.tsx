@@ -3,6 +3,7 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import LeaveRequestsPage from './index'
 
 const leaveRow = {
@@ -58,34 +59,28 @@ vi.mock('@/components/ui/SegmentTabs', () => ({
     ),
 }))
 
+// t 必须是稳定引用：本页 effect 的依赖里有 t（与真机一致，useT 内是 useCallback），
+// 每次渲染换一个新 t 会让 effect 反复重跑，新请求不断作废旧请求 → 永远停在 loading
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  // t 必须是稳定引用：本页 effect 的依赖里有 t（与真机一致，useT 内是 useCallback），
-  // 每次渲染换一个新 t 会让 effect 反复重跑，新请求不断作废旧请求 → 永远停在 loading
-  const t = (k: string, p?: Record<string, unknown>) => get(k, p)
-  const ctx = { t, locale: 'zh-CN', setLocale: () => {} }
-  return { useT: () => ctx, useNavTitle: vi.fn() }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 describe('请假记录页失败态', () => {
   beforeEach(() => {
+    resetTestLocale()
     orderMock.mockReset()
   })
   afterEach(() => {
     cleanup()
+  })
+
+  it('英文环境：失败态给出英文文案与重试入口', async () => {
+    setTestLocale('en')
+    orderMock.mockResolvedValue({ data: null, error: { message: 'boom' } })
+    render(<LeaveRequestsPage />)
+    expect(await screen.findByText('Failed to load, please retry')).toBeTruthy()
+    expect(screen.getByText('Retry')).toBeTruthy()
   })
 
   it('加载失败时给重试入口；重试真的重新查询并恢复内容', async () => {

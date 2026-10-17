@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
 import React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import { StaffBlockedPage } from './staff-blocked-page'
 
 vi.mock('@tarojs/components', () => {
@@ -18,23 +19,24 @@ vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 
 // 用**真词典**取词（不是把 t 桩成返回 key）：要断言的是用户真正看到的那句话
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    return typeof val === 'string' ? val : k
-  }
-  return { useT: () => ({ t: (k: string) => get(k), locale: 'zh-CN', setLocale: () => {} }) }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 afterEach(() => cleanup())
 
 describe('StaffBlockedPage', () => {
+  beforeEach(() => resetTestLocale())
+
+  it('英文环境：管理员看到英文的「不提供管理端」文案', () => {
+    setTestLocale('en')
+    render(<StaffBlockedPage role='admin' />)
+    expect(
+      screen.getByText('Admin console is not available in the mini program. Please use the web app.')
+    ).toBeTruthy()
+    expect(screen.queryByText('不提供小程序管理端，请使用网页端')).toBeNull()
+  })
+
   it('admin 看到的仍是原来那套「不提供管理端」文案（不能被他人的改动带跑）', () => {
     render(<StaffBlockedPage role='admin' />)
     expect(screen.getByText('不提供小程序管理端，请使用网页端')).toBeTruthy()

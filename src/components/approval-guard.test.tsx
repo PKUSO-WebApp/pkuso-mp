@@ -4,6 +4,7 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { EntryProfile } from '@/lib/profile-gate'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import { ApprovalGuard } from './approval-guard'
 
 vi.mock('@tarojs/components', () => {
@@ -58,31 +59,12 @@ const makeProfile = (overrides: Partial<EntryProfile> = {}): EntryProfile => ({
 })
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 describe('ApprovalGuard', () => {
   beforeEach(() => {
+    resetTestLocale()
     userCtx.user = { id: 'u1' }
     userCtx.ready = true
     profileCtx.profile = null
@@ -106,6 +88,18 @@ describe('ApprovalGuard', () => {
     expect(screen.getByText('资料已提交，管理员审核通过后即可使用小程序。')).toBeTruthy()
     expect(screen.getByRole('button', { name: '刷新状态' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '退出登录' })).toBeTruthy()
+  })
+
+  it('英文环境：等待审核页显示英文文案与操作按钮', () => {
+    setTestLocale('en')
+    profileCtx.profile = makeProfile({ status: 'pending' })
+    render(<ApprovalGuard expected='pending' />)
+    expect(screen.getByText('Pending Admin Approval')).toBeTruthy()
+    expect(
+      screen.getByText('Your info has been submitted. Access granted after admin approval.')
+    ).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Refresh Status' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Log Out' })).toBeTruthy()
   })
 
   it('rejected 页：显示审核未通过文案', () => {
