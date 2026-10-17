@@ -3,6 +3,7 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import DevicesPage from './index'
 
 /**
@@ -57,28 +58,11 @@ vi.mock('@/context/user-context', () => ({ useUser: () => ({ kickSelf: mocks.kic
 
 vi.mock('@/lib/supabase', () => ({ supabase: { rpc: mocks.rpc } }))
 
+// ⚠️ t 必须是**稳定引用**：页面的 load 以它作 useCallback 依赖、又被 useEffect 依赖，
+// 每次渲染换一个新函数 = effect 无限重跑（页面永远停在 loading，且不报错）
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  // ⚠️ t 必须是**稳定引用**：页面的 load 以它作 useCallback 依赖、又被 useEffect 依赖，
-  // 每次渲染换一个新函数 = effect 无限重跑（页面永远停在 loading，且不报错）
-  const t = (k: string, p?: Record<string, unknown>) => get(k, p)
-  return {
-    useT: () => ({ t, locale: 'zh-CN', setLocale: vi.fn() }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 const deviceRow = (deviceId: string, name: string, trusted: boolean, lastSeenAt: string) => ({
@@ -130,6 +114,7 @@ const setDevices = (rows: unknown[]) => {
 
 describe('DevicesPage', () => {
   beforeEach(() => {
+    resetTestLocale()
     mocks.showToast.mockReset()
     mocks.kickSelf.mockReset()
     mocks.rpc.mockReset()
@@ -137,6 +122,17 @@ describe('DevicesPage', () => {
   })
 
   afterEach(() => cleanup())
+
+  it('英文环境：本机标记、被拒标记与操作入口显示英文', async () => {
+    setTestLocale('en')
+    render(<DevicesPage />)
+    await waitForListText('小米 14 · Android 15')
+    expect(screen.getByText('This device')).toBeTruthy()
+    expect(screen.getByText('Sign-in denied')).toBeTruthy()
+    expect(listText('Mark as not trusted')).toHaveLength(1)
+    expect(listText('Trust again')).toHaveLength(1)
+    expect(listText('Delete device')).toHaveLength(2)
+  })
 
   it('渲染设备名、本机标记与被拒标记', async () => {
     render(<DevicesPage />)

@@ -3,6 +3,7 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import AttendancePage from './index'
 
 const row = {
@@ -54,32 +55,13 @@ vi.mock('@/lib/attendance-summary', () => ({
 }))
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 describe('考勤页失败态', () => {
   beforeEach(() => {
+    resetTestLocale()
     fetchMyHistoryMock.mockReset()
   })
   afterEach(() => {
@@ -114,6 +96,14 @@ describe('考勤页失败态', () => {
     })
     expect(screen.queryByText('加载失败，请稍后重试')).toBeNull()
     expect(screen.queryByText('重试')).toBeNull()
+  })
+
+  it('英文环境：失败态给出英文文案与重试入口', async () => {
+    setTestLocale('en')
+    fetchMyHistoryMock.mockResolvedValue({ rows: [], error: 'loadFailed' })
+    render(<AttendancePage />)
+    expect(await screen.findByText('Failed to load, please retry')).toBeTruthy()
+    expect(screen.getByText('Retry')).toBeTruthy()
   })
 
   it('查询成功时不出现重试入口', async () => {

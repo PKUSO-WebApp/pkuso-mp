@@ -3,6 +3,7 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadAnnoDoc } from '@/lib/annotation'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import { usePdfHandoff } from '../usePdfHandoff'
 
 // supabase 模块加载即校验环境变量 ⇒ 必须桩掉（仓里的惯例）
@@ -17,8 +18,10 @@ vi.mock('@tarojs/taro', () => ({
 }))
 
 // ⚠️ `t` 必须是**稳定引用**：进了依赖数组就会无限重渲染（本仓踩过，见 vitest-hook-mock 那条）
-const { t } = vi.hoisted(() => ({ t: (k: string) => k }))
-vi.mock('@/i18n', () => ({ useT: () => ({ t, locale: 'zh-CN', setLocale: vi.fn() }) }))
+vi.mock('@/i18n', async () => {
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
+})
 
 const { ensureSavedPdf, composeAnnotatedPdf, reportClientError, handOffPdf, syncAnnotationFile, order } =
   vi.hoisted(() => ({
@@ -68,6 +71,7 @@ const meta = (fileId = 'f1') => ({
 const savedCall = (i = 0) => ensureSavedPdf.mock.calls[i][0] as Record<string, unknown>
 
 beforeEach(() => {
+  resetTestLocale()
   // 默认「这一册有笔迹」——没有笔迹时开关被禁用（那一组用例自己改这个桩）
   vi.mocked(loadAnnoDoc)
     .mockReset()
@@ -157,13 +161,27 @@ describe('usePdfHandoff：是否带有批注', () => {
     expect(last.url).toContain('token=t')
     // 字节数取服务端给的那个确切值，分片下载才有依据
     expect(last.expectedBytes).toBe(4321)
-    expect(String(last.fileName)).toContain('common.saveTo.annoSuffix')
+    expect(String(last.fileName)).toContain('带批注')
     // ⚠️ 传给 ensureSavedPdf 的名字里**不能带 `.pdf`**：库里的 file_name 自带扩展名，
     // 后缀要加在它之前；否则 displayPdfName 只剥末尾那个 ⇒ `总谱.pdf（带批注）.pdf`（真机报过）
-    expect(String(last.fileName)).toBe('总谱common.saveTo.annoSuffix')
+    expect(String(last.fileName)).toBe('总谱（带批注）')
     // ⚠️ 必须 force：本地那个路径是固定的，不强制的话**新合成的那份根本不会被下载**，
     // 交出去的是上一次的旧内容（用户又多画了几笔也照样是旧的）
     expect(last.force).toBe(true)
+  })
+
+  it('英文环境：带批注的文件名用英文后缀，且同样不夹带 .pdf', async () => {
+    setTestLocale('en')
+    const { result } = renderHook(() => usePdfHandoff())
+    act(() => result.current.open(meta()))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    act(() => result.current.toggleAnno(true))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    const last = savedCall(ensureSavedPdf.mock.calls.length - 1)
+    expect(String(last.fileName)).toBe('总谱 (annotated)')
+    expect(String(last.fileName)).not.toContain('.pdf')
   })
 
   it('⚠️ 合成之前必须**先同步**：函数读的是服务端那份，本地没推上去就会少画几笔', async () => {
