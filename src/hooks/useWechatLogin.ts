@@ -32,6 +32,10 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
     if (submittingRef.current) return { error: t('login.duplicateSubmit') }
     submittingRef.current = true
     setSubmitting(true)
+    // ⚠️ 必须在第一个 await 之前捕获：登录页的 `ready && user` effect 可能在
+    // touch_session 完成前就 reLaunch 回分享页了。之后再读 Current.router 拿到的是
+    // 排练页路由（没有 returnTo），会误走 routeAfterLogin → 把用户送回首页。
+    const returnTo = Taro.getCurrentInstance?.().router?.params?.returnTo
     try {
       // 1. wx.login 获取一次性 code
       let code = ''
@@ -181,9 +185,8 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
       }
 
       // 5. 按 profile 状态路由入口。
-      // ⚠️ 分享链接带 returnTo 时**不要**在这里路由：登录页的 `ready && user`
+      // 分享链接带 returnTo 时**不要**在这里路由：登录页的 `ready && user`
       // effect 会 reLaunch 回原页。两边都跳会竞争，可能把用户送回首页。
-      const returnTo = Taro.getCurrentInstance?.().router?.params?.returnTo
       if (!returnTo) await routeAfterLogin(client)
       return { error: null }
     } finally {
