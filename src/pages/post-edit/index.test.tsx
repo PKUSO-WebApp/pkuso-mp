@@ -24,7 +24,10 @@ const SAMPLE: PostRowWithAuthor[] = [
 ]
 
 const mocks = vi.hoisted(() => ({
-  fetchOne: vi.fn(async (id: string) => SAMPLE.find((p) => p.id === id) || null),
+  fetchOne: vi.fn(async (id: string) => ({
+    data: SAMPLE.find((p) => p.id === id) || null,
+    error: null,
+  })),
   updatePost: vi.fn(async (_id: string, _input: any) => ({ ok: true })),
   taro: {
     navigateBack: vi.fn(),

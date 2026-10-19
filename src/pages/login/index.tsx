@@ -38,6 +38,10 @@ export default function LoginPage() {
   const placeholderStyle = usePlaceholderStyle()
   useNavTitle('login.navTitle')
 
+  // 分享链接带 returnTo 时，落点由下方 `ready && user` 的 effect 统一决定；
+  // 登录 handler 再调 routeAfterLogin 会与它竞争（两个 reLaunch 各自跳到不同页）。
+  const hasReturnTo = (): boolean => !!Taro.getCurrentInstance()?.router?.params?.returnTo
+
   const [redirecting, setRedirecting] = useState(false)
   const [mode, setMode] = useState<LoginMode>('code')
   const [email, setEmail] = useState('')
@@ -181,7 +185,7 @@ export default function LoginPage() {
         }
         // 登记本设备：被设为「不信任」的设备在这里被服务端拒绝（device_rejected）
         if (!(await registerThisDevice())) return
-        await routeAfterLogin(supabase)
+        if (!hasReturnTo()) await routeAfterLogin(supabase)
       } else {
         reportClientError({
           event: 'code_login',
@@ -229,7 +233,7 @@ export default function LoginPage() {
       }
       // 登记本设备：被设为「不信任」的设备在这里被服务端拒绝（device_rejected）
       if (!(await registerThisDevice())) return
-      await routeAfterLogin(supabase)
+      if (!hasReturnTo()) await routeAfterLogin(supabase)
     } catch {
       setErrorMsg(t('login.networkError'))
     } finally {

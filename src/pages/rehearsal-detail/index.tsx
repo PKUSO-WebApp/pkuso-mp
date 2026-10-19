@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage } from '@tarojs/taro'
-import { supabase } from '@/lib/supabase'
 import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
 import { useLeaveRequests } from '@/hooks/useLeaveRequests'
 import { usePageRestore } from '@/hooks/usePageRestore'
+import { useRehearsalById } from '@/hooks/useRehearsalById'
 import { useUser } from '@/context/user-context'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { getSignBlockReason, hasSignedIn } from '@/lib/attendance-utils'
 import { markRehearsalSeen } from '@/lib/rehearsalSeen'
 import { withinCheckinGeofence } from '@/lib/geo'
+import { buildReturnTo, redirectToLogin } from '@/lib/login-redirect'
 import { logDiag } from '@/lib/session-diag'
 import { FieldRow } from '@/components/ui/FieldRow'
+import { ListState } from '@/components/ui/ListState'
 import type { RehearsalRow } from '@/types/database'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
@@ -43,65 +45,43 @@ export default function RehearsalDetail() {
   const cachedId = usePageRestore<string>('id')
   const id = Number(cachedId)
   const darkClass = useThemeClass()
-  const { ready, user } = useUser()
+  const { ready, user, restoreFailed } = useUser()
   const {
     map: attendanceMap,
     loading: attendanceLoading,
     fetchMyAttendances,
     signIn,
   } = useAttendance()
-  const { data: leaveRequests, cancelOnSignIn, fetchMine } = useLeaveRequests()
+  // 登录态就绪前不拉请假单：RLS 对匿名身份返回空集，会把「还没恢复会话」误判成「没有请假」，
+  // 进而在签到按钮上给出错误的「覆盖签到」判断。
+  const {
+    data: leaveRequests,
+    cancelOnSignIn,
+    fetchMine,
+  } = useLeaveRequests(undefined, {
+    enabled: ready && !!user,
+  })
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const [restoring, setRestoring] = useState(false)
   const { t, locale } = useT()
   useNavTitle('activityDetail.navTitle')
 
-  // 分享链接未登录守卫：跳转登录页并携带 returnTo，登录后直接返回本页
+  // 分享链接未登录守卫：跳转登录页并携带 returnTo，登录后直接返回本页。
+  // ⚠️ restoreFailed 为真时不跳：那可能是恢复超时/弱网，用户实际上登录着，
+  // 应当让页面显示「重试」，而不是把人送去登录页白重登一次。
   useEffect(() => {
-    if (!ready || user) return
+    if (!ready || user || restoreFailed) return
     const currentPath = router?.path || '/pages/rehearsal-detail/index'
-    const params = router?.params || {}
-    const query = Object.entries(params)
-      .filter(([k]) => k !== 'returnTo')
-      .map(([k, v]) => `${k}=${v}`)
-      .join('&')
-    const returnTo = query ? `${currentPath}?${query}` : currentPath
-    void Taro.redirectTo({
-      url: `/pages/login/index?returnTo=${encodeURIComponent(returnTo)}`,
-    })
-  }, [ready, user, router?.path, router?.params])
+    // 页面被重建时 router.params 可能已丢；用 usePageRestore 缓存下来的 id 兜底。
+    const params = { ...(router?.params ?? {}), ...(cachedId ? { id: cachedId } : {}) }
+    redirectToLogin(buildReturnTo(currentPath, params))
+  }, [ready, user, restoreFailed, router?.path, router?.params, cachedId])
 
-  // 详情页按 id 直接取这一条，不依赖排练列表/缓存的时序：
-  // 列表在 subscribeSync 静默重取时可能某帧不含本排练，若靠列表查找会在 loading=false 时误显「排练不存在」。
-  const [rehearsal, setRehearsal] = useState<RehearsalRow | null>(null)
-  const [rehearsalLoading, setRehearsalLoading] = useState(true)
-  useEffect(() => {
-    if (!id) {
-      setRehearsal(null)
-      setRehearsalLoading(false)
-      return
-    }
-    let cancelled = false
-    setRehearsalLoading(true)
-    void (async () => {
-      // maybeSingle：排练可能已被删除，0 行时返回 data:null 而不是抛 406 中断流程
-      const { data, error } = await supabase
-        .from('rehearsals')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle()
-      if (cancelled) return
-      if (error) {
-        setRehearsal(null)
-        setRehearsalLoading(false)
-        return
-      }
-      setRehearsal((data as RehearsalRow) ?? null)
-      setRehearsalLoading(false)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [id])
+  // 详情页按 id 直接取这一条。鉴权门控、会话确认、错误/空结果区分都在 hook 里：
+  // 它保证只有「会话确认存在 + 查询成功 + 0 行」才返回 not-found。
+  const { rehearsal, status, retry, retryRestore } = useRehearsalById(
+    Number.isFinite(id) && id > 0 ? id : null
+  )
   const attendance = attendanceMap[id] ?? null
   // 考勤记录加载中（map 尚无该行且请求未完成）：签到按钮渲染中性 disabled 态，
   // 与「已查无记录」区分，避免「可签到蓝 → 结果色」两段变色闪烁（P1-6）
@@ -119,8 +99,10 @@ export default function RehearsalDetail() {
     return () => clearInterval(timer)
   }, [])
   useEffect(() => {
-    if (user?.id && id) void fetchMyAttendances(user.id, [id])
-    void fetchMine()
+    if (user?.id && id) {
+      void fetchMyAttendances(user.id, [id])
+      void fetchMine()
+    }
     if (id) markRehearsalSeen(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, id])
@@ -128,7 +110,8 @@ export default function RehearsalDetail() {
   // 从子页面（如请假申请）返回时本页未被卸载，需主动重取，
   // 否则刚提交的请假申请不会即时反映（覆盖签到按钮不出现）。
   useDidShow(() => {
-    if (user?.id && id) void fetchMyAttendances(user.id, [id])
+    if (!user?.id) return
+    if (id) void fetchMyAttendances(user.id, [id])
     void fetchMine()
   })
 
@@ -249,13 +232,49 @@ export default function RehearsalDetail() {
     doGeoSignIn(r)
   }
 
+  // 鉴权未就绪 / 守卫正在跳登录：统一显示加载态，绝不渲染「不存在」。
+  const pagePending =
+    status === 'auth-pending' || status === 'auth-required' || status === 'loading' || restoring
+
+  if (pagePending) {
+    return (
+      <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
+        <View className='flex flex-1 items-center justify-center'>
+          <Text className='text-xs text-text-muted'>{t('common.actions.loading')}</Text>
+        </View>
+      </View>
+    )
+  }
+
+  // 查询失败 / 会话恢复失败：与「不存在」严格分开，给重试入口。
+  if (status === 'auth-error' || status === 'error') {
+    return (
+      <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
+        <View className='flex flex-1 items-center justify-center px-4'>
+          <ListState
+            loading={false}
+            error={t('common.errors.loadFailed')}
+            onRetry={() => {
+              if (status === 'auth-error') {
+                setRestoring(true)
+                void retryRestore().finally(() => setRestoring(false))
+              } else {
+                retry()
+              }
+            }}
+          >
+            <></>
+          </ListState>
+        </View>
+      </View>
+    )
+  }
+
   if (!rehearsal) {
     return (
       <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
         <View className='flex flex-1 items-center justify-center'>
-          <Text className='text-xs text-text-muted'>
-            {rehearsalLoading ? t('common.actions.loading') : t('activityDetail.notFound')}
-          </Text>
+          <Text className='text-xs text-text-muted'>{t('activityDetail.notFound')}</Text>
         </View>
       </View>
     )

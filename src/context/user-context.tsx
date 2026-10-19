@@ -60,6 +60,15 @@ export type UserContextValue = {
   kickSelf: (kind: SessionKickKind) => void
   // 关闭强制下线弹窗（仅在登录页渲染，供用户确认后复位）
   clearForcedOffline: () => void
+  /**
+   * 重试冷启动会话恢复。
+   *
+   * 首次恢复超时（RESTORE_TIMEOUT_MS）时 `ready` 已经是 true、`restoreFailed` 也是 true，
+   * 但用户实际上可能登录着——直接把他送去登录页会让弱网用户白白重登。页面应展示
+   * 「加载失败，重试」，由本方法再跑一次 getSession：成功则 user 回填，失败则保持
+   * restoreFailed（页面继续可重试）；确认没有会话时才清 restoreFailed，交给守卫跳登录。
+   */
+  retryRestore: () => Promise<void>
 }
 
 const UserContext = createContext<UserContextValue | undefined>(undefined)
@@ -95,6 +104,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
     __resetRehearsalsCache()
     setSession(null)
     setLoggedIn(false)
+    // 本地会话已经确定没了（SIGNED_OUT / 主动清空），之前那次「恢复失败」不再是
+    // 需要用户处理的状态——各页据此把「网络异常，重试」切回登录守卫。
+    setRestoreFailed(false)
   }, [])
 
   // 本设备被拒绝登录的统一处理：记录、弹通知、跳登录页、本地登出
@@ -164,6 +176,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         forcedOfflineRef.current = false
         setForcedOffline(false)
         setForcedOfflineKind(null)
+        // 会话事件晚于恢复超时到达时，把它从「恢复失败」拉回正常态
+        setRestoreFailed(false)
         // 同一会话只 touch 一次（见 establishedTokenRef 注释），防止并发重复调用
         if (next.access_token && next.access_token === establishedTokenRef.current) {
           setSession(next)
@@ -188,6 +202,38 @@ export function UserProvider({ children }: { children: ReactNode }) {
     },
     [kick, resetLocalSession]
   )
+
+  // 冷启动恢复超时/网络异常后的手动重试（页面上的「重试」按钮）。
+  // 与 init 的差别：不重新订阅 auth 事件（订阅只建一次），只补一次 getSession。
+  const retryRestore = useCallback(async () => {
+    logDiag('restore_retry')
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    try {
+      const { data, error } = await Promise.race([
+        supabase.auth.getSession(),
+        new Promise<never>((_resolve, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('会话恢复超时')), RESTORE_TIMEOUT_MS)
+        }),
+      ])
+      if (error) throw error
+      // 事件可能已经先把会话带回来：只在当前没有会话时用 getSession 的结果覆盖，
+      // 避免一次慢返回的 null 把刚恢复的会话抹掉。
+      if (data.session) applySession(data.session)
+      else if (!sessionRef.current) applySession(null)
+      setRestoreFailed(false)
+      logDiag('restore_retry_ok', { hasSession: !!data.session })
+    } catch (err) {
+      // 超时/网络类失败：保持「恢复失败」语义，页面继续显示可重试的错误态；
+      // 不能在这里 applySession(null)——那会把一个可能有效的本地会话清掉。
+      setRestoreFailed(true)
+      logDiag('restore_retry_failed', {
+        err: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId)
+      setReady(true)
+    }
+  }, [applySession])
 
   // 诊断：注册心跳状态提供者并启动日志（幂等）
   useEffect(() => {
@@ -248,7 +294,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       let timeoutId: ReturnType<typeof setTimeout> | undefined
       logDiag('restore_begin')
       try {
-        const { data } = await Promise.race([
+        const { data, error } = await Promise.race([
           supabase.auth.getSession(),
           // 超时兜底：直接走降级分支，避免登录页长期挂起
           new Promise<never>((_resolve, reject) => {
@@ -257,6 +303,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
         ])
         if (!mounted) return
         if (!eventArrived) {
+          // getSession 在刷新失败时会同时给出 error 与 session:null。
+          // 那是「恢复失败」而不是「确定未登录」——不能走 applySession(null)，
+          // 否则页面会把弱网用户当成游客送去登录页；交给 restoreFailed 显示重试。
+          if (error) throw error
           applySession(data.session)
         }
         setRestoreFailed(false)
@@ -325,6 +375,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       markForcedOffline,
       kickSelf,
       clearForcedOffline,
+      retryRestore,
     }),
     [
       session,
@@ -336,6 +387,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       markForcedOffline,
       kickSelf,
       clearForcedOffline,
+      retryRestore,
     ]
   )
 

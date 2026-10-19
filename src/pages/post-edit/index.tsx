@@ -5,6 +5,7 @@ import { usePosts } from '@/hooks/usePosts'
 import { usePageRestore } from '@/hooks/usePageRestore'
 import { useEditDraft } from '@/hooks/useEditDraft'
 import { useThemeClass } from '@/context/theme-context'
+import { tAppError, type AppErrorCode } from '@/lib/appError'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { useT, useNavTitle } from '@/i18n'
 import { PageLoading } from '@/components/ui/PageLoading'
@@ -36,7 +37,8 @@ export default function PostEditPage() {
   // usePageRestore 缓存 id，防止 chooseMedia 销毁页面后丢失
   const cachedId = usePageRestore<string>('id')
   const id = cachedId
-  const { fetchOne, updatePost, saving } = usePosts()
+  // 本页只用 fetchOne；关掉列表的挂载查询，避免为一个详情多发一次帖子列表请求。
+  const { fetchOne, updatePost, saving } = usePosts(undefined, { enabled: false })
   const darkClass = useThemeClass()
   // 正文框最小高度是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
   const uiScale = useUiScaleFactor()
@@ -61,6 +63,8 @@ export default function PostEditPage() {
   const [post, setPost] = useState<PostRowWithAuthor | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [loadError, setLoadError] = useState<AppErrorCode | null>(null)
+  const [retryNonce, setRetryNonce] = useState(0)
   const [type, setType] = useState<PostType>(initialDraft?.type ?? 'ensemble')
   const [title, setTitle] = useState(initialDraft?.title ?? '')
   const [content, setContent] = useState(initialDraft?.content ?? '')
@@ -99,9 +103,18 @@ export default function PostEditPage() {
       return
     }
     let active = true
-    void fetchOne(id).then((p) => {
+    setLoading(true)
+    setLoadError(null)
+    setNotFound(false)
+    void fetchOne(id).then((result) => {
       if (!active) return
       setLoading(false)
+      // 查询失败 ≠ 0 行：不能用「不存在」盖掉网络/鉴权错误
+      if (result.error) {
+        setLoadError(result.error)
+        return
+      }
+      const p = result.data
       if (!p) {
         setNotFound(true)
         return
@@ -121,7 +134,7 @@ export default function PostEditPage() {
     return () => {
       active = false
     }
-  }, [id, fetchOne, editDraft])
+  }, [id, fetchOne, editDraft, retryNonce])
 
   const handleChooseImage = () => {
     // 选图前先落盘：chooseMedia 可能销毁页面，草稿是唯一能跨过去的东西
@@ -195,6 +208,22 @@ export default function PostEditPage() {
 
   if (loading) {
     return <PageLoading darkClass={darkClass} height='screen' size='xs' />
+  }
+
+  if (loadError) {
+    return (
+      <View
+        className={`${darkClass} flex min-h-screen flex-col items-center justify-center bg-page-bg px-4`}
+      >
+        <Text className='text-sm text-danger'>{tAppError(t, loadError)}</Text>
+        <View
+          className='mt-4 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground'
+          onClick={() => setRetryNonce((n) => n + 1)}
+        >
+          {t('common.actions.retry')}
+        </View>
+      </View>
+    )
   }
 
   if (notFound || !post) {

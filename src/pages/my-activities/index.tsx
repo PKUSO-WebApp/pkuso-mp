@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
+import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { tAppError } from '@/lib/appError'
 import { useT, useNavTitle } from '@/i18n'
@@ -23,7 +24,12 @@ function hasText(value: string | null | undefined): boolean {
  * 与社区公告过滤（is_locked=false）联动，对他人不可见。
  */
 export default function MyActivitiesPage() {
-  const { mine, mineLoading, mineError, fetchMine, setLocked, deletePost } = usePosts()
+  const { ready, user } = useUser()
+  const hasUser = !!user
+  // 本页只用 fetchMine；关掉列表的挂载查询。查询等会话就绪后再发。
+  const { mine, mineLoading, mineError, fetchMine, setLocked, deletePost } = usePosts(undefined, {
+    enabled: false,
+  })
   const darkClass = useThemeClass()
   const { t } = useT()
   useNavTitle('myActivities.navTitle')
@@ -39,12 +45,14 @@ export default function MyActivitiesPage() {
     [fetchMine]
   )
 
+  // 等会话就绪再查：auth.getUser() 拿不到用户时 fetchMine 会写「加载失败」，
+  // 冷启动会把它误显示成错误态。
   useEffect(() => {
-    void load()
-  }, [load])
+    if (ready && hasUser) void load()
+  }, [ready, hasUser, load])
   // 切回本页静默重取：已有数据时不翻 loading，避免整页闪烁
   useDidShow(() => {
-    void load({ silent: true })
+    if (ready && hasUser) void load({ silent: true })
   })
 
   const handleToggleLock = async (post: PostRowWithAuthor) => {

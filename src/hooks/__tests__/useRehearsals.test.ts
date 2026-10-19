@@ -47,6 +47,22 @@ describe('useRehearsals', () => {
     expect(result.current.data).toHaveLength(1)
   })
 
+  it('enabled=false 不查询；翻真后自动补查（冷启动鉴权门控）', async () => {
+    const base = mockClient([{ data: [{ id: 1, repertoire: '柴四' }], error: null }])
+    const from = vi.fn(base.from)
+    const c = { ...base, from }
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => useRehearsals(c as never, { enabled }),
+      { initialProps: { enabled: false } }
+    )
+    expect(from).not.toHaveBeenCalled()
+    expect(result.current.loading).toBe(false)
+
+    rerender({ enabled: true })
+    await waitFor(() => expect(result.current.data).toHaveLength(1))
+    expect(from).toHaveBeenCalledTimes(1)
+  })
+
   it('fetch 空数据', async () => {
     const c = mockClient([{ data: [], error: null }])
     const { result } = renderHook(() => useRehearsals(c as never))
