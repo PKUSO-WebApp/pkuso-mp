@@ -137,6 +137,42 @@ describe('UserProvider', () => {
     expect(result.current.session).toBeNull()
   })
 
+  it('refresh token 定论失效：归类为未登录，不进入「恢复失败」重试态', async () => {
+    authMock.getSession.mockResolvedValueOnce({
+      data: { session: null },
+      error: Object.assign(new Error('Invalid Refresh Token'), {
+        name: 'AuthApiError',
+        status: 400,
+        code: 'refresh_token_not_found',
+      }),
+    })
+    const { result } = renderWithProvider()
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    expect(result.current.user).toBeNull()
+    expect(result.current.restoreFailed).toBe(false)
+  })
+
+  it('retryRestore 遇到 refresh token 定论失效：清会话、退出重试态', async () => {
+    authMock.getSession.mockRejectedValueOnce(new Error('network down'))
+    const { result } = renderWithProvider()
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.restoreFailed).toBe(true)
+
+    authMock.getSession.mockResolvedValueOnce({
+      data: { session: null },
+      error: Object.assign(new Error('Invalid Refresh Token'), {
+        name: 'AuthApiError',
+        status: 400,
+        code: 'refresh_token_not_found',
+      }),
+    })
+    await act(() => result.current.retryRestore())
+
+    expect(result.current.user).toBeNull()
+    expect(result.current.restoreFailed).toBe(false)
+  })
+
   it('会话恢复完成前 ready 保持 false（避免登录页闪烁）', async () => {
     let resolveSession!: (value: unknown) => void
     authMock.getSession.mockReturnValue(

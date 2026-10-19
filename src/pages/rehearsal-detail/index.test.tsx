@@ -275,6 +275,33 @@ describe('排练详情页', () => {
     expect(mocks.maybeSingle).not.toHaveBeenCalled()
   })
 
+  it('getSession 返回 refresh token 定论失效：清本地会话，不显示「排练不存在」', async () => {
+    setRoute({ id: '7' }, '/token-invalid')
+    mocks.getSession.mockResolvedValue({
+      data: { session: null },
+      error: Object.assign(new Error('Invalid Refresh Token'), {
+        name: 'AuthApiError',
+        status: 400,
+        code: 'refresh_token_not_found',
+      }),
+    })
+    render(<RehearsalDetail />)
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalledWith({ scope: 'local' }))
+    expect(screen.queryByText('排练不存在')).toBeNull()
+    expect(mocks.maybeSingle).not.toHaveBeenCalled()
+  })
+
+  it('getSession 网络失败：显示加载失败 + 重试，不显示「排练不存在」', async () => {
+    setRoute({ id: '7' }, '/session-network')
+    mocks.getSession.mockRejectedValue(new Error('request:fail timeout'))
+    render(<RehearsalDetail />)
+
+    await waitFor(() => expect(screen.getByText('数据加载失败，请重试')).toBeTruthy())
+    expect(screen.queryByText('排练不存在')).toBeNull()
+    expect(mocks.maybeSingle).not.toHaveBeenCalled()
+  })
+
   it('会话恢复失败：显示重试、不跳登录；点重试调用 retryRestore', async () => {
     state.user = null
     state.restoreFailed = true
