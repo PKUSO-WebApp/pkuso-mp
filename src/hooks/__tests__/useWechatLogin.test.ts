@@ -9,6 +9,7 @@ const { taroMock } = vi.hoisted(() => {
     login: vi.fn(),
     showToast: vi.fn(),
     reLaunch: vi.fn(),
+    getCurrentInstance: vi.fn(() => ({ router: { params: {} as Record<string, string> } })),
   }
   ;(mock as unknown as Record<string, unknown>).default = mock
   return { taroMock: mock }
@@ -61,6 +62,7 @@ describe('useWechatLogin', () => {
     taroMock.login.mockReset()
     taroMock.reLaunch.mockReset()
     taroMock.showToast.mockReset()
+    taroMock.getCurrentInstance.mockReturnValue({ router: { params: {} } })
     routeAfterLoginMock.mockReset()
     reportClientErrorMock.mockReset()
   })
@@ -81,6 +83,21 @@ describe('useWechatLogin', () => {
     // 路由委托给 routeAfterLogin（资料补全/等待审核/审核未通过/首页判定在其内部；
     // RPC 以会话 JWT 的 auth.uid() 为准，无需传 userId）
     expect(routeAfterLoginMock).toHaveBeenCalledWith(c)
+  })
+
+  it('带 returnTo（分享链接）：不委托 routeAfterLogin，交给登录页 effect 统一回跳', async () => {
+    taroMock.getCurrentInstance.mockReturnValue({
+      router: { params: { returnTo: '/pages/rehearsal-detail/index?id=7' } },
+    })
+    taroMock.login.mockResolvedValue({ code: 'wx-code-1' })
+    const c = mockClient(
+      { data: { access_token: 'at', refresh_token: 'rt', is_new: false }, error: null },
+      sessionOk()
+    )
+    const { result } = renderHook(() => useWechatLogin(c as never))
+    const res = await act(() => result.current.loginWithWechat())
+    expect(res.error).toBeNull()
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
   })
 
   it('新注册用户登录成功：同样走统一入口路由（full_name 为空自然落补全页）', async () => {

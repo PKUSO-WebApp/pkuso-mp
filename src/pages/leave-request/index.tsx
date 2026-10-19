@@ -4,12 +4,12 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { useLeaveRequests, type UploadFileLike } from '@/hooks/useLeaveRequests'
 import { useEditDraft } from '@/hooks/useEditDraft'
 import { usePageRestore } from '@/hooks/usePageRestore'
+import { useRehearsalById } from '@/hooks/useRehearsalById'
 import { useUser } from '@/context/user-context'
-import { supabase } from '@/lib/supabase'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
-import type { LeaveRequestRow, RehearsalRow } from '@/types/database'
+import type { LeaveRequestRow } from '@/types/database'
 import './index.scss'
 
 const isActive = (r: LeaveRequestRow) => r.status !== 'withdrawn' && r.status !== 'canceled'
@@ -36,37 +36,14 @@ export default function LeaveRequestPage() {
   const decodedEnd = cachedEnd ? decodeURIComponent(cachedEnd) : null
   const darkClass = useThemeClass()
   useNavTitle('leaveRequest.navTitle')
-  const { user } = useUser()
-  const [rehearsal, setRehearsal] = useState<RehearsalRow | null>(null)
-  const [rehearsalLoading, setRehearsalLoading] = useState(true)
-  useEffect(() => {
-    if (!rehearsalId) {
-      setRehearsal(null)
-      setRehearsalLoading(false)
-      return
-    }
-    let cancelled = false
-    setRehearsalLoading(true)
-    void (async () => {
-      // maybeSingle：排练可能已被删除，0 行时返回 data:null 而不是抛 406 中断流程
-      const { data, error } = await supabase
-        .from('rehearsals')
-        .select('*')
-        .eq('id', rehearsalId)
-        .maybeSingle()
-      if (cancelled) return
-      if (error) {
-        setRehearsal(null)
-        setRehearsalLoading(false)
-        return
-      }
-      setRehearsal((data as RehearsalRow) ?? null)
-      setRehearsalLoading(false)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [rehearsalId])
+  const { user, ready } = useUser()
+  // 与排练详情共用同一条加载/鉴权判定：匿名查询返回的 200 [] 不能被当成「排练不存在」。
+  const { rehearsal, status, retry, retryRestore } = useRehearsalById(
+    rehearsalId > 0 ? rehearsalId : null
+  )
+  const rehearsalLoading =
+    status === 'auth-pending' || status === 'auth-required' || status === 'loading'
+  const rehearsalFailed = status === 'auth-error' || status === 'error'
   const {
     fetchMine,
     create,
@@ -76,7 +53,7 @@ export default function LeaveRequestPage() {
     uploadAttachment,
     getSignedUrl,
     saving,
-  } = useLeaveRequests()
+  } = useLeaveRequests(undefined, { enabled: ready && !!user })
   const { t } = useT()
 
   // 表单草稿：按排练 id 隔离，防止 chooseMedia 往返（页面重建 / router.params 丢失）
@@ -204,9 +181,8 @@ export default function LeaveRequestPage() {
   // state 新就应用一次——chooseMedia 的回调可能落在被销毁的旧实例上（它只能写模块
   // 级草稿，写不到新实例的 state），新实例要靠这次 show 把选好的附件捞回来。
   useDidShow(() => {
-    if (rehearsalId && !rehearsal && !rehearsalLoading) {
-      setRehearsalLoading(true)
-    }
+    // 只有失败态才补一次查询；not-found 是确定结果，不必每次回前台都重查。
+    if (rehearsalFailed) retry()
     if (!editDraft.hasDraft()) return
     const draft = editDraft.get()
     setMode(draft.mode)
@@ -404,7 +380,9 @@ export default function LeaveRequestPage() {
       ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
       : rehearsalLoading
         ? ''
-        : t('leaveRequest.notFound')
+        : rehearsalFailed
+          ? t('common.errors.loadFailed')
+          : t('leaveRequest.notFound')
   const hasAttachment = mode === 'view' ? !!viewAttachmentUrl : !!keepOldAttachment
 
   return (
@@ -412,6 +390,17 @@ export default function LeaveRequestPage() {
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='w-full px-4 pt-2 pb-4'>
           <Text className='block text-sm text-text-muted'>{subtitle}</Text>
+          {rehearsalFailed && (
+            <Text
+              className='mt-1 block text-sm text-primary'
+              onClick={() => {
+                if (status === 'auth-error') void retryRestore()
+                else retry()
+              }}
+            >
+              {t('common.actions.retry')}
+            </Text>
+          )}
           <View className='my-4 h-px bg-border' />
 
           {mode === 'view' && current ? (

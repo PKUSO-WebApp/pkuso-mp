@@ -20,7 +20,8 @@ export default function PostCreatePage() {
   const router = Taro.getCurrentInstance().router
   const initialType = ((router?.params?.type as PostType) || 'ensemble') as PostType
 
-  const { create, saving } = usePosts()
+  // 本页只用 create；关掉列表的挂载查询，避免发布页多发一次帖子列表请求。
+  const { create, saving } = usePosts(undefined, { enabled: false })
   const { profile: myProfile } = useMyProfile()
   const darkClass = useThemeClass()
   // 正文框最小高度是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘

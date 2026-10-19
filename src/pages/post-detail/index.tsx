@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react'
 import { View, Text, Image } from '@tarojs/components'
 import Taro, { useShareAppMessage } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
+import { useAuthSession } from '@/hooks/useAuthSession'
 import { markPostSeen } from '@/lib/postSeen'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
+import { buildReturnTo, redirectToLogin } from '@/lib/login-redirect'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
 import { useT, useNavTitle } from '@/i18n'
 import { PageLoading } from '@/components/ui/PageLoading'
+import { ListState } from '@/components/ui/ListState'
 import { useThemeClass } from '@/context/theme-context'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import './index.scss'
@@ -37,10 +40,26 @@ export default function PostDetailPage() {
   useNavTitle('postDetail.navTitle')
   const darkClass = useThemeClass()
   const id = Taro.getCurrentInstance().router?.params?.id
-  const { fetchOne } = usePosts()
+  // 本页只用 fetchOne；关掉列表的挂载查询，避免为一个详情多发一次帖子列表请求。
+  const { fetchOne } = usePosts(undefined, { enabled: false })
+  const { ready, user, restoreFailed, retryRestore, ensureSession } = useAuthSession()
+  const userId = user?.id
+  const hasUser = !!userId
   const [post, setPost] = useState<PostRowWithAuthor | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [retryNonce, setRetryNonce] = useState(0)
+  const [restoring, setRestoring] = useState(false)
+
+  // 公告的 SELECT 只授 authenticated：未登录时先跳登录页，登录后回到本页。
+  // restoreFailed 不跳：那可能是弱网导致的恢复超时，用户实际上登录着。
+  useEffect(() => {
+    if (!ready || user || restoreFailed) return
+    const router = Taro.getCurrentInstance().router
+    const currentPath = router?.path || '/pages/post-detail/index'
+    redirectToLogin(buildReturnTo(currentPath, router?.params))
+  }, [ready, user, restoreFailed])
 
   useEffect(() => {
     if (!id) {
@@ -48,20 +67,51 @@ export default function PostDetailPage() {
       setNotFound(true)
       return
     }
-    let active = true
-    void fetchOne(id).then((p) => {
-      if (!active) return
+    if (!ready) {
+      setLoading(true)
+      return
+    }
+    if (restoreFailed && !hasUser) {
       setLoading(false)
-      if (!p) setNotFound(true)
-      else {
-        setPost(p)
-        markPostSeen(p.id)
+      setError(t('common.errors.loadFailed'))
+      return
+    }
+    if (!hasUser) {
+      // 守卫正在跳登录，保持加载态，绝不发匿名查询
+      setLoading(true)
+      return
+    }
+    let active = true
+    setLoading(true)
+    setNotFound(false)
+    setError(null)
+    void (async () => {
+      try {
+        const hasSession = await ensureSession()
+        if (!active || !hasSession) return
+        const result = await fetchOne(id)
+        if (!active) return
+        setLoading(false)
+        if (result.error) {
+          setError(t('common.errors.loadFailed'))
+          return
+        }
+        if (!result.data) {
+          setNotFound(true)
+          return
+        }
+        setPost(result.data)
+        markPostSeen(result.data.id)
+      } catch {
+        if (!active) return
+        setLoading(false)
+        setError(t('common.errors.loadFailed'))
       }
-    })
+    })()
     return () => {
       active = false
     }
-  }, [id, fetchOne])
+  }, [id, ready, userId, hasUser, restoreFailed, ensureSession, fetchOne, retryNonce, t])
 
   const handlePreview = () => {
     if (post?.image_url) {
@@ -85,8 +135,32 @@ export default function PostDetailPage() {
     })
   }
 
-  if (loading) {
+  // 鉴权未就绪 / 守卫正在跳登录 / 会话恢复重试中：都只显示加载态。
+  if (loading || !ready || restoring || (ready && !user && !restoreFailed)) {
     return <PageLoading darkClass={darkClass} height='screen' size='xs' />
+  }
+
+  if (error) {
+    return (
+      <View
+        className={`${darkClass} flex min-h-screen flex-col items-center justify-center bg-page-bg px-4`}
+      >
+        <ListState
+          loading={false}
+          error={error}
+          onRetry={() => {
+            if (restoreFailed) {
+              setRestoring(true)
+              void retryRestore().finally(() => setRestoring(false))
+            } else {
+              setRetryNonce((n) => n + 1)
+            }
+          }}
+        >
+          <></>
+        </ListState>
+      </View>
+    )
   }
 
   if (notFound || !post) {

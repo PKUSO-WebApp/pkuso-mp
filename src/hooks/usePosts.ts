@@ -20,6 +20,9 @@ export type CreatePostInput = {
 
 export type CreatePostResult = { ok: true } | { ok: false; error: string }
 
+/** 单条公告查询结果：error 非空 = 查询失败（≠ 0 行） */
+export type PostOneResult = { data: PostRowWithAuthor | null; error: AppErrorCode | null }
+
 /** 编辑帖子载荷；imageFile: undefined=保留原图 | null=删除原图 | UploadFileLike=新图替换。 */
 export type EditPostInput = {
   type: PostType
@@ -40,10 +43,16 @@ export type EditPostInput = {
  * 成员端默认过滤已锁定帖子（is_locked = false）；author join 可能为对象或数组，
  * 这里统一归一化为 { full_name, instrument } | null，下游渲染无需关心形态。
  */
-export function usePosts(client: typeof defaultClient = defaultClient) {
+export function usePosts(
+  client: typeof defaultClient = defaultClient,
+  options: { enabled?: boolean } = {}
+) {
   const { t } = useT()
+  // 鉴权门控：posts 的 SELECT 只授 authenticated；匿名查询会返回 200 []，
+  // 与「社区真的没有帖子」同形。登录态就绪前不自动查。
+  const enabled = options.enabled ?? true
   const [data, setData] = useState<PostRowWithAuthor[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<AppErrorCode | null>(null)
   const [mine, setMine] = useState<PostRowWithAuthor[]>([])
   // 初始 true：进页先渲染 loading 骨架，避免「暂无活动」空态闪现（P0-5）
@@ -95,9 +104,15 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
     [client]
   )
 
-  /** 按 id 取单条公告（详情页用），归一化 author join 形态。 */
+  /**
+   * 按 id 取单条公告（详情页/编辑页用），归一化 author join 形态。
+   *
+   * ⚠️ 必须把「查询失败」与「0 行」分开返回：匿名身份下 RLS 返回 `200 []`，
+   * `maybeSingle()` 会给出 `data:null,error:null`，调用方若只看 data 就会把
+   * 「会话还没就绪」显示成「公告不存在」。
+   */
   const fetchOne = useCallback(
-    async (id: string): Promise<PostRowWithAuthor | null> => {
+    async (id: string): Promise<PostOneResult> => {
       const { data: row, error: dbError } = await client
         .from('posts')
         .select(
@@ -107,10 +122,10 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
         .maybeSingle()
       if (dbError) {
         console.error('[usePosts] 单条公告加载失败：', dbError)
-        return null
+        return { data: null, error: APP_ERROR.loadFailed }
       }
       const r = row as (PostRow & { profiles?: unknown }) | null
-      if (!r) return null
+      if (!r) return { data: null, error: null }
       const p = r.profiles as Record<string, unknown> | undefined
       const profiles =
         Array.isArray(p) && p.length > 0
@@ -121,7 +136,7 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
           : p && typeof p === 'object' && !Array.isArray(p)
             ? (p as { full_name: string | null; instrument: string | null })
             : null
-      return { ...r, profiles } as PostRowWithAuthor
+      return { data: { ...r, profiles } as PostRowWithAuthor, error: null }
     },
     [client]
   )
@@ -340,6 +355,12 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
 
   useEffect(() => {
     mountedRef.current = true
+    if (!enabled) {
+      setLoading(false)
+      return () => {
+        mountedRef.current = false
+      }
+    }
     void fetch()
     const unsub = subscribeSync('post', () => {
       void fetch({ silent: true })
@@ -348,7 +369,7 @@ export function usePosts(client: typeof defaultClient = defaultClient) {
       mountedRef.current = false
       unsub()
     }
-  }, [fetch])
+  }, [fetch, enabled])
 
   return {
     data,

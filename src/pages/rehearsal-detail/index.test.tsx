@@ -37,6 +37,8 @@ const REHEARSAL = {
 const state = {
   ready: true,
   user: null as null | { id: string },
+  restoreFailed: false,
+  retryRestore: vi.fn(async () => undefined),
   route: { path: 'pages/rehearsal-detail/index', params: {} as Record<string, string> },
 }
 
@@ -53,6 +55,13 @@ const mocks = vi.hoisted(() => ({
   signIn: vi.fn(async () => ({ ok: true })),
   fetchMine: vi.fn(async () => []),
   cancelOnSignIn: vi.fn(async () => true),
+  getSession: vi.fn(
+    async (): Promise<{
+      data: { session: { access_token: string } | null }
+      error: unknown
+    }> => ({ data: { session: { access_token: 't' } }, error: null })
+  ),
+  signOut: vi.fn(async () => ({ error: null })),
 }))
 
 vi.mock('@tarojs/components', () => {
@@ -87,7 +96,12 @@ vi.mock('@tarojs/taro', () => ({
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 vi.mock('@/context/user-context', () => ({
-  useUser: () => ({ ready: state.ready, user: state.user }),
+  useUser: () => ({
+    ready: state.ready,
+    user: state.user,
+    restoreFailed: state.restoreFailed,
+    retryRestore: state.retryRestore,
+  }),
 }))
 vi.mock('@/hooks/useAttendance', () => ({
   useAttendance: () => ({
@@ -107,6 +121,10 @@ vi.mock('@/hooks/useLeaveRequests', () => ({
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: () => ({ select: () => ({ eq: () => ({ maybeSingle: mocks.maybeSingle }) }) }),
+    auth: {
+      getSession: mocks.getSession,
+      signOut: mocks.signOut,
+    },
   },
 }))
 vi.mock('@/lib/rehearsalSeen', () => ({ markRehearsalSeen: vi.fn() }))
@@ -143,8 +161,11 @@ vi.mock('@/i18n', async () => {
 beforeEach(() => {
   state.ready = true
   state.user = { id: 'u1' }
+  state.restoreFailed = false
+  state.retryRestore.mockClear()
   setRoute({ id: '7' })
   mocks.maybeSingle.mockResolvedValue({ data: REHEARSAL, error: null })
+  mocks.getSession.mockResolvedValue({ data: { session: { access_token: 't' } }, error: null })
 })
 
 afterEach(() => {
@@ -201,5 +222,69 @@ describe('排练详情页', () => {
     expect(url).toContain('/pages/leave-request/index?rehearsalId=7')
     expect(url).toContain(`start=${encodeURIComponent(REHEARSAL.start_time)}`)
     expect(url).toContain(`end=${encodeURIComponent(REHEARSAL.end_time)}`)
+  })
+
+  // --- 冷启动鉴权竞态（RLS 匿名查询返回 200 [] 的那条路）---
+
+  it('会话恢复完成前：只显示加载中，不查库、不显示不存在', async () => {
+    state.ready = false
+    state.user = null
+    setRoute({ id: '7' }, '/auth-pending')
+    render(<RehearsalDetail />)
+
+    expect(screen.getByText(/加载中/)).toBeTruthy()
+    expect(screen.queryByText('排练不存在')).toBeNull()
+    expect(mocks.maybeSingle).not.toHaveBeenCalled()
+  })
+
+  it('鉴权就绪后自动补查（ready false → true）', async () => {
+    state.ready = false
+    state.user = null
+    setRoute({ id: '7' }, '/late-ready')
+    const { rerender } = render(<RehearsalDetail />)
+    expect(mocks.maybeSingle).not.toHaveBeenCalled()
+
+    state.ready = true
+    state.user = { id: 'u1' }
+    rerender(<RehearsalDetail />)
+
+    await waitFor(() => expect(screen.getByText('新太阳排练厅')).toBeTruthy())
+  })
+
+  it('查询失败：显示加载失败 + 重试，不显示「排练不存在」；重试成功后渲染', async () => {
+    setRoute({ id: '7' }, '/query-error')
+    mocks.maybeSingle
+      .mockResolvedValueOnce({ data: null, error: { message: 'timeout', code: 'PGRST000' } })
+      .mockResolvedValueOnce({ data: REHEARSAL, error: null })
+    render(<RehearsalDetail />)
+
+    await waitFor(() => expect(screen.getByText('数据加载失败，请重试')).toBeTruthy())
+    expect(screen.queryByText('排练不存在')).toBeNull()
+
+    fireEvent.click(screen.getByText('重试'))
+    await waitFor(() => expect(screen.getByText('新太阳排练厅')).toBeTruthy())
+  })
+
+  it('空结果但会话已失效：不显示「排练不存在」，清本地会话', async () => {
+    setRoute({ id: '7' }, '/no-session')
+    mocks.getSession.mockResolvedValue({ data: { session: null }, error: null })
+    render(<RehearsalDetail />)
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalledWith({ scope: 'local' }))
+    expect(screen.queryByText('排练不存在')).toBeNull()
+    expect(mocks.maybeSingle).not.toHaveBeenCalled()
+  })
+
+  it('会话恢复失败：显示重试、不跳登录；点重试调用 retryRestore', async () => {
+    state.user = null
+    state.restoreFailed = true
+    setRoute({ id: '7' }, '/restore-failed')
+    render(<RehearsalDetail />)
+
+    await waitFor(() => expect(screen.getByText('数据加载失败，请重试')).toBeTruthy())
+    expect(mocks.redirectTo).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('重试'))
+    await waitFor(() => expect(state.retryRestore).toHaveBeenCalled())
   })
 })

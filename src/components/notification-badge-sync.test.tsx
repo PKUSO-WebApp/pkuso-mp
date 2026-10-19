@@ -11,11 +11,13 @@ const { taroMock, notif, userMock } = vi.hoisted(() => ({
     eventCenter: { on: vi.fn(), off: vi.fn(), trigger: vi.fn() },
   },
   notif: { totalUnread: 0, refresh: vi.fn() },
-  userMock: { user: { id: 'u1' } },
+  userMock: { user: { id: 'u1' } as { id: string } | null, ready: true },
 }))
 
 vi.mock('@tarojs/taro', () => ({ default: taroMock, useDidShow: taroMock.useDidShow }))
-vi.mock('@/context/user-context', () => ({ useUser: () => ({ user: userMock.user }) }))
+vi.mock('@/context/user-context', () => ({
+  useUser: () => ({ user: userMock.user, ready: userMock.ready }),
+}))
 vi.mock('@/hooks/useNotifications', () => ({
   useNotifications: () => ({ totalUnread: notif.totalUnread, refresh: notif.refresh }),
 }))
@@ -25,6 +27,8 @@ afterEach(() => {
   vi.clearAllMocks()
   // 复位模块级红点 store，避免用例间串扰
   setTabBarUnread(0)
+  userMock.user = { id: 'u1' }
+  userMock.ready = true
 })
 
 describe('NotificationBadgeSync 红点', () => {

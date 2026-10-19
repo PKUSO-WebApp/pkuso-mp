@@ -38,9 +38,12 @@ function hasSectionText(value: string | null | undefined): boolean {
  * 管理端登录显示阻断页（规划 §1：admin 留在 Web）。
  */
 export default function Community() {
-  const { data: posts, loading, error, fetch } = usePosts()
+  const { ready, user } = useUser()
+  // 冷启动未恢复会话前不查：posts 的 SELECT 只授 authenticated，
+  // 匿名查询返回空集会把「还没登录」误显示成「社区没有帖子」。
+  const canQuery = ready && !!user
+  const { data: posts, loading, error, fetch } = usePosts(undefined, { enabled: canQuery })
   const { profile: myProfile } = useMyProfile()
-  const { user } = useUser()
   const darkClass = useThemeClass()
   // 底边栏预留与悬浮按钮偏移都是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
   const uiScale = useUiScaleFactor()
@@ -69,7 +72,7 @@ export default function Community() {
       dismissCommunityDot(viewRef.current)
       return
     }
-    void fetch({ silent: true })
+    if (canQuery) void fetch({ silent: true })
     dismissCommunityDot('bar')
     dismissCommunityDot(viewRef.current)
   })

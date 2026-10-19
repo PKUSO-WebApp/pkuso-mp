@@ -5,7 +5,11 @@ import { cleanup, render } from '@testing-library/react'
 import { getPostUnviewedFlag, setPostUnviewedFlag, isCommunityDotOn } from '@/lib/postSeen'
 import { PostUnviewedSync } from './post-unviewed-sync'
 
-const postMock = vi.hoisted(() => ({ data: [] as any[], fetch: vi.fn() }))
+const postMock = vi.hoisted(() => ({
+  data: [] as any[],
+  fetch: vi.fn(),
+  calls: [] as unknown[],
+}))
 const userMock = vi.hoisted(() => ({ user: { id: 'u1' }, ready: true }))
 const taroStore = vi.hoisted(() => new Map<string, unknown>())
 
@@ -20,7 +24,10 @@ vi.mock('@tarojs/taro', () => ({
   useDidShow: vi.fn(),
 }))
 vi.mock('@/hooks/usePosts', () => ({
-  usePosts: () => ({ data: postMock.data, fetch: postMock.fetch }),
+  usePosts: (_client: unknown, options: unknown) => {
+    postMock.calls.push(options)
+    return { data: postMock.data, fetch: postMock.fetch }
+  },
 }))
 vi.mock('@/context/user-context', () => ({
   useUser: () => ({ user: userMock.user, ready: userMock.ready }),
@@ -32,6 +39,7 @@ afterEach(() => {
   // 复位模块级红点 store 与存储桩，避免用例间串扰
   setPostUnviewedFlag(false)
   taroStore.clear()
+  postMock.calls.length = 0
 })
 
 describe('PostUnviewedSync 社区底边栏红点（点击即消 / 新帖再亮）', () => {
@@ -69,8 +77,9 @@ describe('PostUnviewedSync 社区底边栏红点（点击即消 / 新帖再亮�
     expect(isCommunityDotOn(3000, 2000)).toBe(true)
   })
 
-  it('会话就绪即重新拉取帖子（修正冷启动空结果）', () => {
+  it('会话就绪时以 enabled=true 挂载查询（修正冷启动空结果）', () => {
     render(<PostUnviewedSync />)
-    expect(postMock.fetch).toHaveBeenCalled()
+    // 拉取由 hook 的 enabled 门控负责；组件不再额外调用 fetch（避免重复请求）
+    expect(postMock.calls).toContainEqual({ enabled: true })
   })
 })
