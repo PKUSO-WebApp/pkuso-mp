@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { Card } from '@/components/ui/Card'
@@ -40,7 +40,11 @@ export default function LoginPage() {
 
   // 分享链接带 returnTo 时，落点由下方 `ready && user` 的 effect 统一决定；
   // 登录 handler 再调 routeAfterLogin 会与它竞争（两个 reLaunch 各自跳到不同页）。
-  const hasReturnTo = (): boolean => !!Taro.getCurrentInstance()?.router?.params?.returnTo
+  // ⚠️ 必须在挂载时就把 returnTo 捕获下来：登录页 effect 可能在 handler 的
+  // touch_session 完成前就 reLaunch 回分享页了；之后再读 Current.router 拿到的是
+  // 排练页路由（没有 returnTo），会误走 routeAfterLogin → 把用户送回首页。
+  const returnToRef = useRef(Taro.getCurrentInstance()?.router?.params?.returnTo)
+  const hasReturnTo = (): boolean => !!returnToRef.current
 
   const [redirecting, setRedirecting] = useState(false)
   const [mode, setMode] = useState<LoginMode>('code')
@@ -63,7 +67,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!ready || !user) return
-    const returnTo = Taro.getCurrentInstance().router?.params?.returnTo
+    const returnTo = returnToRef.current
     let cancelled = false
     setRedirecting(true)
     const verifyAndEnter = async () => {

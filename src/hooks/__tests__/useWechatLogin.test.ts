@@ -9,7 +9,11 @@ const { taroMock } = vi.hoisted(() => {
     login: vi.fn(),
     showToast: vi.fn(),
     reLaunch: vi.fn(),
-    getCurrentInstance: vi.fn(() => ({ router: { params: {} as Record<string, string> } })),
+    getCurrentInstance: vi.fn(
+      (): { router: { path?: string; params: Record<string, string> } } => ({
+        router: { params: {} },
+      })
+    ),
   }
   ;(mock as unknown as Record<string, unknown>).default = mock
   return { taroMock: mock }
@@ -90,6 +94,28 @@ describe('useWechatLogin', () => {
       router: { params: { returnTo: '/pages/rehearsal-detail/index?id=7' } },
     })
     taroMock.login.mockResolvedValue({ code: 'wx-code-1' })
+    const c = mockClient(
+      { data: { access_token: 'at', refresh_token: 'rt', is_new: false }, error: null },
+      sessionOk()
+    )
+    const { result } = renderHook(() => useWechatLogin(c as never))
+    const res = await act(() => result.current.loginWithWechat())
+    expect(res.error).toBeNull()
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
+  })
+
+  it('登录途中 Current.router 已切到分享页：仍按开始时的 returnTo 跳过路由', async () => {
+    // 开始时登录页路由带 returnTo；wx.login 期间模拟登录页已被 reLaunch 掉，
+    // Current.router 变成排练页（没有 returnTo）。旧实现会在末尾读路由 → 误跳首页。
+    taroMock.getCurrentInstance.mockReturnValue({
+      router: { params: { returnTo: '/pages/rehearsal-detail/index?id=7' } },
+    })
+    taroMock.login.mockImplementation(async () => {
+      taroMock.getCurrentInstance.mockReturnValue({
+        router: { path: '/pages/rehearsal-detail/index', params: { id: '7' } },
+      })
+      return { code: 'wx-code-1' }
+    })
     const c = mockClient(
       { data: { access_token: 'at', refresh_token: 'rt', is_new: false }, error: null },
       sessionOk()
