@@ -304,6 +304,22 @@ describe('LoginPage', () => {
     expect(routeAfterLoginMock).not.toHaveBeenCalled()
   })
 
+  it('登录途中 Current.router 切到分享页：handler 仍按挂载时的 returnTo 跳过路由', async () => {
+    const returnTo = '/pages/rehearsal-detail/index?id=7'
+    taroMock.getCurrentInstance.mockReturnValue({
+      router: { path: '/pages/login/index', params: { returnTo } },
+    })
+    renderPage()
+    // 模拟登录页 effect 已经 reLaunch 走：之后再读 Current.router 会得到排练页路由
+    taroMock.getCurrentInstance.mockReturnValue({
+      router: { path: '/pages/rehearsal-detail/index', params: { id: '7' } },
+    })
+    await submitCodeLogin()
+
+    await waitFor(() => expect(supabaseMock.auth.setSession).toHaveBeenCalled())
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
+  })
+
   it('已登录但 getUser 失败（会话已吊销）：不跳转且静默登出', async () => {
     authMock.getUser.mockRejectedValue(new Error('AuthSessionMissingError'))
     ctx.user = makeUser('u1')
