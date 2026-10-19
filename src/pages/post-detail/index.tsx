@@ -5,6 +5,7 @@ import { usePosts } from '@/hooks/usePosts'
 import { useAuthSession } from '@/hooks/useAuthSession'
 import { markPostSeen } from '@/lib/postSeen'
 import { parseLocalISO, getLocalDateString } from '@/lib/date-utils'
+import { APP_ERROR, tAppError, type AppErrorCode } from '@/lib/appError'
 import { buildReturnTo, redirectToLogin } from '@/lib/login-redirect'
 import type { PostRowWithAuthor, PostType } from '@/types/database'
 import { useT, useNavTitle } from '@/i18n'
@@ -48,7 +49,7 @@ export default function PostDetailPage() {
   const [post, setPost] = useState<PostRowWithAuthor | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppErrorCode | null>(null)
   const [retryNonce, setRetryNonce] = useState(0)
   const [restoring, setRestoring] = useState(false)
 
@@ -73,7 +74,7 @@ export default function PostDetailPage() {
     }
     if (restoreFailed && !hasUser) {
       setLoading(false)
-      setError(t('common.errors.loadFailed'))
+      setError(APP_ERROR.loadFailed)
       return
     }
     if (!hasUser) {
@@ -93,7 +94,7 @@ export default function PostDetailPage() {
         if (!active) return
         setLoading(false)
         if (result.error) {
-          setError(t('common.errors.loadFailed'))
+          setError(result.error)
           return
         }
         if (!result.data) {
@@ -105,13 +106,13 @@ export default function PostDetailPage() {
       } catch {
         if (!active) return
         setLoading(false)
-        setError(t('common.errors.loadFailed'))
+        setError(APP_ERROR.loadFailed)
       }
     })()
     return () => {
       active = false
     }
-  }, [id, ready, userId, hasUser, restoreFailed, ensureSession, fetchOne, retryNonce, t])
+  }, [id, ready, userId, hasUser, restoreFailed, ensureSession, fetchOne, retryNonce])
 
   const handlePreview = () => {
     if (post?.image_url) {
@@ -147,7 +148,7 @@ export default function PostDetailPage() {
       >
         <ListState
           loading={false}
-          error={error}
+          error={tAppError(t, error)}
           onRetry={() => {
             if (restoreFailed) {
               setRestoring(true)
