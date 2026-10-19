@@ -16,9 +16,15 @@ export function __resetRehearsalsCache() {
 // 排练管理 hook（成员端列表 / 管理员增删改）。
 // 与 Web 版差异：小程序不用 realtime，仅挂载时查询 + 手动重取；
 // 加载失败错误归一化为中文文案；卸载后不再 setState（mountedRef 标志位）。
-export function useRehearsals(client: typeof defaultClient = defaultClient) {
+export function useRehearsals(
+  client: typeof defaultClient = defaultClient,
+  options: { enabled?: boolean } = {}
+) {
+  // 鉴权门控：登录态就绪前不自动查。RLS 对匿名身份返回空集而不是错误，
+  // 冷启动提前查会把「会话还没恢复」显示成「没有排练」。
+  const enabled = options.enabled ?? true
   const [data, setData] = useState<RehearsalRow[]>(rehearsalsCache ?? [])
-  const [loading, setLoading] = useState(rehearsalsCache === null)
+  const [loading, setLoading] = useState(enabled && rehearsalsCache === null)
   const [error, setError] = useState<AppErrorCode | null>(null)
   const [saving, setSaving] = useState(false)
   // 卸载标志位：请求返回时组件已卸载则跳过 setState（防内存泄漏/告警）
@@ -54,19 +60,25 @@ export function useRehearsals(client: typeof defaultClient = defaultClient) {
 
   useEffect(() => {
     mountedRef.current = true
-    void fetch()
+    if (enabled) {
+      void fetch()
+    } else {
+      setLoading(false)
+    }
     return () => {
       mountedRef.current = false
     }
-  }, [fetch])
+  }, [fetch, enabled])
 
-  // 心跳检测到「我的可见排练」版本变化后静默重取（不翻 loading，避免闪烁）
+  // 心跳检测到「我的可见排练」版本变化后静默重取（不翻 loading，避免闪烁）。
+  // 未就绪时不订阅：否则一次心跳就能绕过上面的门控发出匿名查询。
   useEffect(() => {
+    if (!enabled) return
     const handler = () => {
       void fetch({ silent: true })
     }
     return subscribeSync('rehearsals', handler)
-  }, [fetch])
+  }, [fetch, enabled])
 
   const create = useCallback(
     async (payload: Record<string, unknown>) => {

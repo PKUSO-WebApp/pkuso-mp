@@ -63,7 +63,13 @@ export type CancelOnSignInResult =
  * 与 Web 版差异：上传入参为小程序文件（{ tempFilePath, name? }）而非 DOM File；
  * 卸载后不再 setState（mountedRef 标志位）；user_id 由调用方从 useUser() 获取后传入。
  */
-export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
+export function useLeaveRequests(
+  client: typeof defaultClient = defaultClient,
+  options: { enabled?: boolean } = {}
+) {
+  // 鉴权门控：登录态就绪前不自动查。RLS 对匿名身份返回空集而不是错误，
+  // 提前查会把「还没恢复会话」误判成「没有请假申请」。
+  const enabled = options.enabled ?? true
   const { t } = useT()
   const [data, setData] = useState<LeaveRequestWithDetails[]>([])
   const [loading, setLoading] = useState(true)
@@ -102,19 +108,26 @@ export function useLeaveRequests(client: typeof defaultClient = defaultClient) {
 
   useEffect(() => {
     mountedRef.current = true
-    void fetchMine()
+    if (enabled) {
+      void fetchMine()
+    } else {
+      // 未就绪：不查，也不显示「加载中」——调用方此时本来就不该渲染请假信息
+      setLoading(false)
+    }
     return () => {
       mountedRef.current = false
     }
-  }, [fetchMine])
+  }, [fetchMine, enabled])
 
-  // 心跳检测到「我的请假」版本变化后静默重取（状态被管理员审批/驳回时即时可见）
+  // 心跳检测到「我的请假」版本变化后静默重取（状态被管理员审批/驳回时即时可见）。
+  // 未就绪时不订阅：否则一次心跳就会绕过上面的门控发出匿名查询。
   useEffect(() => {
+    if (!enabled) return
     const handler = () => {
       void fetchMine({ silent: true })
     }
     return subscribeSync('leave', handler)
-  }, [fetchMine])
+  }, [fetchMine, enabled])
 
   /** 新建申请（RLS 校验 user_id 必须是本人；目标状态固定为 excused）。 */
   const create = useCallback(

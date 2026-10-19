@@ -180,8 +180,11 @@ export function useWechatLogin(client: typeof defaultClient = defaultClient) {
         return { error: null, rejected: true }
       }
 
-      // 5. 按 profile 状态路由入口
-      await routeAfterLogin(client)
+      // 5. 按 profile 状态路由入口。
+      // ⚠️ 分享链接带 returnTo 时**不要**在这里路由：登录页的 `ready && user`
+      // effect 会 reLaunch 回原页。两边都跳会竞争，可能把用户送回首页。
+      const returnTo = Taro.getCurrentInstance?.().router?.params?.returnTo
+      if (!returnTo) await routeAfterLogin(client)
       return { error: null }
     } finally {
       submittingRef.current = false

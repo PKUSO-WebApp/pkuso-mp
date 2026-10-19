@@ -108,6 +108,35 @@ describe('UserProvider', () => {
     expect(result.current.session).toBeNull()
   })
 
+  it('恢复失败后 retryRestore 成功：user 回填、restoreFailed 复位', async () => {
+    authMock.getSession.mockRejectedValueOnce(new Error('network down'))
+    const { result } = renderWithProvider()
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.restoreFailed).toBe(true)
+
+    authMock.getSession.mockResolvedValueOnce({
+      data: { session: makeSession('u1') },
+      error: null,
+    })
+    await act(() => result.current.retryRestore())
+
+    expect(result.current.user?.id).toBe('u1')
+    expect(result.current.restoreFailed).toBe(false)
+  })
+
+  it('retryRestore 仍然失败：restoreFailed 保持，不清掉可能有效的本地会话', async () => {
+    authMock.getSession.mockRejectedValueOnce(new Error('network down'))
+    const { result } = renderWithProvider()
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.restoreFailed).toBe(true)
+
+    authMock.getSession.mockRejectedValueOnce(new Error('still down'))
+    await act(() => result.current.retryRestore())
+
+    expect(result.current.restoreFailed).toBe(true)
+    expect(result.current.session).toBeNull()
+  })
+
   it('会话恢复完成前 ready 保持 false（避免登录页闪烁）', async () => {
     let resolveSession!: (value: unknown) => void
     authMock.getSession.mockReturnValue(

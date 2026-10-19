@@ -90,6 +90,7 @@ const { ctx } = vi.hoisted(() => {
     markForcedOffline: vi.fn(),
     kickSelf: vi.fn(),
     clearForcedOffline: vi.fn(),
+    retryRestore: vi.fn(),
   }
   return { ctx: state }
 })
@@ -167,6 +168,9 @@ describe('LoginPage', () => {
     taroMock.reLaunch.mockClear()
     taroMock.navigateTo.mockClear()
     taroMock.showToast.mockClear()
+    taroMock.getCurrentInstance.mockReturnValue({
+      router: { path: '/pages/login/index', params: {} },
+    })
     routeAfterLoginMock.mockReset()
     routeAfterLoginMock.mockResolvedValue(undefined)
     loginWithWechatMock.mockReset()
@@ -255,6 +259,40 @@ describe('LoginPage', () => {
     renderPage()
     expect(authMock.getUser).toHaveBeenCalled()
     await waitFor(() => expect(routeAfterLoginMock).toHaveBeenCalledWith(supabaseMock))
+  })
+
+  it('带 returnTo（分享链接）：校验会话后 reLaunch 回原页，不走入口路由', async () => {
+    const returnTo = '/pages/rehearsal-detail/index?id=7&locale=zh-CN'
+    taroMock.getCurrentInstance.mockReturnValue({
+      router: { path: '/pages/login/index', params: { returnTo } },
+    })
+    ctx.user = makeUser('u1')
+    ctx.session = {} as UserContextValue['session']
+    renderPage()
+
+    await waitFor(() => expect(taroMock.reLaunch).toHaveBeenCalledWith({ url: returnTo }))
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
+  })
+
+  it('带 returnTo 的验证码登录：handler 不再直接路由，由登录页效果统一回跳', async () => {
+    const returnTo = '/pages/rehearsal-detail/index?id=7'
+    taroMock.getCurrentInstance.mockReturnValue({
+      router: { path: '/pages/login/index', params: { returnTo } },
+    })
+    renderPage()
+    await submitCodeLogin()
+
+    // 登录成功但 ctx.user 尚未更新（真实环境由 auth 事件回流）；此时 handler 不能自己跳
+    await waitFor(() => expect(supabaseMock.auth.setSession).toHaveBeenCalled())
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
+
+    // 会话回流到上下文后，由 effect 跳回原页
+    ctx.user = makeUser('u1')
+    ctx.session = {} as UserContextValue['session']
+    cleanup()
+    renderPage()
+    await waitFor(() => expect(taroMock.reLaunch).toHaveBeenCalledWith({ url: returnTo }))
+    expect(routeAfterLoginMock).not.toHaveBeenCalled()
   })
 
   it('已登录但 getUser 失败（会话已吊销）：不跳转且静默登出', async () => {

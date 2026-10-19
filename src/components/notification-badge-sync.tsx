@@ -19,14 +19,15 @@ export function NotificationBadgeSync({ children }: { children?: ReactNode }) {
   // 客户端会话尚未应用到查询层，RLS 查询返回空导致 totalUnread 恒为 0（红点不显示）。
   // 同时 user 变化（登录/切换）时也重新拉取。
   useEffect(() => {
-    if (ready || user?.id) void refresh()
+    // 必须同时满足：只有 ready 时 user 可能还没恢复，匿名查询会得到空集（红点恒灭）。
+    if (ready && user?.id) void refresh()
   }, [ready, user?.id, refresh])
 
   // 回前台强制重拉：后台/关闭期间管理端写入的未读，可能被心跳首轮基线吞掉
   // （回前台首轮 tick 只建基线不广播），此处兜底保证红点与「我的」行内数字不漏报
   useEffect(() => {
     const onShow = () => {
-      if (ready || user?.id) void refresh()
+      if (ready && user?.id) void refresh()
     }
     Taro.onAppShow?.(onShow)
     return () => {

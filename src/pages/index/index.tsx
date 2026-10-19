@@ -33,12 +33,16 @@ import { AnnouncementCard } from './components/announcement-card'
 import './index.scss'
 
 export default function Index() {
+  const { ready, user } = useUser()
+  // 冷启动时 user 可能还没恢复：此时不查（RLS 对匿名返回空集，会误显示「没有排练/公告」），
+  // 等 ready && user 后 hook 的 enabled 翻真，自动补查。
+  const canQuery = ready && !!user
   const {
     data: rehearsals,
     loading: rehearsalsLoading,
     error: rehearsalsError,
     fetch: fetchRehearsals,
-  } = useRehearsals()
+  } = useRehearsals(undefined, { enabled: canQuery })
   const {
     data: announcements,
     loading: announcementLoading,
@@ -47,9 +51,8 @@ export default function Index() {
     // 与「真的没有日程」分不出来。见下面 ListState 的 error 合并。
     error: announcementError,
     fetch: fetchAnnouncement,
-  } = useAnnouncements()
+  } = useAnnouncements(undefined, { enabled: canQuery })
   const { profile: myProfile } = useMyProfile()
-  const { user } = useUser()
   const darkClass = useThemeClass()
   // 底边栏预留是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
   const uiScale = useUiScaleFactor()
@@ -72,7 +75,7 @@ export default function Index() {
     // 菜单状态出错；dataSyncBump 也不能跳（它只重置本地计时器，不发请求）。
     if (firstShowRef.current) {
       firstShowRef.current = false
-    } else {
+    } else if (canQuery) {
       void fetchRehearsals({ silent: true })
       void fetchAnnouncement({ silent: true })
     }
@@ -88,8 +91,10 @@ export default function Index() {
 
   // 下拉刷新：静默重取排练与公告
   usePullDownRefresh(() => {
-    void fetchRehearsals({ silent: true })
-    void fetchAnnouncement({ silent: true })
+    if (canQuery) {
+      void fetchRehearsals({ silent: true })
+      void fetchAnnouncement({ silent: true })
+    }
     Taro.stopPullDownRefresh()
   })
 

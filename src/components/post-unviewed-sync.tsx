@@ -20,17 +20,14 @@ import {
  * NotificationBadgeSync 一致——冷启动空结果由会话就绪后的重拉修正。
  */
 export function PostUnviewedSync() {
-  const { data, fetch } = usePosts()
-  const { user, ready } = useUser()
+  const { ready, user } = useUser()
+  // 会话就绪后才查：posts 只授 authenticated，匿名查询的空集会误算红点。
+  // enabled 翻真时 hook 自己会拉一次，不再额外调用 fetch（否则就是重复请求）。
+  const { data } = usePosts(undefined, { enabled: ready && !!user })
 
   // 用 ref 追踪最新 data，避免 data 变化导致重新订阅
   const dataRef = useRef(data)
   dataRef.current = data
-
-  // 会话就绪后重新拉取，修正冷启动空结果（镜像 NotificationBadgeSync 的 refresh 时机）
-  useEffect(() => {
-    if (ready || user?.id) void fetch()
-  }, [ready, user?.id, fetch])
 
   // 只订阅一次，compute 内部通过 ref 读取最新 data
   useEffect(() => {

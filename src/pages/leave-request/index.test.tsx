@@ -96,7 +96,14 @@ vi.mock('@tarojs/taro', () => ({
 }))
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
-vi.mock('@/context/user-context', () => ({ useUser: () => ({ user: { id: 'u1' } }) }))
+vi.mock('@/context/user-context', () => ({
+  useUser: () => ({
+    ready: true,
+    user: { id: 'u1' },
+    restoreFailed: false,
+    retryRestore: vi.fn(async () => undefined),
+  }),
+}))
 vi.mock('@/hooks/useLeaveRequests', () => ({
   useLeaveRequests: () => ({
     fetchMine: mocks.fetchMine,
@@ -114,6 +121,10 @@ vi.mock('@/lib/supabase', () => ({
     from: () => ({
       select: () => ({ eq: () => ({ maybeSingle: mocks.maybeSingle }) }),
     }),
+    auth: {
+      getSession: vi.fn(async () => ({ data: { session: { access_token: 't' } }, error: null })),
+      signOut: vi.fn(async () => ({ error: null })),
+    },
   },
 }))
 vi.mock('@/i18n', async () => {
