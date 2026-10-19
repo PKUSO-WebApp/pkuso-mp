@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useUser, type User } from '@/context/user-context'
 import { supabase } from '@/lib/supabase'
+import { isRetryableAuthError } from '@/lib/auth-errors'
 import { logDiag } from '@/lib/session-diag'
 
 /**
@@ -38,9 +39,21 @@ export function useAuthSession(): AuthSession {
   const ensureSession = useCallback(async (): Promise<boolean> => {
     const { data, error } = await supabase.auth.getSession()
     if (data.session) return true
-    // 有 error 时不能注销：那可能是弱网下刷新失败，会话仍在本地；
-    // 交给调用方展示可重试的错误，避免把「网络差」变成「被登出」。
-    if (error) throw error
+    if (error) {
+      if (isRetryableAuthError(error)) {
+        // 网络/5xx/限流：会话可能仍在本地，交给调用方展示可重试的错误，
+        // 避免把「网络差」变成「被登出」。
+        throw error
+      }
+      // refresh token 已失效 / session 已不存在：这是定论，重试没有意义。
+      logDiag('auth_session_invalid', {
+        name: error.name,
+        code: error.code,
+        status: error.status,
+      })
+      void supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+      return false
+    }
     logDiag('auth_session_missing')
     // 本地 user 可能是旧值：清掉本地会话，让页面守卫接管跳登录。
     void supabase.auth.signOut({ scope: 'local' }).catch(() => {})

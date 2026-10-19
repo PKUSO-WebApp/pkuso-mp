@@ -18,6 +18,7 @@ import {
   type SessionKickKind,
 } from '@/lib/device-session'
 import { getOrCreateDeviceId } from '@/lib/device-id'
+import { isRetryableAuthError } from '@/lib/auth-errors'
 import { logDiag, setSessionStatusProvider, startSessionDiag } from '@/lib/session-diag'
 import { __resetRehearsalsCache } from '@/hooks/useRehearsals'
 import { setLoggedIn } from '@/lib/authStore'
@@ -223,11 +224,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
       setRestoreFailed(false)
       logDiag('restore_retry_ok', { hasSession: !!data.session })
     } catch (err) {
-      // 超时/网络类失败：保持「恢复失败」语义，页面继续显示可重试的错误态；
-      // 不能在这里 applySession(null)——那会把一个可能有效的本地会话清掉。
-      setRestoreFailed(true)
+      const retryable = isRetryableAuthError(err)
+      if (retryable) {
+        // 超时/网络类失败：保持「恢复失败」语义，页面继续显示可重试的错误态；
+        // 不能在这里 applySession(null)——那会把一个可能有效的本地会话清掉。
+        setRestoreFailed(true)
+      } else {
+        // refresh token 已失效 / session 已不存在：这是定论。清本地会话，
+        // restoreFailed 归 false，页面守卫会跳登录，不再让用户空点重试。
+        applySession(null)
+        setRestoreFailed(false)
+      }
       logDiag('restore_retry_failed', {
         err: err instanceof Error ? err.message : String(err),
+        retryable,
       })
     } finally {
       if (timeoutId) clearTimeout(timeoutId)
@@ -313,14 +323,24 @@ export function UserProvider({ children }: { children: ReactNode }) {
         logDiag('restore_ok', { hasSession: !!data.session })
       } catch (err) {
         if (!mounted) return
+        const retryable = isRetryableAuthError(err)
         // 事件已给出会话时不降级（超时只是 getSession 未返回，会话仍可用）
         if (!eventArrived) {
-          setSession(null)
-          setRestoreFailed(true)
+          if (retryable) {
+            // 超时/网络/5xx：用户可能其实登录着，保留「恢复失败」让页面提供重试
+            setSession(null)
+            setRestoreFailed(true)
+          } else {
+            // refresh token 已失效 / session 已不存在：定论失败，重试没有意义。
+            // 清本地会话并归零 restoreFailed，守卫会直接跳登录。
+            applySession(null)
+            setRestoreFailed(false)
+          }
         }
         logDiag('restore_failed', {
           timeout: err instanceof Error && err.message === '会话恢复超时',
           err: err instanceof Error ? err.message : String(err),
+          retryable,
         })
       } finally {
         if (timeoutId) clearTimeout(timeoutId)
