@@ -33,6 +33,9 @@ const mocks = vi.hoisted(() => ({
   })),
   signOut: vi.fn(async () => ({ error: null })),
   markForcedOffline: vi.fn(),
+  // 注册页有三个 Picker（乐器 17 项 / 年份 8 项 / 学期 2 项）。垫片按 range 长度
+  // 决定选中项，默认全选第 0 项；需要选「其他」（乐器最后一项）的用例把 17 映射到 16。
+  pickerIndexByRange: {} as Record<number, number>,
 }))
 
 vi.mock('@tarojs/components', () => {
@@ -53,7 +56,7 @@ vi.mock('@tarojs/components', () => {
   const Picker = (props: Record<string, unknown>) => {
     const {
       onChange,
-      range: _range,
+      range,
       value: _value,
       mode: _mode,
       children,
@@ -65,9 +68,14 @@ vi.mock('@tarojs/components', () => {
       mode?: unknown
       children?: React.ReactNode
     }
+    const rangeLength = Array.isArray(range) ? range.length : 0
     return React.createElement(
       'div',
-      { ...rest, onClick: () => onChange?.({ detail: { value: 0 } }) },
+      {
+        ...rest,
+        onClick: () =>
+          onChange?.({ detail: { value: mocks.pickerIndexByRange[rangeLength] ?? 0 } }),
+      },
       children
     )
   }
@@ -158,7 +166,8 @@ async function fillValidForm() {
 }
 
 /** 同上，但界面处于英文环境（标签与占位符都取 en 词表） */
-async function fillValidFormEn() {
+async function fillValidFormEn(pickerIndexByRange: Record<number, number> = {}) {
+  mocks.pickerIndexByRange = pickerIndexByRange
   typeInto('Enter your real name', 'Lisa Chen')
   typeInto('name@example.com', 'Lisa@Example.COM')
   fireEvent.click(screen.getByText('Select section'))
@@ -171,6 +180,7 @@ async function fillValidFormEn() {
 
 beforeEach(() => {
   mocks.locale = 'zh-CN'
+  mocks.pickerIndexByRange = {}
   route.params = {}
   mocks.invoke.mockResolvedValue({ data: { access_token: 'at', refresh_token: 'rt' }, error: null })
   mocks.setSession.mockResolvedValue({ error: null })
@@ -259,6 +269,26 @@ describe('注册页', () => {
     ]
     // 库里只接受「YYYY春/YYYY秋」：en 下若把 Spring 拼进去，会被 CHECK 约束拒掉、整次注册 500
     expect(opts.body.join_date).toBe(`${new Date().getFullYear()}春`)
+  })
+
+  it('英文环境选「其他」：界面显示 Other，写库的是规范值「其他」', async () => {
+    mocks.locale = 'en'
+    render(<Register />)
+    await waitFor(() => expect(screen.getByText('Submit')).toBeTruthy())
+    // 乐器 picker 有 17 项（16 个乐器 + Other），最后一项是 Other
+    await fillValidFormEn({ 17: 16 })
+
+    // 显示侧仍走本地化文案
+    expect(screen.getByText('Other')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Submit'))
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(1))
+    const [, opts] = mocks.invoke.mock.calls[0] as unknown as [
+      string,
+      { body: Record<string, unknown> },
+    ]
+    // 旧版这里发的是 i18n label（en 下是 Other）；这版开始直接发规范值
+    expect(opts.body.instrument).toBe('其他')
   })
 
   it('提交失败后重试：重新取 wx.login 的 code，不复用上一次那个', async () => {
