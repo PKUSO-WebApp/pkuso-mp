@@ -82,9 +82,12 @@ describe('migrateAnnotationStorage（D16）', () => {
     expect(storage.get(annoStorageKey('u1', 'f1'))).toBe(doc)
   })
 
-  it('guest 目录迁到当前账号，并删掉 guest 键', () => {
+  it('guest 目录迁到当前账号，并删掉 guest 键；记录里的 userId 也要改成新 owner', () => {
     storage.set(annoStorageKey(GUEST_ANNO_OWNER, 'f1'), doc)
-    storage.set(annoSyncKey(GUEST_ANNO_OWNER, 'f1'), JSON.stringify({ userId: 'guest', base: {} }))
+    storage.set(
+      annoSyncKey(GUEST_ANNO_OWNER, 'f1'),
+      JSON.stringify({ userId: 'guest', base: { '1': { fp: 'aaaa' } } })
+    )
     storage.set(
       annoConflictKey(GUEST_ANNO_OWNER, 'f1'),
       JSON.stringify({ userId: 'guest', pages: [2] })
@@ -97,6 +100,9 @@ describe('migrateAnnotationStorage（D16）', () => {
     expect(storage.has(annoSyncKey(GUEST_ANNO_OWNER, 'f1'))).toBe(false)
     expect(storage.has(annoConflictKey(GUEST_ANNO_OWNER, 'f1'))).toBe(false)
     expect(storage.get(annoStorageKey('u1', 'f1'))).toBe(doc)
+    // 只改键不改值的话，load 会因为 record.userId 仍是 guest 而当没有
+    expect(loadSyncBase('f1', 'u1')).toEqual({ '1': { fp: 'aaaa' } })
+    expect(loadConflicts('f1', 'u1')).toEqual([2])
     expect(isAnnoPending('u1')).toBe(true)
     expect(isAnnoPending(GUEST_ANNO_OWNER)).toBe(false)
   })

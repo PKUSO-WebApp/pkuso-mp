@@ -55,6 +55,39 @@ const copyThenRemove = (from: string, to: string): void => {
   }
 }
 
+/**
+ * 同步基线 / 冲突记录的值里也有 `userId`，迁移时必须一起改成新 owner。
+ * 只改存储键不改值的话，`loadSyncBase` 的 `record.userId !== userId` 会把它当没有。
+ */
+const copyRecordThenRemove = (from: string, to: string, owner: string): void => {
+  try {
+    const raw = Taro.getStorageSync(from)
+    if (!raw) {
+      remove(from)
+      return
+    }
+    if (Taro.getStorageSync(to)) {
+      remove(from)
+      return
+    }
+    let next: unknown = raw
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          next = JSON.stringify({ ...parsed, userId: owner })
+        }
+      } catch {
+        // 坏数据原样搬过去：load 侧本来就会当空
+      }
+    }
+    Taro.setStorageSync(to, next)
+    remove(from)
+  } catch {
+    // 写失败就保留旧键：下次启动再试
+  }
+}
+
 const parseRecordUserId = (raw: unknown): string | null => {
   if (typeof raw !== 'string' || !raw) return null
   try {
@@ -91,7 +124,7 @@ export function migrateAnnotationStorage(userId: string): void {
       const fileId = key.slice(LEGACY_SYNC_PREFIX.length)
       const raw = Taro.getStorageSync(key)
       const owner = parseRecordUserId(raw) ?? userId
-      if (fileId) copyThenRemove(key, annoSyncKey(owner, fileId))
+      if (fileId) copyRecordThenRemove(key, annoSyncKey(owner, fileId), owner)
       continue
     }
 
@@ -100,7 +133,7 @@ export function migrateAnnotationStorage(userId: string): void {
       const fileId = key.slice(LEGACY_CONFLICT_PREFIX.length)
       const raw = Taro.getStorageSync(key)
       const owner = parseRecordUserId(raw) ?? userId
-      if (fileId) copyThenRemove(key, annoConflictKey(owner, fileId))
+      if (fileId) copyRecordThenRemove(key, annoConflictKey(owner, fileId), owner)
     }
   }
 
@@ -127,12 +160,12 @@ export function migrateAnnotationStorage(userId: string): void {
   for (const key of storageKeys()) {
     if (typeof key !== 'string' || !key.startsWith(annoSyncPrefix(GUEST_ANNO_OWNER))) continue
     const fileId = key.slice(annoSyncPrefix(GUEST_ANNO_OWNER).length)
-    if (fileId) copyThenRemove(key, annoSyncKey(userId, fileId))
+    if (fileId) copyRecordThenRemove(key, annoSyncKey(userId, fileId), userId)
   }
   for (const key of storageKeys()) {
     if (typeof key !== 'string' || !key.startsWith(annoConflictPrefix(GUEST_ANNO_OWNER))) continue
     const fileId = key.slice(annoConflictPrefix(GUEST_ANNO_OWNER).length)
-    if (fileId) copyThenRemove(key, annoConflictKey(userId, fileId))
+    if (fileId) copyRecordThenRemove(key, annoConflictKey(userId, fileId), userId)
   }
   try {
     if (Taro.getStorageSync(ANNO_PENDING_KEY(GUEST_ANNO_OWNER)) === true) {

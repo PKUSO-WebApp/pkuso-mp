@@ -424,6 +424,8 @@ let lastScanAt = 0
 export async function syncAllAnnotationFiles(): Promise<void> {
   if (scanning) return
   const userId = await currentUserId()
+  // 上面的 await 让出了执行权：并发调用可能都通过了第一道检查，这里再判一次
+  if (scanning) return
   if (!userId) return
   // D16 兜底：会话可能比 user-context 的迁移先就绪；旧键先归到当前账号名下再列册
   migrateAnnotationStorage(userId)
