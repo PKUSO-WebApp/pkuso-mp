@@ -12,16 +12,19 @@ import { supabase } from '@/lib/supabase'
 import { displayPdfName } from '@/lib/pdf-save'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass, useThemeContext } from '@/context/theme-context'
+import { useUser } from '@/context/user-context'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
 import { AnnotationConflictSheet } from '@/components/score/AnnotationConflictSheet'
 import { AnnotationHistorySheet } from '@/components/score/AnnotationHistorySheet'
 import { SharedConflictSheet } from '@/components/score/SharedConflictSheet'
+import { SharedMergeSheet } from '@/components/score/SharedMergeSheet'
 import { ReaderToolbar, type ReaderPanel } from '@/components/score/ReaderToolbar'
 import { ReaderTutorial } from '@/components/score/ReaderTutorial'
 import { SaveToSheet } from '@/components/score/SaveToSheet'
 import { usePdfHandoff } from '@/hooks/usePdfHandoff'
 // 顶栏图标（Lucide 系列，72×72 PNG；暗色用 -dark 变体）
 import {
+  GUEST_ANNO_OWNER,
   HIGHLIGHTER_ALPHA,
   HIGHLIGHTER_WIDTHS,
   PEN_COLORS,
@@ -49,6 +52,7 @@ import {
   type SharedConflictChoice,
   type SharedSaveState,
 } from './lib/shared-annotation-backend'
+import { loadMergePages, type MergeDirection } from './lib/shared-merge'
 import type { CanvasCtx, CanvasNode, Drag, Job, Layer, Pan, Pinch, Stage } from './lib/types'
 import { frameInk, rasterDpr, sampleEdgeColors } from './lib/raster'
 import { bytesToMB, createBitmapLedger } from './lib/raster-budget'
@@ -232,6 +236,12 @@ export default function ScoreReader() {
   const fileId = router.params.file_id ? decodeURIComponent(router.params.file_id) : ''
   /** 共享谱模式（由「共享的乐谱」列表带进来）；参数名避开布局用的 mode */
   const sharedMode = router.params.kind === 'shared'
+  /**
+   * 批注归属（D16）：登录账号的 id，未登录为 guest。
+   * 会话恢复完成前**不知道**该读谁的目录 ⇒ 批注区先按只读对待。
+   */
+  const { user, ready: userReady } = useUser()
+  const annoOwner = user?.id ?? GUEST_ANNO_OWNER
   // 列表页（pages/score-part）带过来的元数据：省掉一次走反代到境外库的查询
   //（实测 ~600ms）。缺了就回退查库——分享链接等旧入口不受影响。
   const presetStoragePath = router.params.sp ? decodeURIComponent(router.params.sp) : ''
@@ -393,12 +403,25 @@ export default function ScoreReader() {
   const [hlWidth, setHlWidth] = useState<number>(HIGHLIGHTER_WIDTHS[1])
   const [annos, setAnnos] = useState<AnnoDoc>({})
   /**
-   * 共享谱无写权（P6b）。初值取 sharedMode：写权限与远端版本都要等 load() 回来才知道，
-   * 在那之前一律按只读对待（画了也存不进去，不能让它看起来画成功了）。personal 恒 false。
+   * 批注是否只读。加载完成前一律 true（D16：会话未恢复时不知道读谁的目录；
+   * shared 还要等写权限与远端版本）。load 完成后落回 backend.readOnly —— personal 为 false。
    */
-  const [annotationReadOnly, setAnnotationReadOnly] = useState(sharedMode)
+  const [annotationReadOnly, setAnnotationReadOnly] = useState(true)
   const [sharedSaveState, setSharedSaveState] = useState<SharedSaveState>('saved')
   const [sharedConflicts, setSharedConflicts] = useState<SharedAnnotationConflict[]>([])
+  /** P6c：合并批注面板（方向 + 需要选择的页） */
+  const [mergeOn, setMergeOn] = useState(false)
+  const [mergeDirection, setMergeDirection] = useState<MergeDirection>('to-personal')
+  const [mergePages, setMergePages] = useState<number[]>([])
+  const [mergeLoading, setMergeLoading] = useState(false)
+  const [mergeError, setMergeError] = useState<string | null>(null)
+  const [mergeReason, setMergeReason] = useState<
+    'no-user' | 'sync-failed' | 'personal-conflicts' | 'not-allowed' | 'load-failed' | null
+  >(null)
+  /** 合并页请求序号：快速切方向时只认最后一次 */
+  const mergeSeqRef = useRef(0)
+  /** 刚从合并页返回时记下方向：to-shared 回来要重载共享批注（内存里的版本已经旧了） */
+  const mergeVisitedRef = useRef<MergeDirection | null>(null)
   /**
    * 批注的同步镜像：**读-改-写**的调用点一律读它，不读 state。
    *
@@ -932,27 +955,76 @@ export default function ScoreReader() {
     setConflictOn(true)
   }, [fileId])
 
+  /**
+   * 打开合并面板 / 换方向：算「哪些页需要选择」。
+   *
+   * 依赖链在 `loadMergePages` 里：先对一次个人层账、检查个人冲突（共享→个人）
+   * 或写权（个人→共享），再取两侧内容算差异页。这里只管把结果映射成文案。
+   */
+  const loadMergeFor = useCallback(
+    async (direction: MergeDirection) => {
+      const seq = ++mergeSeqRef.current
+      setMergeDirection(direction)
+      setMergeLoading(true)
+      setMergeError(null)
+      setMergeReason(null)
+      try {
+        const res = await loadMergePages(fileId, direction)
+        if (seq !== mergeSeqRef.current) return
+        if (res.ok) {
+          setMergePages(res.pages)
+          return
+        }
+        setMergePages([])
+        setMergeReason(res.reason)
+        setMergeError(
+          res.reason === 'no-user'
+            ? t('scoreReader.merge.noUser')
+            : res.reason === 'sync-failed'
+              ? t('scoreReader.merge.syncFailed')
+              : res.reason === 'personal-conflicts'
+                ? t('scoreReader.merge.personalConflicts')
+                : res.reason === 'not-allowed'
+                  ? t('scoreReader.merge.notAllowed')
+                  : t('scoreReader.merge.loadFailedList')
+        )
+      } catch {
+        if (seq !== mergeSeqRef.current) return
+        setMergePages([])
+        setMergeReason('load-failed')
+        setMergeError(t('scoreReader.merge.loadFailedList'))
+      } finally {
+        if (seq === mergeSeqRef.current) setMergeLoading(false)
+      }
+    },
+    [fileId, t]
+  )
+
   const annotationBackend = useMemo(() => {
     const backend = sharedMode
       ? createSharedAnnotationBackend({
           onSaveState: (state) => setSharedSaveState(state),
           onConflict: (conflicts) => setSharedConflicts(conflicts),
         })
-      : createAnnotationBackend('personal', {
-          onAdopt: (doc) => {
-            annosRef.current = doc
-            setAnnos(doc)
+      : createAnnotationBackend(
+          'personal',
+          {
+            onAdopt: (doc) => {
+              annosRef.current = doc
+              setAnnos(doc)
+            },
+            onConflict: () => {
+              void refreshConflicts()
+            },
+            onSynced: () => {
+              void refreshConflicts()
+            },
           },
-          onConflict: () => {
-            void refreshConflicts()
-          },
-          onSynced: () => {
-            void refreshConflicts()
-          },
-        })
+          annoOwner
+        )
     annotationBackendRef.current = backend
     return backend
-  }, [refreshConflicts, sharedMode])
+  }, [annoOwner, refreshConflicts, sharedMode])
 
   // 个人批注专属 UI（历史、冲突列表、同步状态）只在 personal 模式出现；
   // 共享谱走自己的保存状态徽标与冲突面板。
@@ -962,7 +1034,12 @@ export default function ScoreReader() {
   // 这一次同时是「上次进程被杀、那一册的欠账没推上去」的兜底：欠账由指纹推导，不靠内存。
   useEffect(() => {
     if (!fileId) return
+    // 会话恢复完成前不读：D16 要把批注读到**当前账号**的目录里；
+    // shared 的远程查询也要等登录态就绪（否则 RLS 会把它们当匿名返回空集）。
+    if (!userReady) return
     let cancelled = false
+    // 加载完成前不许画：personal 的 owner 可能还没确定，shared 的权限/版本也还没回来
+    setAnnotationReadOnly(true)
     // 换册时上一册的共享冲突/保存状态不跟过来
     setSharedConflicts([])
     setSharedSaveState('saved')
@@ -979,7 +1056,22 @@ export default function ScoreReader() {
       cancelled = true
       annotationBackend.onClose?.()
     }
-  }, [fileId, annotationBackend])
+  }, [annotationBackend, fileId, userReady])
+
+  /**
+   * 从「个人 → 共享」合并页回来时重载共享批注（P6c）。
+   * 合并写的是共享表，阅读器内存里的 strokes / version 已经旧了；
+   * 不重载就会拿着旧版本继续画，下一次 CAS 必然撞冲突。
+   */
+  const reloadSharedAnnotations = useCallback(async () => {
+    if (!sharedMode || !fileId) return
+    const doc = await annotationBackend.load(fileId)
+    setAnnotationReadOnly(annotationBackend.readOnly)
+    // 重载同时也把共享冲突快照清掉：合并刚写完，旧冲突面板不能再挂着
+    setSharedConflicts([])
+    annosRef.current = doc
+    setAnnos(doc)
+  }, [annotationBackend, fileId, sharedMode])
 
   // 首次教程：等**首帧出来**再展示（一进页面就盖住加载过程，用户看不到自己在等什么），
   // 此时菜单保持默认隐藏，教程讲的正是「点中间唤出菜单」
@@ -1692,8 +1784,24 @@ export default function ScoreReader() {
     // 摆位记账不再被清（见 invalidatePredraw）⇒ 回前台那一瞬画面不会先变空白
     if (docTick > 0) requestRef.current({ page: pageRef.current, zoom: zoomRef.current })
     // 从冲突解决页回来（或从后台回来）：按落盘的记录重算一次——解决掉的那几页要消失，
-    // 全解决了就把列表收起来。同一次会话里刚提示过的页不会被重新弹出来
-    if (fileId) void refreshConflicts()
+    // 全解决了就把列表收起来。同一次会话里刚提示过的页不会被重新弹出来。
+    // ⚠️ 只在 personal 模式刷：shared 模式不需要个人冲突列表，误弹会盖住共享谱
+    if (personalAnnotation && fileId) void refreshConflicts()
+    // 从合并页回来：to-shared 写的是共享表，内存里的笔迹/版本已旧，必须重载
+    const visited = mergeVisitedRef.current
+    if (visited) {
+      mergeVisitedRef.current = null
+      if (visited === 'to-shared') void reloadSharedAnnotations()
+    }
+    // 合并面板还开着：刷新「需要选择的页」（刚处理掉的那页会消失）
+    if (mergeOn && fileId) void loadMergeFor(mergeDirection)
+    // shared 模式下打开的是**个人**冲突列表（合并前置）：从冲突页回来也要摘掉已解决的页
+    if (sharedMode && conflictOn && fileId) {
+      void loadConflictPages(fileId).then((pages) => {
+        setConflictPages(pages)
+        if (pages.length === 0) setConflictOn(false)
+      })
+    }
   })
 
   /** 让画面追上当前 page/zoom */
@@ -3448,7 +3556,7 @@ export default function ScoreReader() {
    *
    * `url` 传**取值函数**而不是值：`fileUrlRef` 是 ref，渲染期读会拿到空串。
    */
-  const handoff = usePdfHandoff()
+  const handoff = usePdfHandoff(annoOwner)
 
   /**
    * 共享谱 CAS 冲突：逐页三选一之后，把选定的内容落回内存态。
@@ -3462,6 +3570,53 @@ export default function ScoreReader() {
     if (!next) return // 写失败或解决期间又被改了：面板会按新快照继续问
     annosRef.current = { ...annosRef.current, [String(target)]: next }
     setAnnos(annosRef.current)
+  }
+
+  /** 打开合并面板（入口在「保存到…」里）；只读时不允许从「我的 → 共享」开始 */
+  const openMerge = () => {
+    handoff.close()
+    const dir =
+      mergeDirection === 'to-shared' && annotationReadOnly ? 'to-personal' : mergeDirection
+    setMergeOn(true)
+    void loadMergeFor(dir)
+  }
+
+  /**
+   * 进某一页的合并预览。
+   *
+   * ⚠️ `to-shared` 前必须等共享层的挂起写入发完：合并页读的是共享表的**当前**内容，
+   * 还有没落盘的编辑时进去，会拿着旧内容做选择，回来再撞一次 CAS。
+   */
+  const pickMergePage = async (target: number) => {
+    if (mergeDirection === 'to-shared') {
+      if (!sharedMode || annotationBackend.kind !== 'shared') return
+      const ok = await (annotationBackend as SharedAnnotationBackend).flushNow()
+      if (!ok) {
+        void Taro.showToast({ title: t('scoreReader.merge.syncFailed'), icon: 'none' })
+        return
+      }
+    }
+    const q = [
+      `file_id=${encodeURIComponent(fileId)}`,
+      `page=${target}`,
+      `direction=${mergeDirection}`,
+      `u=${encodeURIComponent(fileUrlRef.current)}`,
+      presetFileName ? `fn=${encodeURIComponent(presetFileName)}` : '',
+    ]
+      .filter(Boolean)
+      .join('&')
+    mergeVisitedRef.current = mergeDirection
+    void Taro.navigateTo({ url: `/pages/score-reader/merge/index?${q}` })
+  }
+
+  /** 合并被个人冲突挡住时：关掉合并面板，打开冲突列表 */
+  const resolvePersonalConflicts = () => {
+    setMergeOn(false)
+    void (async () => {
+      const pages = await loadConflictPages(fileId)
+      setConflictPages(pages)
+      if (pages.length > 0) setConflictOn(true)
+    })()
   }
 
   /**
@@ -3987,7 +4142,7 @@ export default function ScoreReader() {
             没有冲突时它一个像素都不占，用户点了「稍后处理」本次会话就不再弹。
             ⚠️ 首次教程开着时**先不弹**（教程 z=60 比它低，会互相盖）：等用户关掉教程
             再出现 —— 冲突不急这一下，而教程盖住一半、点不着更糟 */}
-        {personalAnnotation && conflictOn && !tutorialOn ? (
+        {conflictOn && !tutorialOn ? (
           <AnnotationConflictSheet
             pages={conflictPages}
             onPick={openConflictPage}
@@ -4014,7 +4169,24 @@ export default function ScoreReader() {
             onPick={handoff.pick}
             // 云端历史是个人批注层的概念；共享谱没有这行
             onHistory={personalAnnotation ? openHistory : undefined}
+            // 共享谱才有「合并批注…」（P6c）
+            onMergeShared={sharedMode ? openMerge : undefined}
             onClose={handoff.close}
+          />
+        ) : null}
+        {mergeOn ? (
+          <SharedMergeSheet
+            direction={mergeDirection}
+            canEditShared={!annotationReadOnly}
+            pages={mergePages}
+            loading={mergeLoading}
+            error={mergeError}
+            onDirection={(d) => void loadMergeFor(d)}
+            onPick={(target) => void pickMergePage(target)}
+            onResolvePersonalConflicts={
+              mergeReason === 'personal-conflicts' ? resolvePersonalConflicts : undefined
+            }
+            onClose={() => setMergeOn(false)}
           />
         ) : null}
         {/* 「恢复云端历史」：与分享面板同一个 z（Z_SHEET），靠 DOM 顺序压在它上面 */}

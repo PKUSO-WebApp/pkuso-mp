@@ -47,7 +47,7 @@ export default defineAppConfig({
   subpackages: [
     {
       root: 'pages/score-reader',
-      pages: ['index', 'conflict/index'],
+      pages: ['index', 'conflict/index', 'merge/index'],
       name: 'scoreReader',
     },
   ],

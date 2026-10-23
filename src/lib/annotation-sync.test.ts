@@ -384,20 +384,20 @@ describe('同步记账的读写', () => {
       '1': { fp: 'aaa', version: 'v1' },
       '2': { fp: 'bbb' },
     })
-    expect(annoSyncKey('f1')).toBe('score-annotation-sync:f1')
+    expect(annoSyncKey('u1', 'f1')).toBe('score-annotation-sync-v2:u1:f1')
   })
 
   it('⭐ 旧版基线（纯字符串表）读得进来：补成 { fp }（version 缺 = 本机制之前的老数据）', () => {
-    storage.set(annoSyncKey('f1'), JSON.stringify({ userId: 'u1', base: { '1': 'aaa' } }))
+    storage.set(annoSyncKey('u1', 'f1'), JSON.stringify({ userId: 'u1', base: { '1': 'aaa' } }))
     expect(loadSyncBase('f1', 'u1')).toEqual({ '1': { fp: 'aaa' } })
   })
 
   it('基线坏了当没有，不抛', () => {
-    storage.set(annoSyncKey('f1'), 'not json')
+    storage.set(annoSyncKey('u1', 'f1'), 'not json')
     expect(loadSyncBase('f1', 'u1')).toEqual({})
-    storage.set(annoSyncKey('f1'), '["a"]')
+    storage.set(annoSyncKey('u1', 'f1'), '["a"]')
     expect(loadSyncBase('f1', 'u1')).toEqual({})
-    storage.set(annoSyncKey('f1'), JSON.stringify({ userId: 'u1', base: ['x'] }))
+    storage.set(annoSyncKey('u1', 'f1'), JSON.stringify({ userId: 'u1', base: ['x'] }))
     expect(loadSyncBase('f1', 'u1')).toEqual({})
   })
 
@@ -410,12 +410,12 @@ describe('同步记账的读写', () => {
   })
 
   it('冲突记录：往返 / 排序去重 / 空数组 = 删掉记录', () => {
-    expect(annoConflictKey('f1')).toBe('score-annotation-conflict:f1')
+    expect(annoConflictKey('u1', 'f1')).toBe('score-annotation-conflict-v2:u1:f1')
     expect(loadConflicts('f1', 'u1')).toEqual([])
     saveConflicts('f1', 'u1', [7, 3, 7])
     expect(loadConflicts('f1', 'u1')).toEqual([3, 7])
     saveConflicts('f1', 'u1', [])
-    expect(storage.has(annoConflictKey('f1'))).toBe(false)
+    expect(storage.has(annoConflictKey('u1', 'f1'))).toBe(false)
     expect(loadConflicts('f1', 'u1')).toEqual([])
   })
 
@@ -425,7 +425,7 @@ describe('同步记账的读写', () => {
   })
 
   it('冲突记录坏了当没有；摘一页只动那一页', () => {
-    storage.set(annoConflictKey('f1'), 'not json')
+    storage.set(annoConflictKey('u1', 'f1'), 'not json')
     expect(loadConflicts('f1', 'u1')).toEqual([])
     saveConflicts('f1', 'u1', [3, 7, 9])
     clearConflictPage('f1', 'u1', 7)
@@ -435,20 +435,23 @@ describe('同步记账的读写', () => {
   })
 
   it('列册只看批注键：同步键 / 冲突键 / 欠账标记都不算', () => {
-    storage.set('score-annotation:a', '{}')
-    storage.set('score-annotation:b', '{}')
-    storage.set(annoSyncKey('a'), '{}')
-    storage.set(annoConflictKey('b'), '{}')
-    storage.set(ANNO_PENDING_KEY, 'true')
+    storage.set('score-annotation-v2:u1:a', '{}')
+    storage.set('score-annotation-v2:u1:b', '{}')
+    storage.set(annoSyncKey('u1', 'a'), '{}')
+    storage.set(annoConflictKey('u1', 'b'), '{}')
+    storage.set(ANNO_PENDING_KEY('u1'), 'true')
     storage.set('pkuso_error_queue', '[]')
-    expect(listAnnotatedFileIds().sort()).toEqual(['a', 'b'])
+    expect(listAnnotatedFileIds('u1').sort()).toEqual(['a', 'b'])
+    // 别的账号的册不出现在这个账号的扫描结果里
+    expect(listAnnotatedFileIds('u2')).toEqual([])
   })
 
   it('欠账标记：置位 / 读取 / 清除', () => {
-    expect(isAnnoPending()).toBe(false)
-    markAnnoPending()
-    expect(isAnnoPending()).toBe(true)
-    clearAnnoPending()
-    expect(isAnnoPending()).toBe(false)
+    expect(isAnnoPending('u1')).toBe(false)
+    markAnnoPending('u1')
+    expect(isAnnoPending('u1')).toBe(true)
+    expect(isAnnoPending('u2')).toBe(false)
+    clearAnnoPending('u1')
+    expect(isAnnoPending('u1')).toBe(false)
   })
 })

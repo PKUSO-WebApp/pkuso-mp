@@ -259,6 +259,23 @@ describe('createSharedAnnotationBackend', () => {
     expect(pushCalls()).toHaveLength(1)
   })
 
+  it('flushNow：没有挂起内容 ⇒ true；写了并成功 ⇒ true；网络失败 ⇒ false', async () => {
+    annEq.mockResolvedValue({ data: [], error: null })
+    const backend = createSharedAnnotationBackend({})
+    await backend.load('f1')
+    await expect(backend.flushNow()).resolves.toBe(true)
+
+    backend.persist('f1', { '1': [stroke('a')] })
+    await expect(backend.flushNow()).resolves.toBe(true)
+
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === CAN_EDIT) return Promise.resolve({ data: true, error: null })
+      return Promise.resolve({ data: null, error: { message: 'net' } })
+    })
+    backend.persist('f1', { '1': [stroke('b')] })
+    await expect(backend.flushNow()).resolves.toBe(false)
+  })
+
   it('写入在飞时又画了新内容：新的一笔不会被 CAS 成功后的清理吞掉，会再发一轮', async () => {
     annEq.mockResolvedValue({ data: [], error: null })
     const backend = createSharedAnnotationBackend({})

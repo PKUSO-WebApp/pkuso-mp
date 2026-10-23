@@ -48,7 +48,7 @@ export type PdfHandoffMeta = {
  */
 const reqKeyOf = (fileId: string, anno: boolean) => `${fileId}#${anno ? 'anno' : 'orig'}`
 
-export function usePdfHandoff() {
+export function usePdfHandoff(owner: string) {
   const { t } = useT()
   /**
    * 当前这一份的元数据：**在 `open()` 时定**，不是构造时传。
@@ -251,7 +251,7 @@ export function usePdfHandoff() {
     // 有没有笔迹在这一刻定：没有就把开关压回「否」（它同时也是「固定为否」的落点 ——
     // 面板上那个开关会被禁用，这里再压一次值，两道闸）
     const allow = m.allowAnnotations !== false
-    const has = allow && docHasInk(loadAnnoDoc(m.fileId))
+    const has = allow && docHasInk(loadAnnoDoc(owner, m.fileId))
     setHasAnno(has)
     const anno = has && withAnno
     if (anno !== withAnno) setWithAnno(anno)
