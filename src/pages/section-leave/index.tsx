@@ -173,8 +173,9 @@ export default function SectionLeavePage() {
 
   return (
     <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
-      {/* 筛选栏：左侧点开排练列表（可滚动，带条数），右侧「含取消」切换。
-          排练数再多也只是弹层里的一行，不会把页头撑成一条横滚的 chip 墙。 */}
+      {/* 筛选栏：左侧点开排练列表（可滚动，带条数），右侧「显示取消」开关。
+          开关文字恒定，开/关由轨道颜色和滑块位置表达——不再用会随点击翻转的
+          动作式文案，避免「标签说的和当前列表相反」。 */}
       <View className='flex items-center justify-between gap-2 px-4 py-3'>
         <View
           className='flex min-w-0 flex-1 items-center gap-1'
@@ -186,12 +187,21 @@ export default function SectionLeavePage() {
           <Text className='shrink-0 text-xs text-text-muted'>▾</Text>
         </View>
         <View
-          className='shrink-0 rounded-full border border-border bg-muted px-3 py-1'
+          className='flex shrink-0 items-center gap-1.5'
           onClick={() => setIncludeCanceled((v) => !v)}
         >
-          <Text className='text-xs text-primary'>
-            {includeCanceled ? t('sectionLeave.onlyActive') : t('sectionLeave.includeCanceled')}
+          <Text className={`text-xs ${includeCanceled ? 'text-text' : 'text-text-muted'}`}>
+            {t('sectionLeave.showCanceled')}
           </Text>
+          <View
+            className={`flex h-5 w-9 items-center rounded-full p-0.5 ${
+              includeCanceled ? 'bg-primary' : 'bg-border'
+            }`}
+          >
+            <View
+              className={`h-4 w-4 rounded-full bg-card shadow ${includeCanceled ? 'ml-auto' : ''}`}
+            />
+          </View>
         </View>
       </View>
 

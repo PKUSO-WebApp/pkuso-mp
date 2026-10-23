@@ -1,7 +1,6 @@
 export const sectionLeave = {
   navTitle: '声部请假',
-  includeCanceled: '显示全部（含取消）',
-  onlyActive: '仅显示未取消',
+  showCanceled: '显示取消',
   allRehearsals: '全部排练',
   filterTitle: '选择排练',
   empty: '暂无声部请假记录',

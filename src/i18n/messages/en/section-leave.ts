@@ -1,7 +1,6 @@
 export const sectionLeave = {
   navTitle: 'Section Leave',
-  includeCanceled: 'Show all (including canceled)',
-  onlyActive: 'Active only',
+  showCanceled: 'Show canceled',
   allRehearsals: 'All rehearsals',
   filterTitle: 'Filter by rehearsal',
   empty: 'No section leave requests',
