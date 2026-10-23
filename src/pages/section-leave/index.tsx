@@ -38,10 +38,14 @@ const STATUS_TONE: Record<LeaveStatus, StatusTone> = {
   canceled: 'neutral',
 }
 
+/** 默认视图排除的终态（与 get_section_leave_requests 的 p_include_canceled=false 同口径） */
+const HIDDEN_BY_DEFAULT = new Set<LeaveStatus>(['canceled', 'withdrawn'])
+
 /**
  * 声部请假：数据只来自 `get_section_leave_requests`（SECURITY DEFINER），
- * **不返回理由/附件**；默认仅未取消，切换后含 canceled/withdrawn。
- * 排练筛选在本地做（列表量级小），数据源仍是一次 RPC。
+ * **不返回理由/附件**。一次拉**全量**（含 canceled/withdrawn），「显示取消的请求」
+ * 开关只做本地过滤 —— 切换时不再重新请求 RPC / 成员 / 排练（时间不会重新加载）。
+ * 排练筛选也在本地做；列表量级小。
  */
 export default function SectionLeavePage() {
   const { t } = useT()
@@ -51,7 +55,7 @@ export default function SectionLeavePage() {
   const [includeCanceled, setIncludeCanceled] = useState(false)
   const [selectedRehearsal, setSelectedRehearsal] = useState<number | 'all'>('all')
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [rows, setRows] = useState<SectionLeaveRow[]>([])
+  const [allRows, setAllRows] = useState<SectionLeaveRow[]>([])
   const [profiles, setProfiles] = useState<Map<string, ProfileMini>>(new Map())
   const [rehearsals, setRehearsals] = useState<Map<number, RehearsalMini>>(new Map())
   const [loading, setLoading] = useState(true)
@@ -76,9 +80,10 @@ export default function SectionLeavePage() {
   const load = useCallback(async () => {
     setLoading(true)
     setFailed(false)
+    // 始终拉全量：开关只做本地过滤，避免每次切换都重新请求（时间也会重新拉）
     const { data, error } = await supabase.rpc('get_section_leave_requests', {
       p_rehearsal_id: undefined,
-      p_include_canceled: includeCanceled,
+      p_include_canceled: true,
     })
     if (error) {
       setLoading(false)
@@ -87,11 +92,7 @@ export default function SectionLeavePage() {
     }
 
     const list = (data as SectionLeaveRow[] | null) ?? []
-    setRows(list)
-    // 切换「含取消」后，原先选中的排练可能已不在列表里 ⇒ 回到「全部」
-    setSelectedRehearsal((prev) =>
-      prev === 'all' || list.some((r) => r.rehearsal_id === prev) ? prev : 'all'
-    )
+    setAllRows(list)
 
     const userIds = [...new Set(list.map((r) => r.user_id))]
     const rehearsalIds = [...new Set(list.map((r) => r.rehearsal_id))]
@@ -119,7 +120,7 @@ export default function SectionLeavePage() {
       new Map(((rehearsalRes.data as RehearsalMini[] | null) ?? []).map((r) => [r.id, r]))
     )
     setLoading(false)
-  }, [includeCanceled])
+  }, [])
 
   useEffect(() => {
     void load()
@@ -137,26 +138,41 @@ export default function SectionLeavePage() {
     })()
   }, [fetchByCategory, markCategoryRead])
 
+  // 本地过滤：数据只拉一次；开关切换不重新请求，也不重置时间
+  const visibleRows = useMemo(
+    () => (includeCanceled ? allRows : allRows.filter((r) => !HIDDEN_BY_DEFAULT.has(r.status))),
+    [allRows, includeCanceled]
+  )
+
+  // 切换后原先选中的排练可能只剩被隐藏的取消记录 ⇒ 回到「全部」
+  useEffect(() => {
+    setSelectedRehearsal((prev) =>
+      prev === 'all' || visibleRows.some((r) => r.rehearsal_id === prev) ? prev : 'all'
+    )
+  }, [visibleRows])
+
   const rehearsalOptions = useMemo(() => {
-    const ids = [...new Set(rows.map((r) => r.rehearsal_id))]
+    const ids = [...new Set(visibleRows.map((r) => r.rehearsal_id))]
     return ids
       .map((id) => rehearsals.get(id))
       .filter((r): r is RehearsalMini => !!r)
       .sort((a, b) => (b.start_time ?? '').localeCompare(a.start_time ?? ''))
-  }, [rehearsals, rows])
+  }, [rehearsals, visibleRows])
 
   const rehearsalCounts = useMemo(() => {
     const counts = new Map<number, number>()
-    for (const row of rows) {
+    for (const row of visibleRows) {
       counts.set(row.rehearsal_id, (counts.get(row.rehearsal_id) ?? 0) + 1)
     }
     return counts
-  }, [rows])
+  }, [visibleRows])
 
   const filtered = useMemo(
     () =>
-      selectedRehearsal === 'all' ? rows : rows.filter((r) => r.rehearsal_id === selectedRehearsal),
-    [rows, selectedRehearsal]
+      selectedRehearsal === 'all'
+        ? visibleRows
+        : visibleRows.filter((r) => r.rehearsal_id === selectedRehearsal),
+    [visibleRows, selectedRehearsal]
   )
 
   const selectedRehearsalInfo =
@@ -211,7 +227,7 @@ export default function SectionLeavePage() {
             loading={loading}
             error={failed ? t('sectionLeave.loadFailed') : null}
             isEmpty={filtered.length === 0}
-            emptyText={t('sectionLeave.empty')}
+            emptyText={includeCanceled ? t('sectionLeave.empty') : t('sectionLeave.emptyActive')}
             onRetry={() => void load()}
           >
             {filtered.map((row) => {
@@ -281,7 +297,7 @@ export default function SectionLeavePage() {
             >
               {t('sectionLeave.allRehearsals')}
             </Text>
-            <Text className='text-xs text-text-muted'>{rows.length}</Text>
+            <Text className='text-xs text-text-muted'>{visibleRows.length}</Text>
           </View>
 
           {rehearsalOptions.map((rehearsal) => {
