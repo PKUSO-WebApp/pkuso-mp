@@ -22,6 +22,7 @@ export type FeedbackRow = PublicSchema['Tables']['feedback']['Row']
 export type SheetMusicRow = PublicSchema['Tables']['sheet_music']['Row']
 export type SheetMusicPartRow = PublicSchema['Tables']['sheet_music_parts']['Row']
 export type SheetMusicFileRow = PublicSchema['Tables']['sheet_music_files']['Row']
+export type SharedScoreFileRow = PublicSchema['Views']['sheet_music_shared_score_files']['Row']
 export type SheetMusicDistributionRow = PublicSchema['Tables']['sheet_music_distributions']['Row']
 
 // ---- 枚举类型(从 database.types.ts Enums 派生) ----
