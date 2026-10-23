@@ -3,6 +3,7 @@ export const sectionLeave = {
   includeCanceled: 'Show all (including canceled)',
   onlyActive: 'Active only',
   allRehearsals: 'All rehearsals',
+  filterTitle: 'Filter by rehearsal',
   empty: 'No section leave requests',
   loadFailed: 'Failed to load. Please try again.',
   retry: 'Retry',

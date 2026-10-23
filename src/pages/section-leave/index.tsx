@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import { supabase } from '@/lib/supabase'
 import { ListState } from '@/components/ui/ListState'
+import { Modal } from '@/components/ui/Modal'
 import { StatusChip, type StatusTone } from '@/components/ui/StatusChip'
+import { useNotifications } from '@/hooks/useNotifications'
+import { notifyNotificationsUpdated } from '@/components/notification-badge-sync'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { useT, useNavTitle } from '@/i18n'
@@ -47,11 +50,13 @@ export default function SectionLeavePage() {
 
   const [includeCanceled, setIncludeCanceled] = useState(false)
   const [selectedRehearsal, setSelectedRehearsal] = useState<number | 'all'>('all')
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [rows, setRows] = useState<SectionLeaveRow[]>([])
   const [profiles, setProfiles] = useState<Map<string, ProfileMini>>(new Map())
   const [rehearsals, setRehearsals] = useState<Map<number, RehearsalMini>>(new Map())
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
+  const { fetchByCategory, markCategoryRead } = useNotifications()
 
   const statusLabels: Record<LeaveStatus, string> = {
     pending: t('leaveRequests.status.pending'),
@@ -83,6 +88,10 @@ export default function SectionLeavePage() {
 
     const list = (data as SectionLeaveRow[] | null) ?? []
     setRows(list)
+    // 切换「含取消」后，原先选中的排练可能已不在列表里 ⇒ 回到「全部」
+    setSelectedRehearsal((prev) =>
+      prev === 'all' || list.some((r) => r.rehearsal_id === prev) ? prev : 'all'
+    )
 
     const userIds = [...new Set(list.map((r) => r.user_id))]
     const rehearsalIds = [...new Set(list.map((r) => r.rehearsal_id))]
@@ -116,6 +125,18 @@ export default function SectionLeavePage() {
     void load()
   }, [load])
 
+  // 打开即把「声部请假」通知标为已读（与其他信箱同一语义）；只标本页打开时已有的 id，
+  // 打开瞬间新到的通知不会被无界更新误标。
+  useEffect(() => {
+    void (async () => {
+      const { rows: notifRows } = await fetchByCategory('section_leave')
+      const unread = notifRows.filter((r) => r.read_at === null).map((r) => r.id)
+      if (unread.length === 0) return
+      const ok = await markCategoryRead('section_leave', unread)
+      if (ok) notifyNotificationsUpdated()
+    })()
+  }, [fetchByCategory, markCategoryRead])
+
   const rehearsalOptions = useMemo(() => {
     const ids = [...new Set(rows.map((r) => r.rehearsal_id))]
     return ids
@@ -124,17 +145,48 @@ export default function SectionLeavePage() {
       .sort((a, b) => (b.start_time ?? '').localeCompare(a.start_time ?? ''))
   }, [rehearsals, rows])
 
+  const rehearsalCounts = useMemo(() => {
+    const counts = new Map<number, number>()
+    for (const row of rows) {
+      counts.set(row.rehearsal_id, (counts.get(row.rehearsal_id) ?? 0) + 1)
+    }
+    return counts
+  }, [rows])
+
   const filtered = useMemo(
     () =>
       selectedRehearsal === 'all' ? rows : rows.filter((r) => r.rehearsal_id === selectedRehearsal),
     [rows, selectedRehearsal]
   )
 
+  const selectedRehearsalInfo =
+    selectedRehearsal === 'all' ? null : rehearsals.get(selectedRehearsal)
+  const selectedLabel =
+    selectedRehearsal === 'all'
+      ? t('sectionLeave.allRehearsals')
+      : selectedRehearsalInfo?.start_time
+        ? formatRehearsalRange(
+            selectedRehearsalInfo.start_time,
+            selectedRehearsalInfo.end_time ?? null
+          )
+        : t('sectionLeave.timeUnset')
+
   return (
     <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
-      <View className='px-4 py-3'>
+      {/* 筛选栏：左侧点开排练列表（可滚动，带条数），右侧「含取消」切换。
+          排练数再多也只是弹层里的一行，不会把页头撑成一条横滚的 chip 墙。 */}
+      <View className='flex items-center justify-between gap-2 px-4 py-3'>
         <View
-          className='self-start rounded-full border border-border bg-muted px-3 py-1'
+          className='flex min-w-0 flex-1 items-center gap-1'
+          onClick={() => setPickerOpen(true)}
+        >
+          <Text className='overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium text-text'>
+            {selectedLabel}
+          </Text>
+          <Text className='shrink-0 text-xs text-text-muted'>▾</Text>
+        </View>
+        <View
+          className='shrink-0 rounded-full border border-border bg-muted px-3 py-1'
           onClick={() => setIncludeCanceled((v) => !v)}
         >
           <Text className='text-xs text-primary'>
@@ -142,43 +194,6 @@ export default function SectionLeavePage() {
           </Text>
         </View>
       </View>
-
-      <ScrollView scrollX className='px-4'>
-        <View className='inline-flex flex-row gap-1.5 pb-2'>
-          <View
-            className={`rounded-full border px-3 py-1 ${
-              selectedRehearsal === 'all' ? 'border-primary bg-primary' : 'border-border bg-card'
-            }`}
-            onClick={() => setSelectedRehearsal('all')}
-          >
-            <Text
-              className={`text-xs ${
-                selectedRehearsal === 'all' ? 'text-primary-foreground' : 'text-text'
-              }`}
-            >
-              {t('sectionLeave.allRehearsals')}
-            </Text>
-          </View>
-          {rehearsalOptions.map((rehearsal) => {
-            const active = selectedRehearsal === rehearsal.id
-            return (
-              <View
-                key={rehearsal.id}
-                className={`rounded-full border px-3 py-1 ${
-                  active ? 'border-primary bg-primary' : 'border-border bg-card'
-                }`}
-                onClick={() => setSelectedRehearsal(rehearsal.id)}
-              >
-                <Text className={`text-xs ${active ? 'text-primary-foreground' : 'text-text'}`}>
-                  {rehearsal.start_time
-                    ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
-                    : t('sectionLeave.timeUnset')}
-                </Text>
-              </View>
-            )
-          })}
-        </View>
-      </ScrollView>
 
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='px-4 pb-6 pt-1'>
@@ -233,6 +248,74 @@ export default function SectionLeavePage() {
           </ListState>
         </View>
       </ScrollView>
+
+      <Modal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        title={t('sectionLeave.filterTitle')}
+      >
+        <View>
+          <View
+            className={`flex items-center justify-between rounded-xl px-3 py-3 ${
+              selectedRehearsal === 'all' ? 'bg-muted' : ''
+            }`}
+            onClick={() => {
+              setSelectedRehearsal('all')
+              setPickerOpen(false)
+            }}
+          >
+            <Text
+              className={`text-sm ${
+                selectedRehearsal === 'all' ? 'font-medium text-primary' : 'text-text'
+              }`}
+            >
+              {t('sectionLeave.allRehearsals')}
+            </Text>
+            <Text className='text-xs text-text-muted'>{rows.length}</Text>
+          </View>
+
+          {rehearsalOptions.map((rehearsal) => {
+            const active = selectedRehearsal === rehearsal.id
+            const timeText = rehearsal.start_time
+              ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
+              : t('sectionLeave.timeUnset')
+            return (
+              <View
+                key={rehearsal.id}
+                className={`flex items-center rounded-xl px-3 py-3 ${active ? 'bg-muted' : ''}`}
+                onClick={() => {
+                  setSelectedRehearsal(rehearsal.id)
+                  setPickerOpen(false)
+                }}
+              >
+                <View className='min-w-0 flex-1'>
+                  <Text
+                    className={`block overflow-hidden text-ellipsis whitespace-nowrap text-sm ${
+                      active ? 'font-medium text-primary' : 'text-text'
+                    }`}
+                  >
+                    {timeText}
+                  </Text>
+                  <Text className='mt-0.5 block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text-muted'>
+                    {rehearsalTypeLabel(rehearsal.type)}
+                    {rehearsal.repertoire ? ` · ${rehearsal.repertoire}` : ''}
+                  </Text>
+                </View>
+                <Text className='ml-2 shrink-0 text-xs text-text-muted'>
+                  {rehearsalCounts.get(rehearsal.id) ?? 0}
+                </Text>
+                {active && <Text className='ml-2 shrink-0 text-xs text-primary'>✓</Text>}
+              </View>
+            )
+          })}
+
+          {rehearsalOptions.length === 0 && (
+            <Text className='block py-8 text-center text-xs text-text-muted'>
+              {t('sectionLeave.empty')}
+            </Text>
+          )}
+        </View>
+      </Modal>
     </View>
   )
 }

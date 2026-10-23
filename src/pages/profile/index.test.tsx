@@ -92,7 +92,7 @@ vi.mock('@/hooks/useProfiles', () => ({
 }))
 vi.mock('@/hooks/useNotifications', () => ({
   useNotifications: () => ({
-    unreadCounts: { attendance: 1, activity: 1, system: 1 },
+    unreadCounts: { attendance: 1, activity: 1, system: 1, section_leave: 0 },
     totalUnread: notif.totalUnread,
     refresh: vi.fn(),
     fetchByCategory: vi.fn(),

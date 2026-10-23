@@ -36,7 +36,12 @@ describe('useNotifications', () => {
   it('refresh 按分类统计未读数', async () => {
     const c = mockClient([
       {
-        data: [{ category: 'attendance' }, { category: 'attendance' }, { category: 'system' }],
+        data: [
+          { category: 'attendance' },
+          { category: 'attendance' },
+          { category: 'system' },
+          { category: 'section_leave' },
+        ],
         error: null,
       },
     ])
@@ -45,8 +50,13 @@ describe('useNotifications', () => {
       await result.current.refresh()
     })
     expect(result.current.loading).toBe(false)
-    expect(result.current.unreadCounts).toEqual({ attendance: 2, activity: 0, system: 1 })
-    expect(result.current.totalUnread).toBe(3)
+    expect(result.current.unreadCounts).toEqual({
+      attendance: 2,
+      activity: 0,
+      system: 1,
+      section_leave: 1,
+    })
+    expect(result.current.totalUnread).toBe(4)
   })
 
   it('refresh 查询失败时保持计数为零且不抛错', async () => {
@@ -55,7 +65,12 @@ describe('useNotifications', () => {
     await act(async () => {
       await result.current.refresh()
     })
-    expect(result.current.unreadCounts).toEqual({ attendance: 0, activity: 0, system: 0 })
+    expect(result.current.unreadCounts).toEqual({
+      attendance: 0,
+      activity: 0,
+      system: 0,
+      section_leave: 0,
+    })
   })
 
   it('fetchByCategory 返回分类消息列表', async () => {

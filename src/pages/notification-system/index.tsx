@@ -50,6 +50,8 @@ export default function NotificationSystemPage() {
         attendance: [],
         activity: [],
         system: [],
+        // 本页不拉 section_leave；留空以保持 Record 的穷举性
+        section_leave: [],
       }
       pending.forEach((m) => {
         if (m.category in byCat) byCat[m.category].push(m)

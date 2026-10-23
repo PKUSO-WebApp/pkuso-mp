@@ -68,6 +68,16 @@ export default function Profile() {
 
   const [isLangOpen, setIsLangOpen] = useState(false)
 
+  // 通知栏目的未读徽章（>0 时显示，>99 折叠）；三个信箱与声部请假共用
+  const unreadBadge = (count: number) =>
+    count > 0 ? (
+      <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5'>
+        <Text className='text-xs font-medium leading-none text-danger-foreground'>
+          {count > 99 ? '99+' : count}
+        </Text>
+      </View>
+    ) : null
+
   // 资料：头像卡 / 邮箱展示 / 换绑邮箱同步
   const {
     data: profileData,
@@ -447,7 +457,7 @@ export default function Profile() {
             </View>
           )}
 
-          {/* 通知栏目：三个信箱按钮，右侧未读数字徽章（>0 时显示） */}
+          {/* 通知栏目：各信箱入口，右侧未读数字徽章（>0 时显示）；声部请假仅声部长/首席可见 */}
           <View className='mt-6'>
             <Text className='text-xs font-medium text-text-muted'>
               {t('profile.sections.notifications')}
@@ -475,13 +485,7 @@ export default function Profile() {
                   >
                     <View className='flex items-center'>
                       <Text className='text-sm font-medium text-text'>{label}</Text>
-                      {count > 0 && (
-                        <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5'>
-                          <Text className='text-xs font-medium leading-none text-danger-foreground'>
-                            {count > 99 ? '99+' : count}
-                          </Text>
-                        </View>
-                      )}
+                      {unreadBadge(count)}
                     </View>
                   </View>
                 )
@@ -492,9 +496,12 @@ export default function Profile() {
                   className='px-4 py-3'
                   onClick={() => void Taro.navigateTo({ url: '/pages/section-leave/index' })}
                 >
-                  <Text className='text-sm font-medium text-text'>
-                    {t('profile.notifications.sectionLeave')}
-                  </Text>
+                  <View className='flex items-center'>
+                    <Text className='text-sm font-medium text-text'>
+                      {t('profile.notifications.sectionLeave')}
+                    </Text>
+                    {unreadBadge(unreadCounts.section_leave)}
+                  </View>
                 </View>
               )}
             </View>

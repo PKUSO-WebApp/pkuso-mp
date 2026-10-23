@@ -3,6 +3,7 @@ export const sectionLeave = {
   includeCanceled: '显示全部（含取消）',
   onlyActive: '仅显示未取消',
   allRehearsals: '全部排练',
+  filterTitle: '选择排练',
   empty: '暂无声部请假记录',
   loadFailed: '加载失败，请稍后重试',
   retry: '重试',
