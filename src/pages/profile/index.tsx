@@ -156,6 +156,11 @@ export default function Profile() {
     setManagedSections((data as string[] | null) ?? [])
   }, [])
 
+  // 入口显隐优先用**已缓存**的 profile flags：切回「我的」时入口随头像卡一起出现，
+  // 不必等 my_managed_sections 的 RPC 回来（否则会晚一拍）。capability（团长）仍走 RPC。
+  const hasManagedScope =
+    !!myProfile?.is_section_leader || !!myProfile?.is_principal || managedSections.length > 0
+
   // A：每次切回「我的」tab 重新拉未读数，并重置全局轮询计时器
   // 资料静默刷新：已有数据时不翻 loading，避免卡片闪烁
   useDidShow(() => {
@@ -469,9 +474,7 @@ export default function Profile() {
                   <View
                     key={category}
                     className={`px-4 py-3 ${
-                      category !== 'system' || managedSections.length > 0
-                        ? 'border-b border-border'
-                        : ''
+                      category !== 'system' || hasManagedScope ? 'border-b border-border' : ''
                     }`}
                     onClick={() => {
                       // 「考勤与请假」改用全屏请假详情页（结构化卡片 + 状态筛选），
@@ -491,7 +494,7 @@ export default function Profile() {
                 )
               })}
               {/* 声部请假：声部长/首席查看本声部成员的请假记录（可按排练筛选、含取消） */}
-              {managedSections.length > 0 && (
+              {hasManagedScope && (
                 <View
                   className='px-4 py-3'
                   onClick={() => void Taro.navigateTo({ url: '/pages/section-leave/index' })}
