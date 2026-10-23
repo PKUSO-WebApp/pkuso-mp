@@ -19,6 +19,8 @@ export default defineAppConfig({
     'pages/community/index',
     'pages/schedule/index',
     'pages/members/index',
+    'pages/member-attendance/index',
+    'pages/section-leave/index',
     'pages/profile/index',
     'pages/profile-info/index',
     'pages/devices/index',

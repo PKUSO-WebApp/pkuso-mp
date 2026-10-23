@@ -63,6 +63,10 @@ vi.mock('@/components/staff-blocked-page', () => ({
 vi.mock('@/components/ui/StatusChip', () => ({
   StatusChip: ({ children }: any) => React.createElement('span', null, children),
 }))
+// 页面现在会调 my_managed_sections；这里不关心结果，只为避免初始化真实客户端
+vi.mock('@/lib/supabase', () => ({
+  supabase: { rpc: vi.fn(async () => ({ data: [], error: null })) },
+}))
 vi.mock('./components/member-detail-modal', () => ({ MemberDetailModal: () => null }))
 vi.mock('@/components/ui/FormFields', () => ({
   TextField: ({ value, onInput, placeholder }: any) =>

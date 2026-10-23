@@ -27,6 +27,7 @@ export const profile = {
     attendance: '考勤与请假',
     activity: '活动',
     system: '系统',
+    sectionLeave: '声部请假',
   },
   // 头像卡字段前缀
   card: {

@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
+import { supabase } from '@/lib/supabase'
+import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { tAppError } from '@/lib/appError'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
@@ -44,15 +46,32 @@ export default function Members() {
   // 游客模式：未登录时显示空态提示
   const isGuest = !currentUser
 
+  // 声部长/首席：全部 / 我的声部 两个视图
+  const [tab, setTab] = useState<'all' | 'mine'>('all')
+
+  // 我管理的声部（声部长/首席；声部组已由后端展开成具体声部）。
+  // 非管理者返回空数组 ⇒ 不显示「我的声部」tab；也包含团长的 attendance 能力。
+  const [managedSections, setManagedSections] = useState<string[]>([])
+  const loadManagedSections = useCallback(async () => {
+    const { data, error } = await supabase.rpc('my_managed_sections')
+    if (error) return
+    const list = (data as string[] | null) ?? []
+    setManagedSections(list)
+    // 权限被撤销后（如交接声部长）别再停在空白的「我的声部」上
+    if (list.length === 0) setTab('all')
+  }, [])
+
   // 切回本 tab 时重新拉取花名册（Taro tab 页常驻内存不卸载，仅靠挂载时一次
   // 拉取会导致「改完资料回来仍是旧数据」；回到本页静默刷新，旧数据仍展示不闪加载）
   useDidShow(() => {
     void fetch()
+    void loadManagedSections()
   })
 
-  // 下拉刷新：重取花名册
+  // 下拉刷新：重取花名册与受管声部
   usePullDownRefresh(() => {
     void fetch()
+    void loadManagedSections()
     Taro.stopPullDownRefresh()
   })
 
@@ -76,14 +95,23 @@ export default function Members() {
     [allProfiles]
   )
 
+  // 「我的声部」按后端给出的受管范围过滤（声部组已在后端展开成具体声部名）
+  const tabRows = useMemo(
+    () =>
+      tab === 'mine'
+        ? rosterRows.filter((r) => managedSections.includes((r.instrument ?? '').trim()))
+        : rosterRows,
+    [rosterRows, tab, managedSections]
+  )
+
   const sectionMatch = useMemo(() => matchInstrumentSection(searchQuery), [searchQuery])
 
   const filteredRows = useMemo(
     () =>
       sectionMatch
-        ? rosterRows.filter((r) => sectionMatch.includes(r.instrument ?? ''))
-        : filterByName(rosterRows, searchQuery),
-    [rosterRows, searchQuery, sectionMatch]
+        ? tabRows.filter((r) => sectionMatch.includes(r.instrument ?? ''))
+        : filterByName(tabRows, searchQuery),
+    [tabRows, searchQuery, sectionMatch]
   )
 
   const grouped = useMemo(() => groupProfilesByInstrument(filteredRows), [filteredRows])
@@ -114,6 +142,17 @@ export default function Members() {
       className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
       style={{ paddingBottom: tabBarReserveCss(uiScale) }}
     >
+      {/* 只有声部长/首席（或团长）才有「我的声部」——普通成员看不到一个永远同质的 tab */}
+      {managedSections.length > 0 && (
+        <SegmentTabs<'all' | 'mine'>
+          tabs={[
+            { key: 'all', label: t('members.tabAll') },
+            { key: 'mine', label: t('members.tabMine') },
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
+      )}
       <ScrollView scrollY className='flex-1 min-h-0'>
         {/* 底部留白：底边栏固定覆盖在页面底部（高 50px + 安全区），
             花名册成员多时 ScrollView 末行会被底边栏遮挡、无法滚到底，故内容底部补足留白 */}
@@ -133,7 +172,13 @@ export default function Members() {
             isEmpty={grouped.length === 0}
             error={tAppError(t, rosterError)}
             emptyText={
-              rosterRows.length === 0 ? t('members.emptyApproved') : t('members.emptyMatch')
+              tab === 'mine'
+                ? searchQuery.trim()
+                  ? t('members.emptyMatch')
+                  : t('members.emptyMySection')
+                : rosterRows.length === 0
+                  ? t('members.emptyApproved')
+                  : t('members.emptyMatch')
             }
             onRetry={() => void fetch()}
           >
@@ -151,7 +196,17 @@ export default function Members() {
                         <View
                           key={u.id}
                           className='mb-2 rounded-xl border border-border bg-card px-3 py-2'
-                          onClick={() => setSelectedUser(u)}
+                          onClick={() => {
+                            // 「我的声部」里点卡片 = 进成员详情（可改考勤）；
+                            // 「全部」里仍是只读弹窗（无管理权限）
+                            if (tab === 'mine') {
+                              void Taro.navigateTo({
+                                url: `/pages/member-attendance/index?userId=${u.id}`,
+                              })
+                            } else {
+                              setSelectedUser(u)
+                            }
+                          }}
                         >
                           <View className='flex flex-wrap items-center gap-1.5'>
                             <Text className='text-base font-normal text-text'>
@@ -159,6 +214,12 @@ export default function Members() {
                             </Text>
                             {u.is_section_leader && (
                               <StatusChip tone='warning'>{t('members.sectionLeader')}</StatusChip>
+                            )}
+                            {u.is_principal && (
+                              <StatusChip tone='success'>{t('members.principal')}</StatusChip>
+                            )}
+                            {tab === 'mine' && (
+                              <Text className='ml-auto text-xs text-text-muted'>›</Text>
                             )}
                           </View>
                           {u.college?.trim() && !(u.hide_college && !isSelf) && (

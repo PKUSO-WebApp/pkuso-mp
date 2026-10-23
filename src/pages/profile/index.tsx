@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { View, Text, ScrollView, Image, Input } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
@@ -137,12 +137,22 @@ export default function Profile() {
     void refreshNotifications()
   }, [refreshNotifications])
 
+  // 「声部请假」入口：只有声部长/首席（及团长）可见。
+  // 判据走后端 my_managed_sections（含声部组展开与 capability），不在本地拼角色规则。
+  const [managedSections, setManagedSections] = useState<string[]>([])
+  const loadManagedSections = useCallback(async () => {
+    const { data, error } = await supabase.rpc('my_managed_sections')
+    if (error) return
+    setManagedSections((data as string[] | null) ?? [])
+  }, [])
+
   // A：每次切回「我的」tab 重新拉未读数，并重置全局轮询计时器
   // 资料静默刷新：已有数据时不翻 loading，避免卡片闪烁
   useDidShow(() => {
     void refreshNotifications()
     dataSyncBump()
     void refetchProfiles({ silent: true })
+    void loadManagedSections()
   })
 
   // 下拉刷新：重取资料与未读数
@@ -448,7 +458,11 @@ export default function Profile() {
                 return (
                   <View
                     key={category}
-                    className={`px-4 py-3 ${category !== 'system' ? 'border-b border-border' : ''}`}
+                    className={`px-4 py-3 ${
+                      category !== 'system' || managedSections.length > 0
+                        ? 'border-b border-border'
+                        : ''
+                    }`}
                     onClick={() => {
                       // 「考勤与请假」改用全屏请假详情页（结构化卡片 + 状态筛选），
                       // 活动 / 系统通知改用独立信箱页，均不再弹通用通知 Modal
@@ -472,6 +486,17 @@ export default function Profile() {
                   </View>
                 )
               })}
+              {/* 声部请假：声部长/首席查看本声部成员的请假记录（可按排练筛选、含取消） */}
+              {managedSections.length > 0 && (
+                <View
+                  className='px-4 py-3'
+                  onClick={() => void Taro.navigateTo({ url: '/pages/section-leave/index' })}
+                >
+                  <Text className='text-sm font-medium text-text'>
+                    {t('profile.notifications.sectionLeave')}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
 
