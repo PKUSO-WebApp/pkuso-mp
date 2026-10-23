@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Taro, { useDidShow, useRouter, useShareAppMessage, useUnload } from '@tarojs/taro'
 import { View, Canvas, Text } from '@tarojs/components'
 import type { ITouchEvent } from '@tarojs/components'
@@ -19,31 +19,22 @@ import {
   HIGHLIGHTER_WIDTHS,
   PEN_COLORS,
   PEN_WIDTHS,
-  loadAnnoDoc,
-  saveAnnoDoc,
   type AnnoDoc,
   type AnnoStroke,
   type AnnoTool,
 } from '@/lib/annotation'
-import { markAnnoPending } from '@/lib/annotation-sync'
 import {
   groupHistoryBatches,
   listAnnotationHistory,
   type HistoryBatch,
   type HistoryPage,
 } from '@/lib/annotation-history'
-import {
-  flushAnnotationSync,
-  loadConflictPages,
-  scheduleAnnotationSync,
-  setAnnotationAdoptListener,
-  setAnnotationConflictListener,
-  syncAnnotationFile,
-} from '@/lib/annotation-sync-runner'
+import { loadConflictPages } from '@/lib/annotation-sync-runner'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { pageImageUrls } from '@/lib/score-page-image'
 import type { SheetMusicFileRow } from '@/types/database'
 // 页面内部模块：留在分包目录内，保证被打进分包 chunk（见 lib/types.ts 顶部注释）
+import { createAnnotationBackend, type ReaderAnnotationBackend } from './lib/annotation-backend'
 import type { CanvasCtx, CanvasNode, Drag, Job, Layer, Pan, Pinch, Stage } from './lib/types'
 import { frameInk, rasterDpr, sampleEdgeColors } from './lib/raster'
 import { bytesToMB, createBitmapLedger } from './lib/raster-budget'
@@ -391,6 +382,8 @@ export default function ScoreReader() {
    * 去 spread 再存，就把刚落地的内容覆盖回去了。渲染照旧读 state——要的就是重渲染。
    */
   const annosRef = useRef<AnnoDoc>({})
+  /** 当前文件的批注源（P6a）：useUnload 等渲染期外的回调经它取最新实例 */
+  const annotationBackendRef = useRef<ReaderAnnotationBackend | null>(null)
   /**
    * 批注冲突：这一册有哪些页是「两边都改过、还没解决」的，以及列表要不要开着。
    * 来源只有一处——落盘的冲突记录（见 refreshConflicts）。**不阻塞任何事**：
@@ -707,8 +700,6 @@ export default function ScoreReader() {
   /** 上下模式的滚动方向（1 = 往下滚）与上一次滚动位置：见「补渲染视口里的页」effect */
   const udDirRef = useRef<1 | -1>(1)
   const lastScrollRef = useRef(0)
-  /** 批注写盘失败已上报过（每册每次会话一次）：存储满会一直失败，别刷表 */
-  const annoSaveFailRef = useRef(false)
   /** 渲染队列排空的心跳（见 runJob 的 finally）：让「补渲染」有机会重看一眼视口 */
   const [idleTick, setIdleTick] = useState(0)
   /** 补渲染上一次请求的页 + 时刻：同一页 5 秒内不重复排（失败时别变成无限重试） */
@@ -823,7 +814,7 @@ export default function ScoreReader() {
     })
     // 触发点 ②：把挂着的那次停笔防抖立刻发掉（最后一班车）。拿不到结果是有意的——
     // 页面正在卸载，请求发不发得出去都无所谓，欠账有联网恢复那条路兜
-    if (fileId) flushAnnotationSync(fileId)
+    if (fileId) annotationBackendRef.current?.flush?.(fileId)
     prefetchPumpRef.current?.stop()
     // 离开页面前把这一册的本地记账落盘（这一册下次进册才可能整册命中）
     flushAlbumFiles.current()
@@ -916,32 +907,44 @@ export default function ScoreReader() {
     setConflictOn(true)
   }, [fileId])
 
+  const annotationBackend = useMemo(() => {
+    const backend = createAnnotationBackend('personal', {
+      onAdopt: (doc) => {
+        annosRef.current = doc
+        setAnnos(doc)
+      },
+      onConflict: () => {
+        void refreshConflicts()
+      },
+      onSynced: () => {
+        void refreshConflicts()
+      },
+    })
+    annotationBackendRef.current = backend
+    return backend
+  }, [refreshConflicts])
+
+  // 个人批注专属 UI（历史、冲突列表、同步状态）只在 personal 模式出现；
+  // P6a 恒 personal，P6b 的 shared 模式靠它隐藏。
+  const personalAnnotation = annotationBackend.kind === 'personal'
+
   // 进入文件时载入本地批注，然后**先拉后推**地对一次账（触发点 ③）。
   // 这一次同时是「上次进程被杀、那一册的欠账没推上去」的兜底：欠账由指纹推导，不靠内存。
   useEffect(() => {
     if (!fileId) return
-    const local = loadAnnoDoc(fileId)
-    annosRef.current = local
-    setAnnos(local)
-    // 全量扫描（④⑤）可能在我们开着的时候把这一册的内容落回本地——那条路要走同一个镜像，
-    // 否则画面停在旧内容上。这也是唯一需要「告诉阅读器」的通路：本册自己的同步拿得到返回值，
-    // 但别处的扫描拿不到。
-    setAnnotationAdoptListener((id, doc) => {
-      if (id !== fileId) return
+    let cancelled = false
+    void (async () => {
+      const doc = await annotationBackend.load(fileId)
+      if (cancelled) return
       annosRef.current = doc
       setAnnos(doc)
-    })
-    // 冲突：册内（本册的同步、别处的扫描）发现冲突时提示；进册这一次对完账也提示一次
-    setAnnotationConflictListener((id) => {
-      if (id !== fileId) return
-      void refreshConflicts()
-    })
-    void syncAnnotationFile(fileId).then(() => refreshConflicts())
+      await annotationBackend.onOpen?.(fileId)
+    })()
     return () => {
-      setAnnotationAdoptListener(null)
-      setAnnotationConflictListener(null)
+      cancelled = true
+      annotationBackend.onClose?.()
     }
-  }, [fileId, refreshConflicts])
+  }, [fileId, annotationBackend])
 
   // 首次教程：等**首帧出来**再展示（一进页面就盖住加载过程，用户看不到自己在等什么），
   // 此时菜单保持默认隐藏，教程讲的正是「点中间唤出菜单」
@@ -2194,39 +2197,11 @@ export default function ScoreReader() {
     (next: AnnoDoc) => {
       annosRef.current = next
       setAnnos(next)
-      // 本地一改就两件事：记「可能有欠账」（离线改了 3 册然后被强杀，别的册只有靠它才会被扫到），
-      // 以及起一次停笔防抖（连续画十几笔只在停下时推一次，见 annotation-sync-runner）
-      if (fileId) {
-        markAnnoPending()
-        scheduleAnnotationSync(fileId)
-      }
-      // 写不进去（存储满 / 单键超限）以前是**完全静默**的：画面照旧、退出重进才发现丢了，
-      // 线上一条线索都没有（评审抓出）。每册每次会话只报一次——存储满会一直失败。
-      if (fileId) {
-        // 这一下是**同步阻塞主线程**的（compactDoc 整册序列化 + setStorageSync），真机手感
-        // 的关键就在它身上。超阈值记一条：下一轮要动「存储那条路」时靠数据说话，别猜
-        //（2026-10-15 平板笔验收：「点一下要等数百毫秒」）
-        const saveStart = Date.now()
-        const saved = saveAnnoDoc(fileId, next)
-        const saveCost = Date.now() - saveStart
-        if (saveCost > 80) {
-          reportClientError({
-            event: 'score_reader_annotation_save_slow',
-            message: 'saveAnnoDoc 阻塞超阈值',
-            detail: { fileId, ms: saveCost, pages: Object.keys(next).length },
-          })
-        }
-        if (!saved && !annoSaveFailRef.current) {
-          annoSaveFailRef.current = true
-          reportClientError({
-            event: 'score_reader_annotation_save_failed',
-            message: 'setStorageSync 失败（存储满/超限？）',
-            detail: { fileId, pages: Object.keys(next).length },
-          })
-        }
-      }
+      // 存储、欠账标记、停笔防抖、失败上报都收在 backend 里（P6a）；
+      // personal 是同步写盘，仍保持原来的手感与事件名。
+      if (fileId) annotationBackend.persist(fileId, next)
     },
-    [fileId]
+    [fileId, annotationBackend]
   )
 
   const load = useCallback(async () => {
@@ -3135,6 +3110,8 @@ export default function ScoreReader() {
     const touch = e.touches[0]
     if (!touch) return
     if (penOn) {
+      // shared 模式下无写权的人只读（P6b）；personal 恒 false，行为不变
+      if (annotationBackend.readOnly) return
       if (tool === 'eraser') beginErase(touch)
       else beginStroke(touch)
       return
@@ -3428,6 +3405,7 @@ export default function ScoreReader() {
    * 再开面板 —— 内容等用户点进某一批才拉（整册连内容能到几 MB，见 lib/annotation-history.ts）。
    */
   const openHistory = () => {
+    if (!personalAnnotation) return
     handoff.close()
     setHistoryOn(true)
     setHistoryLoading(true)
@@ -3901,7 +3879,7 @@ export default function ScoreReader() {
             没有冲突时它一个像素都不占，用户点了「稍后处理」本次会话就不再弹。
             ⚠️ 首次教程开着时**先不弹**（教程 z=60 比它低，会互相盖）：等用户关掉教程
             再出现 —— 冲突不急这一下，而教程盖住一半、点不着更糟 */}
-        {conflictOn && !tutorialOn ? (
+        {personalAnnotation && conflictOn && !tutorialOn ? (
           <AnnotationConflictSheet
             pages={conflictPages}
             onPick={openConflictPage}
@@ -3924,7 +3902,7 @@ export default function ScoreReader() {
           />
         ) : null}
         {/* 「恢复云端历史」：与分享面板同一个 z（Z_SHEET），靠 DOM 顺序压在它上面 */}
-        {historyOn ? (
+        {personalAnnotation && historyOn ? (
           <AnnotationHistorySheet
             fileId={fileId}
             batches={historyBatches}
