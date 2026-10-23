@@ -24,7 +24,8 @@ export type ComposedPdf = {
 }
 
 /** 服务端返回的业务错误码（`{ error: "..." }`），用来把可预期的那几种讲成人话 */
-export type AnnotatedPdfErrorCode = 'no annotations' | 'file too large' | 'too many strokes' | 'unknown'
+export type AnnotatedPdfErrorCode =
+  'no annotations' | 'file too large' | 'too many strokes' | 'unknown'
 
 export class AnnotatedPdfError extends Error {
   code: AnnotatedPdfErrorCode
@@ -68,11 +69,10 @@ function codeOf(message: string): AnnotatedPdfErrorCode {
   return KNOWN.find((c) => message.includes(c)) ?? 'unknown'
 }
 
-export async function composeAnnotatedPdf(
-  fileId: string,
-  invoke: InvokeFn = defaultInvoke
-): Promise<ComposedPdf> {
-  const { data, error } = await invoke('compose-annotated-pdf', { body: { file_id: fileId } })
+type ComposeFn = 'compose-annotated-pdf' | 'compose-shared-pdf'
+
+async function composePdf(fn: ComposeFn, fileId: string, invoke: InvokeFn): Promise<ComposedPdf> {
+  const { data, error } = await invoke(fn, { body: { file_id: fileId } })
   if (error) {
     const message = await serverMessage(error)
     throw new AnnotatedPdfError(codeOf(message), message)
@@ -80,11 +80,27 @@ export async function composeAnnotatedPdf(
   const body = data as Partial<ComposedPdf> | null
   const url = typeof body?.url === 'string' ? body.url : ''
   // 没有 url 就是失败，哪怕 error 是空的——这条是「静默下到空文件」的唯一闸
-  if (!url) throw new AnnotatedPdfError('unknown', 'compose-annotated-pdf: 响应里没有 url')
+  if (!url) throw new AnnotatedPdfError('unknown', `${fn}: 响应里没有 url`)
   return {
     url,
     bytes: typeof body?.bytes === 'number' ? body.bytes : 0,
     annotatedPages: typeof body?.annotatedPages === 'number' ? body.annotatedPages : 0,
     drawnStrokes: typeof body?.drawnStrokes === 'number' ? body.drawnStrokes : 0,
   }
+}
+
+/** 个人批注 PDF（只含**本次调用者**的批注，见 compose-annotated-pdf 文件头） */
+export async function composeAnnotatedPdf(
+  fileId: string,
+  invoke: InvokeFn = defaultInvoke
+): Promise<ComposedPdf> {
+  return composePdf('compose-annotated-pdf', fileId, invoke)
+}
+
+/** 共享批注 PDF（全团共享层；P6d） */
+export async function composeSharedPdf(
+  fileId: string,
+  invoke: InvokeFn = defaultInvoke
+): Promise<ComposedPdf> {
+  return composePdf('compose-shared-pdf', fileId, invoke)
 }

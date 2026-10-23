@@ -26,6 +26,7 @@ vi.mock('@/i18n', async () => {
 const {
   ensureSavedPdf,
   composeAnnotatedPdf,
+  composeSharedPdf,
   reportClientError,
   handOffPdf,
   syncAnnotationFile,
@@ -33,6 +34,7 @@ const {
 } = vi.hoisted(() => ({
   ensureSavedPdf: vi.fn(),
   composeAnnotatedPdf: vi.fn(),
+  composeSharedPdf: vi.fn(),
   reportClientError: vi.fn(),
   handOffPdf: vi.fn(),
   syncAnnotationFile: vi.fn(),
@@ -45,7 +47,7 @@ vi.mock('@/lib/pdf-save', () => ({
 }))
 vi.mock('@/lib/annotated-pdf', async () => {
   const actual = await vi.importActual<typeof import('@/lib/annotated-pdf')>('@/lib/annotated-pdf')
-  return { ...actual, composeAnnotatedPdf }
+  return { ...actual, composeAnnotatedPdf, composeSharedPdf }
 })
 vi.mock('@/lib/annotation-sync-runner', () => ({ syncAnnotationFile }))
 vi.mock('@/lib/pdf-handoff', () => ({
@@ -120,6 +122,12 @@ beforeEach(() => {
       drawnStrokes: 7,
     }
   })
+  composeSharedPdf.mockReset().mockResolvedValue({
+    url: 'https://x.supabase.co/storage/v1/object/sign/shared.pdf?token=s',
+    bytes: 8765,
+    annotatedPages: 3,
+    drawnStrokes: 9,
+  })
 })
 
 afterEach(() => {
@@ -139,6 +147,32 @@ describe('usePdfHandoff：是否带有批注', () => {
     act(() => result.current.toggleAnno(true))
     expect(result.current.withAnno).toBe(false)
     expect(composeAnnotatedPdf).not.toHaveBeenCalled()
+  })
+
+  it('共享谱：带批注走 compose-shared-pdf，先 flush 共享层，缓存键与个人产物分开（P6d）', async () => {
+    const beforeCompose = vi.fn().mockResolvedValue(undefined)
+    const sharedMeta = {
+      ...meta(),
+      composeKind: 'shared' as const,
+      hasInk: () => true,
+      beforeCompose,
+    }
+    const { result } = renderHook(() => usePdfHandoff('u1'))
+    act(() => result.current.open(sharedMeta))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.hasAnno).toBe(true)
+
+    act(() => result.current.toggleAnno(true))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    expect(beforeCompose).toHaveBeenCalledTimes(1)
+    expect(syncAnnotationFile).not.toHaveBeenCalled()
+    expect(composeSharedPdf).toHaveBeenCalledWith('f1')
+    expect(composeAnnotatedPdf).not.toHaveBeenCalled()
+    const last = savedCall(ensureSavedPdf.mock.calls.length - 1)
+    expect(last.url).toContain('token=s')
+    expect(last.fileId).toBe('f1#shared-anno')
+    expect(last.expectedBytes).toBe(8765)
   })
 
   it('默认不带批注：不调云端合成，直接下原件', async () => {
