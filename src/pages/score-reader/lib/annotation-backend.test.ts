@@ -58,26 +58,29 @@ describe('createAnnotationBackend', () => {
   it('personal：load 委托 loadAnnoDoc，不发网络', async () => {
     const doc: AnnoDoc = { '1': [] }
     mocks.loadAnnoDoc.mockReturnValue(doc)
-    const backend = createAnnotationBackend('personal', callbacks())
+    const backend = createAnnotationBackend('personal', callbacks(), 'u1')
 
     await expect(backend.load('f1')).resolves.toBe(doc)
-    expect(mocks.loadAnnoDoc).toHaveBeenCalledWith('f1')
+    expect(mocks.loadAnnoDoc).toHaveBeenCalledWith('u1', 'f1')
     expect(backend.kind).toBe('personal')
     expect(backend.readOnly).toBe(false)
   })
 
   it('personal：persist 保持「记欠账 → 防抖 → 同步写盘」的顺序', () => {
-    const backend = createAnnotationBackend('personal', callbacks())
+    const backend = createAnnotationBackend('personal', callbacks(), 'u1')
     backend.persist('f1', { '1': [] })
 
     expect(order(mocks.markAnnoPending)).toBeLessThan(order(mocks.scheduleAnnotationSync))
     expect(order(mocks.scheduleAnnotationSync)).toBeLessThan(order(mocks.saveAnnoDoc))
+    // D16：欠账标记与写盘都必须落到当前账号的目录
+    expect(mocks.markAnnoPending).toHaveBeenCalledWith('u1')
+    expect(mocks.saveAnnoDoc).toHaveBeenCalledWith('u1', 'f1', { '1': [] })
   })
 
   it('personal：写盘超过 80ms 上报 slow 事件（字段与原来一致）', () => {
     const now = vi.spyOn(Date, 'now')
     now.mockReturnValueOnce(1000).mockReturnValueOnce(1100)
-    const backend = createAnnotationBackend('personal', callbacks())
+    const backend = createAnnotationBackend('personal', callbacks(), 'u1')
 
     backend.persist('f1', { '1': [], '2': [] })
 
@@ -92,7 +95,7 @@ describe('createAnnotationBackend', () => {
   it('personal：写盘失败每次会话只报一次', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(0)
     mocks.saveAnnoDoc.mockReturnValue(false)
-    const backend = createAnnotationBackend('personal', callbacks())
+    const backend = createAnnotationBackend('personal', callbacks(), 'u1')
 
     backend.persist('f1', { '1': [] })
     backend.persist('f1', { '1': [] })
@@ -106,7 +109,7 @@ describe('createAnnotationBackend', () => {
 
   it('personal：onOpen 挂监听、按 fileId 过滤并触发同步；onClose 卸载', async () => {
     const cb = callbacks()
-    const backend = createAnnotationBackend('personal', cb)
+    const backend = createAnnotationBackend('personal', cb, 'u1')
 
     backend.onOpen?.('f1')
     expect(mocks.setAnnotationAdoptListener).toHaveBeenCalledTimes(1)
@@ -142,13 +145,13 @@ describe('createAnnotationBackend', () => {
   })
 
   it('personal：flush 委托 flushAnnotationSync', () => {
-    const backend = createAnnotationBackend('personal', callbacks())
+    const backend = createAnnotationBackend('personal', callbacks(), 'u1')
     backend.flush?.('f1')
     expect(mocks.flushAnnotationSync).toHaveBeenCalledWith('f1')
   })
 
   it('shared：P6a 显式拒绝，不静默降级', () => {
-    expect(() => createAnnotationBackend('shared', callbacks())).toThrow(
+    expect(() => createAnnotationBackend('shared', callbacks(), 'u1')).toThrow(
       /shared annotation backend is not implemented/
     )
   })

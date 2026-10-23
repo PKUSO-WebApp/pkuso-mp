@@ -29,9 +29,10 @@ describe('annotation storage', () => {
     storage.clear()
   })
 
-  it('annoStorageKey 按文件 id 生成独立键', () => {
-    expect(annoStorageKey('abc')).toBe('score-annotation:abc')
-    expect(annoStorageKey('a')).not.toBe(annoStorageKey('b'))
+  it('annoStorageKey 按账号 + 文件 id 生成独立键', () => {
+    expect(annoStorageKey('u1', 'abc')).toBe('score-annotation-v2:u1:abc')
+    expect(annoStorageKey('u1', 'a')).not.toBe(annoStorageKey('u1', 'b'))
+    expect(annoStorageKey('u1', 'a')).not.toBe(annoStorageKey('u2', 'a'))
   })
 
   it('save/load 往返保留结构', () => {
@@ -48,8 +49,8 @@ describe('annotation storage', () => {
       ],
       '2': [{ color: '#2f6fed', width: 0.008, points: [[0.5, 0.5]] }],
     }
-    expect(saveAnnoDoc('f1', doc)).toBe(true) // 写成功要如实回 true
-    expect(loadAnnoDoc('f1')).toEqual(doc)
+    expect(saveAnnoDoc('u1', 'f1', doc)).toBe(true) // 写成功要如实回 true
+    expect(loadAnnoDoc('u1', 'f1')).toEqual(doc)
   })
 
   it('写不进去时返回 false——调用方据此上报，别静默丢（存储满/超限）', () => {
@@ -59,33 +60,40 @@ describe('annotation storage', () => {
       throw new Error('setStorageSync:fail exceed storage')
     }
     try {
-      expect(saveAnnoDoc('f1', { '1': [{ color: '#111', width: 0.004, points: [[0, 0]] }] })).toBe(
-        false
-      )
+      expect(
+        saveAnnoDoc('u1', 'f1', { '1': [{ color: '#111', width: 0.004, points: [[0, 0]] }] })
+      ).toBe(false)
     } finally {
       taro.setStorageSync = orig
     }
   })
 
   it('不同文件 id 批注互不串扰', () => {
-    saveAnnoDoc('f1', { '1': [{ color: '#111', width: 0.004, points: [[0, 0]] }] })
-    expect(loadAnnoDoc('f2')).toEqual({})
+    saveAnnoDoc('u1', 'f1', { '1': [{ color: '#111', width: 0.004, points: [[0, 0]] }] })
+    expect(loadAnnoDoc('u1', 'f2')).toEqual({})
+  })
+
+  it('不同账号的同一册互不可见（D16）', () => {
+    const doc: AnnoDoc = { '1': [{ color: '#111', width: 0.004, points: [[0, 0]] }] }
+    saveAnnoDoc('u1', 'f1', doc)
+    expect(loadAnnoDoc('u2', 'f1')).toEqual({})
+    expect(loadAnnoDoc('u1', 'f1')).toEqual(doc)
   })
 
   it('未写入时返回空文档', () => {
-    expect(loadAnnoDoc('none')).toEqual({})
+    expect(loadAnnoDoc('u1', 'none')).toEqual({})
   })
 
   it('损坏 JSON 回退为空文档', () => {
-    storage.set(annoStorageKey('bad'), '{not-json')
-    expect(loadAnnoDoc('bad')).toEqual({})
+    storage.set(annoStorageKey('u1', 'bad'), '{not-json')
+    expect(loadAnnoDoc('u1', 'bad')).toEqual({})
   })
 
   it('合法 JSON 但非对象时回退为空文档', () => {
-    storage.set(annoStorageKey('arr'), '[1,2,3]')
-    expect(loadAnnoDoc('arr')).toEqual({})
-    storage.set(annoStorageKey('str'), '"hi"')
-    expect(loadAnnoDoc('str')).toEqual({})
+    storage.set(annoStorageKey('u1', 'arr'), '[1,2,3]')
+    expect(loadAnnoDoc('u1', 'arr')).toEqual({})
+    storage.set(annoStorageKey('u1', 'str'), '"hi"')
+    expect(loadAnnoDoc('u1', 'str')).toEqual({})
   })
 })
 
@@ -95,10 +103,10 @@ describe('annotation compaction', () => {
   })
 
   it('save 时坐标压缩为 4 位小数', () => {
-    saveAnnoDoc('f1', {
+    saveAnnoDoc('u1', 'f1', {
       '1': [{ color: '#111', width: 0.004, points: [[0.123456789, 0.987654321]] }],
     })
-    const raw = JSON.parse(storage.get(annoStorageKey('f1')) ?? '{}') as AnnoDoc
+    const raw = JSON.parse(storage.get(annoStorageKey('u1', 'f1')) ?? '{}') as AnnoDoc
     expect(raw['1'][0].points).toEqual([[0.1235, 0.9877]])
   })
 
@@ -140,10 +148,10 @@ describe('annotation compaction', () => {
 
   it('load 时压缩历史全精度数据', () => {
     storage.set(
-      annoStorageKey('old'),
+      annoStorageKey('u1', 'old'),
       JSON.stringify({ '1': [{ color: '#111', width: 0.004, points: [[0.1234567890123, 0.4]] }] })
     )
-    expect(loadAnnoDoc('old')['1'][0].points).toEqual([[0.1235, 0.4]])
+    expect(loadAnnoDoc('u1', 'old')['1'][0].points).toEqual([[0.1235, 0.4]])
   })
 
   it('compactDoc 幂等', () => {
@@ -165,8 +173,8 @@ describe('annotation compaction', () => {
   })
 
   it('坏条目降级为空数组', () => {
-    storage.set(annoStorageKey('bad'), JSON.stringify({ '1': 'junk' }))
-    expect(loadAnnoDoc('bad')).toEqual({ '1': [] })
+    storage.set(annoStorageKey('u1', 'bad'), JSON.stringify({ '1': 'junk' }))
+    expect(loadAnnoDoc('u1', 'bad')).toEqual({ '1': [] })
   })
 })
 

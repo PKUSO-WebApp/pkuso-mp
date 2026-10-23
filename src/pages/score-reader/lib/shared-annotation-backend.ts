@@ -22,6 +22,12 @@ export type SharedAnnotationBackendCallbacks = {
 export type SharedAnnotationBackend = ReaderAnnotationBackend & {
   kind: 'shared'
   retry?: () => void
+  /**
+   * 立刻把挂着的写入发完，并告诉你**是否真的发完了**。
+   * 进「个人 → 共享」合并前必须等它 true：合并读的是共享表的当前内容，
+   * 还有未落盘的共享编辑时进去，会把刚画的笔迹留在本地、合并完再撞一次 CAS。
+   */
+  flushNow: () => Promise<boolean>
   /** 冲突解决：local/merge 会写回共享表；remote 只采纳远端 */
   resolveConflict: (page: number, choice: SharedConflictChoice) => Promise<AnnoStroke[] | null>
 }
@@ -76,9 +82,10 @@ export function createSharedAnnotationBackend(
    * 只有「dirty 里还是我发出去的这一份」时才删；更新过的那份留在 dirty 里下一轮再发。
    * 直接 `dirty.delete(page)` 会安静地吞掉这笔：CAS 回来时把暂停期间画的新内容一起删了。
    */
-  async function flushPending(fileId = currentFileId) {
+  async function flushPending(fileId = currentFileId): Promise<boolean> {
     clearTimer()
-    if (readOnly || dirty.size === 0 || flushing) return
+    if (readOnly || dirty.size === 0) return true
+    if (flushing) return false
     flushing = true
     setState('saving')
 
@@ -136,15 +143,16 @@ export function createSharedAnnotationBackend(
     if (failed) {
       setState('error')
       reportConflicts()
-      return
+      return false
     }
     if (dirty.size > 0) {
       // 写入期间又画了新内容：还没落完，别报「已保存」，按正常的停笔防抖再来一轮
       scheduleFlush(fileId)
-      return
+      return false
     }
     setState(conflicts.size > 0 ? 'error' : 'saved')
     if (conflicts.size > 0) reportConflicts()
+    return true
   }
 
   const backend: SharedAnnotationBackend = {
@@ -223,6 +231,10 @@ export function createSharedAnnotationBackend(
 
     retry() {
       void flushPending()
+    },
+
+    flushNow() {
+      return flushPending()
     },
 
     async resolveConflict(page, choice) {

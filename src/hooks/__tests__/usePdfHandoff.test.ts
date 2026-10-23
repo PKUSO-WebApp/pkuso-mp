@@ -23,15 +23,21 @@ vi.mock('@/i18n', async () => {
   return createI18nMock()
 })
 
-const { ensureSavedPdf, composeAnnotatedPdf, reportClientError, handOffPdf, syncAnnotationFile, order } =
-  vi.hoisted(() => ({
-    ensureSavedPdf: vi.fn(),
-    composeAnnotatedPdf: vi.fn(),
-    reportClientError: vi.fn(),
-    handOffPdf: vi.fn(),
-    syncAnnotationFile: vi.fn(),
-    order: [] as string[],
-  }))
+const {
+  ensureSavedPdf,
+  composeAnnotatedPdf,
+  reportClientError,
+  handOffPdf,
+  syncAnnotationFile,
+  order,
+} = vi.hoisted(() => ({
+  ensureSavedPdf: vi.fn(),
+  composeAnnotatedPdf: vi.fn(),
+  reportClientError: vi.fn(),
+  handOffPdf: vi.fn(),
+  syncAnnotationFile: vi.fn(),
+  order: [] as string[],
+}))
 
 vi.mock('@/lib/pdf-save', () => ({
   ensureSavedPdf,
@@ -87,13 +93,11 @@ beforeEach(() => {
         },
       ],
     })
-  ensureSavedPdf
-    .mockReset()
-    .mockImplementation(async (opts: { fileId: string }) => ({
-      path: `wxfile://usr/${opts.fileId}.pdf`,
-      name: `${opts.fileId}.pdf`,
-      reused: false,
-    }))
+  ensureSavedPdf.mockReset().mockImplementation(async (opts: { fileId: string }) => ({
+    path: `wxfile://usr/${opts.fileId}.pdf`,
+    name: `${opts.fileId}.pdf`,
+    reused: false,
+  }))
   composeAnnotatedPdf.mockReset().mockResolvedValue({
     url: 'https://x.supabase.co/storage/v1/object/sign/anno.pdf?token=t',
     bytes: 4321,
@@ -125,7 +129,7 @@ afterEach(() => {
 describe('usePdfHandoff：是否带有批注', () => {
   it('这一册没有笔迹：固定为「否」且拨不动（拨了不发起合成）', async () => {
     vi.mocked(loadAnnoDoc).mockReturnValue({})
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
     await waitFor(() => expect(result.current.ready).toBe(true))
 
@@ -138,7 +142,7 @@ describe('usePdfHandoff：是否带有批注', () => {
   })
 
   it('默认不带批注：不调云端合成，直接下原件', async () => {
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
 
     await waitFor(() => expect(result.current.ready).toBe(true))
@@ -149,7 +153,7 @@ describe('usePdfHandoff：是否带有批注', () => {
   })
 
   it('拨到「是」：调合成、用签名 URL 与产物字节数下载，文件名带后缀', async () => {
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
     await waitFor(() => expect(result.current.ready).toBe(true))
 
@@ -172,7 +176,7 @@ describe('usePdfHandoff：是否带有批注', () => {
 
   it('英文环境：带批注的文件名用英文后缀，且同样不夹带 .pdf', async () => {
     setTestLocale('en')
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
     await waitFor(() => expect(result.current.ready).toBe(true))
 
@@ -185,7 +189,7 @@ describe('usePdfHandoff：是否带有批注', () => {
   })
 
   it('⚠️ 合成之前必须**先同步**：函数读的是服务端那份，本地没推上去就会少画几笔', async () => {
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     // ⚠️ 顺序必须「先 open 再拨」：`hasAnno`（这一册有没有笔迹）是在 open 那一刻定的，
     // 而没笔迹时开关拨不动 —— 这也正是真机上的唯一顺序（面板不开，哪来的开关）
     act(() => result.current.open(meta()))
@@ -198,7 +202,7 @@ describe('usePdfHandoff：是否带有批注', () => {
   })
 
   it('带批注那条把三段耗时报上来（真机没有 Network 面板，只能自己报）', async () => {
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
     await waitFor(() => expect(result.current.ready).toBe(true))
     act(() => result.current.toggleAnno(true))
@@ -216,7 +220,7 @@ describe('usePdfHandoff：是否带有批注', () => {
   })
 
   it('不带批注那条**不**去同步（没必要多一次拉取）', async () => {
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
 
     await waitFor(() => expect(result.current.ready).toBe(true))
@@ -224,7 +228,7 @@ describe('usePdfHandoff：是否带有批注', () => {
   })
 
   it('⚠️ 带批注那份走**另一个记账键**：先存了原件，再拨开关不能复用原件', async () => {
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(savedCall().fileId).toBe('f1')
@@ -237,7 +241,7 @@ describe('usePdfHandoff：是否带有批注', () => {
   })
 
   it('拨回「否」：回到原件那一份（键也回原 id）', async () => {
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
     act(() => result.current.toggleAnno(true))
     await waitFor(() => expect(result.current.ready).toBe(true))
@@ -253,7 +257,7 @@ describe('usePdfHandoff：是否带有批注', () => {
   it('选择变了之后，旧那份**不算就绪**（不能把上一份交给用户）', async () => {
     let resolveCompose: (v: unknown) => void = () => {}
     composeAnnotatedPdf.mockReturnValue(new Promise((r) => (resolveCompose = r)))
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
     await waitFor(() => expect(result.current.ready).toBe(true))
 
@@ -262,20 +266,24 @@ describe('usePdfHandoff：是否带有批注', () => {
     expect(result.current.ready).toBe(false)
 
     await act(async () => {
-      resolveCompose({ url: 'https://x/anno.pdf?token=t', bytes: 1, annotatedPages: 1, drawnStrokes: 1 })
+      resolveCompose({
+        url: 'https://x/anno.pdf?token=t',
+        bytes: 1,
+        annotatedPages: 1,
+        drawnStrokes: 1,
+      })
     })
     await waitFor(() => expect(result.current.ready).toBe(true))
   })
 
   it('⚠️ 慢的那次后回来也不能翻盘：带批注还在合成时拨回「否」，交付的必须是原件', async () => {
-    const { AnnotatedPdfError } = await vi.importActual<typeof import('@/lib/annotated-pdf')>(
-      '@/lib/annotated-pdf'
-    )
+    const { AnnotatedPdfError } =
+      await vi.importActual<typeof import('@/lib/annotated-pdf')>('@/lib/annotated-pdf')
     void AnnotatedPdfError
     let resolveCompose: (v: unknown) => void = () => {}
     composeAnnotatedPdf.mockReturnValue(new Promise((r) => (resolveCompose = r)))
 
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
     act(() => result.current.toggleAnno(true)) // 合成挂起
     act(() => result.current.toggleAnno(false)) // 用户改主意，原件那条很快回来
@@ -283,7 +291,12 @@ describe('usePdfHandoff：是否带有批注', () => {
 
     // 挂起的那次合成此刻才回来——它已经作废，不许把已经备好的原件顶掉
     await act(async () => {
-      resolveCompose({ url: 'https://x/anno.pdf?token=t', bytes: 1, annotatedPages: 1, drawnStrokes: 1 })
+      resolveCompose({
+        url: 'https://x/anno.pdf?token=t',
+        bytes: 1,
+        annotatedPages: 1,
+        drawnStrokes: 1,
+      })
     })
 
     expect(result.current.ready).toBe(true)
@@ -301,7 +314,7 @@ describe('usePdfHandoff：是否带有批注', () => {
     let resolveSaved: (v: unknown) => void = () => {}
     ensureSavedPdf.mockReturnValue(new Promise((r) => (resolveSaved = r)))
 
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     expect(result.current.preparing).toBe(false)
 
     act(() => result.current.open(meta()))
@@ -316,7 +329,7 @@ describe('usePdfHandoff：是否带有批注', () => {
   it('备文件失败也要放下 preparing（否则开关永久卡死，改不回原件）', async () => {
     ensureSavedPdf.mockRejectedValue(new Error('boom'))
 
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
 
     await waitFor(() => expect(reportClientError).toHaveBeenCalled())
@@ -324,13 +337,12 @@ describe('usePdfHandoff：是否带有批注', () => {
   })
 
   it('这份谱没有批注：给一句人话、**不当失败上报**（那是预期内的一种）', async () => {
-    const { AnnotatedPdfError } = await vi.importActual<typeof import('@/lib/annotated-pdf')>(
-      '@/lib/annotated-pdf'
-    )
+    const { AnnotatedPdfError } =
+      await vi.importActual<typeof import('@/lib/annotated-pdf')>('@/lib/annotated-pdf')
     composeAnnotatedPdf.mockRejectedValue(new AnnotatedPdfError('no annotations', 'no annotations'))
     const Taro = (await import('@tarojs/taro')).default
 
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.toggleAnno(true))
     act(() => result.current.open(meta()))
 
@@ -340,7 +352,7 @@ describe('usePdfHandoff：是否带有批注', () => {
 
   it('合成失败（别的错因）：上报，且出口始终不可点', async () => {
     composeAnnotatedPdf.mockRejectedValue(new Error('boom'))
-    const { result } = renderHook(() => usePdfHandoff())
+    const { result } = renderHook(() => usePdfHandoff('u1'))
     act(() => result.current.open(meta()))
     await waitFor(() => expect(result.current.ready).toBe(true))
     act(() => result.current.toggleAnno(true))

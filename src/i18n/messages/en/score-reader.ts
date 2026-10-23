@@ -65,4 +65,33 @@ export const scoreReader = {
     failed: 'Failed. Check your connection and try again.',
     loadFailed: 'Could not load this page',
   },
+  merge: {
+    navTitle: 'Merge ink',
+    title: 'Merge ink',
+    entry: 'Merge ink…',
+    directionToPersonal: 'Shared → mine',
+    directionToShared: 'Mine → shared',
+    hintToPersonal:
+      'Merge the shared ink into your own annotations. Choose a version for each page.',
+    hintToShared:
+      'Merge your annotations into the shared score (writes the shared table; replaced versions stay in cloud history).',
+    mine: 'Mine',
+    shared: 'Shared',
+    merge: 'Merge',
+    useCurrent: 'Apply this version',
+    pageButton: 'Page {page}',
+    count: '{n} page(s) need a choice',
+    loading: 'Preparing merge…',
+    empty: 'Nothing to merge',
+    raced: 'The shared score or your annotations changed again — please take another look.',
+    failed: 'Failed. Check your connection and try again.',
+    loadFailed: 'Could not load this page',
+    noUser: 'Please log in before merging annotations.',
+    notAllowed: 'You do not have permission to edit this shared score.',
+    syncFailed: 'Your annotations failed to sync. Try again later.',
+    personalConflicts:
+      'Resolve your personal annotation conflicts before merging the shared score.',
+    resolvePersonalConflicts: 'Resolve personal conflicts',
+    loadFailedList: 'Could not load the pages to merge. Try again.',
+  },
 }

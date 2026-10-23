@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { reportClientError } from '@/lib/error-report'
 import { loadAnnoDoc, saveAnnoDoc, type AnnoDoc, type AnnoStroke } from '@/lib/annotation'
 import { fetchArchivePage } from '@/lib/annotation-history'
+import { migrateAnnotationStorage } from '@/lib/annotation-migration'
 import type { Json } from '@/types/database.types'
 import {
   clearAnnoPending,
@@ -117,7 +118,7 @@ export function setAnnotationConflictListener(
   conflictListener = fn
 }
 
-async function currentUserId(): Promise<string | null> {
+export async function currentUserId(): Promise<string | null> {
   try {
     const { data } = await supabase.auth.getSession()
     return data.session?.user?.id ?? null
@@ -279,9 +280,14 @@ export async function syncAnnotationFile(fileId: string): Promise<SyncResult> {
  *    **不收它**：计划是「远端改过、本地没动」时下的，前提没了就不能执行。
  *    那一页留到下一次对账（用户的改动触发了防抖，很快就会跑）按当时的真实三方重算。
  */
-function applyAdopt(fileId: string, items: AdoptAction[], nextBase: SyncBase): number {
+function applyAdopt(
+  owner: string,
+  fileId: string,
+  items: AdoptAction[],
+  nextBase: SyncBase
+): number {
   if (items.length === 0) return 0
-  const doc: AnnoDoc = { ...loadAnnoDoc(fileId) }
+  const doc: AnnoDoc = { ...loadAnnoDoc(owner, fileId) }
   let applied = 0
   for (const item of items) {
     const key = String(item.page)
@@ -291,7 +297,7 @@ function applyAdopt(fileId: string, items: AdoptAction[], nextBase: SyncBase): n
     applied++
   }
   if (applied === 0) return 0
-  saveAnnoDoc(fileId, doc)
+  saveAnnoDoc(owner, fileId, doc)
   adoptListener?.(fileId, doc)
   return applied
 }
@@ -302,7 +308,7 @@ async function runSync(fileId: string): Promise<SyncResult> {
     // 没登录就不动：批注在本地照常用，登录后自然会被推上去
     if (!userId) return SKIPPED
 
-    const local = loadAnnoDoc(fileId)
+    const local = loadAnnoDoc(userId, fileId)
     // 基线按账号隔离：换账号后当成没有基线（否则新账号拉回空集会被判成「远端删了」而抹掉本地）
     const base = loadSyncBase(fileId, userId)
     const remote = await fetchRemotePages(fileId)
@@ -375,7 +381,7 @@ async function runSync(fileId: string): Promise<SyncResult> {
       }
     }
     /** 收下远端的页**在推完之后**统一落盘：那时才读得到用户在这期间新画的笔迹（见 applyAdopt） */
-    const adoptedCount = applyAdopt(fileId, adopted, nextBase)
+    const adoptedCount = applyAdopt(userId, fileId, adopted, nextBase)
     // 基线要落盘，包括「推到一半失败」的情况：已经推上去的那些页必须记住，否则每次重推
     saveSyncBase(fileId, userId, nextBase)
 
@@ -417,21 +423,48 @@ let lastScanAt = 0
  */
 export async function syncAllAnnotationFiles(): Promise<void> {
   if (scanning) return
-  if (!isAnnoPending()) return
+  const userId = await currentUserId()
+  // 上面的 await 让出了执行权：并发调用可能都通过了第一道检查，这里再判一次
+  if (scanning) return
+  if (!userId) return
+  // D16 兜底：会话可能比 user-context 的迁移先就绪；旧键先归到当前账号名下再列册
+  migrateAnnotationStorage(userId)
+  if (!isAnnoPending(userId)) return
   const now = Date.now()
   if (now - lastScanAt < SCAN_MIN_INTERVAL_MS) return
   lastScanAt = now
   scanning = true
   try {
     let allOk = true
-    for (const fileId of listAnnotatedFileIds()) {
+    for (const fileId of listAnnotatedFileIds(userId)) {
       const result = await syncAnnotationFile(fileId)
-      if (result.status === 'failed') allOk = false
+      // 只有 ok 才算确认过：skipped 意味着中途没了会话，不能据此清欠账
+      if (result.status !== 'ok') allOk = false
     }
-    if (allOk) clearAnnoPending()
+    if (allOk) clearAnnoPending(userId)
   } finally {
     scanning = false
   }
+}
+
+/**
+ * 登出前的最后一班车（D16 / C1）：把这个账号所有有批注的册对一次账。
+ *
+ * 返回 true = 每一册都确认过（失败的那一册不会推进基线，下次登录会重推）。
+ * 调用方据此决定能不能删本地键。**必须在 `signOut()` 之前调用**：令牌一旦撤销，
+ * RLS 会把所有请求挡掉，那时再 flush 只会得到一连串失败。
+ */
+export async function flushAllAnnotationsForOwner(owner: string): Promise<boolean> {
+  const userId = await currentUserId()
+  if (userId !== owner) return false
+  migrateAnnotationStorage(owner)
+  let allOk = true
+  for (const fileId of listAnnotatedFileIds(owner)) {
+    const result = await syncAnnotationFile(fileId)
+    if (result.status !== 'ok') allOk = false
+  }
+  if (allOk) clearAnnoPending(owner)
+  return allOk
 }
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -503,7 +536,8 @@ export async function loadConflictPage(
   page: number,
   archiveVersion?: string | null
 ): Promise<ConflictPageState> {
-  const local = loadAnnoDoc(fileId)[String(page)] ?? []
+  const userId = await currentUserId()
+  const local = userId ? (loadAnnoDoc(userId, fileId)[String(page)] ?? []) : []
   const remote = await fetchRemotePage(fileId, page)
   if (archiveVersion) {
     const archived = await fetchArchivePage(fileId, page, archiveVersion)
@@ -581,7 +615,7 @@ export async function resolveAnnotationConflict(args: {
       compareStrokes = archived
     }
 
-    const localStrokes = loadAnnoDoc(fileId)[String(page)] ?? []
+    const localStrokes = loadAnnoDoc(userId, fileId)[String(page)] ?? []
     const localFp = pageFingerprint(localStrokes)
 
     if (choice === 'local') {
@@ -602,11 +636,11 @@ export async function resolveAnnotationConflict(args: {
       // 与 'local' 分支同款：CAS 落空但服务端已经是这一份（重复提交 / 丢 ACK）也算成功
       const same = outcome.ok || pageFingerprint(outcome.remote ?? []) === mergedFp
       if (!same) return { ok: false, reason: 'raced' }
-      const doc: AnnoDoc = { ...loadAnnoDoc(fileId) }
+      const doc: AnnoDoc = { ...loadAnnoDoc(userId, fileId) }
       doc[String(page)] = merged
       // ⚠️ 与 'remote' 分支同一条纪律：写盘失败就**不推进基线**，否则下次同步会拿旧本地
       // 把刚合并上去的内容顶回去
-      if (!saveAnnoDoc(fileId, doc)) {
+      if (!saveAnnoDoc(userId, fileId, doc)) {
         reportFailure('score_reader_annotation_save_failed', fileId, page, new Error('save_failed'))
         return { ok: false, reason: 'failed' }
       }
@@ -626,11 +660,11 @@ export async function resolveAnnotationConflict(args: {
           return { ok: false, reason: 'failed' }
         }
       }
-      const doc: AnnoDoc = { ...loadAnnoDoc(fileId) }
+      const doc: AnnoDoc = { ...loadAnnoDoc(userId, fileId) }
       doc[String(page)] = fresh.strokes
       // ⚠️ 写盘失败就**不推进基线**：否则磁盘上还是旧本地那份，而基线已经说「和远端一致了」
       // ⇒ 下一次同步会拿旧本地当「本地改过」推上去，把刚采纳的云端版顶回去
-      if (!saveAnnoDoc(fileId, doc)) {
+      if (!saveAnnoDoc(userId, fileId, doc)) {
         reportFailure('score_reader_annotation_save_failed', fileId, page, new Error('save_failed'))
         return { ok: false, reason: 'failed' }
       }

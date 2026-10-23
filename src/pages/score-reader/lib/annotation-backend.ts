@@ -46,16 +46,19 @@ export type AnnotationBackendCallbacks = {
  */
 export function createAnnotationBackend(
   kind: 'personal' | 'shared',
-  callbacks: AnnotationBackendCallbacks
+  callbacks: AnnotationBackendCallbacks,
+  /** 批注归属（D16）：auth user id，未登录为 `guest` */
+  owner: string
 ): ReaderAnnotationBackend {
   if (kind === 'shared') {
     throw new Error('shared annotation backend is not implemented (P6b)')
   }
-  return createPersonalAnnotationBackend(callbacks)
+  return createPersonalAnnotationBackend(callbacks, owner)
 }
 
 function createPersonalAnnotationBackend(
-  callbacks: AnnotationBackendCallbacks
+  callbacks: AnnotationBackendCallbacks,
+  owner: string
 ): ReaderAnnotationBackend {
   /** 每册每次会话只报一次：存储满会一直失败，别刷表 */
   let saveFailedReported = false
@@ -66,18 +69,18 @@ function createPersonalAnnotationBackend(
 
     load(fileId) {
       // 纯本地读，不发网络；包成 Promise 只是为了与 shared 的异步接口统一
-      return Promise.resolve(loadAnnoDoc(fileId))
+      return Promise.resolve(loadAnnoDoc(owner, fileId))
     },
 
     persist(fileId, doc) {
       if (backend.readOnly) return
       // 与 P6a 之前逐字相同的顺序：先记欠账、再起停笔防抖、最后同步写盘
-      markAnnoPending()
+      markAnnoPending(owner)
       scheduleAnnotationSync(fileId)
 
       // 这一下是同步阻塞主线程的（整册序列化 + setStorageSync）；超阈值记一条
       const saveStart = Date.now()
-      const saved = saveAnnoDoc(fileId, doc)
+      const saved = saveAnnoDoc(owner, fileId, doc)
       const saveCost = Date.now() - saveStart
       if (saveCost > 80) {
         reportClientError({
