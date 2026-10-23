@@ -9,7 +9,7 @@ import { ForceOfflineModal } from '@/components/force-offline-modal'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
-import { INSTRUMENT_ORDER } from '@/constants/instruments'
+import { INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP } from '@/constants/instruments'
 import { supabase } from '@/lib/supabase'
 import { touchSession } from '@/lib/device-session'
 import { routeAfterLogin } from '@/lib/post-auth-route'
@@ -19,7 +19,17 @@ import type { TFn } from '@/i18n/core'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import './index.scss'
 
-function getInstrumentOptions(t: TFn) {
+/**
+ * 提交给后端的值：必须是规范值（16 个乐器 + 「其他」）。
+ *
+ * ⚠️ 不能把 `getInstrumentLabels(t)` 的结果当值发：英文环境那张表的最后一项是
+ * `Other`，而后端 / 数据库只认 `其他`。旧版本就是这样发的，后端那份归一化
+ * （`register-with-wechat` + `profiles` 触发器）专门兜它 —— 但这版开始发规范值。
+ */
+const INSTRUMENT_VALUES = [...INSTRUMENT_ORDER, OTHER_INSTRUMENT_GROUP] as const
+
+/** 界面上显示的选择项：16 个乐器名是规范中文，只有「其他」需要本地化。 */
+function getInstrumentLabels(t: TFn) {
   return [...INSTRUMENT_ORDER, t('register.otherInstrument')] as const
 }
 
@@ -141,7 +151,7 @@ export default function RegisterPage() {
       }
 
       const joinDate = `${YEAR_OPTIONS[yearIndex]}${SEASON_VALUES[seasonIndex]}`
-      const instrument = getInstrumentOptions(t)[instrumentIndex]
+      const instrument = INSTRUMENT_VALUES[instrumentIndex]
 
       const { data, error } = await invokeFunction(supabase, 'register-with-wechat', {
         body: {
@@ -249,7 +259,7 @@ export default function RegisterPage() {
             </Text>
             <Picker
               mode='selector'
-              range={getInstrumentOptions(t) as unknown as string[]}
+              range={getInstrumentLabels(t) as unknown as string[]}
               value={instrumentIndex ?? 0}
               onChange={(e) => {
                 setErrorMsg(null)
@@ -261,7 +271,7 @@ export default function RegisterPage() {
                   className={`text-sm ${instrumentIndex !== null ? 'text-text' : 'text-text-muted'}`}
                 >
                   {instrumentIndex !== null
-                    ? getInstrumentOptions(t)[instrumentIndex]
+                    ? getInstrumentLabels(t)[instrumentIndex]
                     : t('register.instrumentPlaceholder')}
                 </Text>
                 <Text className='text-xs text-text-muted'>▼</Text>
