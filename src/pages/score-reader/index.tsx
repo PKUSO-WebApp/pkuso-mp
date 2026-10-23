@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Taro, { useDidShow, useRouter, useShareAppMessage, useUnload } from '@tarojs/taro'
+import Taro, {
+  useDidHide,
+  useDidShow,
+  useRouter,
+  useShareAppMessage,
+  useUnload,
+} from '@tarojs/taro'
 import { View, Canvas, Text } from '@tarojs/components'
 import type { ITouchEvent } from '@tarojs/components'
 import { supabase } from '@/lib/supabase'
@@ -9,6 +15,7 @@ import { useThemeClass, useThemeContext } from '@/context/theme-context'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
 import { AnnotationConflictSheet } from '@/components/score/AnnotationConflictSheet'
 import { AnnotationHistorySheet } from '@/components/score/AnnotationHistorySheet'
+import { SharedConflictSheet } from '@/components/score/SharedConflictSheet'
 import { ReaderToolbar, type ReaderPanel } from '@/components/score/ReaderToolbar'
 import { ReaderTutorial } from '@/components/score/ReaderTutorial'
 import { SaveToSheet } from '@/components/score/SaveToSheet'
@@ -35,6 +42,13 @@ import { pageImageUrls } from '@/lib/score-page-image'
 import type { SheetMusicFileRow } from '@/types/database'
 // 页面内部模块：留在分包目录内，保证被打进分包 chunk（见 lib/types.ts 顶部注释）
 import { createAnnotationBackend, type ReaderAnnotationBackend } from './lib/annotation-backend'
+import {
+  createSharedAnnotationBackend,
+  type SharedAnnotationBackend,
+  type SharedAnnotationConflict,
+  type SharedConflictChoice,
+  type SharedSaveState,
+} from './lib/shared-annotation-backend'
 import type { CanvasCtx, CanvasNode, Drag, Job, Layer, Pan, Pinch, Stage } from './lib/types'
 import { frameInk, rasterDpr, sampleEdgeColors } from './lib/raster'
 import { bytesToMB, createBitmapLedger } from './lib/raster-budget'
@@ -216,6 +230,8 @@ export default function ScoreReader() {
   useNavTitle('scoreReader.navTitle')
   const router = useRouter()
   const fileId = router.params.file_id ? decodeURIComponent(router.params.file_id) : ''
+  /** 共享谱模式（由「共享的乐谱」列表带进来）；参数名避开布局用的 mode */
+  const sharedMode = router.params.kind === 'shared'
   // 列表页（pages/score-part）带过来的元数据：省掉一次走反代到境外库的查询
   //（实测 ~600ms）。缺了就回退查库——分享链接等旧入口不受影响。
   const presetStoragePath = router.params.sp ? decodeURIComponent(router.params.sp) : ''
@@ -258,6 +274,8 @@ export default function ScoreReader() {
       presetTitle ? `title=${encodeURIComponent(presetTitle)}` : '',
       presetSection ? `sec=${encodeURIComponent(presetSection)}` : '',
       presetBytes ? `sz=${presetBytes}` : '',
+      // 共享谱转出去仍要落到共享模式：否则接收方会把它当个人谱，看不到共享批注
+      sharedMode ? 'kind=shared' : '',
     ]
       .filter(Boolean)
       .join('&')}`,
@@ -374,6 +392,13 @@ export default function ScoreReader() {
   const [penWidth, setPenWidth] = useState<number>(PEN_WIDTHS[1])
   const [hlWidth, setHlWidth] = useState<number>(HIGHLIGHTER_WIDTHS[1])
   const [annos, setAnnos] = useState<AnnoDoc>({})
+  /**
+   * 共享谱无写权（P6b）。初值取 sharedMode：写权限与远端版本都要等 load() 回来才知道，
+   * 在那之前一律按只读对待（画了也存不进去，不能让它看起来画成功了）。personal 恒 false。
+   */
+  const [annotationReadOnly, setAnnotationReadOnly] = useState(sharedMode)
+  const [sharedSaveState, setSharedSaveState] = useState<SharedSaveState>('saved')
+  const [sharedConflicts, setSharedConflicts] = useState<SharedAnnotationConflict[]>([])
   /**
    * 批注的同步镜像：**读-改-写**的调用点一律读它，不读 state。
    *
@@ -908,24 +933,29 @@ export default function ScoreReader() {
   }, [fileId])
 
   const annotationBackend = useMemo(() => {
-    const backend = createAnnotationBackend('personal', {
-      onAdopt: (doc) => {
-        annosRef.current = doc
-        setAnnos(doc)
-      },
-      onConflict: () => {
-        void refreshConflicts()
-      },
-      onSynced: () => {
-        void refreshConflicts()
-      },
-    })
+    const backend = sharedMode
+      ? createSharedAnnotationBackend({
+          onSaveState: (state) => setSharedSaveState(state),
+          onConflict: (conflicts) => setSharedConflicts(conflicts),
+        })
+      : createAnnotationBackend('personal', {
+          onAdopt: (doc) => {
+            annosRef.current = doc
+            setAnnos(doc)
+          },
+          onConflict: () => {
+            void refreshConflicts()
+          },
+          onSynced: () => {
+            void refreshConflicts()
+          },
+        })
     annotationBackendRef.current = backend
     return backend
-  }, [refreshConflicts])
+  }, [refreshConflicts, sharedMode])
 
   // 个人批注专属 UI（历史、冲突列表、同步状态）只在 personal 模式出现；
-  // P6a 恒 personal，P6b 的 shared 模式靠它隐藏。
+  // 共享谱走自己的保存状态徽标与冲突面板。
   const personalAnnotation = annotationBackend.kind === 'personal'
 
   // 进入文件时载入本地批注，然后**先拉后推**地对一次账（触发点 ③）。
@@ -933,9 +963,14 @@ export default function ScoreReader() {
   useEffect(() => {
     if (!fileId) return
     let cancelled = false
+    // 换册时上一册的共享冲突/保存状态不跟过来
+    setSharedConflicts([])
+    setSharedSaveState('saved')
     void (async () => {
       const doc = await annotationBackend.load(fileId)
       if (cancelled) return
+      // readOnly 要在 load 之后取：shared 的权限与远端版本都是这时才有的
+      setAnnotationReadOnly(annotationBackend.readOnly)
       annosRef.current = doc
       setAnnos(doc)
       await annotationBackend.onOpen?.(fileId)
@@ -1642,6 +1677,12 @@ export default function ScoreReader() {
   useEffect(() => {
     invalidatePredraw('zoom')
   }, [zoom, invalidatePredraw])
+
+  // 切后台 / 离开本页：把挂着的批注发出去。shared 的 600ms 防抖里可能还压着最后一笔，
+  // 而微信随时可能杀进程；personal 这一下与 useUnload 的最后一班车同义，重复调用无害。
+  useDidHide(() => {
+    if (fileId) annotationBackendRef.current?.flush?.(fileId)
+  })
 
   // 回到前台：画布位图在前后台切换后是否还在没有实测证据，作废一次的代价只是
   // 「回前台后的第一次翻页走常规路径」，比上错页/上白页便宜得多
@@ -2698,6 +2739,7 @@ export default function ScoreReader() {
   // 起笔：rect 必须当次现取（工具条显隐会挪动画布），取到之前不落笔——
   // 拿旧 rect 算出的首点会连出一条「从按钮到落笔处」的飞线
   const beginStroke = (touch: { clientX: number; clientY: number; identifier?: number }) => {
+    if (annotationReadOnly) return
     // ⚠️ **左沿那条带里不起笔**（宽度见 `EDGE_NO_DRAW_PX`）：那里的触摸会被微信自己的边缘返回
     // 手势抢走（断流 → 成批补送 → `touch-cancel`），画出来也是半截 ⇒ 干脆不开始。
     //
@@ -2922,6 +2964,7 @@ export default function ScoreReader() {
    * 等待期间到达的触点攒进 erasePendingRef，rect 到手后连同起点一并补擦。
    */
   const beginErase = (touch: { clientX: number; clientY: number }) => {
+    if (annotationReadOnly) return
     cancelStroke('begin-erase')
     const lane = laneUnderPoint(touch.clientY)
     if (!lane) return
@@ -3111,7 +3154,7 @@ export default function ScoreReader() {
     if (!touch) return
     if (penOn) {
       // shared 模式下无写权的人只读（P6b）；personal 恒 false，行为不变
-      if (annotationBackend.readOnly) return
+      if (annotationReadOnly) return
       if (tool === 'eraser') beginErase(touch)
       else beginStroke(touch)
       return
@@ -3344,6 +3387,7 @@ export default function ScoreReader() {
 
   /** 撤销**一步操作**（画一笔 / 擦掉若干笔都算一步）——不是「删掉最后一笔」 */
   const handleUndo = () => {
+    if (annotationReadOnly) return
     const op = historyRef.current.pop()
     setUndoDepth(historyRef.current.length)
     if (!op) return
@@ -3358,6 +3402,7 @@ export default function ScoreReader() {
    *    的 clearPage），否则「本页」在 UD 里是歧义的：写/擦按**手指位置**定页，清空按顶边页。
    */
   const handleClear = () => {
+    if (annotationReadOnly) return
     const key = String(page)
     const before = annosRef.current[key] ?? []
     if (before.length === 0) return // 没笔迹就没有可撤销的一步
@@ -3382,6 +3427,11 @@ export default function ScoreReader() {
   }
 
   const togglePen = () => {
+    // 只挡「进批注」：已经进来的人必须还能出去（否则只读一旦生效就被困在批注栏里）
+    if (!penOn && annotationReadOnly) {
+      void Taro.showToast({ title: t('score.sharedReadOnly'), icon: 'none' })
+      return
+    }
     cancelStroke('toggle-pen')
     dragRef.current = null
     multiTouchRef.current = false
@@ -3399,6 +3449,20 @@ export default function ScoreReader() {
    * `url` 传**取值函数**而不是值：`fileUrlRef` 是 ref，渲染期读会拿到空串。
    */
   const handoff = usePdfHandoff()
+
+  /**
+   * 共享谱 CAS 冲突：逐页三选一之后，把选定的内容落回内存态。
+   * 写回共享表 / 采纳远端都由 backend 负责（它同时维护 baseDoc 与版本号）。
+   */
+  const resolveSharedConflict = async (target: number, choice: SharedConflictChoice) => {
+    if (!sharedMode || annotationBackend.kind !== 'shared') return
+    // 联合类型下 TS 认不出「shared 变体一定有 resolveConflict」，这里按键收窄
+    const shared = annotationBackend as SharedAnnotationBackend
+    const next = await shared.resolveConflict(target, choice)
+    if (!next) return // 写失败或解决期间又被改了：面板会按新快照继续问
+    annosRef.current = { ...annosRef.current, [String(target)]: next }
+    setAnnos(annosRef.current)
+  }
 
   /**
    * 「恢复云端历史」（分享子菜单里的入口）：先拉这一册的归档**元数据**并按覆盖批次聚好，
@@ -3452,6 +3516,8 @@ export default function ScoreReader() {
       section: presetSection,
       fileName: presetFileName,
       expectedBytes: presetBytes,
+      // 共享谱的「带批注」合成是 P6d 的独立函数；P6b 里不能把个人批注烧进共享谱
+      allowAnnotations: !sharedMode,
     })
   }
 
@@ -3872,6 +3938,48 @@ export default function ScoreReader() {
           </View>
         ) : null}
 
+        {/* 共享谱的保存状态徽标（P6b）：常驻顶部，一眼能看出「存了没有」。
+            只读时显示「只读」；同步失败时变成可点（重试），其余时候不吃触摸 */}
+        {sharedMode ? (
+          <View
+            className='absolute'
+            style={{
+              // 靠左上：中间留给加载状态行，右上角是微信的胶囊按钮；再让开左沿返回手势那条带
+              left: '28px',
+              top: 'calc(env(safe-area-inset-top) + 8px)',
+              zIndex: Z_STATUS,
+              pointerEvents: 'none',
+            }}
+          >
+            <View
+              className='rounded-full border border-border bg-surface px-3 py-1'
+              style={{
+                pointerEvents: sharedSaveState === 'error' && !annotationReadOnly ? 'auto' : 'none',
+              }}
+              onClick={() => {
+                if (annotationReadOnly || sharedSaveState !== 'error') return
+                annotationBackendRef.current?.retry?.()
+              }}
+            >
+              <Text
+                className={`text-xs ${
+                  sharedSaveState === 'error' && !annotationReadOnly
+                    ? 'text-danger'
+                    : 'text-text-muted'
+                }`}
+              >
+                {annotationReadOnly
+                  ? t('score.sharedReadOnly')
+                  : sharedSaveState === 'saving'
+                    ? t('score.sharedSaving')
+                    : sharedSaveState === 'error'
+                      ? t('score.sharedSyncFailed')
+                      : t('score.sharedSaved')}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         {/* 首次教程蒙层：放在最后 ⇒ 压在所有工具条之上（z 也最高）。
             它是 #reader-stage 的兄弟节点，触摸不会冒泡进舞台状态机 */}
         {tutorialOn ? <ReaderTutorial mode={mode} onClose={dismissTutorial} /> : null}
@@ -3886,6 +3994,13 @@ export default function ScoreReader() {
             onClose={() => setConflictOn(false)}
           />
         ) : null}
+        {/* 共享谱冲突：不可关闭（关掉只会让状态更含糊），所以教程期间也不弹，等它关掉 */}
+        {sharedMode && sharedConflicts.length > 0 && !tutorialOn ? (
+          <SharedConflictSheet
+            conflicts={sharedConflicts}
+            onResolve={(target, choice) => void resolveSharedConflict(target, choice)}
+          />
+        ) : null}
         {handoff.sheetOn ? (
           <SaveToSheet
             kinds={handoff.kinds}
@@ -3897,7 +4012,8 @@ export default function ScoreReader() {
             preparing={handoff.preparing}
             onAnno={handoff.toggleAnno}
             onPick={handoff.pick}
-            onHistory={openHistory}
+            // 云端历史是个人批注层的概念；共享谱没有这行
+            onHistory={personalAnnotation ? openHistory : undefined}
             onClose={handoff.close}
           />
         ) : null}

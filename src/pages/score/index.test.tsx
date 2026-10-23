@@ -18,7 +18,10 @@ vi.mock('@tarojs/components', () => {
   }
   return { View: create('div'), Text: create('span'), ScrollView: create('div') }
 })
-vi.mock('@tarojs/taro', () => ({ default: { navigateTo: vi.fn() } }))
+vi.mock('@tarojs/taro', () => ({
+  default: { navigateTo: vi.fn() },
+  useDidShow: () => {},
+}))
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 vi.mock('@/context/user-context', () => ({ useUser: () => ({ user: authState.user }) }))
 // ⚠️ 稳定引用（见 members 测试同款注释）：返回同一个对象，改 role = 改它
@@ -33,6 +36,14 @@ vi.mock('@/hooks/useSheetMusic', () => ({
     error: null,
     fetch: vi.fn(),
   }),
+  fetchSheetMusicFile: vi.fn(),
+}))
+// 这两个 hook 都 import 了 supabase（缺 env 时导入即抛），本测试只关心角色闸门
+vi.mock('@/hooks/useSharedScoreFiles', () => ({
+  useSharedScoreFiles: () => ({ data: [], loading: false, error: null, fetch: vi.fn() }),
+}))
+vi.mock('@/hooks/useMySharedScopes', () => ({
+  useMySharedScopes: () => ({ managedSections: [], capabilities: [], loading: false }),
 }))
 vi.mock('@/components/staff-blocked-page', () => ({
   // 渲染出角色而不是 null：既证明阻断命中了，也证明 role 传对了

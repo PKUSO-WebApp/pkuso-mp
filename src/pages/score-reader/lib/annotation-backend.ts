@@ -27,6 +27,8 @@ export type ReaderAnnotationBackend = {
   onClose?(): void
   /** 页面卸载时把挂着的防抖发掉（当前 useUnload 的最后一班车） */
   flush?(fileId: string): void
+  /** shared 同步失败后的手动重试（personal 不实现） */
+  retry?(): void
 }
 
 export type AnnotationBackendCallbacks = {

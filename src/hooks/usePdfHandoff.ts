@@ -22,6 +22,11 @@ export type PdfHandoffMeta = {
    * 退回单次下载，属预期。
    */
   expectedBytes?: number
+  /**
+   * 是否允许「带批注」出口。共享谱的合成走 P6d 的独立函数；P6b 里先禁掉，
+   * 避免把**个人**批注烧进共享谱。
+   */
+  allowAnnotations?: boolean
 }
 
 /**
@@ -245,7 +250,8 @@ export function usePdfHandoff() {
     if (busy) return
     // 有没有笔迹在这一刻定：没有就把开关压回「否」（它同时也是「固定为否」的落点 ——
     // 面板上那个开关会被禁用，这里再压一次值，两道闸）
-    const has = docHasInk(loadAnnoDoc(m.fileId))
+    const allow = m.allowAnnotations !== false
+    const has = allow && docHasInk(loadAnnoDoc(m.fileId))
     setHasAnno(has)
     const anno = has && withAnno
     if (anno !== withAnno) setWithAnno(anno)
