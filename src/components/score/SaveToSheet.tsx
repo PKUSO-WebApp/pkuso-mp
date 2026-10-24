@@ -30,6 +30,7 @@ export function SaveToSheet({
   onAnno,
   onPick,
   onHistory,
+  onSharedHistory,
   onMergeShared,
   onClose,
 }: {
@@ -53,6 +54,8 @@ export function SaveToSheet({
    * 没有"当前在哪一页、本地有哪些笔迹"这些上下文）⇒ 不给就整行不渲染。
    */
   onHistory?: () => void
+  /** 「恢复共享历史」：只有共享谱阅读器给（与个人历史是两张表） */
+  onSharedHistory?: () => void
   /**
    * 「合并批注…」：**只有共享谱阅读器给**（P6c）。个人谱没有共享层可合并，
    * 给了入口也只会让人点进一个空面板。
@@ -112,6 +115,11 @@ export function SaveToSheet({
         {onHistory ? (
           <View className='border-b border-border px-4 py-4' onClick={onHistory}>
             <Text className='text-sm text-text'>{t('scoreReader.history.entry')}</Text>
+          </View>
+        ) : null}
+        {onSharedHistory ? (
+          <View className='border-b border-border px-4 py-4' onClick={onSharedHistory}>
+            <Text className='text-sm text-text'>{t('scoreReader.sharedHistory.entry')}</Text>
           </View>
         ) : null}
         {/* 共享谱：把共享笔迹并进个人层，或把个人笔迹推到共享层（P6c） */}

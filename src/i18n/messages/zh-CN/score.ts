@@ -13,7 +13,6 @@ export const score = {
   sharedSyncFailed: '共享谱 · 同步失败，稍后会自动重试',
   sharedConflictTitle: '共享谱有更新',
   sharedConflictHint: '选择每一页保留哪一版',
-  sharedConflictPreview: '点开预览两版再选',
   sharedUseLocal: '用我的',
   sharedUseRemote: '用远端',
   sharedMerge: '合并',

@@ -9,6 +9,9 @@ import {
   annoSyncPrefix,
 } from './annotation-sync'
 
+/** 共享谱本地草稿键前缀（与 pages/score-reader/lib/shared-draft-store 保持同名） */
+const SHARED_DRAFT_PREFIX = 'score-shared-draft-v1:'
+
 /** 上一次在本机写批注的账号（跨账号切换时据此清理上一个账号的本地目录） */
 export const ANNO_LAST_OWNER_KEY = 'score-annotation-last-owner'
 
@@ -182,7 +185,12 @@ export function migrateAnnotationStorage(userId: string): void {
 /** 删掉某个账号在本机的全部批注数据（登出清理 / 换账号清理） */
 export function clearAnnotationStorageFor(owner: string): void {
   if (!owner) return
-  const prefixes = [annoStoragePrefix(owner), annoSyncPrefix(owner), annoConflictPrefix(owner)]
+  const prefixes = [
+    annoStoragePrefix(owner),
+    annoSyncPrefix(owner),
+    annoConflictPrefix(owner),
+    `${SHARED_DRAFT_PREFIX}${owner}:`,
+  ]
   for (const key of storageKeys()) {
     if (typeof key !== 'string') continue
     if (prefixes.some((p) => key.startsWith(p)) || key === ANNO_PENDING_KEY(owner)) {

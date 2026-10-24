@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import type { AnnoDoc, AnnoStroke } from '@/lib/annotation'
 import { mergeStrokes, pageFingerprint } from '@/lib/annotation-sync'
 import type { ReaderAnnotationBackend } from './annotation-backend'
+import { clearSharedDraft, loadSharedDrafts, saveSharedDraft } from './shared-draft-store'
 
 export type SharedSaveState = 'saving' | 'saved' | 'error'
 
@@ -30,6 +31,16 @@ export type SharedAnnotationBackend = ReaderAnnotationBackend & {
   flushNow: () => Promise<boolean>
   /** 当前某一页的冲突快照（预览页提交失败时用来判断是「又变了」还是网络失败） */
   getConflict: (page: number) => SharedAnnotationConflict | undefined
+  /** 当前已知的共享版本（历史恢复预览的 CAS 基准） */
+  getVersion: (page: number) => string | undefined
+  /**
+   * 用一份内容恢复共享页（历史版本 / 历史与当前的并集）。
+   * 成功时返回最终写入的笔迹；CAS 落空会记成冲突并返回 raced。
+   */
+  restorePage: (
+    page: number,
+    strokes: AnnoStroke[]
+  ) => Promise<{ ok: boolean; raced?: boolean; strokes?: AnnoStroke[] }>
   /** 冲突解决：local/merge 会写回共享表；remote 只采纳远端 */
   resolveConflict: (page: number, choice: SharedConflictChoice) => Promise<AnnoStroke[] | null>
 }
@@ -50,7 +61,9 @@ const cloneDoc = (doc: AnnoDoc): AnnoDoc => JSON.parse(JSON.stringify(doc)) as A
  * - 页面关闭/卸载时 flush 一次，避免最后一笔丢在防抖里。
  */
 export function createSharedAnnotationBackend(
-  callbacks: SharedAnnotationBackendCallbacks
+  callbacks: SharedAnnotationBackendCallbacks,
+  /** 草稿按账号隔离（D16）；与 reader 的 annoOwner 同一个值 */
+  owner: string
 ): SharedAnnotationBackend {
   let readOnly = true
   let currentFileId = ''
@@ -117,7 +130,11 @@ export function createSharedAnnotationBackend(
           }
           progressed = true
           if (row.ok) {
-            if (dirty.get(page) === strokes) dirty.delete(page)
+            if (dirty.get(page) === strokes) {
+              dirty.delete(page)
+              // 这份草稿已经落到共享表；若期间又画了新内容，dirty 会持有新的引用，不能清
+              clearSharedDraft(owner, fileId, page)
+            }
             if (row.version) versions[page] = row.version
             baseDoc = { ...baseDoc, [String(page)]: strokes }
           } else {
@@ -125,11 +142,18 @@ export function createSharedAnnotationBackend(
             // local 取**此刻**的内容（写入期间可能又画了新的一笔）
             const latest = dirty.get(page) ?? strokes
             dirty.delete(page)
+            const remote = (Array.isArray(row.strokes) ? row.strokes : []) as AnnoStroke[]
             conflicts.set(page, {
               page,
               local: latest,
-              remote: (Array.isArray(row.strokes) ? row.strokes : []) as AnnoStroke[],
+              remote,
               remoteVersion: row.version ?? '',
+            })
+            // 退出阅读器后这条冲突仍要存在：本地版本落草稿，下次进来直接弹预览
+            saveSharedDraft(owner, fileId, page, {
+              local: latest,
+              baseVersion: versions[page] ?? '',
+              conflicted: true,
             })
             failed = true
             break
@@ -179,14 +203,16 @@ export function createSharedAnnotationBackend(
         supabase.rpc('can_edit_shared_annotation', { p_file_id: fileId }),
       ])
 
-      const doc: AnnoDoc = {}
+      const remoteDoc: AnnoDoc = {}
       if (!annRes.error) {
         for (const row of (annRes.data ?? []) as {
           page: number
           strokes: unknown
           version: string
         }[]) {
-          doc[String(row.page)] = (Array.isArray(row.strokes) ? row.strokes : []) as AnnoStroke[]
+          remoteDoc[String(row.page)] = (
+            Array.isArray(row.strokes) ? row.strokes : []
+          ) as AnnoStroke[]
           versions[row.page] = row.version
         }
       } else {
@@ -195,8 +221,37 @@ export function createSharedAnnotationBackend(
 
       // 批注读取失败时不允许写：没有远端版本就无法做 CAS
       readOnly = !!annRes.error || !!permRes.error ? true : !permRes.data
-      baseDoc = cloneDoc(doc)
-      setState('saved')
+
+      // 恢复上次退出时留下的草稿：冲突页直接弹预览，普通未推送页放回 dirty 由 onOpen 补推。
+      // 没有这一步，用户退出后本地版本只留在内存里，下次进来就只剩远端（验收反馈的静默丢失）。
+      const doc: AnnoDoc = { ...remoteDoc }
+      if (!annRes.error) {
+        for (const [page, draft] of loadSharedDrafts(owner, fileId)) {
+          const key = String(page)
+          const remote = remoteDoc[key] ?? []
+          if (pageFingerprint(draft.local) === pageFingerprint(remote)) {
+            clearSharedDraft(owner, fileId, page)
+            continue
+          }
+          doc[key] = draft.local
+          if (draft.conflicted) {
+            conflicts.set(page, {
+              page,
+              local: draft.local,
+              remote,
+              remoteVersion: versions[page] ?? '',
+            })
+          } else {
+            dirty.set(page, draft.local)
+            // CAS 期望值用**用户动手时**的版本；远端若已变，会自然落进冲突
+            versions[page] = draft.baseVersion
+          }
+        }
+      }
+
+      baseDoc = cloneDoc(remoteDoc)
+      setState(conflicts.size > 0 ? 'error' : dirty.size > 0 ? 'saving' : 'saved')
+      if (conflicts.size > 0) reportConflicts()
       return doc
     },
 
@@ -210,17 +265,33 @@ export function createSharedAnnotationBackend(
           // 冲突没解决之前不写这一页；但把「我现在的」更新进快照 —— 用户之后选
           // 「用我的」时要的是最后画成的那一版，不是冲突发生那一刻的
           conflicts.set(page, { ...pendingConflict, local: strokes })
+          saveSharedDraft(owner, fileId, page, {
+            local: strokes,
+            baseVersion: versions[page] ?? '',
+            conflicted: true,
+          })
           continue
         }
         if (pageFingerprint(strokes) === pageFingerprint(baseDoc[key] ?? [])) {
           dirty.delete(page)
+          clearSharedDraft(owner, fileId, page)
         } else {
           dirty.set(page, strokes)
+          saveSharedDraft(owner, fileId, page, {
+            local: strokes,
+            baseVersion: versions[page] ?? '',
+            conflicted: false,
+          })
         }
       }
       if (dirty.size === 0) return
       setState('saving')
       scheduleFlush(fileId)
+    },
+
+    onOpen(fileId) {
+      // 从草稿恢复出来的普通未推送页：进册后补推；冲突页已在 conflicts 里，不会自动覆盖
+      if (dirty.size > 0) void flushPending(fileId)
     },
 
     onClose() {
@@ -239,6 +310,52 @@ export function createSharedAnnotationBackend(
       return conflicts.get(page)
     },
 
+    getVersion(page) {
+      return versions[page]
+    },
+
+    async restorePage(page, strokes) {
+      if (readOnly) return { ok: false }
+      const { data, error } = await supabase.rpc('push_shared_sheet_music_annotation', {
+        p_file_id: currentFileId,
+        p_page: page,
+        p_strokes: strokes as never,
+        p_expected_version: versions[page] ?? '',
+      })
+      const row = (data as RpcRow[] | null)?.[0]
+      if (error || !row) {
+        setState('error')
+        return { ok: false }
+      }
+      const key = String(page)
+      if (row.ok) {
+        conflicts.delete(page)
+        dirty.delete(page)
+        clearSharedDraft(owner, currentFileId, page)
+        baseDoc = { ...baseDoc, [key]: strokes }
+        if (row.version) versions[page] = row.version
+        setState(conflicts.size > 0 ? 'error' : 'saved')
+        reportConflicts()
+        return { ok: true, strokes }
+      }
+      // 恢复期间远端又变了：与冲突解决同样处理，保留双方让用户再选
+      const remote = (Array.isArray(row.strokes) ? row.strokes : []) as AnnoStroke[]
+      conflicts.set(page, {
+        page,
+        local: strokes,
+        remote,
+        remoteVersion: row.version ?? '',
+      })
+      saveSharedDraft(owner, currentFileId, page, {
+        local: strokes,
+        baseVersion: versions[page] ?? '',
+        conflicted: true,
+      })
+      setState('error')
+      reportConflicts()
+      return { ok: false, raced: true }
+    },
+
     flushNow() {
       return flushPending()
     },
@@ -251,6 +368,7 @@ export function createSharedAnnotationBackend(
       if (choice === 'remote') {
         conflicts.delete(page)
         dirty.delete(page)
+        clearSharedDraft(owner, currentFileId, page)
         baseDoc = { ...baseDoc, [key]: conflict.remote }
         versions[page] = conflict.remoteVersion
         setState(conflicts.size > 0 ? 'error' : 'saved')
@@ -279,6 +397,11 @@ export function createSharedAnnotationBackend(
           remote: (Array.isArray(row.strokes) ? row.strokes : []) as AnnoStroke[],
           remoteVersion: row.version ?? '',
         })
+        saveSharedDraft(owner, currentFileId, page, {
+          local: next,
+          baseVersion: versions[page] ?? '',
+          conflicted: true,
+        })
         setState('error')
         reportConflicts()
         return null
@@ -286,6 +409,7 @@ export function createSharedAnnotationBackend(
 
       conflicts.delete(page)
       dirty.delete(page)
+      clearSharedDraft(owner, currentFileId, page)
       baseDoc = { ...baseDoc, [key]: next }
       if (row.version) versions[page] = row.version
       setState(conflicts.size > 0 ? 'error' : 'saved')

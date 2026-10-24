@@ -41,9 +41,6 @@ export function SharedConflictSheet({
               <Text className='text-sm text-text'>
                 {t('scoreReader.conflict.pageButton', { page: conflict.page })}
               </Text>
-              <Text className='mt-1 block text-xs text-text-muted'>
-                {t('score.sharedConflictPreview')}
-              </Text>
             </View>
           ))}
         </ScrollView>

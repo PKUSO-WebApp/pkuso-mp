@@ -44,7 +44,9 @@ import {
   listAnnotationHistory,
   type HistoryBatch,
   type HistoryPage,
+  type HistorySource,
 } from '@/lib/annotation-history'
+import { mergeStrokes } from '@/lib/annotation-sync'
 import { loadConflictPages } from '@/lib/annotation-sync-runner'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { pageImageUrls } from '@/lib/score-page-image'
@@ -449,8 +451,16 @@ export default function ScoreReader() {
   const [conflictOn, setConflictOn] = useState(false)
   /** 「恢复云端历史」面板（分享子菜单里的入口）：批次列表 + 该批的页 */
   const [historyOn, setHistoryOn] = useState(false)
+  const [historySource, setHistorySource] = useState<HistorySource>('personal')
   const [historyBatches, setHistoryBatches] = useState<HistoryBatch[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  /** 共享历史页的预览（当前 vs 历史）；与共享冲突预览分开，语义不同 */
+  const [sharedHistoryPreview, setSharedHistoryPreview] = useState<{
+    page: number
+    history: AnnoStroke[]
+    current: AnnoStroke[]
+    currentVersion: string
+  } | null>(null)
   /**
    * 当前工具：画笔 / 荧光笔 / 橡皮擦（橡皮擦按**整条**删除，见 eraseAtPoints + eraseStrokesAt）。
    * 三选一而不是两个布尔——「笔和擦同时开着」这种状态本来就不该存在。
@@ -1010,10 +1020,13 @@ export default function ScoreReader() {
 
   const annotationBackend = useMemo(() => {
     const backend = sharedMode
-      ? createSharedAnnotationBackend({
-          onSaveState: (state) => setSharedSaveState(state),
-          onConflict: (conflicts) => setSharedConflicts(conflicts),
-        })
+      ? createSharedAnnotationBackend(
+          {
+            onSaveState: (state) => setSharedSaveState(state),
+            onConflict: (conflicts) => setSharedConflicts(conflicts),
+          },
+          annoOwner
+        )
       : createAnnotationBackend(
           'personal',
           {
@@ -3672,9 +3685,23 @@ export default function ScoreReader() {
   const openHistory = () => {
     if (!personalAnnotation) return
     handoff.close()
+    setHistorySource('personal')
     setHistoryOn(true)
     setHistoryLoading(true)
     void listAnnotationHistory(fileId).then((rows) => {
+      setHistoryBatches(groupHistoryBatches(rows))
+      setHistoryLoading(false)
+    })
+  }
+
+  /** 共享谱历史（P6b 的 🟡 UI；P6d 后补上）——与个人历史是两张表 */
+  const openSharedHistory = () => {
+    if (!sharedMode) return
+    handoff.close()
+    setHistorySource('shared')
+    setHistoryOn(true)
+    setHistoryLoading(true)
+    void listAnnotationHistory(fileId, 'shared').then((rows) => {
       setHistoryBatches(groupHistoryBatches(rows))
       setHistoryLoading(false)
     })
@@ -3705,6 +3732,41 @@ export default function ScoreReader() {
       })
     })
   }
+  /** 共享历史：把选中的历史版本拿来与当前共享页对照；恢复时以当前共享版本做 CAS */
+  const pickSharedHistoryPage = (p: HistoryPage) => {
+    setHistoryOn(false)
+    const shared = annotationBackend as SharedAnnotationBackend
+    setSharedHistoryPreview({
+      page: p.entry.page,
+      history: p.strokes,
+      current: annosRef.current[String(p.entry.page)] ?? [],
+      currentVersion: shared.getVersion(p.entry.page) ?? '',
+    })
+  }
+
+  const submitSharedHistory = async (
+    side: CompareSide,
+    preview: NonNullable<typeof sharedHistoryPreview>
+  ): Promise<CompareSubmitResult> => {
+    if (side === 'local') return { ok: true }
+    const target =
+      side === 'merge' ? mergeStrokes(preview.current, preview.history) : preview.history
+    const shared = annotationBackend as SharedAnnotationBackend
+    const result = await shared.restorePage(preview.page, target)
+    if (result.ok) {
+      const next = result.strokes ?? target
+      annosRef.current = { ...annosRef.current, [String(preview.page)]: next }
+      setAnnos(annosRef.current)
+      return { ok: true }
+    }
+    if (result.raced) {
+      // restorePage 已把冲突交给冲突面板；关掉本预览，让逐页冲突预览接管
+      setSharedHistoryPreview(null)
+      return { ok: false, message: t('scoreReader.conflict.raced') }
+    }
+    return { ok: false, message: t('scoreReader.merge.failed') }
+  }
+
   /** 顶栏那个按钮要开的是**这一册**（元数据在 open 时给，见 usePdfHandoff 的注释） */
   const openHandoff = () => {
     // 「保存到…」也是底栏五个之一 ⇒ 开它就收掉另外两个（同 openPanel 的互斥理由）
@@ -4221,8 +4283,9 @@ export default function ScoreReader() {
             preparing={handoff.preparing}
             onAnno={handoff.toggleAnno}
             onPick={handoff.pick}
-            // 云端历史是个人批注层的概念；共享谱没有这行
+            // 云端历史：个人与共享是两张表，各自一个入口
             onHistory={personalAnnotation ? openHistory : undefined}
+            onSharedHistory={sharedMode ? openSharedHistory : undefined}
             // 共享谱才有「合并批注…」（P6c）
             onMergeShared={sharedMode ? openMerge : undefined}
             onClose={handoff.close}
@@ -4243,15 +4306,48 @@ export default function ScoreReader() {
             onClose={() => setMergeOn(false)}
           />
         ) : null}
-        {/* 「恢复云端历史」：与分享面板同一个 z（Z_SHEET），靠 DOM 顺序压在它上面 */}
-        {personalAnnotation && historyOn ? (
+        {/* 「恢复历史」：个人/共享两张表；与分享面板同一个 z（Z_SHEET） */}
+        {(personalAnnotation || sharedMode) && historyOn ? (
           <AnnotationHistorySheet
             fileId={fileId}
+            source={historySource}
             batches={historyBatches}
             loading={historyLoading}
-            onPick={pickHistoryPage}
+            onPick={historySource === 'shared' ? pickSharedHistoryPage : pickHistoryPage}
             onClose={() => setHistoryOn(false)}
           />
+        ) : null}
+        {/* 共享历史预览：当前版本 vs 历史版本；恢复走 CAS，冲突则交给上面的冲突面板 */}
+        {sharedMode && sharedHistoryPreview ? (
+          <View className='fixed left-0 right-0 top-0 bottom-0' style={{ zIndex: Z_SHEET + 1 }}>
+            <ScoreCompareView
+              fileId={fileId}
+              page={sharedHistoryPreview.page}
+              presetUrl={fileUrlRef.current}
+              presetName={presetFileName}
+              hint={t('scoreReader.sharedHistory.hint')}
+              pageLabel={t('scoreReader.conflict.pageButton', {
+                page: sharedHistoryPreview.page,
+              })}
+              labels={{
+                local: t('scoreReader.sharedHistory.current'),
+                remote: t('scoreReader.sharedHistory.historyVersion'),
+                merge: t('scoreReader.conflict.mergeVersion'),
+              }}
+              submitLabel={t('scoreReader.sharedHistory.useCurrent')}
+              defaultSide='remote'
+              racedText={t('scoreReader.conflict.raced')}
+              failedText={t('scoreReader.conflict.failed')}
+              loadData={async () => ({
+                local: sharedHistoryPreview.current,
+                remote: sharedHistoryPreview.history,
+                remoteVersion: sharedHistoryPreview.currentVersion,
+              })}
+              submit={(side) => submitSharedHistory(side, sharedHistoryPreview)}
+              onSuccess={() => setSharedHistoryPreview(null)}
+              onCancel={() => setSharedHistoryPreview(null)}
+            />
+          </View>
         ) : null}
       </View>
     </View>

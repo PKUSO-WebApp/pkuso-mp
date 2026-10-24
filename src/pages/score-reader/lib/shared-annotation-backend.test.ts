@@ -2,6 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AnnoStroke } from '@/lib/annotation'
 import { createSharedAnnotationBackend } from './shared-annotation-backend'
 
+const { draftStorage } = vi.hoisted(() => ({ draftStorage: new Map<string, string>() }))
+
+vi.mock('@tarojs/taro', () => ({
+  default: {
+    getStorageSync: (key: string) => draftStorage.get(key) ?? '',
+    setStorageSync: (key: string, value: string) => draftStorage.set(key, value),
+    removeStorageSync: (key: string) => draftStorage.delete(key),
+  },
+}))
+
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   rpc: vi.fn(),
@@ -34,6 +44,7 @@ let annEq: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  draftStorage.clear()
   vi.useFakeTimers()
   annEq = vi.fn().mockResolvedValue({ data: [], error: null })
   mocks.from.mockReturnValue({ select: () => ({ eq: annEq }) })
@@ -59,7 +70,7 @@ describe('createSharedAnnotationBackend', () => {
       data: [{ page: 2, strokes: [remote], version: 'v2' }],
       error: null,
     })
-    const backend = createSharedAnnotationBackend({})
+    const backend = createSharedAnnotationBackend({}, 'u1')
 
     await expect(backend.load('f1')).resolves.toEqual({ '2': [remote] })
     expect(annEq).toHaveBeenCalledWith('file_id', 'f1')
@@ -68,18 +79,18 @@ describe('createSharedAnnotationBackend', () => {
   })
 
   it('load：无写权 ⇒ readOnly；批注读取失败也按只读（没有远端版本就没法 CAS）', async () => {
-    const noPerm = createSharedAnnotationBackend({})
+    const noPerm = createSharedAnnotationBackend({}, 'u1')
     mocks.rpc.mockResolvedValue({ data: false, error: null })
     await noPerm.load('f1')
     expect(noPerm.readOnly).toBe(true)
 
-    const readFail = createSharedAnnotationBackend({})
+    const readFail = createSharedAnnotationBackend({}, 'u1')
     mocks.rpc.mockResolvedValue({ data: true, error: null })
     annEq.mockResolvedValue({ data: null, error: { message: 'boom' } })
     await readFail.load('f1')
     expect(readFail.readOnly).toBe(true)
 
-    const rpcFail = createSharedAnnotationBackend({})
+    const rpcFail = createSharedAnnotationBackend({}, 'u1')
     mocks.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } })
     await rpcFail.load('f1')
     expect(rpcFail.readOnly).toBe(true)
@@ -91,7 +102,7 @@ describe('createSharedAnnotationBackend', () => {
     const p2 = stroke('p2')
     annEq.mockResolvedValue({ data: [{ page: 1, strokes: [old], version: 'v1' }], error: null })
     const onSaveState = vi.fn()
-    const backend = createSharedAnnotationBackend({ onSaveState })
+    const backend = createSharedAnnotationBackend({ onSaveState }, 'u1')
     await backend.load('f1')
 
     backend.persist('f1', { '1': [next], '2': [p2] })
@@ -110,7 +121,7 @@ describe('createSharedAnnotationBackend', () => {
   it('persist：与远端内容相同的页不进 dirty（不产生无意义的 CAS）', async () => {
     const same = stroke('same')
     annEq.mockResolvedValue({ data: [{ page: 1, strokes: [same], version: 'v1' }], error: null })
-    const backend = createSharedAnnotationBackend({})
+    const backend = createSharedAnnotationBackend({}, 'u1')
     await backend.load('f1')
 
     backend.persist('f1', { '1': [same] })
@@ -120,7 +131,7 @@ describe('createSharedAnnotationBackend', () => {
   })
 
   it('只读：persist 既不排程也不发网络', async () => {
-    const backend = createSharedAnnotationBackend({})
+    const backend = createSharedAnnotationBackend({}, 'u1')
     mocks.rpc.mockResolvedValue({ data: false, error: null })
     await backend.load('f1')
 
@@ -137,7 +148,7 @@ describe('createSharedAnnotationBackend', () => {
     annEq.mockResolvedValue({ data: [{ page: 1, strokes: [old], version: 'v1' }], error: null })
     const onConflict = vi.fn()
     const onSaveState = vi.fn()
-    const backend = createSharedAnnotationBackend({ onConflict, onSaveState })
+    const backend = createSharedAnnotationBackend({ onConflict, onSaveState }, 'u1')
     await backend.load('f1')
 
     mocks.rpc.mockImplementation((name: string) => {
@@ -171,7 +182,7 @@ describe('createSharedAnnotationBackend', () => {
     const next = stroke('next')
     const remote = stroke('remote')
     annEq.mockResolvedValue({ data: [], error: null })
-    const backend = createSharedAnnotationBackend({})
+    const backend = createSharedAnnotationBackend({}, 'u1')
     await backend.load('f1')
 
     mocks.rpc.mockImplementation((name: string) => {
@@ -197,7 +208,7 @@ describe('createSharedAnnotationBackend', () => {
     const remote = stroke('remote')
     annEq.mockResolvedValue({ data: [], error: null })
     const onSaveState = vi.fn()
-    const backend = createSharedAnnotationBackend({ onSaveState })
+    const backend = createSharedAnnotationBackend({ onSaveState }, 'u1')
     await backend.load('f1')
 
     mocks.rpc.mockImplementation((name: string) => {
@@ -226,7 +237,7 @@ describe('createSharedAnnotationBackend', () => {
   it('网络失败：转 error 且保留 dirty，retry 时重发', async () => {
     annEq.mockResolvedValue({ data: [], error: null })
     const onSaveState = vi.fn()
-    const backend = createSharedAnnotationBackend({ onSaveState })
+    const backend = createSharedAnnotationBackend({ onSaveState }, 'u1')
     await backend.load('f1')
 
     mocks.rpc.mockImplementation((name: string) => {
@@ -256,7 +267,7 @@ describe('createSharedAnnotationBackend', () => {
 
   it('onClose / flush：不等防抖，立刻把挂着的页发出去', async () => {
     annEq.mockResolvedValue({ data: [], error: null })
-    const backend = createSharedAnnotationBackend({})
+    const backend = createSharedAnnotationBackend({}, 'u1')
     await backend.load('f1')
 
     backend.persist('f1', { '1': [stroke('a')] })
@@ -268,7 +279,7 @@ describe('createSharedAnnotationBackend', () => {
 
   it('flushNow：没有挂起内容 ⇒ true；写了并成功 ⇒ true；网络失败 ⇒ false', async () => {
     annEq.mockResolvedValue({ data: [], error: null })
-    const backend = createSharedAnnotationBackend({})
+    const backend = createSharedAnnotationBackend({}, 'u1')
     await backend.load('f1')
     await expect(backend.flushNow()).resolves.toBe(true)
 
@@ -285,7 +296,7 @@ describe('createSharedAnnotationBackend', () => {
 
   it('写入在飞时又画了新内容：新的一笔不会被 CAS 成功后的清理吞掉，会再发一轮', async () => {
     annEq.mockResolvedValue({ data: [], error: null })
-    const backend = createSharedAnnotationBackend({})
+    const backend = createSharedAnnotationBackend({}, 'u1')
     await backend.load('f1')
 
     const a = stroke('a')
@@ -322,7 +333,7 @@ describe('createSharedAnnotationBackend', () => {
 
   it('冲突没解决时继续画：冲突快照的 local 跟到最新，选「用我的」写的是最新那版', async () => {
     annEq.mockResolvedValue({ data: [], error: null })
-    const backend = createSharedAnnotationBackend({})
+    const backend = createSharedAnnotationBackend({}, 'u1')
     await backend.load('f1')
 
     const a = stroke('a')
@@ -351,5 +362,105 @@ describe('createSharedAnnotationBackend', () => {
       p_strokes: [b],
       p_expected_version: 'v-remote',
     })
+  })
+
+  it('冲突后退出再进：本地草稿恢复，直接给出同一页冲突（不再静默变成远端）', async () => {
+    annEq.mockResolvedValue({ data: [], error: null })
+    const first = createSharedAnnotationBackend({}, 'u1')
+    await first.load('f1')
+    const local = stroke('local')
+    const remote = stroke('remote')
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === CAN_EDIT) return Promise.resolve({ data: true, error: null })
+      return Promise.resolve({
+        data: [{ ok: false, version: 'v-remote', strokes: [remote] }],
+        error: null,
+      })
+    })
+    first.persist('f1', { '1': [local] })
+    await vi.advanceTimersByTimeAsync(600)
+    expect(first.getConflict(1)?.local).toEqual([local])
+
+    // 模拟页面被销毁：不调 onClose；草稿已落本地
+    vi.clearAllTimers()
+    annEq.mockResolvedValue({
+      data: [{ page: 1, strokes: [remote], version: 'v-remote' }],
+      error: null,
+    })
+    const onConflict = vi.fn()
+    const second = createSharedAnnotationBackend({ onConflict }, 'u1')
+    const doc = await second.load('f1')
+
+    expect(doc['1']).toEqual([local])
+    expect(second.getConflict(1)).toEqual({
+      page: 1,
+      local: [local],
+      remote: [remote],
+      remoteVersion: 'v-remote',
+    })
+    expect(onConflict).toHaveBeenCalled()
+  })
+
+  it('未推送草稿重进：内容恢复，onOpen 补推，成功后删掉草稿', async () => {
+    annEq.mockResolvedValue({ data: [], error: null })
+    const first = createSharedAnnotationBackend({}, 'u1')
+    await first.load('f1')
+    const local = stroke('local')
+    first.persist('f1', { '1': [local] })
+    vi.clearAllTimers() // 进程被杀，600ms 防抖没发出去
+
+    const second = createSharedAnnotationBackend({}, 'u1')
+    const doc = await second.load('f1')
+    expect(doc['1']).toEqual([local])
+    expect(draftStorage.has('score-shared-draft-v1:u1:f1')).toBe(true)
+
+    second.onOpen?.('f1')
+    await settle()
+
+    expect(pushCalls().at(-1)?.[1]).toEqual({
+      p_file_id: 'f1',
+      p_page: 1,
+      p_strokes: [local],
+      p_expected_version: '',
+    })
+    expect(draftStorage.has('score-shared-draft-v1:u1:f1')).toBe(false)
+  })
+
+  it('restorePage：按当前共享版本 CAS；落空时转成冲突并留草稿', async () => {
+    const current = stroke('current')
+    const history = stroke('history')
+    const other = stroke('other')
+    annEq.mockResolvedValue({ data: [{ page: 1, strokes: [current], version: 'v1' }], error: null })
+    const backend = createSharedAnnotationBackend({}, 'u1')
+    await backend.load('f1')
+
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === CAN_EDIT) return Promise.resolve({ data: true, error: null })
+      return Promise.resolve({ data: [{ ok: true, version: 'v2', strokes: null }], error: null })
+    })
+    await expect(backend.restorePage(1, [history])).resolves.toEqual({
+      ok: true,
+      strokes: [history],
+    })
+    expect(pushCalls().at(-1)?.[1]).toMatchObject({ p_expected_version: 'v1' })
+
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === CAN_EDIT) return Promise.resolve({ data: true, error: null })
+      return Promise.resolve({
+        data: [{ ok: false, version: 'v3', strokes: [other] }],
+        error: null,
+      })
+    })
+    await expect(backend.restorePage(1, [history])).resolves.toEqual({
+      ok: false,
+      raced: true,
+    })
+    expect(backend.getConflict(1)).toEqual({
+      page: 1,
+      local: [history],
+      remote: [other],
+      remoteVersion: 'v3',
+    })
+    expect(draftStorage.has('score-shared-draft-v1:u1:f1')).toBe(true)
   })
 })

@@ -13,7 +13,6 @@ export const score = {
   sharedSyncFailed: 'Shared · sync failed; it will retry automatically',
   sharedConflictTitle: 'Shared score updated',
   sharedConflictHint: 'Choose which version to keep for each page',
-  sharedConflictPreview: 'Tap to preview both versions',
   sharedUseLocal: 'Use mine',
   sharedUseRemote: 'Use remote',
   sharedMerge: 'Merge',
