@@ -18,6 +18,11 @@ import { AnnotationConflictSheet } from '@/components/score/AnnotationConflictSh
 import { AnnotationHistorySheet } from '@/components/score/AnnotationHistorySheet'
 import { SharedConflictSheet } from '@/components/score/SharedConflictSheet'
 import { SharedMergeSheet } from '@/components/score/SharedMergeSheet'
+import {
+  ScoreCompareView,
+  type CompareSide,
+  type CompareSubmitResult,
+} from '@/components/score/ScoreCompareView'
 import { ReaderToolbar, type ReaderPanel } from '@/components/score/ReaderToolbar'
 import { ReaderTutorial } from '@/components/score/ReaderTutorial'
 import { SaveToSheet } from '@/components/score/SaveToSheet'
@@ -50,7 +55,6 @@ import {
   createSharedAnnotationBackend,
   type SharedAnnotationBackend,
   type SharedAnnotationConflict,
-  type SharedConflictChoice,
   type SharedSaveState,
 } from './lib/shared-annotation-backend'
 import { loadMergePages, type MergeDirection } from './lib/shared-merge'
@@ -68,6 +72,7 @@ import {
   ZONE_SPLITS_UD,
   Z_PAGE_BADGE,
   SAFE_BOTTOM,
+  Z_SHEET,
   Z_STATUS,
   Z_TOOLBAR,
 } from './lib/layout'
@@ -410,6 +415,8 @@ export default function ScoreReader() {
   const [annotationReadOnly, setAnnotationReadOnly] = useState(true)
   const [sharedSaveState, setSharedSaveState] = useState<SharedSaveState>('saved')
   const [sharedConflicts, setSharedConflicts] = useState<SharedAnnotationConflict[]>([])
+  /** 正在预览哪一页的共享冲突；null = 只看列表 */
+  const [sharedConflictPage, setSharedConflictPage] = useState<number | null>(null)
   /** P6c：合并批注面板（方向 + 需要选择的页） */
   const [mergeOn, setMergeOn] = useState(false)
   const [mergeDirection, setMergeDirection] = useState<MergeDirection>('to-personal')
@@ -1073,6 +1080,28 @@ export default function ScoreReader() {
     annosRef.current = doc
     setAnnos(doc)
   }, [annotationBackend, fileId, sharedMode])
+
+  // 冲突在别处被解决 / 列表刷新后，预览页所指向的页可能已不存在：自动退回列表
+  useEffect(() => {
+    if (sharedConflictPage != null && !sharedConflicts.some((c) => c.page === sharedConflictPage)) {
+      setSharedConflictPage(null)
+    }
+  }, [sharedConflicts, sharedConflictPage])
+
+  /**
+   * 共享谱同步失败：不再常驻徽标（验收反馈），只在第一次转入 error 时给一条 toast。
+   * 下一次落笔会自动重试；不重复弹，避免每一笔都打断。
+   */
+  const sharedErrorShownRef = useRef(false)
+  useEffect(() => {
+    if (sharedSaveState !== 'error') {
+      sharedErrorShownRef.current = false
+      return
+    }
+    if (sharedErrorShownRef.current) return
+    sharedErrorShownRef.current = true
+    void Taro.showToast({ title: t('score.sharedSyncFailed'), icon: 'none' })
+  }, [sharedSaveState, t])
 
   // 首次教程：等**首帧出来**再展示（一进页面就盖住加载过程，用户看不到自己在等什么），
   // 此时菜单保持默认隐藏，教程讲的正是「点中间唤出菜单」
@@ -3560,17 +3589,33 @@ export default function ScoreReader() {
   const handoff = usePdfHandoff(annoOwner)
 
   /**
-   * 共享谱 CAS 冲突：逐页三选一之后，把选定的内容落回内存态。
+   * 共享谱 CAS 冲突：在预览页三选一之后提交。
    * 写回共享表 / 采纳远端都由 backend 负责（它同时维护 baseDoc 与版本号）。
+   *
+   * 失败时区分「远端又变了」（raced，重载预览）与网络/服务失败（message）：
+   * backend 在 CAS 冲突时会更新 getConflict 的版本，借此判断。
    */
-  const resolveSharedConflict = async (target: number, choice: SharedConflictChoice) => {
-    if (!sharedMode || annotationBackend.kind !== 'shared') return
+  const submitSharedConflict = async (
+    target: number,
+    side: CompareSide,
+    previewRemoteVersion: string | null
+  ): Promise<CompareSubmitResult> => {
+    if (!sharedMode || annotationBackend.kind !== 'shared') {
+      return { ok: false, message: t('scoreReader.conflict.failed') }
+    }
     // 联合类型下 TS 认不出「shared 变体一定有 resolveConflict」，这里按键收窄
     const shared = annotationBackend as SharedAnnotationBackend
-    const next = await shared.resolveConflict(target, choice)
-    if (!next) return // 写失败或解决期间又被改了：面板会按新快照继续问
+    const next = await shared.resolveConflict(target, side)
+    if (!next) {
+      const after = shared.getConflict(target)
+      if (after && after.remoteVersion !== (previewRemoteVersion ?? '')) {
+        return { ok: false, raced: true }
+      }
+      return { ok: false, message: t('scoreReader.merge.failed') }
+    }
     annosRef.current = { ...annosRef.current, [String(target)]: next }
     setAnnos(annosRef.current)
+    return { ok: true }
   }
 
   /** 打开合并面板（入口在「保存到…」里）；只读时不允许从「我的 → 共享」开始 */
@@ -3756,6 +3801,10 @@ export default function ScoreReader() {
   // 「画布尺寸有没有值」：图片模式下 `setViewSize` 发生在绘制**之前**，按尺寸判会让
   // 提示在画面出来之前就消失（真机反馈：第一次「进度走完但没渲染出来」、第二次
   // 干脆不显示 —— 同一个成因）
+  const activeSharedConflict =
+    sharedConflictPage != null
+      ? (sharedConflicts.find((c) => c.page === sharedConflictPage) ?? null)
+      : null
   const showStatusRow = stage !== 'ready' && stage !== 'error'
   const boxW = viewSize.w || containerW || 0
   const boxH = viewSize.h || 0
@@ -4104,48 +4153,6 @@ export default function ScoreReader() {
           </View>
         ) : null}
 
-        {/* 共享谱的保存状态徽标（P6b）：常驻顶部，一眼能看出「存了没有」。
-            只读时显示「只读」；同步失败时变成可点（重试），其余时候不吃触摸 */}
-        {sharedMode ? (
-          <View
-            className='absolute'
-            style={{
-              // 靠左上：中间留给加载状态行，右上角是微信的胶囊按钮；再让开左沿返回手势那条带
-              left: '28px',
-              top: 'calc(env(safe-area-inset-top) + 8px)',
-              zIndex: Z_STATUS,
-              pointerEvents: 'none',
-            }}
-          >
-            <View
-              className='rounded-full border border-border bg-surface px-3 py-1'
-              style={{
-                pointerEvents: sharedSaveState === 'error' && !annotationReadOnly ? 'auto' : 'none',
-              }}
-              onClick={() => {
-                if (annotationReadOnly || sharedSaveState !== 'error') return
-                annotationBackendRef.current?.retry?.()
-              }}
-            >
-              <Text
-                className={`text-xs ${
-                  sharedSaveState === 'error' && !annotationReadOnly
-                    ? 'text-danger'
-                    : 'text-text-muted'
-                }`}
-              >
-                {annotationReadOnly
-                  ? t('score.sharedReadOnly')
-                  : sharedSaveState === 'saving'
-                    ? t('score.sharedSaving')
-                    : sharedSaveState === 'error'
-                      ? t('score.sharedSyncFailed')
-                      : t('score.sharedSaved')}
-              </Text>
-            </View>
-          </View>
-        ) : null}
-
         {/* 首次教程蒙层：放在最后 ⇒ 压在所有工具条之上（z 也最高）。
             它是 #reader-stage 的兄弟节点，触摸不会冒泡进舞台状态机 */}
         {tutorialOn ? <ReaderTutorial mode={mode} onClose={dismissTutorial} /> : null}
@@ -4162,10 +4169,46 @@ export default function ScoreReader() {
         ) : null}
         {/* 共享谱冲突：不可关闭（关掉只会让状态更含糊），所以教程期间也不弹，等它关掉 */}
         {sharedMode && sharedConflicts.length > 0 && !tutorialOn ? (
-          <SharedConflictSheet
-            conflicts={sharedConflicts}
-            onResolve={(target, choice) => void resolveSharedConflict(target, choice)}
-          />
+          <SharedConflictSheet conflicts={sharedConflicts} onPick={setSharedConflictPage} />
+        ) : null}
+        {/* 共享冲突的预览页：与个人冲突页共用 ScoreCompareView；作为全屏浮层压在列表上，
+            关掉后回到列表，不会丢掉 backend 内存里的冲突内容。 */}
+        {sharedMode && activeSharedConflict ? (
+          <View className='fixed left-0 right-0 top-0 bottom-0' style={{ zIndex: Z_SHEET + 1 }}>
+            <ScoreCompareView
+              fileId={fileId}
+              page={activeSharedConflict.page}
+              presetUrl={fileUrlRef.current}
+              presetName={presetFileName}
+              hint={t('scoreReader.conflict.why')}
+              pageLabel={t('scoreReader.conflict.pageButton', {
+                page: activeSharedConflict.page,
+              })}
+              labels={{
+                local: t('scoreReader.conflict.localVersion'),
+                remote: t('scoreReader.conflict.remoteVersion'),
+                merge: t('scoreReader.conflict.mergeVersion'),
+              }}
+              submitLabel={t('scoreReader.conflict.useCurrent')}
+              defaultSide='local'
+              racedText={t('scoreReader.conflict.raced')}
+              failedText={t('scoreReader.conflict.failed')}
+              loadData={async () => {
+                // ⚠️ 读 backend 的内存冲突，不读 React state：CAS 落空时 backend 已同步
+                // 更新了快照，而 setSharedConflicts 要等下一次渲染才可见；读 state 会在
+                // raced 重载时拿到旧远端，让用户对着没见过的版本做选择。
+                const shared = annotationBackend as SharedAnnotationBackend
+                const c = shared.getConflict(activeSharedConflict.page)
+                if (!c) throw new Error(t('scoreReader.conflict.failed'))
+                return { local: c.local, remote: c.remote, remoteVersion: c.remoteVersion }
+              }}
+              submit={(side, data) =>
+                submitSharedConflict(activeSharedConflict.page, side, data.remoteVersion)
+              }
+              onSuccess={() => setSharedConflictPage(null)}
+              onCancel={() => setSharedConflictPage(null)}
+            />
+          </View>
         ) : null}
         {handoff.sheetOn ? (
           <SaveToSheet

@@ -1,6 +1,7 @@
 export const scoreReader = {
   navTitle: '阅读器',
   loadFailed: '加载失败：{error}',
+  compareBack: '返回',
   notFound: '文件不存在或已被删除',
   pageOf: '{page} / {total} 页',
   pageJump: '跳页',

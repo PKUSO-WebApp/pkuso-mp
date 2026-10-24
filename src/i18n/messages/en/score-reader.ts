@@ -1,6 +1,7 @@
 export const scoreReader = {
   navTitle: 'Reader',
   loadFailed: 'Failed to load: {error}',
+  compareBack: 'Back',
   notFound: 'File not found or removed',
   pageOf: '{page} / {total}',
   pageJump: 'Go',

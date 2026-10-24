@@ -38,12 +38,9 @@ vi.mock('@/hooks/useSheetMusic', () => ({
   }),
   fetchSheetMusicFile: vi.fn(),
 }))
-// 这两个 hook 都 import 了 supabase（缺 env 时导入即抛），本测试只关心角色闸门
+// 这个 hook import 了 supabase（缺 env 时导入即抛），本测试只关心角色闸门
 vi.mock('@/hooks/useSharedScoreFiles', () => ({
   useSharedScoreFiles: () => ({ data: [], loading: false, error: null, fetch: vi.fn() }),
-}))
-vi.mock('@/hooks/useMySharedScopes', () => ({
-  useMySharedScopes: () => ({ managedSections: [], capabilities: [], loading: false }),
 }))
 vi.mock('@/components/staff-blocked-page', () => ({
   // 渲染出角色而不是 null：既证明阻断命中了，也证明 role 传对了

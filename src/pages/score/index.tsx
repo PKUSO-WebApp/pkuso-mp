@@ -9,12 +9,10 @@ import { useUser } from '@/context/user-context'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { fetchSheetMusicFile, useSheetMusic, type SheetMusicWithParts } from '@/hooks/useSheetMusic'
 import { useSharedScoreFiles } from '@/hooks/useSharedScoreFiles'
-import { useMySharedScopes } from '@/hooks/useMySharedScopes'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { ListState } from '@/components/ui/ListState'
 import { StaffBlockedPage } from '@/components/staff-blocked-page'
 import { myPartOf } from '@/lib/sheet-music-mine'
-import { filterSharedScoreFiles } from '@/lib/shared-scores'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { isOrchestraMember } from '@/lib/role-gate'
 import type { SharedScoreFileRow, SheetMusicFileRow } from '@/types/database'
@@ -33,23 +31,12 @@ export default function Score() {
   const [tab, setTab] = useState<TabKey>('mine')
   const { items, loading, error, fetch } = useSheetMusic()
   const shared = useSharedScoreFiles()
-  const { managedSections, capabilities, loading: scopesLoading } = useMySharedScopes()
-  const canManageAll = capabilities.includes('shared_score')
 
-  // 从阅读器返回时刷新共享谱列表：`annotated_pages` / `updated_at` 会在那边变化，
-  // 而 tab 页返回不会重新挂载。personal 列表没有这类计数，不需要跟着刷。
+  // 从阅读器返回时刷新共享谱列表：`updated_at` 会在那边变化，而 tab 页返回不会重新挂载。
+  // personal 列表没有这类计数，不需要跟着刷。
   useDidShow(() => {
     void shared.fetch()
   })
-
-  const sharedVisible = useMemo(
-    () =>
-      filterSharedScoreFiles(shared.data, {
-        managedSections,
-        canManageAll,
-      }),
-    [shared.data, managedSections, canManageAll]
-  )
 
   /** 共享谱行 → 阅读器参数；优先复用 useSheetMusic 已加载的文件元数据 */
   const allFiles = useMemo(() => items.flatMap((s) => s.parts.flatMap((p) => p.files)), [items])
@@ -147,13 +134,13 @@ export default function Score() {
         <View className='px-4 pb-3 pt-3'>
           {tab === 'shared' ? (
             <ListState
-              loading={shared.loading || scopesLoading}
-              isEmpty={sharedVisible.length === 0}
+              loading={shared.loading}
+              isEmpty={shared.data.length === 0}
               error={shared.error ? t('score.loadFailed', { error: shared.error }) : null}
               emptyText={t('score.emptyShared')}
               onRetry={() => void shared.fetch()}
             >
-              {sharedVisible.map((row) => (
+              {shared.data.map((row) => (
                 <View
                   key={row.file_id ?? `${row.title ?? ''}-${row.file_name ?? ''}`}
                   className='mb-3 rounded-xl border border-border bg-card p-4'
@@ -166,16 +153,13 @@ export default function Score() {
                     {translateInstrument(row.section ?? '', t) || '—'}
                     {row.file_name ? ` · ${row.file_name}` : ''}
                   </Text>
-                  <View className='mt-2 flex flex-wrap items-center gap-3'>
-                    <Text className='text-xs text-text-muted'>
-                      {t('score.sharedAnnotatedPages', { n: row.annotated_pages ?? 0 })}
-                    </Text>
-                    {row.source_page_count != null &&
-                      row.page_count != null &&
-                      row.source_page_count !== row.page_count && (
-                        <Text className='text-xs text-warning'>{t('score.sharedUpdated')}</Text>
-                      )}
-                  </View>
+                  {row.source_page_count != null &&
+                    row.page_count != null &&
+                    row.source_page_count !== row.page_count && (
+                      <Text className='mt-1 block text-xs text-warning'>
+                        {t('score.sharedUpdated')}
+                      </Text>
+                    )}
                 </View>
               ))}
             </ListState>

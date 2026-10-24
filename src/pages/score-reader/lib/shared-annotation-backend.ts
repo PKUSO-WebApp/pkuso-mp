@@ -28,6 +28,8 @@ export type SharedAnnotationBackend = ReaderAnnotationBackend & {
    * 还有未落盘的共享编辑时进去，会把刚画的笔迹留在本地、合并完再撞一次 CAS。
    */
   flushNow: () => Promise<boolean>
+  /** 当前某一页的冲突快照（预览页提交失败时用来判断是「又变了」还是网络失败） */
+  getConflict: (page: number) => SharedAnnotationConflict | undefined
   /** 冲突解决：local/merge 会写回共享表；remote 只采纳远端 */
   resolveConflict: (page: number, choice: SharedConflictChoice) => Promise<AnnoStroke[] | null>
 }
@@ -231,6 +233,10 @@ export function createSharedAnnotationBackend(
 
     retry() {
       void flushPending()
+    },
+
+    getConflict(page) {
+      return conflicts.get(page)
     },
 
     flushNow() {

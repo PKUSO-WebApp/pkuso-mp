@@ -154,6 +154,13 @@ describe('createSharedAnnotationBackend', () => {
       { page: 1, local: [next], remote: [remote], remoteVersion: 'v-remote' },
     ])
     expect(onSaveState).toHaveBeenLastCalledWith('error')
+    // 预览页在 raced 时读 getConflict 的最新快照（不是 React state）
+    expect(backend.getConflict(1)).toEqual({
+      page: 1,
+      local: [next],
+      remote: [remote],
+      remoteVersion: 'v-remote',
+    })
     // 冲突页不再自动重发（用户没选之前两边都不动）
     backend.persist('f1', { '1': [next] })
     await vi.advanceTimersByTimeAsync(600)
