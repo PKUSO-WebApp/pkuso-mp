@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { View, Text, ScrollView, Textarea } from '@tarojs/components'
+import { View, Text, ScrollView, Textarea, Picker } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { usePageRestore } from '@/hooks/usePageRestore'
@@ -7,6 +7,12 @@ import { useProfiles } from '@/hooks/useProfiles'
 import { ListState } from '@/components/ui/ListState'
 import { StatusChip, type StatusTone } from '@/components/ui/StatusChip'
 import { formatRehearsalRange } from '@/lib/date-utils'
+import {
+  defaultSubPartNumbers,
+  mergeSubPartOptions,
+  resolveSubPartPolicy,
+  type SubPartPolicy,
+} from '@/lib/sub-parts'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
@@ -73,6 +79,98 @@ export default function MemberAttendancePage() {
     fetch: fetchProfile,
   } = useProfiles({ userId: userId || undefined })
   const member = profileData[0]
+
+  /** 默认分声部（P7'）：成员级单一值，仅供谱务统计印制份数，不改变「分发给我的」 */
+  const [canEditSubPart, setCanEditSubPart] = useState(false)
+  const [subPart, setSubPart] = useState<number | null>(null)
+  const [subPartOptions, setSubPartOptions] = useState<number[]>([])
+  const [subPartPolicy, setSubPartPolicy] = useState<SubPartPolicy>('none')
+  const [subPartLoaded, setSubPartLoaded] = useState(false)
+  const [savingSubPart, setSavingSubPart] = useState(false)
+  const memberInstrument = (member?.instrument ?? '').trim()
+
+  /**
+   * 能进「我的声部」不等于能改偏好：团长的 `attendance` 能力会覆盖全部声部的成员列表，
+   * 而默认分声部的写权判据是 `default_sub_part`（后端 `can_set_preference`）。
+   * 读不到/无权限就整块不渲染，不显示一个点不动的控件。
+   */
+  const loadSubPart = useCallback(async () => {
+    if (!userId || !memberInstrument) {
+      setSubPartLoaded(true)
+      return
+    }
+    setSubPartLoaded(false)
+    try {
+      const { data: allowed, error: allowError } = await supabase.rpc('can_set_preference', {
+        p_member: userId,
+      })
+      if (allowError || !allowed) {
+        setCanEditSubPart(false)
+        return
+      }
+      setCanEditSubPart(true)
+      const [prefRes, partsRes, groupsRes] = await Promise.all([
+        supabase
+          .from('section_member_preferences')
+          .select('preferred_sub_part')
+          .eq('user_id', userId)
+          .maybeSingle(),
+        supabase
+          .from('sheet_music_parts')
+          .select('files:sheet_music_files(sub_parts)')
+          .eq('section', memberInstrument),
+        supabase
+          .from('section_group_members')
+          .select('group_name')
+          .eq('member_name', memberInstrument),
+      ])
+      const current =
+        (prefRes.data as { preferred_sub_part: number | null } | null)?.preferred_sub_part ?? null
+      const files = ((partsRes.data ?? []) as unknown as {
+        files: { sub_parts: number[] | null }[] | null
+      }[]).flatMap((p) => p.files ?? [])
+      const groups = ((groupsRes.data ?? []) as { group_name: string }[]).map(
+        (g) => g.group_name
+      )
+      // 弦乐不区分分声部；管乐默认 1–4；打击乐等暂不定义范围（只留「未设置」）
+      const policy = resolveSubPartPolicy(groups)
+      setSubPartPolicy(policy)
+      setSubPart(current)
+      setSubPartOptions(
+        mergeSubPartOptions(
+          current,
+          files.map((f) => f.sub_parts),
+          defaultSubPartNumbers(policy)
+        )
+      )
+    } finally {
+      setSubPartLoaded(true)
+    }
+  }, [memberInstrument, userId])
+
+  useEffect(() => {
+    if (!member?.id) return
+    void loadSubPart()
+  }, [loadSubPart, member?.id])
+
+  const changeSubPart = async (index: number) => {
+    if (savingSubPart) return
+    const next = index <= 0 ? null : (subPartOptions[index - 1] ?? null)
+    if (next === subPart) return
+    setSavingSubPart(true)
+    const { error } = await supabase.rpc('set_member_preference', {
+      p_member: userId,
+      // 生成的 RPC 参数类型不表达可空（SQL 里 null = 清除）；与 p_strokes 同款放宽
+      p_sub_part: next as never,
+    })
+    setSavingSubPart(false)
+    if (error) {
+      void Taro.showToast({ title: t('memberAttendance.subPart.saveFailed'), icon: 'none' })
+      return
+    }
+    setSubPart(next)
+    void Taro.showToast({ title: t('memberAttendance.subPart.saved'), icon: 'success' })
+  }
 
   const [rows, setRows] = useState<AttendanceWithRehearsal[]>([])
   const [pending, setPending] = useState<Map<number, PendingRequest>>(new Map())
@@ -285,6 +383,16 @@ export default function MemberAttendancePage() {
   const memberInfoPending = profileLoading && !member
   const memberInfoFailed = !!profileError && !member
 
+  // Picker 的第 0 项是「未设置」；候选号从 1 开始
+  const subPartLabels = [
+    t('memberAttendance.subPart.unset'),
+    ...subPartOptions.map((n) => t('memberAttendance.subPart.value', { n })),
+  ]
+  const subPartPickerValue =
+    subPart == null ? 0 : Math.max(0, subPartOptions.indexOf(subPart) + 1)
+  // 弦乐没有分声部概念 → 整块不显示；已有历史值仍显示，好让用户清掉
+  const showSubPartCard = subPartPolicy !== 'none' || subPart != null
+
   return (
     <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
       <ScrollView scrollY className='flex-1 min-h-0'>
@@ -345,6 +453,43 @@ export default function MemberAttendancePage() {
               </>
             )}
           </View>
+
+          {/* 默认分声部：有写权才显示；弦乐整块不出（已有历史值例外，便于清除）；
+              打击乐等暂未定义范围，只给「未设置」 */}
+          {subPartLoaded && canEditSubPart && showSubPartCard ? (
+            <View className='mb-3 rounded-xl border border-border bg-card p-4'>
+              <View className='flex flex-row items-center justify-between'>
+                <Text className='text-sm font-medium text-text'>
+                  {t('memberAttendance.subPart.title')}
+                </Text>
+                {savingSubPart ? (
+                  <Text className='text-xs text-text-muted'>
+                    {t('memberAttendance.subPart.saving')}
+                  </Text>
+                ) : null}
+              </View>
+              <Text className='mt-1 block text-xs leading-relaxed text-text-muted'>
+                {t('memberAttendance.subPart.hint')}
+              </Text>
+              {subPartPolicy === 'unset-only' ? (
+                <Text className='mt-1 block text-xs text-text-subtle'>
+                  {t('memberAttendance.subPart.noRange')}
+                </Text>
+              ) : null}
+              <Picker
+                mode='selector'
+                disabled={subPartOptions.length === 0}
+                range={subPartLabels}
+                value={subPartPickerValue}
+                onChange={(e) => void changeSubPart(Number(e.detail.value))}
+              >
+                <View className='mt-3 flex flex-row items-center justify-between rounded-xl border border-border bg-muted px-3 py-2'>
+                  <Text className='text-sm text-text'>{subPartLabels[subPartPickerValue]}</Text>
+                  <Text className='text-lg text-text-muted'>›</Text>
+                </View>
+              </Picker>
+            </View>
+          ) : null}
 
           <Text className='mb-2 block text-xs font-medium uppercase tracking-wide text-text-muted'>
             {t('memberAttendance.listTitle')}
