@@ -58,6 +58,16 @@ export const common = {
     noAnno: '这份谱还没有批注',
     /** 带批注那份的文件名后缀——同一次会话里两份可能都存过，名字必须能分辨 */
     annoSuffix: '（带批注）',
+    copyLink: '复制下载链接',
+    copyPreparing: '链接准备中…',
+    copyNotReady: '链接还没准备好，请稍候',
+    copyDoneTitle: '链接已复制',
+    copyHintIos: '在 Safari 中粘贴并打开，点分享 → 存储到文件。',
+    copyHintAndroid: '在浏览器中粘贴并打开，即可下载到手机的下载目录。',
+    copyHintPc: '粘贴到浏览器地址栏打开即可下载。',
+    copyHintGeneric: '在浏览器中粘贴并打开即可下载。',
+    copyHintExpiry: '带批注的链接 1 小时内有效，过期后请重新导出。',
+    copyFailed: '复制失败',
   },
   error: {
     defaultTitle: '页面出错了',

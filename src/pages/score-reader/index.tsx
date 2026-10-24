@@ -4283,6 +4283,9 @@ export default function ScoreReader() {
             preparing={handoff.preparing}
             onAnno={handoff.toggleAnno}
             onPick={handoff.pick}
+            // 复制链接：唯一能落到系统下载目录的路径（不依赖本地 PDF）
+            onCopyLink={handoff.copyLink}
+            copyable={handoff.copyable}
             // 云端历史：个人与共享是两张表，各自一个入口
             onHistory={personalAnnotation ? openHistory : undefined}
             onSharedHistory={sharedMode ? openSharedHistory : undefined}

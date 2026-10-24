@@ -111,6 +111,13 @@ export function usePdfHandoff(owner: string) {
    * 两者都要与当前选择一致才算「就绪」：拨了开关还拿旧那份交给用户，就是无声地给错文件。
    */
   const pdfRef = useRef<{ reqKey: string; fileId: string; path: string; name: string } | null>(null)
+  /**
+   * 当前选择对应的**下载源 URL**（复制下载链接用）。
+   *
+   * 和本地文件分开记：复制链接不需要等本地下载完成，原件 URL 在打开面板时就已知；
+   * 带批注的签名 URL 要等云端合成回来。`reqKey` 保证复制的就是面板上那一版。
+   */
+  const linkRef = useRef<{ reqKey: string; url: string } | null>(null)
   /** 在飞的那次准备的键（`<id>#orig|anno`）：同一种请求不重复做 */
   const inFlightRef = useRef<string | null>(null)
   /**
@@ -191,6 +198,10 @@ export function usePdfHandoff(owner: string) {
         void Taro.showToast({ title: t('common.saveTo.notReady'), icon: 'none' })
         return
       }
+      // 链接在下载之前就记下：复制链接不该被本地下载/磁盘状态拖住。
+      // 带批注的签名 URL 只有到这里（云端合成之后）才有值。
+      if (seq !== seqRef.current) return
+      linkRef.current = { reqKey, url }
       const res = await ensureSavedPdf(
         {
           fileId: key,
@@ -276,6 +287,11 @@ export function usePdfHandoff(owner: string) {
     setHasAnno(has)
     const anno = has && withAnno
     if (anno !== withAnno) setWithAnno(anno)
+    // 原件 URL 在打开这一刻就有：先记下，复制链接不必等 prepare 的下载/合成
+    const originalUrl = m.url()
+    if (originalUrl) {
+      linkRef.current = { reqKey: reqKeyOf(m.fileId, false, m.composeKind), url: originalUrl }
+    }
     setMeta(m)
     setSheetOn(true)
     void prepare(m, anno)
@@ -329,6 +345,54 @@ export function usePdfHandoff(owner: string) {
       .finally(() => setBusy(false))
   }
 
+  /** 当前选择对应的下载链接是否已经拿到（原件打开即得；带批注要等云端合成） */
+  const copyable =
+    !!meta && !!linkRef.current && linkRef.current.reqKey === reqKeyOf(meta.fileId, withAnno, meta.composeKind)
+
+  /**
+   * 复制当前选择的**下载源链接**，并告诉用户怎么在浏览器里打开。
+   *
+   * 这是唯一真正的「浏览器下载」路径：小程序没有写系统下载目录的 API，
+   * 收藏/转发/用其他应用打开之外，复制链接到 Safari/Chrome 是唯一能落到系统下载目录的。
+   * 带批注的是 1 小时签名 URL，所以提示里要说明有效期。
+   */
+  const copyLink = () => {
+    const link = linkRef.current
+    if (!meta || !link || link.reqKey !== reqKeyOf(meta.fileId, withAnno, meta.composeKind)) {
+      void Taro.showToast({ title: t('common.saveTo.copyNotReady'), icon: 'none' })
+      return
+    }
+    const fileId = meta.fileId
+    setSheetOn(false)
+    void Taro.setClipboardData({ data: link.url })
+      .then(() => {
+        const base =
+          platform === 'ios'
+            ? t('common.saveTo.copyHintIos')
+            : platform === 'android'
+              ? t('common.saveTo.copyHintAndroid')
+              : platform === 'windows' || platform === 'mac'
+                ? t('common.saveTo.copyHintPc')
+                : t('common.saveTo.copyHintGeneric')
+        const content = withAnno
+          ? `${base}\n${t('common.saveTo.copyHintExpiry')}`
+          : base
+        return Taro.showModal({
+          title: t('common.saveTo.copyDoneTitle'),
+          content,
+          showCancel: false,
+        })
+      })
+      .catch((err) => {
+        reportClientError({
+          event: 'score_reader_copy_link_failed',
+          message: describeError(err),
+          detail: { fileId, platform, anno: withAnno },
+        })
+        void Taro.showToast({ title: t('common.saveTo.copyFailed'), icon: 'none' })
+      })
+  }
+
   return {
     sheetOn,
     ready,
@@ -344,5 +408,7 @@ export function usePdfHandoff(owner: string) {
     open,
     close,
     pick,
+    copyable,
+    copyLink,
   }
 }
