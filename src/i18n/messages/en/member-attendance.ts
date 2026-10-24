@@ -16,7 +16,7 @@ export const memberAttendance = {
   requestedStatus: 'Requested:',
   subPart: {
     title: 'Default sub-part',
-    hint: 'Used only for print-copy counts; does not affect "Assigned to me".',
+    hint: 'Used for print-copy counts.',
     unset: 'Not set',
     value: 'Sub-part {n}',
     noRange: 'No sub-part range is defined for this section yet',

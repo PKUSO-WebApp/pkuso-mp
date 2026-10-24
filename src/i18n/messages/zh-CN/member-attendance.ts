@@ -16,7 +16,7 @@ export const memberAttendance = {
   requestedStatus: '申请改为',
   subPart: {
     title: '默认分声部',
-    hint: '仅用于谱务统计印制份数，不影响「分发给我的」。',
+    hint: '用于谱务统计印制份数。',
     unset: '未设置',
     value: '分声部 {n}',
     noRange: '该声部暂未定义分声部范围',
