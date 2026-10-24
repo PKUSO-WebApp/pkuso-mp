@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { usePageRestore } from '@/hooks/usePageRestore'
 import { useProfiles } from '@/hooks/useProfiles'
 import { ListState } from '@/components/ui/ListState'
-import { StatusChip } from '@/components/ui/StatusChip'
+import { StatusChip, type StatusTone } from '@/components/ui/StatusChip'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { useT, useNavTitle } from '@/i18n'
@@ -15,6 +15,15 @@ import './index.scss'
 type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'exempt'
 
 const STATUS_OPTIONS: AttendanceStatus[] = ['present', 'late', 'absent', 'excused', 'exempt']
+
+/** 状态色：与列表里的 StatusChip 同一套 token，不再所有按钮一个颜色 */
+const STATUS_TONE: Record<AttendanceStatus, StatusTone> = {
+  present: 'success',
+  late: 'warning',
+  absent: 'danger',
+  excused: 'info',
+  exempt: 'neutral',
+}
 
 type RehearsalMini = {
   id: number
@@ -33,13 +42,21 @@ type AttendanceWithRehearsal = {
   rehearsals: RehearsalMini | null
 }
 
-type PendingRow = { id: string; rehearsal_id: number; status: string }
+type PendingRequest = {
+  id: string
+  to_status: AttendanceStatus
+  reason: string | null
+}
 
 /**
  * 成员详情（声部长/首席）：成员信息 + 该成员的排练列表 + 修改考勤。
  *
  * 提交不是直改：每条被改动的排练调用一次 `create_attendance_change_request`，
  * 由管理员/团长审批。当前考勤在审批前保持不变；页面用 pending 标记「已提交、待审批」。
+ *
+ * pending 期间可以「取消请求」或「修改请求」：修改走
+ * `update_attendance_change_request`（原位更新，不产生第二条 pending）。
+ * 理由**逐行**填写——每条请求是独立的 DB 行，共用一个理由会丢掉「为什么改这一场」。
  */
 export default function MemberAttendancePage() {
   const { t } = useT()
@@ -58,11 +75,13 @@ export default function MemberAttendancePage() {
   const member = profileData[0]
 
   const [rows, setRows] = useState<AttendanceWithRehearsal[]>([])
-  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set())
+  const [pending, setPending] = useState<Map<number, PendingRequest>>(new Map())
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
   const [edits, setEdits] = useState<Record<number, AttendanceStatus>>({})
-  const [reason, setReason] = useState('')
+  const [reasons, setReasons] = useState<Record<number, string>>({})
+  /** 哪些 pending 行正处在「修改请求」的编辑态 */
+  const [modifying, setModifying] = useState<Set<number>>(new Set())
   const [submitting, setSubmitting] = useState(false)
 
   const statusLabels: Record<AttendanceStatus, string> = {
@@ -97,12 +116,12 @@ export default function MemberAttendancePage() {
         .eq('user_id', userId),
       supabase
         .from('attendance_change_requests')
-        .select('id, rehearsal_id, status')
+        .select('id, rehearsal_id, to_status, reason, status')
         .eq('target_user_id', userId)
         .eq('status', 'pending'),
     ])
 
-    if (attendanceRes.error) {
+    if (attendanceRes.error || pendingRes.error) {
       setLoading(false)
       setFailed(true)
       return
@@ -114,11 +133,25 @@ export default function MemberAttendancePage() {
         (b.rehearsals?.start_time ?? '').localeCompare(a.rehearsals?.start_time ?? '')
       )
 
+    const pendingMap = new Map<number, PendingRequest>()
+    for (const p of (pendingRes.data as {
+      id: string
+      rehearsal_id: number
+      to_status: AttendanceStatus
+      reason: string | null
+    }[]) ?? []) {
+      pendingMap.set(p.rehearsal_id, { id: p.id, to_status: p.to_status, reason: p.reason })
+    }
+
     setRows(list)
+    setPending(pendingMap)
     setEdits(Object.fromEntries(list.map((r) => [r.rehearsal_id, r.status ?? 'absent'])))
-    setPendingIds(
-      new Set(((pendingRes.data as PendingRow[] | null) ?? []).map((p) => p.rehearsal_id))
+    setReasons(
+      Object.fromEntries(
+        list.map((r) => [r.rehearsal_id, pendingMap.get(r.rehearsal_id)?.reason ?? ''])
+      )
     )
+    setModifying(new Set())
     setLoading(false)
   }, [userId])
 
@@ -132,36 +165,56 @@ export default function MemberAttendancePage() {
     void fetchProfile()
   }, [fetchProfile, load, userId])
 
-  const changed = useMemo(
+  /** 真正需要提交的行：普通行比当前考勤；pending 行只在编辑态且状态/理由变了 */
+  const changedRows = useMemo(
     () =>
-      rows.filter(
-        (r) => !pendingIds.has(r.rehearsal_id) && edits[r.rehearsal_id] !== (r.status ?? 'absent')
-      ),
-    [edits, pendingIds, rows]
+      rows.filter((row) => {
+        const p = pending.get(row.rehearsal_id)
+        const selected = edits[row.rehearsal_id] ?? row.status ?? 'absent'
+        if (p) {
+          if (!modifying.has(row.rehearsal_id)) return false
+          const reasonChanged = (reasons[row.rehearsal_id] ?? '').trim() !== (p.reason ?? '').trim()
+          return selected !== p.to_status || reasonChanged
+        }
+        return selected !== (row.status ?? 'absent')
+      }),
+    [edits, modifying, pending, reasons, rows]
   )
 
   const mapError = (message: string): string => {
     if (message.includes('pending_exists')) return t('memberAttendance.errors.pendingExists')
     if (message.includes('attendance_missing'))
       return t('memberAttendance.errors.attendanceMissing')
-    if (message.includes('not_allowed')) return t('memberAttendance.errors.notAllowed')
+    if (message.includes('not_allowed') || message.includes('not_request_owner'))
+      return t('memberAttendance.errors.notAllowed')
+    if (message.includes('request_not_pending') || message.includes('request_not_found'))
+      return t('memberAttendance.errors.requestChanged')
     return t('memberAttendance.errors.generic')
   }
 
   const handleSubmit = async () => {
-    if (changed.length === 0 || submitting) return
+    if (changedRows.length === 0 || submitting) return
     setSubmitting(true)
     let ok = 0
     let failedCount = 0
     let firstError = ''
 
-    for (const row of changed) {
-      const { error } = await supabase.rpc('create_attendance_change_request', {
-        p_rehearsal_id: row.rehearsal_id,
-        p_target_user_id: userId,
-        p_to_status: edits[row.rehearsal_id],
-        p_reason: reason.trim() || undefined,
-      })
+    for (const row of changedRows) {
+      const p = pending.get(row.rehearsal_id)
+      const toStatus = edits[row.rehearsal_id]
+      const reason = (reasons[row.rehearsal_id] ?? '').trim() || undefined
+      const { error } = p
+        ? await supabase.rpc('update_attendance_change_request', {
+            p_request_id: p.id,
+            p_to_status: toStatus,
+            p_reason: reason,
+          })
+        : await supabase.rpc('create_attendance_change_request', {
+            p_rehearsal_id: row.rehearsal_id,
+            p_target_user_id: userId,
+            p_to_status: toStatus,
+            p_reason: reason,
+          })
       if (error) {
         failedCount += 1
         if (!firstError) firstError = error.message
@@ -171,10 +224,7 @@ export default function MemberAttendancePage() {
     }
 
     setSubmitting(false)
-    if (ok > 0) {
-      await load()
-      setReason('')
-    }
+    if (ok > 0) await load()
 
     if (failedCount > 0) {
       void Taro.showModal({
@@ -185,6 +235,51 @@ export default function MemberAttendancePage() {
     } else {
       void Taro.showToast({ title: t('memberAttendance.submitted'), icon: 'success' })
     }
+  }
+
+  const cancelRequest = async (requestId: string) => {
+    if (submitting) return
+    setSubmitting(true)
+    const { error } = await supabase.rpc('cancel_attendance_change_request', {
+      p_request_id: requestId,
+    })
+    setSubmitting(false)
+    if (error) {
+      void Taro.showModal({
+        title: t('memberAttendance.cancelFailed'),
+        content: mapError(error.message),
+        showCancel: false,
+      })
+      return
+    }
+    await load()
+    void Taro.showToast({ title: t('memberAttendance.canceled'), icon: 'success' })
+  }
+
+  const confirmCancel = (requestId: string) => {
+    void Taro.showModal({
+      title: t('memberAttendance.cancelRequest'),
+      content: t('memberAttendance.cancelConfirm'),
+      success: (res) => {
+        if (res.confirm) void cancelRequest(requestId)
+      },
+    })
+  }
+
+  const startModify = (rehearsalId: number, p: PendingRequest) => {
+    setEdits((prev) => ({ ...prev, [rehearsalId]: p.to_status }))
+    setReasons((prev) => ({ ...prev, [rehearsalId]: p.reason ?? '' }))
+    setModifying((prev) => new Set(prev).add(rehearsalId))
+  }
+
+  const stopModify = (row: AttendanceWithRehearsal, p: PendingRequest) => {
+    setEdits((prev) => ({ ...prev, [row.rehearsal_id]: row.status ?? 'absent' }))
+    setReasons((prev) => ({ ...prev, [row.rehearsal_id]: p.reason ?? '' }))
+    setModifying((prev) => {
+      const next = new Set(prev)
+      next.delete(row.rehearsal_id)
+      return next
+    })
   }
 
   const memberInfoPending = profileLoading && !member
@@ -268,8 +363,12 @@ export default function MemberAttendancePage() {
               const timeText = rehearsal?.start_time
                 ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
                 : t('sectionLeave.timeUnset')
-              const isPending = pendingIds.has(row.rehearsal_id)
+              const p = pending.get(row.rehearsal_id)
+              const isModifying = modifying.has(row.rehearsal_id)
               const selected = edits[row.rehearsal_id] ?? row.status ?? 'absent'
+              const original = row.status ?? 'absent'
+              const showEditor = !p || isModifying
+              const showReason = showEditor && (isModifying || selected !== original)
               return (
                 <View
                   key={row.rehearsal_id}
@@ -281,40 +380,103 @@ export default function MemberAttendancePage() {
                     {rehearsal?.repertoire && (
                       <Text className='text-xs text-text-muted'>· {rehearsal.repertoire}</Text>
                     )}
-                    {isPending && (
-                      <StatusChip tone='warning'>{t('memberAttendance.pending')}</StatusChip>
-                    )}
+                    {p && <StatusChip tone='warning'>{t('memberAttendance.pending')}</StatusChip>}
                   </View>
 
-                  {isPending ? (
-                    <View className='mt-2'>
-                      <Text className='text-xs text-text-muted'>{statusLabels[selected]}</Text>
-                    </View>
+                  {p && !isModifying ? (
+                    <>
+                      <View className='mt-2 flex flex-wrap items-center gap-1.5'>
+                        <Text className='text-xs text-text-muted'>
+                          {t('memberAttendance.requestedStatus')}
+                        </Text>
+                        <StatusChip tone={STATUS_TONE[p.to_status]}>
+                          {statusLabels[p.to_status]}
+                        </StatusChip>
+                      </View>
+                      {p.reason ? (
+                        <Text className='mt-1 block text-xs text-text-muted'>
+                          {t('memberAttendance.reasonLabel')}
+                          {p.reason}
+                        </Text>
+                      ) : null}
+                      <View className='mt-3 flex flex-row gap-2'>
+                        <View
+                          className='flex-1 rounded-full border border-border bg-card px-3 py-2 text-center'
+                          onClick={() => confirmCancel(p.id)}
+                        >
+                          <Text className='text-xs text-danger'>
+                            {t('memberAttendance.cancelRequest')}
+                          </Text>
+                        </View>
+                        <View
+                          className='flex-1 rounded-full border border-border bg-card px-3 py-2 text-center'
+                          onClick={() => startModify(row.rehearsal_id, p)}
+                        >
+                          <Text className='text-xs text-text'>
+                            {t('memberAttendance.modifyRequest')}
+                          </Text>
+                        </View>
+                      </View>
+                    </>
                   ) : (
-                    <View className='mt-2 flex flex-wrap gap-1.5'>
-                      {STATUS_OPTIONS.map((status) => {
-                        const active = selected === status
-                        return (
-                          <View
-                            key={status}
-                            className={`rounded-full border px-2.5 py-1 ${
-                              active ? 'border-primary bg-primary' : 'border-border bg-muted'
-                            }`}
-                            onClick={() =>
-                              setEdits((prev) => ({ ...prev, [row.rehearsal_id]: status }))
-                            }
-                          >
-                            <Text
-                              className={`text-xs ${
-                                active ? 'text-primary-foreground' : 'text-text'
+                    <>
+                      <View className='mt-2 flex flex-wrap gap-1.5'>
+                        {STATUS_OPTIONS.map((status) => {
+                          const active = selected === status
+                          return (
+                            <View
+                              key={status}
+                              className={`rounded-full border-2 ${
+                                active ? 'border-primary' : 'border-transparent'
                               }`}
+                              onClick={() =>
+                                setEdits((prev) => ({
+                                  ...prev,
+                                  [row.rehearsal_id]: status,
+                                }))
+                              }
                             >
-                              {statusLabels[status]}
-                            </Text>
+                              <StatusChip tone={STATUS_TONE[status]}>
+                                {statusLabels[status]}
+                              </StatusChip>
+                            </View>
+                          )
+                        })}
+                      </View>
+
+                      {showReason ? (
+                        <View className='mt-2'>
+                          <Text className='mb-1 block text-xs text-text-muted'>
+                            {t('memberAttendance.reasonLabel')}
+                          </Text>
+                          <View className='w-full overflow-hidden rounded-xl border border-border bg-muted px-3 py-2'>
+                            <Textarea
+                              className='h-16 w-full bg-transparent text-sm text-text'
+                              value={reasons[row.rehearsal_id] ?? ''}
+                              onInput={(e) =>
+                                setReasons((prev) => ({
+                                  ...prev,
+                                  [row.rehearsal_id]: e.detail.value,
+                                }))
+                              }
+                              placeholder={t('memberAttendance.reasonPlaceholder')}
+                              maxlength={200}
+                            />
                           </View>
-                        )
-                      })}
-                    </View>
+                        </View>
+                      ) : null}
+
+                      {p && isModifying ? (
+                        <View
+                          className='mt-2 flex flex-row justify-end'
+                          onClick={() => stopModify(row, p)}
+                        >
+                          <Text className='text-xs text-text-muted'>
+                            {t('memberAttendance.cancelEdit')}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </>
                   )}
                 </View>
               )
@@ -323,35 +485,26 @@ export default function MemberAttendancePage() {
         </View>
       </ScrollView>
 
-      {/* 底部：可选理由 + 提交 */}
-      <View className='border-t border-border bg-surface px-4 pb-safe pt-2'>
-        <Text className='mb-1 block text-xs text-text-muted'>
-          {t('memberAttendance.reasonLabel')}
-        </Text>
-        <View className='mb-2 w-full overflow-hidden rounded-xl border border-border bg-muted px-3 py-2'>
-          <Textarea
-            className='h-20 w-full bg-transparent text-sm text-text'
-            value={reason}
-            onInput={(e) => setReason(e.detail.value)}
-            placeholder={t('memberAttendance.reasonPlaceholder')}
-            maxlength={200}
-          />
-        </View>
+      {/* 底部提交：只有真的有改动才出现；底部留出安全区 + 16px，别贴着手机底边 */}
+      {changedRows.length > 0 ? (
         <View
-          className={`rounded-xl py-3 text-center ${
-            changed.length > 0 && !submitting ? 'bg-primary' : 'bg-muted'
-          }`}
-          onClick={() => void handleSubmit()}
+          className='border-t border-border bg-surface px-4 pt-3'
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
         >
-          <Text
-            className={`text-sm font-medium ${
-              changed.length > 0 && !submitting ? 'text-primary-foreground' : 'text-text-muted'
-            }`}
+          <View
+            className={`rounded-xl py-3 text-center ${!submitting ? 'bg-primary' : 'bg-muted'}`}
+            onClick={() => void handleSubmit()}
           >
-            {submitting ? t('memberAttendance.submitting') : t('memberAttendance.submit')}
-          </Text>
+            <Text
+              className={`text-sm font-medium ${
+                !submitting ? 'text-primary-foreground' : 'text-text-muted'
+              }`}
+            >
+              {submitting ? t('memberAttendance.submitting') : t('memberAttendance.submit')}
+            </Text>
+          </View>
         </View>
-      </View>
+      ) : null}
     </View>
   )
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import Taro, { useDidShow, useRouter } from '@tarojs/taro'
 import { useT, useNavTitle } from '@/i18n'
@@ -6,6 +6,8 @@ import { useThemeClass } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { tabBarReserveCss } from '@/lib/ui-scale'
 import { supabase } from '@/lib/supabase'
+import { useSharedScoreFiles } from '@/hooks/useSharedScoreFiles'
+import { sharedFileIds } from '@/lib/shared-scores'
 import { ListState } from '@/components/ui/ListState'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { compareFiles } from '@/lib/sheet-music-sort'
@@ -26,6 +28,10 @@ export default function ScorePart() {
   const router = useRouter()
   const partId = router.params.part_id ?? ''
   const sheetTitle = router.params.sheet ? decodeURIComponent(router.params.sheet) : ''
+  /** 共享入口（共享乐谱 → 曲子 → 声部）：只列共享文件，打开阅读器带 kind=shared */
+  const sharedMode = router.params.shared === '1'
+  const shared = useSharedScoreFiles({ enabled: sharedMode })
+  const sharedIds = useMemo(() => sharedFileIds(shared.data), [shared.data])
 
   const [part, setPart] = useState<PartWithFiles | null>(null)
   const [loading, setLoading] = useState(true)
@@ -64,7 +70,16 @@ export default function ScorePart() {
   // pkuso-web#378 的跨仓约定里已被删除）
   useDidShow(() => {
     void fetch()
+    if (sharedMode) void shared.fetch()
   })
+
+  /** 共享模式下只保留共享文件；总谱不参与共享 */
+  const files = useMemo(() => {
+    if (!part) return []
+    if (!sharedMode) return part.files
+    if ((part.section ?? '').trim() === '总谱') return []
+    return part.files.filter((f) => sharedIds.has(f.id))
+  }, [part, sharedMode, sharedIds])
 
   const openFile = (f: SheetMusicFileRow) => {
     // 预取第一页：跳转动画 + 页面初始化期间图就在下载（缓存由小程序图片层负责）。
@@ -78,6 +93,7 @@ export default function ScorePart() {
     // 元数据随参数带给阅读器，省掉一次走反代到境外库的查询（实测 ~600ms）；
     // 缺参数时阅读器回退查库（分享链接等旧入口不受影响）
     const q = [
+      sharedMode ? 'kind=shared' : '',
       `file_id=${encodeURIComponent(f.id)}`,
       `sp=${encodeURIComponent(f.storage_path)}`,
       f.page_count ? `pc=${f.page_count}` : '',
@@ -117,21 +133,24 @@ export default function ScorePart() {
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='px-4 pb-4 pt-3'>
           <ListState
-            loading={loading}
+            loading={loading || (sharedMode && shared.loading)}
             isEmpty={!loading && !part}
             error={error ? t('scoreDetail.loadFailed', { error }) : null}
             emptyText={t('scorePart.notFound')}
-            onRetry={() => void fetch()}
+            onRetry={() => {
+              void fetch()
+              if (sharedMode) void shared.fetch()
+            }}
           >
             {part ? (
               <View className='overflow-hidden rounded-xl border border-border bg-card'>
-                {part.files.length === 0 ? (
+                {files.length === 0 ? (
                   <Text className='block px-4 py-4 text-xs text-text-muted'>
-                    {t('scoreDetail.emptyFiles')}
+                    {t(sharedMode ? 'score.emptyShared' : 'scoreDetail.emptyFiles')}
                   </Text>
                 ) : (
                   <View className='px-4 pb-2 pt-2'>
-                    {part.files.map((f, i) => {
+                    {files.map((f, i) => {
                       const sizeText = formatFileSize(f.file_size)
                       const pagesText =
                         f.page_count != null ? t('scoreDetail.pages', { n: f.page_count }) : ''

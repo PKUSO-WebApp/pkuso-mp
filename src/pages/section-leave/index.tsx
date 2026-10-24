@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
+import { useDidHide, useDidShow } from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
+import { DATA_SYNC_INTERVAL_MS, subscribeSync } from '@/lib/dataSync'
 import { ListState } from '@/components/ui/ListState'
 import { Modal } from '@/components/ui/Modal'
 import { StatusChip, type StatusTone } from '@/components/ui/StatusChip'
@@ -77,17 +79,22 @@ export default function SectionLeavePage() {
         ? t('sectionLeave.type.full')
         : t('sectionLeave.type.rehearsal')
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setFailed(false)
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true
+    if (!silent) {
+      setLoading(true)
+      setFailed(false)
+    }
     // 始终拉全量：开关只做本地过滤，避免每次切换都重新请求（时间也会重新拉）
     const { data, error } = await supabase.rpc('get_section_leave_requests', {
       p_rehearsal_id: undefined,
       p_include_canceled: true,
     })
     if (error) {
-      setLoading(false)
-      setFailed(true)
+      if (!silent) {
+        setLoading(false)
+        setFailed(true)
+      }
       return
     }
 
@@ -110,8 +117,10 @@ export default function SectionLeavePage() {
     ])
 
     if (profileRes.error || rehearsalRes.error) {
-      setLoading(false)
-      setFailed(true)
+      if (!silent) {
+        setLoading(false)
+        setFailed(true)
+      }
       return
     }
 
@@ -125,6 +134,25 @@ export default function SectionLeavePage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // 成员在**别的设备**取消请假时，本页不会收到任何本地事件：靠 30s 心跳静默重拉。
+  // （`check_data_versions.leave` 只含调用者自己可见的行，声部长看不到成员的请假行，
+  //   所以不能只依赖 dataSync 的 leave 事件；通知未读数变了时才额外广播 notifications。）
+  const [pageActive, setPageActive] = useState(true)
+  useDidShow(() => {
+    setPageActive(true)
+    void load({ silent: true })
+  })
+  useDidHide(() => {
+    setPageActive(false)
+  })
+  useEffect(() => {
+    if (!pageActive) return
+    const timer = setInterval(() => void load({ silent: true }), DATA_SYNC_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [load, pageActive])
+  useEffect(() => subscribeSync('notifications', () => void load({ silent: true })), [load])
+  useEffect(() => subscribeSync('leave', () => void load({ silent: true })), [load])
 
   // 打开即把「声部请假」通知标为已读（与其他信箱同一语义）；只标本页打开时已有的 id，
   // 打开瞬间新到的通知不会被无界更新误标。
@@ -260,11 +288,6 @@ export default function SectionLeavePage() {
                       · {rehearsalTypeLabel(rehearsal?.type ?? null)}
                     </Text>
                   </View>
-                  {rehearsal?.repertoire && (
-                    <Text className='mt-1 block text-xs text-text-muted'>
-                      {rehearsal.repertoire}
-                    </Text>
-                  )}
                   <Text className='mt-1 block text-xs text-text-muted'>
                     {row.created_at.slice(0, 16).replace('T', ' ')}
                   </Text>

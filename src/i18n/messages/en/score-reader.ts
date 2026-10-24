@@ -1,6 +1,7 @@
 export const scoreReader = {
   navTitle: 'Reader',
   loadFailed: 'Failed to load: {error}',
+  compareBack: 'Back',
   notFound: 'File not found or removed',
   pageOf: '{page} / {total}',
   pageJump: 'Go',
@@ -48,6 +49,15 @@ export const scoreReader = {
     batchAt: '{time}',
     batchEmpty: 'No annotated pages in this batch',
     pageRow: 'Page {page} · {n} strokes',
+  },
+  sharedHistory: {
+    entry: 'Restore shared history',
+    title: 'Restore shared history',
+    empty: 'No shared history yet',
+    hint: 'Choose a history version to restore; the current version stays in shared history.',
+    current: 'Current',
+    historyVersion: 'History',
+    useCurrent: 'Restore this version',
   },
   conflict: {
     title: '{count} page(s) with conflicting ink',

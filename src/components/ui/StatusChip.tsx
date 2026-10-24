@@ -1,13 +1,14 @@
 import type { ReactNode } from 'react'
 import { View } from '@tarojs/components'
 
-export type StatusTone = 'success' | 'danger' | 'warning' | 'neutral'
+export type StatusTone = 'success' | 'danger' | 'warning' | 'neutral' | 'info'
 
 const TONE_CLASS: Record<StatusTone, string> = {
   success: 'bg-success-bg text-success',
   danger: 'bg-danger-bg text-danger',
   warning: 'bg-warning-bg text-warning',
   neutral: 'bg-muted text-text-muted',
+  info: 'bg-info-bg text-info',
 }
 
 export function StatusChip({

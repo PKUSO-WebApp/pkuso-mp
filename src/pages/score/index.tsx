@@ -7,17 +7,14 @@ import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { tabBarReserveCss } from '@/lib/ui-scale'
 import { useUser } from '@/context/user-context'
 import { useMyProfile } from '@/hooks/useMyProfile'
-import { fetchSheetMusicFile, useSheetMusic, type SheetMusicWithParts } from '@/hooks/useSheetMusic'
+import { useSheetMusic, type SheetMusicWithParts } from '@/hooks/useSheetMusic'
 import { useSharedScoreFiles } from '@/hooks/useSharedScoreFiles'
-import { useMySharedScopes } from '@/hooks/useMySharedScopes'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { ListState } from '@/components/ui/ListState'
 import { StaffBlockedPage } from '@/components/staff-blocked-page'
 import { myPartOf } from '@/lib/sheet-music-mine'
-import { filterSharedScoreFiles } from '@/lib/shared-scores'
-import { translateInstrument } from '@/lib/instrument-i18n'
+import { groupSharedFilesByScore, type SharedScoreGroup } from '@/lib/shared-scores'
 import { isOrchestraMember } from '@/lib/role-gate'
-import type { SharedScoreFileRow, SheetMusicFileRow } from '@/types/database'
 import './index.scss'
 
 type TabKey = 'mine' | 'shared' | 'all'
@@ -33,26 +30,18 @@ export default function Score() {
   const [tab, setTab] = useState<TabKey>('mine')
   const { items, loading, error, fetch } = useSheetMusic()
   const shared = useSharedScoreFiles()
-  const { managedSections, capabilities, loading: scopesLoading } = useMySharedScopes()
-  const canManageAll = capabilities.includes('shared_score')
 
-  // 从阅读器返回时刷新共享谱列表：`annotated_pages` / `updated_at` 会在那边变化，
-  // 而 tab 页返回不会重新挂载。personal 列表没有这类计数，不需要跟着刷。
+  // 从阅读器返回时刷新共享谱列表：`updated_at` 会在那边变化，而 tab 页返回不会重新挂载。
+  // personal 列表没有这类计数，不需要跟着刷。
   useDidShow(() => {
     void shared.fetch()
   })
 
-  const sharedVisible = useMemo(
-    () =>
-      filterSharedScoreFiles(shared.data, {
-        managedSections,
-        canManageAll,
-      }),
-    [shared.data, managedSections, canManageAll]
-  )
-
-  /** 共享谱行 → 阅读器参数；优先复用 useSheetMusic 已加载的文件元数据 */
-  const allFiles = useMemo(() => items.flatMap((s) => s.parts.flatMap((p) => p.files)), [items])
+  /**
+   * 共享谱按「曲子」聚合（验收：平铺全部文件找不到特定声部/曲子的共享谱）。
+   * 总谱不参与共享（`groupSharedFilesByScore` 已过滤）。
+   */
+  const sharedGroups = useMemo(() => groupSharedFilesByScore(shared.data), [shared.data])
 
   /**
    * 「分发给我的」= **含我声部的乐谱**（2026-10-11 用户定的现阶段口径：暂时不看
@@ -113,25 +102,16 @@ export default function Score() {
     })
   }
 
-  /** 共享谱行 → 阅读器（kind=shared）。优先复用已加载的文件元数据，缺了再查一次 */
-  const openSharedFile = async (row: SharedScoreFileRow) => {
-    if (!row.file_id) return
-    let file: SheetMusicFileRow | null = allFiles.find((f) => f.id === row.file_id) ?? null
-    if (!file) file = await fetchSheetMusicFile(row.file_id)
-    const fileName = file?.file_name ?? row.file_name ?? ''
-    const q = [
-      'kind=shared',
-      `file_id=${encodeURIComponent(row.file_id)}`,
-      file?.storage_path ? `sp=${encodeURIComponent(file.storage_path)}` : '',
-      file?.page_count ? `pc=${file.page_count}` : row.page_count ? `pc=${row.page_count}` : '',
-      fileName ? `fn=${encodeURIComponent(fileName)}` : '',
-      row.title ? `title=${encodeURIComponent(row.title)}` : '',
-      row.section ? `sec=${encodeURIComponent(row.section)}` : '',
-      file?.file_size ? `sz=${file.file_size}` : '',
-    ]
-      .filter(Boolean)
-      .join('&')
-    void Taro.navigateTo({ url: `/pages/score-reader/index?${q}` })
+  /**
+   * 共享谱的层级是**曲子 / 声部 / 谱子**：共享 tab 只到曲子一层，
+   * 声部与文件复用普通谱务的 score-detail / score-part（带 `shared=1` 收窄）。
+   */
+  const openSharedGroup = (group: SharedScoreGroup) => {
+    // 视图里 score_id 来自内连接，正常不会为空；为空说明数据异常，宁可不跳
+    if (!group.scoreId) return
+    void Taro.navigateTo({
+      url: `/pages/score-detail/index?id=${encodeURIComponent(group.scoreId)}&shared=1`,
+    })
   }
 
   const fileCount = (s: SheetMusicWithParts) => s.parts.reduce((acc, p) => acc + p.files.length, 0)
@@ -147,37 +127,45 @@ export default function Score() {
         <View className='px-4 pb-3 pt-3'>
           {tab === 'shared' ? (
             <ListState
-              loading={shared.loading || scopesLoading}
-              isEmpty={sharedVisible.length === 0}
+              loading={shared.loading}
+              isEmpty={sharedGroups.length === 0}
               error={shared.error ? t('score.loadFailed', { error: shared.error }) : null}
               emptyText={t('score.emptyShared')}
               onRetry={() => void shared.fetch()}
             >
-              {sharedVisible.map((row) => (
-                <View
-                  key={row.file_id ?? `${row.title ?? ''}-${row.file_name ?? ''}`}
-                  className='mb-3 rounded-xl border border-border bg-card p-4'
-                  onClick={() => void openSharedFile(row)}
-                >
-                  <Text className='block text-base font-semibold text-text'>
-                    {row.title || row.file_name || '—'}
-                  </Text>
-                  <Text className='mt-1 block text-sm text-text-muted'>
-                    {translateInstrument(row.section ?? '', t) || '—'}
-                    {row.file_name ? ` · ${row.file_name}` : ''}
-                  </Text>
-                  <View className='mt-2 flex flex-wrap items-center gap-3'>
-                    <Text className='text-xs text-text-muted'>
-                      {t('score.sharedAnnotatedPages', { n: row.annotated_pages ?? 0 })}
+              {sharedGroups.map((group) => {
+                // 任一份文件在上传新版本后页数变了 = 共享批注可能已过期（原有口径）
+                const updated = group.files.some(
+                  (f) =>
+                    f.source_page_count != null &&
+                    f.page_count != null &&
+                    f.source_page_count !== f.page_count
+                )
+                return (
+                  <View
+                    key={group.key}
+                    className='mb-3 rounded-xl border border-border bg-card p-4'
+                    onClick={() => openSharedGroup(group)}
+                  >
+                    <Text className='block text-base font-semibold text-text'>
+                      {group.title || '—'}
                     </Text>
-                    {row.source_page_count != null &&
-                      row.page_count != null &&
-                      row.source_page_count !== row.page_count && (
-                        <Text className='text-xs text-warning'>{t('score.sharedUpdated')}</Text>
-                      )}
+                    <View className='mt-2 flex flex-row items-center'>
+                      <Text className='text-xs text-text-muted'>
+                        {t('score.partsCount', { n: group.sections.length })}
+                      </Text>
+                      <Text className='ml-3 text-xs text-text-muted'>
+                        {t('score.filesCount', { n: group.files.length })}
+                      </Text>
+                    </View>
+                    {updated && (
+                      <Text className='mt-1 block text-xs text-warning'>
+                        {t('score.sharedUpdated')}
+                      </Text>
+                    )}
                   </View>
-                </View>
-              ))}
+                )
+              })}
             </ListState>
           ) : (
             <ListState

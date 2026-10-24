@@ -7,6 +7,7 @@ import {
   loadHistoryBatch,
   type HistoryBatch,
   type HistoryPage,
+  type HistorySource,
 } from '@/lib/annotation-history'
 
 /**
@@ -29,6 +30,7 @@ export function AnnotationHistorySheet({
   loading,
   onPick,
   onClose,
+  source = 'personal',
 }: {
   fileId: string
   /** 已按批次聚好的归档（宿主页拉好后传进来 —— 面板自己不管列表级取数） */
@@ -37,6 +39,8 @@ export function AnnotationHistorySheet({
   /** 选中一页的历史版本：由宿主页导航到冲突解决页（带 `h=<version>`） */
   onPick: (page: HistoryPage) => void
   onClose: () => void
+  /** personal（默认）或 shared —— 只影响读哪张历史表与标题 */
+  source?: HistorySource
 }) {
   const { t } = useT()
   /** null = 一级（批次列表）；非 null = 二级（这一批的页） */
@@ -46,7 +50,7 @@ export function AnnotationHistorySheet({
   const openBatch = (b: HistoryBatch) => {
     setBatch(b)
     setPages(null)
-    void loadHistoryBatch(fileId, b).then(setPages)
+    void loadHistoryBatch(fileId, b, source).then(setPages)
   }
 
   const rowCls = 'border-b border-border px-4 py-4'
@@ -62,7 +66,11 @@ export function AnnotationHistorySheet({
             </Text>
           ) : (
             <Text className='text-sm font-medium text-text'>
-              {t('scoreReader.history.title')}
+              {t(
+                source === 'shared'
+                  ? 'scoreReader.sharedHistory.title'
+                  : 'scoreReader.history.title'
+              )}
             </Text>
           )}
           <Text className='text-xs text-text-muted'>
@@ -112,7 +120,11 @@ export function AnnotationHistorySheet({
           ) : batches.length === 0 ? (
             <View className={rowCls}>
               <Text className='block text-center text-sm text-text-muted'>
-                {t('scoreReader.history.empty')}
+                {t(
+                  source === 'shared'
+                    ? 'scoreReader.sharedHistory.empty'
+                    : 'scoreReader.history.empty'
+                )}
               </Text>
             </View>
           ) : (

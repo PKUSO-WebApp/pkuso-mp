@@ -16,7 +16,12 @@ import type { AnnoStroke } from '@/lib/annotation'
  *     （归档几乎总是有内容的那一份，但**不假设**，按内容判）。
  */
 
-const HISTORY_TABLE = 'sheet_music_annotation_history'
+export type HistorySource = 'personal' | 'shared'
+
+const HISTORY_TABLES: Record<HistorySource, string> = {
+  personal: 'sheet_music_annotation_history',
+  shared: 'sheet_music_shared_annotation_history',
+}
 
 /** 历史里的一页（一级列表用，**不含内容**） */
 export type HistoryEntry = {
@@ -69,15 +74,25 @@ export function groupHistoryBatches(rows: HistoryEntry[], gapMs = BATCH_GAP_MS):
  * 这一册的全部归档行（**不含内容**）。
  * 失败返回空数组而不是抛错：面板显示空态/失败态即可，不该把阅读器带崩。
  */
-export async function listAnnotationHistory(fileId: string): Promise<HistoryEntry[]> {
-  const { data, error } = await supabase
-    .from(HISTORY_TABLE)
+export async function listAnnotationHistory(
+  fileId: string,
+  source: HistorySource = 'personal'
+): Promise<HistoryEntry[]> {
+  // 表名是二选一的闭集，但 typed client 不接受动态 relation ⇒ 只在这一层放宽
+  const db = supabase as unknown as { from: (table: string) => any }
+  const { data, error } = await db
+    .from(HISTORY_TABLES[source])
     .select('page, version, replaced_at')
     .eq('file_id', fileId)
     .order('replaced_at', { ascending: false })
   if (error) return []
-  return (data ?? []).map((row) => ({
-    page: row.page as number,
+  const rows = (data ?? []) as Array<{
+    page: number
+    version: string | null
+    replaced_at: string | null
+  }>
+  return rows.map((row) => ({
+    page: row.page,
     version: String(row.version ?? ''),
     replacedAt: String(row.replaced_at ?? ''),
   }))
@@ -92,24 +107,36 @@ export type HistoryPage = { entry: HistoryEntry; strokes: AnnoStroke[] }
  * 过滤会把「别的页碰巧存过同一份内容」也捞进来（主键是 `file_id+user_id+page+version`，
  * 版本号本身不跨页唯一）。
  */
-export async function loadHistoryBatch(fileId: string, batch: HistoryBatch): Promise<HistoryPage[]> {
+export async function loadHistoryBatch(
+  fileId: string,
+  batch: HistoryBatch,
+  source: HistorySource = 'personal'
+): Promise<HistoryPage[]> {
   const times = batch.entries.map((e) => e.replacedAt)
   if (times.length === 0) return []
   const wanted = new Set(times)
   const lo = times.reduce((a, b) => (a < b ? a : b))
   const hi = times.reduce((a, b) => (a > b ? a : b))
-  const { data, error } = await supabase
-    .from(HISTORY_TABLE)
+  // 表名是二选一的闭集，但 typed client 不接受动态 relation ⇒ 只在这一层放宽
+  const db = supabase as unknown as { from: (table: string) => any }
+  const { data, error } = await db
+    .from(HISTORY_TABLES[source])
     .select('page, version, replaced_at, strokes')
     .eq('file_id', fileId)
     .gte('replaced_at', lo)
     .lte('replaced_at', hi)
   if (error) return []
-  return (data ?? [])
+  const rows = (data ?? []) as Array<{
+    page: number
+    version: string | null
+    replaced_at: string | null
+    strokes: unknown
+  }>
+  return rows
     .filter((row) => wanted.has(String(row.replaced_at ?? '')))
     .map((row) => ({
       entry: {
-        page: row.page as number,
+        page: row.page,
         version: String(row.version ?? ''),
         replacedAt: String(row.replaced_at ?? ''),
       },
@@ -126,15 +153,19 @@ export async function loadHistoryBatch(fileId: string, batch: HistoryBatch): Pro
 export async function fetchArchivePage(
   fileId: string,
   page: number,
-  version: string
+  version: string,
+  source: HistorySource = 'personal'
 ): Promise<AnnoStroke[] | null> {
-  const { data, error } = await supabase
-    .from(HISTORY_TABLE)
+  // 表名是二选一的闭集，但 typed client 不接受动态 relation ⇒ 只在这一层放宽
+  const db = supabase as unknown as { from: (table: string) => any }
+  const { data, error } = await db
+    .from(HISTORY_TABLES[source])
     .select('strokes')
     .eq('file_id', fileId)
     .eq('page', page)
     .eq('version', version)
     .maybeSingle()
   if (error || !data) return null
-  return (Array.isArray(data.strokes) ? data.strokes : []) as unknown as AnnoStroke[]
+  const row = data as { strokes?: unknown }
+  return (Array.isArray(row.strokes) ? row.strokes : []) as unknown as AnnoStroke[]
 }

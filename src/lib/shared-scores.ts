@@ -1,23 +1,54 @@
+import type { SharedScoreFileRow } from '@/types/database'
+import { pinyinSortKey } from './pinyin-sort'
+
 /**
- * 共享谱列表的可见范围（UI 侧过滤；RLS 不按声部限制读取）。
+ * 共享谱的展示分组（P6b 验收修订）：
+ *   曲子 → 声部 → 谱子（一个声部可以有多个文件，每个文件各有自己的共享版本）。
  *
- * - 有 shared_score 能力（团长/admin）：全部文件；
- * - 声部长/首席：本作用域全部文件（含 0 页）+ 其他声部有笔迹的文件（只读）；
- * - 普通成员：只看有笔迹（annotated_pages > 0）的文件。
+ * 总谱暂不参与共享（用户 2026-10-24 定）：视图里即使有总谱的批注行，也不在共享入口出现。
  */
-export type SharedScoreScope = {
-  managedSections: string[]
-  canManageAll: boolean
+export const isSharedScoreRow = (row: SharedScoreFileRow): boolean =>
+  (row.section ?? '').trim() !== '总谱'
+
+export type SharedScoreGroup = {
+  /** score_id 缺失时用标题兜底（正常视图两列都有） */
+  key: string
+  scoreId: string | null
+  title: string
+  files: SharedScoreFileRow[]
+  sections: string[]
 }
 
-export function filterSharedScoreFiles<
-  T extends { annotated_pages: number | null; section: string | null },
->(files: T[], scope: SharedScoreScope): T[] {
-  if (scope.canManageAll) return files
-  const managed = new Set(scope.managedSections.map((s) => s.trim()).filter((s) => s.length > 0))
-  return files.filter((f) => {
-    if ((f.annotated_pages ?? 0) > 0) return true
-    const section = (f.section ?? '').trim()
-    return section.length > 0 && managed.has(section)
+/** 按曲子聚合共享文件；不修改入参 */
+export function groupSharedFilesByScore(rows: SharedScoreFileRow[]): SharedScoreGroup[] {
+  const groups = new Map<string, SharedScoreGroup>()
+  for (const row of rows) {
+    if (!isSharedScoreRow(row)) continue
+    const scoreId = row.score_id ?? null
+    const title = (row.title ?? '').trim()
+    const key = scoreId ?? `title:${title}`
+    let group = groups.get(key)
+    if (!group) {
+      group = { key, scoreId, title, files: [], sections: [] }
+      groups.set(key, group)
+    }
+    group.files.push(row)
+    const section = (row.section ?? '').trim()
+    if (section && !group.sections.includes(section)) group.sections.push(section)
+  }
+  return [...groups.values()].sort((a, b) => {
+    const ka = pinyinSortKey(a.title)
+    const kb = pinyinSortKey(b.title)
+    return ka < kb ? -1 : ka > kb ? 1 : 0
   })
+}
+
+/** 共享文件的 id 集合（详情/声部页据此过滤文件） */
+export function sharedFileIds(rows: SharedScoreFileRow[]): Set<string> {
+  return new Set(
+    rows
+      .filter(isSharedScoreRow)
+      .map((row) => row.file_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  )
 }

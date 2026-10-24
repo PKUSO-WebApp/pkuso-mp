@@ -1,6 +1,7 @@
 export const scoreReader = {
   navTitle: '阅读器',
   loadFailed: '加载失败：{error}',
+  compareBack: '返回',
   notFound: '文件不存在或已被删除',
   pageOf: '{page} / {total} 页',
   pageJump: '跳页',
@@ -76,6 +77,15 @@ export const scoreReader = {
     batchAt: '{time}',
     batchEmpty: '这一批里没有带笔迹的页',
     pageRow: '第 {page} 页 · {n} 笔',
+  },
+  sharedHistory: {
+    entry: '恢复共享历史',
+    title: '恢复共享历史',
+    empty: '暂无共享历史',
+    hint: '选择要恢复的历史版本；当前版本会留在共享历史里。',
+    current: '当前版本',
+    historyVersion: '历史版本',
+    useCurrent: '恢复这一版',
   },
   conflict: {
     title: '有 {count} 页批注冲突',

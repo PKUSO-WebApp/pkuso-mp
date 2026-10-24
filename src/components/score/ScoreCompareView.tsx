@@ -44,6 +44,10 @@ export type ScoreCompareViewProps = {
   failedText: string
   loadData: () => Promise<ComparePageData>
   submit: (side: CompareSide, data: ComparePageData) => Promise<CompareSubmitResult>
+  /** 提交成功后的去处；缺省 navigateBack（独立页面）。浮层用法传自己的关闭回调 */
+  onSuccess?: () => void
+  /** 浮层用法的「返回」；常驻页面不传（导航栏已有返回） */
+  onCancel?: () => void
 }
 
 /**
@@ -86,6 +90,8 @@ export function ScoreCompareView({
   failedText,
   loadData,
   submit,
+  onSuccess,
+  onCancel,
 }: ScoreCompareViewProps) {
   const { t } = useT()
   const darkClass = useThemeClass()
@@ -286,7 +292,8 @@ export function ScoreCompareView({
     const result = await submit(choice, data)
     setBusy(false)
     if (result.ok) {
-      void Taro.navigateBack()
+      if (onSuccess) onSuccess()
+      else void Taro.navigateBack()
       return
     }
     if (result.raced) {
@@ -304,6 +311,15 @@ export function ScoreCompareView({
       className={`${darkClass} relative flex min-h-0 flex-col overflow-hidden bg-page-bg`}
       style={{ height: '100vh' }}
     >
+      {onCancel ? (
+        <View
+          className='border-b border-border px-4 pb-2'
+          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}
+          onClick={onCancel}
+        >
+          <Text className='text-sm text-text'>{t('scoreReader.compareBack')}</Text>
+        </View>
+      ) : null}
       {chromeOn ? (
         <View className='border-b border-border px-4 py-3'>
           <Text className='block text-xs leading-relaxed text-text-muted'>{hint}</Text>
