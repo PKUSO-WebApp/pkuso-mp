@@ -108,6 +108,57 @@ describe('composeAnnotatedPdf', () => {
     await expect(composeAnnotatedPdf('f', fn)).rejects.toThrow(/没有 url/)
   })
 
+  it('invalid token：刷新会话后重试一次（web 的 global signOut 会吊销 mp 会话）', async () => {
+    let calls = 0
+    const invoke = async () => {
+      calls += 1
+      if (calls === 1) {
+        return {
+          data: null,
+          error: httpError('Edge Function returned a non-2xx status code', {
+            error: 'invalid token',
+          }),
+        }
+      }
+      return { data: { url: 'https://x/ok.pdf', bytes: 1 }, error: null }
+    }
+    const refresh = vi.fn().mockResolvedValue(undefined)
+
+    const out = await composeAnnotatedPdf('f', invoke as never, refresh)
+
+    expect(calls).toBe(2)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(out.url).toContain('ok.pdf')
+  })
+
+  it('刷新会话失败：报「登录已失效」，且不无限重试', async () => {
+    let calls = 0
+    const invoke = async () => {
+      calls += 1
+      return {
+        data: null,
+        error: httpError('non-2xx', { error: 'Session not found' }),
+      }
+    }
+    const refresh = vi.fn().mockRejectedValue(new Error('Invalid Refresh Token'))
+
+    await expect(composeAnnotatedPdf('f', invoke as never, refresh)).rejects.toThrow(
+      '登录已失效，请重新登录'
+    )
+    expect(calls).toBe(1)
+  })
+
+  it('业务错误（no annotations）不触发刷新', async () => {
+    const { fn } = fakeInvoke({
+      data: null,
+      error: httpError('non-2xx', { error: 'no annotations' }),
+    })
+    const refresh = vi.fn().mockResolvedValue(undefined)
+
+    await expect(composeAnnotatedPdf('f', fn, refresh)).rejects.toThrow(/no annotations/)
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
   it('响应体不是 JSON（context.json 抛）⇒ 仍用基础那句话抛出来', async () => {
     const { fn } = fakeInvoke({
       data: null,

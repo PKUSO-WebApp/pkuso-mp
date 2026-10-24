@@ -29,6 +29,8 @@ export function SaveToSheet({
   preparing,
   onAnno,
   onPick,
+  onCopyLink,
+  copyable,
   onHistory,
   onSharedHistory,
   onMergeShared,
@@ -49,6 +51,13 @@ export function SaveToSheet({
   preparing: boolean
   onAnno: (v: boolean) => void
   onPick: (kind: HandoffKind) => void
+  /**
+   * 「复制下载链接」：唯一真正的浏览器下载路径（小程序写不了系统下载目录）。
+   * 它不依赖本地 PDF 是否备好，所以**不受 `canPick` 影响**。
+   */
+  onCopyLink?: () => void
+  /** 当前选择对应的下载链接是否已拿到（原件打开即得；带批注要等云端合成） */
+  copyable?: boolean
   /**
    * 「恢复云端历史」那一行。**只有阅读器给**（声部页那份 PDF 面板只负责把文件送出去，
    * 没有"当前在哪一页、本地有哪些笔迹"这些上下文）⇒ 不给就整行不渲染。
@@ -109,6 +118,21 @@ export function SaveToSheet({
             </Text>
           </View>
         ))}
+        {/* 复制下载链接：不依赖本地 PDF，只等链接本身（带批注要等云端合成） */}
+        {onCopyLink ? (
+          <View
+            className={`border-b border-border px-4 py-4 ${copyable ? 'bg-surface' : 'bg-muted'}`}
+            onClick={onCopyLink}
+          >
+            <Text className={`text-sm ${copyable ? 'text-text' : 'text-text-subtle'}`}>
+              {copyable
+                ? t('common.saveTo.copyLink')
+                : preparing
+                  ? t('common.saveTo.copyPreparing')
+                  : t('common.saveTo.copyNotReady')}
+            </Text>
+          </View>
+        ) : null}
         {/* 「恢复云端历史」：拿到被覆盖掉的那几版，进冲突解决页挑一版（或与本地的合并）。
             它**不受 `canPick` 影响** —— 那一位管的是"本地 PDF 备好了没"，而这条走的是
             云端历史 + 冲突页，跟那份 PDF 文件没关系 */}

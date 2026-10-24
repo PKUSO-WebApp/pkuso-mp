@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { handOffPdf, handoffKindsFor, type HandoffDeps, type HandoffKind } from './pdf-handoff'
 
 /** 假的三方 API：记下每次调用的入参，并按 `fail` 决定成败 */
@@ -15,9 +15,15 @@ function fakeApis(failOn?: HandoffKind) {
     addFileToFavorites: cbStyle('addFileToFavorites', 'favorites'),
     shareFileMessage: cbStyle('shareFileMessage', 'chat'),
     openDocument: cbStyle('openDocument', 'app'),
-    saveFileToDisk: vi.fn(async (o: { filePath: string }) => {
+    saveFileToDisk: (o: {
+      filePath: string
+      success?: () => void
+      fail?: (e: { errMsg: string }) => void
+    }) => {
       calls.push({ api: 'saveFileToDisk', o })
-    }),
+      if (failOn === 'disk') o.fail?.({ errMsg: 'saveFileToDisk:fail' })
+      else o.success?.()
+    },
   }
   return { deps, calls }
 }
@@ -31,7 +37,7 @@ describe('handoffKindsFor', () => {
     }
   })
 
-  it('PC 端多一个「保存到电脑」，排在最后', () => {
+  it('PC 端在手机三出口之外多一个「保存到电脑」', () => {
     expect(handoffKindsFor('windows')).toEqual(['favorites', 'chat', 'app', 'disk'])
     expect(handoffKindsFor('mac')).toEqual(['favorites', 'chat', 'app', 'disk'])
   })
@@ -60,10 +66,17 @@ describe('handOffPdf', () => {
     expect(calls[0].o).toMatchObject({ filePath: OPTS.path, showMenu: true })
   })
 
-  it('保存到电脑：只传路径（这个 API 没有 fileName 参数，落盘名取自 basename）', async () => {
+  it('保存到电脑：传路径，并走 success/fail 回调（失败不能静默）', async () => {
     const { deps, calls } = fakeApis()
     await handOffPdf('disk', OPTS, deps)
-    expect(calls[0]).toEqual({ api: 'saveFileToDisk', o: { filePath: OPTS.path } })
+    expect(calls[0]).toMatchObject({ api: 'saveFileToDisk', o: { filePath: OPTS.path } })
+    expect(typeof (calls[0].o as { success?: unknown }).success).toBe('function')
+    expect(typeof (calls[0].o as { fail?: unknown }).fail).toBe('function')
+  })
+
+  it('保存到电脑失败（fail 回调）往外抛', async () => {
+    const { deps } = fakeApis('disk')
+    await expect(handOffPdf('disk', OPTS, deps)).rejects.toThrow('saveFileToDisk:fail')
   })
 
   it('出口在当前设备上不存在时**抛错**，而不是静默什么都不做', async () => {

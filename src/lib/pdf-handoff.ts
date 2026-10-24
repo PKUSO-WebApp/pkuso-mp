@@ -43,14 +43,19 @@ export type HandoffDeps = {
     success?: () => void
     fail?: (e: { errMsg?: string }) => void
   }) => unknown
-  saveFileToDisk?: (o: { filePath: string }) => Promise<unknown> | unknown
+  saveFileToDisk?: (o: {
+    filePath: string
+    success?: () => void
+    fail?: (e: { errMsg?: string }) => void
+  }) => Promise<unknown> | unknown
 }
 
 /**
  * 这台设备上该给出哪几个出口（顺序即面板里的顺序）。
  *
- * 纯函数：**PC 才加「保存到电脑」**——手机上那个 API 不存在，给了按钮只会报错
- * （见 pdf-handoff 头部的平台能力说明）。
+ * 纯函数：**PC 才加「保存到电脑」**——手机上那个 API 不存在。
+ * PC 微信同样有收藏 / 转发 / 用其他应用打开，不要因为「PC 只该有磁盘出口」的
+ * 假设把它们去掉（用户 2026-10-24 明确纠正过）。
  */
 export function handoffKindsFor(platform: string | undefined): HandoffKind[] {
   const kinds: HandoffKind[] = ['favorites', 'chat', 'app']
@@ -120,7 +125,9 @@ export async function handOffPdf(
     case 'disk': {
       const api = deps.saveFileToDisk
       if (!api) throw new Error('saveFileToDisk 不可用（仅 PC 版微信）')
-      await api({ filePath: path })
+      // 与其它出口一样走 fail 回调：这个 API 失败时不一定 reject，
+      // 只 await 返回值的话「点了没反应」会变成常态
+      await promisify((cb) => api({ filePath: path, ...cb }), 'saveFileToDisk')
       return
     }
     default: {

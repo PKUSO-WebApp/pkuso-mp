@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import Taro from '@tarojs/taro'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadAnnoDoc } from '@/lib/annotation'
 import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
@@ -14,6 +15,8 @@ vi.mock('@tarojs/taro', () => ({
     getDeviceInfo: () => ({ platform: 'ios' }),
     getFileSystemManager: () => ({}),
     showToast: vi.fn(),
+    setClipboardData: vi.fn().mockResolvedValue({}),
+    showModal: vi.fn().mockResolvedValue({}),
   },
 }))
 
@@ -78,8 +81,17 @@ const meta = (fileId = 'f1') => ({
 /** `ensureSavedPdf` 的入参（它就是「拿哪一份去交付」的唯一判据） */
 const savedCall = (i = 0) => ensureSavedPdf.mock.calls[i][0] as Record<string, unknown>
 
+const taroMock = Taro as unknown as {
+  setClipboardData: ReturnType<typeof vi.fn>
+  showModal: ReturnType<typeof vi.fn>
+  showToast: ReturnType<typeof vi.fn>
+}
+
 beforeEach(() => {
   resetTestLocale()
+  taroMock.setClipboardData.mockClear()
+  taroMock.showModal.mockClear()
+  taroMock.showToast.mockClear()
   // 默认「这一册有笔迹」——没有笔迹时开关被禁用（那一组用例自己改这个桩）
   vi.mocked(loadAnnoDoc)
     .mockReset()
@@ -374,13 +386,14 @@ describe('usePdfHandoff：是否带有批注', () => {
     const { AnnotatedPdfError } =
       await vi.importActual<typeof import('@/lib/annotated-pdf')>('@/lib/annotated-pdf')
     composeAnnotatedPdf.mockRejectedValue(new AnnotatedPdfError('no annotations', 'no annotations'))
-    const Taro = (await import('@tarojs/taro')).default
 
     const { result } = renderHook(() => usePdfHandoff('u1'))
-    act(() => result.current.toggleAnno(true))
+    // 先打开（open 才知道这一册有没有笔迹），再拨「带批注」才会真的去合成
     act(() => result.current.open(meta()))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    act(() => result.current.toggleAnno(true))
 
-    await waitFor(() => expect(Taro.showToast).toHaveBeenCalled())
+    await waitFor(() => expect(taroMock.showToast).toHaveBeenCalled())
     expect(reportClientError).not.toHaveBeenCalled()
   })
 
@@ -393,5 +406,79 @@ describe('usePdfHandoff：是否带有批注', () => {
 
     await waitFor(() => expect(reportClientError).toHaveBeenCalled())
     expect(result.current.ready).toBe(false)
+  })
+})
+
+describe('usePdfHandoff：复制下载链接', () => {
+  it('原件：打开面板即可复制，不需要等本地文件备好', async () => {
+    let resolveSaved: (v: unknown) => void = () => {}
+    ensureSavedPdf.mockReturnValue(new Promise((r) => (resolveSaved = r)))
+
+    const { result } = renderHook(() => usePdfHandoff('u1'))
+    act(() => result.current.open(meta()))
+
+    expect(result.current.copyable).toBe(true)
+    act(() => result.current.copyLink())
+
+    await waitFor(() =>
+      expect(taroMock.setClipboardData).toHaveBeenCalledWith({ data: meta().url() })
+    )
+    expect(result.current.sheetOn).toBe(false)
+    expect(taroMock.showModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '链接已复制',
+        content: expect.stringContaining('Safari'),
+      })
+    )
+
+    await act(async () => {
+      resolveSaved({ path: 'wxfile://usr/f1.pdf', name: 'f1.pdf', reused: false })
+    })
+  })
+
+  it('带批注：合成完成后复制的是签名 URL，并说明 1 小时有效', async () => {
+    const { result } = renderHook(() => usePdfHandoff('u1'))
+    act(() => result.current.open(meta()))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    act(() => result.current.toggleAnno(true))
+    await waitFor(() => expect(result.current.copyable).toBe(true))
+
+    act(() => result.current.copyLink())
+    await waitFor(() =>
+      expect(taroMock.setClipboardData).toHaveBeenCalledWith({
+        data: 'https://x.supabase.co/storage/v1/object/sign/anno.pdf?token=t',
+      })
+    )
+    expect(taroMock.showModal).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('1 小时') })
+    )
+  })
+
+  it('选择切换但新链接还没回来：不能把上一版的链接交出去', async () => {
+    let resolveCompose: (v: unknown) => void = () => {}
+    composeAnnotatedPdf.mockReturnValue(new Promise((r) => (resolveCompose = r)))
+
+    const { result } = renderHook(() => usePdfHandoff('u1'))
+    act(() => result.current.open(meta()))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    act(() => result.current.toggleAnno(true))
+    expect(result.current.copyable).toBe(false)
+
+    act(() => result.current.copyLink())
+    expect(taroMock.setClipboardData).not.toHaveBeenCalled()
+    expect(taroMock.showToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '链接还没准备好，请稍候' })
+    )
+
+    await act(async () => {
+      resolveCompose({
+        url: 'https://x/anno.pdf?token=t',
+        bytes: 1,
+        annotatedPages: 1,
+        drawnStrokes: 1,
+      })
+    })
   })
 })

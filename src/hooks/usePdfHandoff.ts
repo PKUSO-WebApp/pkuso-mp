@@ -111,6 +111,13 @@ export function usePdfHandoff(owner: string) {
    * 两者都要与当前选择一致才算「就绪」：拨了开关还拿旧那份交给用户，就是无声地给错文件。
    */
   const pdfRef = useRef<{ reqKey: string; fileId: string; path: string; name: string } | null>(null)
+  /**
+   * 当前选择对应的**下载源 URL**（复制下载链接用）。
+   *
+   * 和本地文件分开记：复制链接不需要等本地下载完成，原件 URL 在打开面板时就已知；
+   * 带批注的签名 URL 要等云端合成回来。`reqKey` 保证复制的就是面板上那一版。
+   */
+  const linkRef = useRef<{ reqKey: string; url: string } | null>(null)
   /** 在飞的那次准备的键（`<id>#orig|anno`）：同一种请求不重复做 */
   const inFlightRef = useRef<string | null>(null)
   /**
@@ -191,6 +198,10 @@ export function usePdfHandoff(owner: string) {
         void Taro.showToast({ title: t('common.saveTo.notReady'), icon: 'none' })
         return
       }
+      // 链接在下载之前就记下：复制链接不该被本地下载/磁盘状态拖住。
+      // 带批注的签名 URL 只有到这里（云端合成之后）才有值。
+      if (seq !== seqRef.current) return
+      linkRef.current = { reqKey, url }
       const res = await ensureSavedPdf(
         {
           fileId: key,
@@ -222,17 +233,32 @@ export function usePdfHandoff(owner: string) {
         }
       )
       if (seq !== seqRef.current) return // 用户已经改主意了：这一次的结果作废
+      const totalMs = Date.now() - t0
       if (anno) {
         reportClientError({
           event: 'score_reader_annotated_prepare',
           level: 'warn',
-          message: `带批注准备 ${Date.now() - t0}ms（同步 ${tSync} / 合成 ${tCompose}）`,
+          message: `带批注准备 ${totalMs}ms（同步 ${tSync} / 合成 ${tCompose}）`,
           detail: {
             fileId: id,
-            totalMs: Date.now() - t0,
+            totalMs,
             syncMs: tSync,
             composeMs: tCompose,
-            fetchMs: Date.now() - t0 - tSync - tCompose,
+            fetchMs: totalMs - tSync - tCompose,
+            bytes: expectedBytes ?? 0,
+            platform,
+          },
+        })
+      } else if (totalMs > 5000) {
+        // 原件的准备耗时之前没有记录，导致「10s 超时该不该降」只能凭印象。
+        // 只报超过 5s 的：正常 2-5s 不该刷日志；拿到 p50/p90 后再决定。
+        reportClientError({
+          event: 'score_reader_pdf_prepare_slow',
+          level: 'warn',
+          message: `原件准备 ${totalMs}ms`,
+          detail: {
+            fileId: id,
+            totalMs,
             bytes: expectedBytes ?? 0,
             platform,
           },
@@ -276,6 +302,11 @@ export function usePdfHandoff(owner: string) {
     setHasAnno(has)
     const anno = has && withAnno
     if (anno !== withAnno) setWithAnno(anno)
+    // 原件 URL 在打开这一刻就有：先记下，复制链接不必等 prepare 的下载/合成
+    const originalUrl = m.url()
+    if (originalUrl) {
+      linkRef.current = { reqKey: reqKeyOf(m.fileId, false, m.composeKind), url: originalUrl }
+    }
     setMeta(m)
     setSheetOn(true)
     void prepare(m, anno)
@@ -329,6 +360,64 @@ export function usePdfHandoff(owner: string) {
       .finally(() => setBusy(false))
   }
 
+  /** 当前选择对应的下载链接是否已经拿到（原件打开即得；带批注要等云端合成） */
+  const copyable =
+    !!meta && !!linkRef.current && linkRef.current.reqKey === reqKeyOf(meta.fileId, withAnno, meta.composeKind)
+
+  /**
+   * 复制当前选择的**下载源链接**，并告诉用户怎么在浏览器里打开。
+   *
+   * 这是唯一真正的「浏览器下载」路径：小程序没有写系统下载目录的 API，
+   * 收藏/转发/用其他应用打开之外，复制链接到 Safari/Chrome 是唯一能落到系统下载目录的。
+   * 带批注的是 1 小时签名 URL，所以提示里要说明有效期。
+   */
+  const copyLink = () => {
+    const link = linkRef.current
+    if (!meta || !link || link.reqKey !== reqKeyOf(meta.fileId, withAnno, meta.composeKind)) {
+      void Taro.showToast({ title: t('common.saveTo.copyNotReady'), icon: 'none' })
+      return
+    }
+    const fileId = meta.fileId
+    setSheetOn(false)
+    void Taro.setClipboardData({ data: link.url })
+      .then(() => {
+        const base =
+          platform === 'ios'
+            ? t('common.saveTo.copyHintIos')
+            : platform === 'android'
+              ? t('common.saveTo.copyHintAndroid')
+              : platform === 'windows' || platform === 'mac'
+                ? t('common.saveTo.copyHintPc')
+                : t('common.saveTo.copyHintGeneric')
+        const content = withAnno
+          ? `${base}\n${t('common.saveTo.copyHintExpiry')}`
+          : base
+        return Taro.showModal({
+          title: t('common.saveTo.copyDoneTitle'),
+          content,
+          showCancel: false,
+        })
+      })
+      .catch((err) => {
+        const msg = describeError(err)
+        // 控制台也留一行：这类失败以前只进 client_error_logs，排查时只看控制台会以为「没报错」
+        console.error('[pkuso] 复制下载链接失败', msg)
+        reportClientError({
+          event: 'score_reader_copy_link_failed',
+          message: msg,
+          detail: { fileId, platform, anno: withAnno },
+        })
+        // `setClipboardData` 属于隐私接口：未在「用户隐私保护指引」里声明剪切板时，
+        // 微信直接回 `api scope is not declared in the privacy agreement`。
+        // 这是小程序后台配置问题，不是用户操作失败——给一句能让人去改配置的话。
+        const privacy = /privacy agreement|scope is not declared/i.test(msg)
+        void Taro.showToast({
+          title: t(privacy ? 'common.saveTo.copyFailedPrivacy' : 'common.saveTo.copyFailed'),
+          icon: 'none',
+        })
+      })
+  }
+
   return {
     sheetOn,
     ready,
@@ -344,5 +433,7 @@ export function usePdfHandoff(owner: string) {
     open,
     close,
     pick,
+    copyable,
+    copyLink,
   }
 }

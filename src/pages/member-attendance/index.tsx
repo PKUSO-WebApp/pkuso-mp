@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { View, Text, ScrollView, Textarea } from '@tarojs/components'
+import { View, Text, ScrollView, Textarea, Picker } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { usePageRestore } from '@/hooks/usePageRestore'
 import { useProfiles } from '@/hooks/useProfiles'
+import { useMyProfile } from '@/hooks/useMyProfile'
+import { useMemberPreference } from '@/hooks/useMemberPreference'
 import { ListState } from '@/components/ui/ListState'
 import { StatusChip, type StatusTone } from '@/components/ui/StatusChip'
 import { formatRehearsalRange } from '@/lib/date-utils'
+import { defaultSubPartNumbers, mergeSubPartOptions, resolveSubPartPolicy } from '@/lib/sub-parts'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
+import { useUser } from '@/context/user-context'
 import './index.scss'
 
 type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'exempt'
@@ -65,6 +69,9 @@ export default function MemberAttendancePage() {
 
   const cachedUserId = usePageRestore<string>('userId')
   const userId = cachedUserId ?? ''
+  // 从成员列表带过来的声部：让分声部卡片不必等 profile 查询回来
+  const cachedSection = usePageRestore<string>('sec')
+  const sectionFromRoute = cachedSection ? decodeURIComponent(cachedSection) : ''
 
   const {
     data: profileData,
@@ -73,6 +80,66 @@ export default function MemberAttendancePage() {
     fetch: fetchProfile,
   } = useProfiles({ userId: userId || undefined })
   const member = profileData[0]
+  const memberInstrument = (member?.instrument ?? '').trim() || sectionFromRoute
+
+  const { user } = useUser()
+  const { profile: myProfile } = useMyProfile()
+  /**
+   * 用**已缓存**的 profile flags 先决定要不要占位：声部长/首席一定有可能写权限，
+   * 卡片立刻显示（值未到就显示加载态）；只有 capability 的团长退回等 RPC。
+   */
+  const canPrefHint = !!myProfile?.is_section_leader || !!myProfile?.is_principal
+
+  /** 默认分声部（P7'）：缓存优先、后台核对；见 useMemberPreference 的注释 */
+  const {
+    data: subPartData,
+    loading: subPartLoading,
+    save: saveSubPart,
+  } = useMemberPreference({
+    ownerId: user?.id ?? null,
+    memberId: userId,
+    instrument: memberInstrument,
+  })
+  const [savingSubPart, setSavingSubPart] = useState(false)
+
+  const subPartPolicy = subPartData ? resolveSubPartPolicy(subPartData.groups) : null
+  const subPartOptions =
+    subPartData && subPartPolicy
+      ? mergeSubPartOptions(
+          subPartData.value,
+          [subPartData.observedNumbers],
+          defaultSubPartNumbers(subPartPolicy)
+        )
+      : []
+  const subPart = subPartData?.value ?? null
+  // Picker 的第 0 项是「未设置」；候选号从 1 开始
+  const subPartLabels = [
+    t('memberAttendance.subPart.unset'),
+    ...subPartOptions.map((n) => t('memberAttendance.subPart.value', { n })),
+  ]
+  const subPartPickerValue =
+    subPart == null ? 0 : Math.max(0, subPartOptions.indexOf(subPart) + 1)
+  /**
+   * 显隐：弦乐没有分声部概念 → 整块不显示（已有历史值仍显示，好让用户清掉）；
+   * 数据未到但按缓存 flags 判断可能有写权 → 先占位（加载态），别让卡片晚一拍才出现。
+   */
+  const showSubPartCard = subPartData
+    ? subPartData.canSet && (subPartPolicy !== 'none' || subPartData.value != null)
+    : subPartLoading && canPrefHint && !!memberInstrument
+
+  const changeSubPart = async (index: number) => {
+    if (savingSubPart || !subPartData) return
+    const next = index <= 0 ? null : (subPartOptions[index - 1] ?? null)
+    if (next === subPartData.value) return
+    setSavingSubPart(true)
+    const ok = await saveSubPart(next)
+    setSavingSubPart(false)
+    if (!ok) {
+      void Taro.showToast({ title: t('memberAttendance.subPart.saveFailed'), icon: 'none' })
+      return
+    }
+    void Taro.showToast({ title: t('memberAttendance.subPart.saved'), icon: 'success' })
+  }
 
   const [rows, setRows] = useState<AttendanceWithRehearsal[]>([])
   const [pending, setPending] = useState<Map<number, PendingRequest>>(new Map())
@@ -345,6 +412,52 @@ export default function MemberAttendancePage() {
               </>
             )}
           </View>
+
+          {/* 默认分声部：有写权才显示；弦乐整块不出（已有历史值例外，便于清除）；
+              打击乐等暂未定义范围，只给「未设置」 */}
+          {showSubPartCard ? (
+            <View className='mb-3 rounded-xl border border-border bg-card p-4'>
+              <View className='flex flex-row items-center justify-between'>
+                <Text className='text-sm font-medium text-text'>
+                  {t('memberAttendance.subPart.title')}
+                </Text>
+                {savingSubPart ? (
+                  <Text className='text-xs text-text-muted'>
+                    {t('memberAttendance.subPart.saving')}
+                  </Text>
+                ) : null}
+              </View>
+              <Text className='mt-1 block text-xs leading-relaxed text-text-muted'>
+                {t('memberAttendance.subPart.hint')}
+              </Text>
+              {subPartData ? (
+                <>
+                  {subPartPolicy === 'unset-only' ? (
+                    <Text className='mt-1 block text-xs text-text-subtle'>
+                      {t('memberAttendance.subPart.noRange')}
+                    </Text>
+                  ) : null}
+                  <Picker
+                    mode='selector'
+                    disabled={subPartOptions.length === 0}
+                    range={subPartLabels}
+                    value={subPartPickerValue}
+                    onChange={(e) => void changeSubPart(Number(e.detail.value))}
+                  >
+                    <View className='mt-3 flex flex-row items-center justify-between rounded-xl border border-border bg-muted px-3 py-2'>
+                      <Text className='text-sm text-text'>{subPartLabels[subPartPickerValue]}</Text>
+                      <Text className='text-lg text-text-muted'>›</Text>
+                    </View>
+                  </Picker>
+                </>
+              ) : (
+                // 条件还没回来：先占住卡片的位置，避免整块晚一拍才弹出来
+                <View className='mt-3 rounded-xl border border-border bg-muted px-3 py-2'>
+                  <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
+                </View>
+              )}
+            </View>
+          ) : null}
 
           <Text className='mb-2 block text-xs font-medium uppercase tracking-wide text-text-muted'>
             {t('memberAttendance.listTitle')}
