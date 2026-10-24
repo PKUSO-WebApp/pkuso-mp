@@ -61,6 +61,12 @@ export default function Members() {
     if (list.length === 0) setTab('all')
   }, [])
 
+  // 入口显隐优先用**已缓存**的 profile flags：声部长/首席的「我的声部」tab 随头像卡
+  // 一起出现，不必等 my_managed_sections 的 RPC 回来（否则会晚一拍）。
+  // capability（团长）仍以 RPC 结果为准。与 profile 页同一条判据。
+  const hasManagedScope =
+    !!myProfile?.is_section_leader || !!myProfile?.is_principal || managedSections.length > 0
+
   // 切回本 tab 时重新拉取花名册（Taro tab 页常驻内存不卸载，仅靠挂载时一次
   // 拉取会导致「改完资料回来仍是旧数据」；回到本页静默刷新，旧数据仍展示不闪加载）
   useDidShow(() => {
@@ -143,7 +149,7 @@ export default function Members() {
       style={{ paddingBottom: tabBarReserveCss(uiScale) }}
     >
       {/* 只有声部长/首席（或团长）才有「我的声部」——普通成员看不到一个永远同质的 tab */}
-      {managedSections.length > 0 && (
+      {hasManagedScope && (
         <SegmentTabs<'all' | 'mine'>
           tabs={[
             { key: 'all', label: t('members.tabAll') },
@@ -200,8 +206,10 @@ export default function Members() {
                             // 「我的声部」里点卡片 = 进成员详情（可改考勤）；
                             // 「全部」里仍是只读弹窗（无管理权限）
                             if (tab === 'mine') {
+                              // 把声部一并带过去：成员详情页的分声部卡片不必等 profile 查询
+                              const sec = encodeURIComponent((u.instrument ?? '').trim())
                               void Taro.navigateTo({
-                                url: `/pages/member-attendance/index?userId=${u.id}`,
+                                url: `/pages/member-attendance/index?userId=${u.id}&sec=${sec}`,
                               })
                             } else {
                               setSelectedUser(u)
