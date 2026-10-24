@@ -29,6 +29,7 @@ import {
   HIGHLIGHTER_WIDTHS,
   PEN_COLORS,
   PEN_WIDTHS,
+  docHasInk,
   type AnnoDoc,
   type AnnoStroke,
   type AnnoTool,
@@ -3671,8 +3672,18 @@ export default function ScoreReader() {
       section: presetSection,
       fileName: presetFileName,
       expectedBytes: presetBytes,
-      // 共享谱的「带批注」合成是 P6d 的独立函数；P6b 里不能把个人批注烧进共享谱
-      allowAnnotations: !sharedMode,
+      // 共享谱（P6d）：烧进去的是共享层笔迹，合成走 compose-shared-pdf；
+      // 合成前要把共享层的挂起写入 flush 掉，否则会漏掉刚画的几笔。
+      ...(sharedMode
+        ? {
+            composeKind: 'shared' as const,
+            hasInk: () => docHasInk(annosRef.current),
+            beforeCompose: async () => {
+              const ok = await (annotationBackend as SharedAnnotationBackend).flushNow()
+              if (!ok) throw new Error(t('scoreReader.merge.syncFailed'))
+            },
+          }
+        : {}),
     })
   }
 

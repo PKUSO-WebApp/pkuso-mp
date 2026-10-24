@@ -4,7 +4,7 @@ import { useT } from '@/i18n'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { docHasInk, loadAnnoDoc } from '@/lib/annotation'
 import { ensureSavedPdf, userDataRoot, type FsLike } from '@/lib/pdf-save'
-import { AnnotatedPdfError, composeAnnotatedPdf } from '@/lib/annotated-pdf'
+import { AnnotatedPdfError, composeAnnotatedPdf, composeSharedPdf } from '@/lib/annotated-pdf'
 import { syncAnnotationFile } from '@/lib/annotation-sync-runner'
 import { handOffPdf, handoffKindsFor, type HandoffKind } from '@/lib/pdf-handoff'
 
@@ -23,10 +23,25 @@ export type PdfHandoffMeta = {
    */
   expectedBytes?: number
   /**
-   * 是否允许「带批注」出口。共享谱的合成走 P6d 的独立函数；P6b 里先禁掉，
-   * 避免把**个人**批注烧进共享谱。
+   * 是否允许「带批注」出口。缺省允许；共享谱在 P6d 起也允许，
+   * 但烧进去的是**共享层**的笔迹（见 `composeKind`）。
    */
   allowAnnotations?: boolean
+  /**
+   * 带批注时调哪个合成函数：`personal`（本人批注）或 `shared`（共享层，P6d）。
+   * 两者产物路径不同，缓存键也按它区分（见 reqKeyOf）。
+   */
+  composeKind?: 'personal' | 'shared'
+  /**
+   * 这一册有没有可导出的笔迹。缺省读**个人本地批注**；共享谱阅读器传自己的内存态
+   * （共享层不在本机 storage 里）。
+   */
+  hasInk?: () => boolean
+  /**
+   * 合成前先把哪一层同步到服务端。缺省个人 `syncAnnotationFile`；
+   * 共享谱传 `flushNow()`，否则会把没落盘的共享编辑漏掉。
+   */
+  beforeCompose?: () => void | Promise<void>
 }
 
 /**
@@ -46,7 +61,8 @@ export type PdfHandoffMeta = {
  * 一次「准备」请求的键。**选择也在里面**：带批注与不带批注是两个不同的文件，
  * 而 `ready` 与 `pick` 比的就是它（见 readyId 的注释）。
  */
-const reqKeyOf = (fileId: string, anno: boolean) => `${fileId}#${anno ? 'anno' : 'orig'}`
+const reqKeyOf = (fileId: string, anno: boolean, kind: 'personal' | 'shared' = 'personal') =>
+  `${fileId}#${anno ? (kind === 'shared' ? 'shared-anno' : 'anno') : 'orig'}`
 
 export function usePdfHandoff(owner: string) {
   const { t } = useT()
@@ -106,7 +122,7 @@ export function usePdfHandoff(owner: string) {
    */
   const seqRef = useRef(0)
 
-  const ready = !!meta && readyId === reqKeyOf(meta.fileId, withAnno)
+  const ready = !!meta && readyId === reqKeyOf(meta.fileId, withAnno, meta.composeKind)
 
   // `platform` 一并进上报：面板里出现哪几项完全由它决定（PC 才多「保存到电脑」），
   // 而「为什么这台设备上少一项 / 多一项」这类问题只能靠它判读——`getDeviceInfo().platform`
@@ -130,8 +146,10 @@ export function usePdfHandoff(owner: string) {
   const prepare = async (m: PdfHandoffMeta, anno: boolean) => {
     const id = m.fileId
     if (!id) return
-    const key = anno ? `${id}#anno` : id
-    const reqKey = reqKeyOf(id, anno)
+    // 带批注的本地记账键要区分个人/共享：同一个 fileId 的两份产物内容不同，
+    // 共用一个键会把上一份交给用户
+    const key = anno ? (m.composeKind === 'shared' ? `${id}#shared-anno` : `${id}#anno`) : id
+    const reqKey = reqKeyOf(id, anno, m.composeKind)
     if (pdfRef.current?.reqKey === reqKey) {
       setReadyId(reqKey)
       return
@@ -153,10 +171,12 @@ export function usePdfHandoff(owner: string) {
         // ⚠️ **先同步再把批注烧进去**（用户 2026-10-10 实测提出）：合成函数读的是**服务端**
         // 那份批注，而本地刚画的还没推上去的话，产出的 PDF 就缺最新几笔——用户拿到的是
         // 「看起来对、其实少东西」的文件。这一步会带一次拉取 + 可能的推送。
-        await syncAnnotationFile(id)
+        // 共享谱传 beforeCompose：它要把共享层的挂起写入 flush 掉（个人 sync 与它无关）。
+        await (m.beforeCompose ? m.beforeCompose() : syncAnnotationFile(id))
         tSync = Date.now() - t0
         // 云端合成：这一步要走网络，所以「正在准备文件…」会停得比平时久
-        const composed = await composeAnnotatedPdf(id)
+        const composed =
+          m.composeKind === 'shared' ? await composeSharedPdf(id) : await composeAnnotatedPdf(id)
         tCompose = Date.now() - t0 - tSync
         url = composed.url
         // 签名 URL 的**长度只有服务端知道**（本地没有库里的 file_size 可比），
@@ -251,7 +271,8 @@ export function usePdfHandoff(owner: string) {
     // 有没有笔迹在这一刻定：没有就把开关压回「否」（它同时也是「固定为否」的落点 ——
     // 面板上那个开关会被禁用，这里再压一次值，两道闸）
     const allow = m.allowAnnotations !== false
-    const has = allow && docHasInk(loadAnnoDoc(owner, m.fileId))
+    // 共享谱的笔迹不在本机个人目录里，由阅读器传 hasInk 读它的内存态
+    const has = allow && (m.hasInk ? m.hasInk() : docHasInk(loadAnnoDoc(owner, m.fileId)))
     setHasAnno(has)
     const anno = has && withAnno
     if (anno !== withAnno) setWithAnno(anno)
@@ -287,7 +308,9 @@ export function usePdfHandoff(owner: string) {
     const pdf = pdfRef.current
     // 最后一道闸：交付出去的东西必须就是此刻那一次准备的结果（面板上的按钮在未就绪时
     // 本来就不可点，这条防的是「点下去的那一拍状态还没更新」）
-    if (!pdf || !meta || pdf.reqKey !== reqKeyOf(meta.fileId, withAnno) || busy) return
+    if (!pdf || !meta || pdf.reqKey !== reqKeyOf(meta.fileId, withAnno, meta.composeKind) || busy) {
+      return
+    }
     setSheetOn(false)
     setBusy(true)
     void handOffPdf(kind, { path: pdf.path, name: pdf.name })
