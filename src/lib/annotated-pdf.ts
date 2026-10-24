@@ -71,36 +71,75 @@ function codeOf(message: string): AnnotatedPdfErrorCode {
 
 type ComposeFn = 'compose-annotated-pdf' | 'compose-shared-pdf'
 
-async function composePdf(fn: ComposeFn, fileId: string, invoke: InvokeFn): Promise<ComposedPdf> {
-  const { data, error } = await invoke(fn, { body: { file_id: fileId } })
-  if (error) {
-    const message = await serverMessage(error)
-    throw new AnnotatedPdfError(codeOf(message), message)
+/** 刷新会话；返回 void，失败就抛。默认走 supabase，测试可注入 */
+type RefreshFn = () => Promise<void>
+
+const defaultRefresh: RefreshFn = async () => {
+  const { error } = await supabase.auth.refreshSession()
+  if (error) throw error
+}
+
+/**
+ * 403 `Session not found` / 401 `invalid token` 都算会话失效。
+ *
+ * 2026-10-24 实测：web 端默认 `signOut()` 是 global，团员账号在 web dev 登录被拒后
+ * 把小程序端同一账号的会话一起吊销；mp 的 token 还没过期，但函数的 `requireUser`
+ * 去 auth 服务验会话时拿到 Session not found ⇒ 客户端只看到 non-2xx。
+ * 先刷新一次会话再重试；刷新也失败才报「登录已失效」。
+ */
+const AUTH_ERROR = /invalid token|session not found/i
+
+async function composePdf(
+  fn: ComposeFn,
+  fileId: string,
+  invoke: InvokeFn,
+  refresh: RefreshFn
+): Promise<ComposedPdf> {
+  const run = async (): Promise<ComposedPdf> => {
+    const { data, error } = await invoke(fn, { body: { file_id: fileId } })
+    if (error) {
+      const message = await serverMessage(error)
+      throw new AnnotatedPdfError(codeOf(message), message)
+    }
+    const body = data as Partial<ComposedPdf> | null
+    const url = typeof body?.url === 'string' ? body.url : ''
+    // 没有 url 就是失败，哪怕 error 是空的——这条是「静默下到空文件」的唯一闸
+    if (!url) throw new AnnotatedPdfError('unknown', `${fn}: 响应里没有 url`)
+    return {
+      url,
+      bytes: typeof body?.bytes === 'number' ? body.bytes : 0,
+      annotatedPages: typeof body?.annotatedPages === 'number' ? body.annotatedPages : 0,
+      drawnStrokes: typeof body?.drawnStrokes === 'number' ? body.drawnStrokes : 0,
+    }
   }
-  const body = data as Partial<ComposedPdf> | null
-  const url = typeof body?.url === 'string' ? body.url : ''
-  // 没有 url 就是失败，哪怕 error 是空的——这条是「静默下到空文件」的唯一闸
-  if (!url) throw new AnnotatedPdfError('unknown', `${fn}: 响应里没有 url`)
-  return {
-    url,
-    bytes: typeof body?.bytes === 'number' ? body.bytes : 0,
-    annotatedPages: typeof body?.annotatedPages === 'number' ? body.annotatedPages : 0,
-    drawnStrokes: typeof body?.drawnStrokes === 'number' ? body.drawnStrokes : 0,
+
+  try {
+    return await run()
+  } catch (err) {
+    if (!(err instanceof AnnotatedPdfError) || !AUTH_ERROR.test(err.message)) throw err
+    try {
+      await refresh()
+    } catch {
+      throw new AnnotatedPdfError('unknown', '登录已失效，请重新登录')
+    }
+    return run()
   }
 }
 
 /** 个人批注 PDF（只含**本次调用者**的批注，见 compose-annotated-pdf 文件头） */
 export async function composeAnnotatedPdf(
   fileId: string,
-  invoke: InvokeFn = defaultInvoke
+  invoke: InvokeFn = defaultInvoke,
+  refresh: RefreshFn = defaultRefresh
 ): Promise<ComposedPdf> {
-  return composePdf('compose-annotated-pdf', fileId, invoke)
+  return composePdf('compose-annotated-pdf', fileId, invoke, refresh)
 }
 
 /** 共享批注 PDF（全团共享层；P6d） */
 export async function composeSharedPdf(
   fileId: string,
-  invoke: InvokeFn = defaultInvoke
+  invoke: InvokeFn = defaultInvoke,
+  refresh: RefreshFn = defaultRefresh
 ): Promise<ComposedPdf> {
-  return composePdf('compose-shared-pdf', fileId, invoke)
+  return composePdf('compose-shared-pdf', fileId, invoke, refresh)
 }

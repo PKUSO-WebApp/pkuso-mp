@@ -233,17 +233,32 @@ export function usePdfHandoff(owner: string) {
         }
       )
       if (seq !== seqRef.current) return // 用户已经改主意了：这一次的结果作废
+      const totalMs = Date.now() - t0
       if (anno) {
         reportClientError({
           event: 'score_reader_annotated_prepare',
           level: 'warn',
-          message: `带批注准备 ${Date.now() - t0}ms（同步 ${tSync} / 合成 ${tCompose}）`,
+          message: `带批注准备 ${totalMs}ms（同步 ${tSync} / 合成 ${tCompose}）`,
           detail: {
             fileId: id,
-            totalMs: Date.now() - t0,
+            totalMs,
             syncMs: tSync,
             composeMs: tCompose,
-            fetchMs: Date.now() - t0 - tSync - tCompose,
+            fetchMs: totalMs - tSync - tCompose,
+            bytes: expectedBytes ?? 0,
+            platform,
+          },
+        })
+      } else if (totalMs > 5000) {
+        // 原件的准备耗时之前没有记录，导致「10s 超时该不该降」只能凭印象。
+        // 只报超过 5s 的：正常 2-5s 不该刷日志；拿到 p50/p90 后再决定。
+        reportClientError({
+          event: 'score_reader_pdf_prepare_slow',
+          level: 'warn',
+          message: `原件准备 ${totalMs}ms`,
+          detail: {
+            fileId: id,
+            totalMs,
             bytes: expectedBytes ?? 0,
             platform,
           },
@@ -384,12 +399,22 @@ export function usePdfHandoff(owner: string) {
         })
       })
       .catch((err) => {
+        const msg = describeError(err)
+        // 控制台也留一行：这类失败以前只进 client_error_logs，排查时只看控制台会以为「没报错」
+        console.error('[pkuso] 复制下载链接失败', msg)
         reportClientError({
           event: 'score_reader_copy_link_failed',
-          message: describeError(err),
+          message: msg,
           detail: { fileId, platform, anno: withAnno },
         })
-        void Taro.showToast({ title: t('common.saveTo.copyFailed'), icon: 'none' })
+        // `setClipboardData` 属于隐私接口：未在「用户隐私保护指引」里声明剪切板时，
+        // 微信直接回 `api scope is not declared in the privacy agreement`。
+        // 这是小程序后台配置问题，不是用户操作失败——给一句能让人去改配置的话。
+        const privacy = /privacy agreement|scope is not declared/i.test(msg)
+        void Taro.showToast({
+          title: t(privacy ? 'common.saveTo.copyFailedPrivacy' : 'common.saveTo.copyFailed'),
+          icon: 'none',
+        })
       })
   }
 

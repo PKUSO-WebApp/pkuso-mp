@@ -60,6 +60,7 @@ export const common = {
     copyHintGeneric: 'Paste and open it in a browser to download.',
     copyHintExpiry: 'The annotated link is valid for 1 hour. Export again after it expires.',
     copyFailed: 'Copy failed',
+    copyFailedPrivacy: 'Copy failed: clipboard permission is not declared for this app',
   },
   error: {
     defaultTitle: 'Something went wrong',

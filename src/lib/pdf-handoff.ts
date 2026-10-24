@@ -53,14 +53,14 @@ export type HandoffDeps = {
 /**
  * 这台设备上该给出哪几个出口（顺序即面板里的顺序）。
  *
- * 纯函数：
- * - 手机端：收藏 / 转发 / 用其他应用打开（手机上没有「保存到电脑」）；
- * - PC 端：只给「用其他应用打开」与「保存到电脑」——收藏/转发在 PC 微信上不是
- *   文件出口（用户 2026-10-24 定的 P11：PC 只留这两个）。
+ * 纯函数：**PC 才加「保存到电脑」**——手机上那个 API 不存在。
+ * PC 微信同样有收藏 / 转发 / 用其他应用打开，不要因为「PC 只该有磁盘出口」的
+ * 假设把它们去掉（用户 2026-10-24 明确纠正过）。
  */
 export function handoffKindsFor(platform: string | undefined): HandoffKind[] {
-  if (platform === 'windows' || platform === 'mac') return ['app', 'disk']
-  return ['favorites', 'chat', 'app']
+  const kinds: HandoffKind[] = ['favorites', 'chat', 'app']
+  if (platform === 'windows' || platform === 'mac') kinds.push('disk')
+  return kinds
 }
 
 function taroHandoffDeps(): HandoffDeps {

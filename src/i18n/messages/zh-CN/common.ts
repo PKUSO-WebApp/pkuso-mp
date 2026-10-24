@@ -68,6 +68,7 @@ export const common = {
     copyHintGeneric: '在浏览器中粘贴并打开即可下载。',
     copyHintExpiry: '带批注的链接 1 小时内有效，过期后请重新导出。',
     copyFailed: '复制失败',
+    copyFailedPrivacy: '复制失败：小程序未声明剪切板权限，请联系管理员',
   },
   error: {
     defaultTitle: '页面出错了',

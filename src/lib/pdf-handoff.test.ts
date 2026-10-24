@@ -37,9 +37,9 @@ describe('handoffKindsFor', () => {
     }
   })
 
-  it('PC 端只留「用其他应用打开 / 保存到电脑」', () => {
-    expect(handoffKindsFor('windows')).toEqual(['app', 'disk'])
-    expect(handoffKindsFor('mac')).toEqual(['app', 'disk'])
+  it('PC 端在手机三出口之外多一个「保存到电脑」', () => {
+    expect(handoffKindsFor('windows')).toEqual(['favorites', 'chat', 'app', 'disk'])
+    expect(handoffKindsFor('mac')).toEqual(['favorites', 'chat', 'app', 'disk'])
   })
 })
 
