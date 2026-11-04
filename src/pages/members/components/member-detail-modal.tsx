@@ -1,7 +1,8 @@
-﻿import { View, Text, Image } from '@tarojs/components'
+﻿import { View, Text } from '@tarojs/components'
 import { Modal } from '@/components/ui/Modal'
 import { FieldRow } from '@/components/ui/FieldRow'
 import { StatusChip } from '@/components/ui/StatusChip'
+import { StorageImage } from '@/components/ui/StorageImage'
 import { useT } from '@/i18n'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { translateJoinDate } from '@/lib/join-date-i18n'
@@ -27,7 +28,7 @@ export function MemberDetailModal({ open, user, viewerId, onClose }: MemberDetai
           <View className='mb-3 flex justify-center'>
             <View className='h-16 w-16 rounded-full overflow-hidden bg-primary'>
               {user.avatar_url ? (
-                <Image src={user.avatar_url} className='h-full w-full' mode='aspectFill' />
+                <StorageImage src={user.avatar_url} className='h-full w-full' mode='aspectFill' />
               ) : (
                 <View className='flex h-full w-full items-center justify-center'>
                   <Text className='text-xl font-medium text-primary-foreground'>

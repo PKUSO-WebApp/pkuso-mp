@@ -9,6 +9,8 @@ import { useUser } from '@/context/user-context'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
+import { StorageImage } from '@/components/ui/StorageImage'
+import { newIdempotencyKey } from '@/lib/storage-upload'
 import type { LeaveRequestRow } from '@/types/database'
 import './index.scss'
 
@@ -25,6 +27,7 @@ type LeaveDraft = {
   attachmentFile: UploadFileLike | null
   attachmentPreview: string | null
   keepOldAttachment: boolean
+  uploadKey: string
 }
 
 export default function LeaveRequestPage() {
@@ -66,6 +69,7 @@ export default function LeaveRequestPage() {
     attachmentFile: null,
     attachmentPreview: null,
     keepOldAttachment: false,
+    uploadKey: '',
   })
   const initialDraft = editDraft.hasDraft() ? editDraft.get() : null
 
@@ -84,6 +88,8 @@ export default function LeaveRequestPage() {
     initialDraft?.keepOldAttachment ?? false
   )
   const [viewAttachmentUrl, setViewAttachmentUrl] = useState<string | null>(null)
+  // 同一份表单（含 chooseMedia 重建后从草稿恢复）复用同一个上传 key
+  const [uploadKey, setUploadKey] = useState(() => initialDraft?.uploadKey || newIdempotencyKey())
   const [attachmentLoading, setAttachmentLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submittingRef = useRef(false)
@@ -103,6 +109,7 @@ export default function LeaveRequestPage() {
       attachmentFile,
       attachmentPreview,
       keepOldAttachment,
+      uploadKey,
       ...patch,
     })
   }
@@ -261,7 +268,7 @@ export default function LeaveRequestPage() {
     try {
       let attachmentUrl = keepOldAttachment ? (current?.attachment_url ?? null) : null
       if (attachmentFile) {
-        const up = await uploadAttachment(attachmentFile, user.id)
+        const up = await uploadAttachment(attachmentFile, user.id, uploadKey)
         if (up.error) {
           setError(t('leaveRequest.errorUpload', { error: up.error }))
           return
@@ -298,8 +305,9 @@ export default function LeaveRequestPage() {
       setAttachmentPreview(null)
       setKeepOldAttachment(false)
       setViewAttachmentUrl(null)
-      // 提交/撤销成功：表单已落地，草稿使命完成
+      // 提交/撤销成功：表单已落地，草稿使命完成；下一次申请换新 key
       editDraft.clear()
+      setUploadKey(newIdempotencyKey())
       setError(null)
     } finally {
       submittingRef.current = false
@@ -333,8 +341,9 @@ export default function LeaveRequestPage() {
       setAttachmentPreview(null)
       setKeepOldAttachment(false)
       setViewAttachmentUrl(null)
-      // 提交/撤销成功：表单已落地，草稿使命完成
+      // 提交/撤销成功：表单已落地，草稿使命完成；下一次申请换新 key
       editDraft.clear()
+      setUploadKey(newIdempotencyKey())
       setError(null)
     } finally {
       submittingRef.current = false
@@ -419,13 +428,11 @@ export default function LeaveRequestPage() {
                   {t('leaveRequest.attachmentLoading')}
                 </Text>
               ) : hasAttachment && viewAttachmentUrl ? (
-                <Image
+                <StorageImage
                   src={viewAttachmentUrl}
                   mode='widthFix'
                   className='w-full rounded-lg border border-border'
-                  onClick={() =>
-                    viewAttachmentUrl && Taro.previewImage({ urls: [viewAttachmentUrl] })
-                  }
+                  onClick={(url) => void Taro.previewImage({ urls: [url], current: url })}
                 />
               ) : (
                 <Text className='text-xs text-text-muted'>{t('leaveRequest.noAttachment')}</Text>
@@ -470,13 +477,11 @@ export default function LeaveRequestPage() {
                 </View>
               ) : keepOldAttachment && viewAttachmentUrl ? (
                 <View className='relative'>
-                  <Image
+                  <StorageImage
                     src={viewAttachmentUrl}
                     mode='widthFix'
                     className='w-full rounded-lg border border-border'
-                    onClick={() =>
-                      viewAttachmentUrl && Taro.previewImage({ urls: [viewAttachmentUrl] })
-                    }
+                    onClick={(url) => void Taro.previewImage({ urls: [url], current: url })}
                   />
                   <View
                     className='mt-2 inline-flex items-center rounded-full bg-danger-bg px-3 py-1'

@@ -87,8 +87,17 @@ export default function ScorePart() {
     if (f.page_count && f.page_count > 0) {
       const pdfUrl = supabase.storage.from('sheet-music').getPublicUrl(f.storage_path)
         .data.publicUrl
-      // 预取只试第一个候选（当前生效入口优先）——失败无所谓，真进阅读器还会再拉
-      void Taro.getImageInfo({ src: pageImageUrls(pdfUrl, 1)[0] }).catch(() => {})
+      // 预取逐条试候选（当前入口优先、另一个兜底）；全失败也无所谓，真进阅读器还会再拉
+      void (async () => {
+        for (const url of pageImageUrls(pdfUrl, 1)) {
+          try {
+            await Taro.getImageInfo({ src: url })
+            return
+          } catch {
+            // 换下一条候选
+          }
+        }
+      })()
     }
     // 元数据随参数带给阅读器，省掉一次走反代到境外库的查询（实测 ~600ms）；
     // 缺参数时阅读器回退查库（分享链接等旧入口不受影响）

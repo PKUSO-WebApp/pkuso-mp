@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, Image, Input } from '@tarojs/components'
+import { View, Text, ScrollView, Input } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
+import { StorageImage } from '@/components/ui/StorageImage'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -445,7 +446,7 @@ export default function Profile() {
             <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
               <View className='flex w-[var(--size-avatar)] h-[var(--size-avatar)] shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary'>
                 {avatarUrl ? (
-                  <Image src={avatarUrl} className='h-full w-full' mode='aspectFill' />
+                  <StorageImage src={avatarUrl} className='h-full w-full' mode='aspectFill' />
                 ) : (
                   <Text className='text-base font-medium text-primary-foreground'>{initials}</Text>
                 )}

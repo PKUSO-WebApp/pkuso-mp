@@ -7,6 +7,9 @@ import { ensureSavedPdf, userDataRoot, type FsLike } from '@/lib/pdf-save'
 import { AnnotatedPdfError, composeAnnotatedPdf, composeSharedPdf } from '@/lib/annotated-pdf'
 import { syncAnnotationFile } from '@/lib/annotation-sync-runner'
 import { handOffPdf, handoffKindsFor, type HandoffKind } from '@/lib/pdf-handoff'
+import { supabase } from '@/lib/supabase'
+import { fetchSheetMusicFile } from '@/hooks/useSheetMusic'
+import { getStorageObjectSize } from '@/lib/storage-upload'
 
 export type PdfHandoffMeta = {
   fileId: string
@@ -174,6 +177,17 @@ export function usePdfHandoff(owner: string) {
     try {
       let url = m.url()
       let fileName = m.fileName
+      // C6：旧分享/旧谱务行没有 `file_size` 时，从库或 Storage 元数据补一次。
+      // 没有它 `ensureSavedPdf` 只能单次直连下载（大文件必挂）；补到就继续走分片。
+      if ((!expectedBytes || expectedBytes <= 0) && !anno) {
+        const file = await fetchSheetMusicFile(id)
+        if (file?.file_size && file.file_size > 0) {
+          expectedBytes = file.file_size
+        } else if (file?.storage_path) {
+          const size = await getStorageObjectSize(supabase, 'sheet-music', file.storage_path)
+          if (size && size > 0) expectedBytes = size
+        }
+      }
       if (anno) {
         // ⚠️ **先同步再把批注烧进去**（用户 2026-10-10 实测提出）：合成函数读的是**服务端**
         // 那份批注，而本地刚画的还没推上去的话，产出的 PDF 就缺最新几笔——用户拿到的是

@@ -10,6 +10,7 @@ import { useEditDraft } from '@/hooks/useEditDraft'
 import { StaffBlockedPage } from '@/components/staff-blocked-page'
 import { isOrchestraMember } from '@/lib/role-gate'
 import { Toggle } from '@/components/ui/Toggle'
+import { newIdempotencyKey } from '@/lib/storage-upload'
 import type { PostType } from '@/types/database'
 import type { UploadFileLike } from '@/hooks/useLeaveRequests'
 import './index.scss'
@@ -51,6 +52,7 @@ export default function PostCreatePage() {
     contactInfo: string
     imageFile: UploadFileLike | null
     imagePreview: string | null
+    uploadKey: string
   }
   const editDraft = useEditDraft<DraftData>('post-create', {
     type: initialType,
@@ -61,7 +63,11 @@ export default function PostCreatePage() {
     contactInfo: '',
     imageFile: null,
     imagePreview: null,
+    uploadKey: '',
   })
+  const initialDraft = editDraft.hasDraft() ? editDraft.get() : null
+  // 同一份草稿（含 chooseMedia 重建后恢复）复用同一个 key；换一张图由内容指纹区分
+  const [uploadKey] = useState(() => initialDraft?.uploadKey || newIdempotencyKey())
 
   // 页面从后台回前台（含被重建后首次 show）时，若存在草稿则恢复。
   // 恢复后不 clear：草稿要一直保持为「完整快照」，详见 useEditDraft 的注释。
@@ -96,6 +102,7 @@ export default function PostCreatePage() {
       contactInfo,
       imageFile,
       imagePreview,
+      uploadKey,
     })
     Taro.chooseMedia({
       count: 1,
@@ -143,6 +150,7 @@ export default function PostCreatePage() {
         missing_sections: type === 'ensemble' ? missingSections : '',
         contact_info: contactInfo,
         imageFile,
+        uploadKey,
       }
       const res = await create(payload)
       if (!res.ok) {

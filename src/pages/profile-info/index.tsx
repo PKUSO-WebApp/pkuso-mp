@@ -5,6 +5,7 @@ import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { PageLoading } from '@/components/ui/PageLoading'
+import { StorageImage } from '@/components/ui/StorageImage'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useEditDraft } from '@/hooks/useEditDraft'
 import { isValidPhoneNumber } from '@/lib/validation'
@@ -347,7 +348,11 @@ export default function ProfileInfoPage() {
                 className='h-20 w-20 rounded-full overflow-hidden bg-primary p-0 m-0 leading-normal min-h-0'
               >
                 {avatarUrl ? (
-                  <Image src={avatarUrl} className='h-full w-full rounded-full' mode='aspectFill' />
+                  <StorageImage
+                    src={avatarUrl}
+                    className='h-full w-full rounded-full'
+                    mode='aspectFill'
+                  />
                 ) : (
                   <View className='flex h-full w-full items-center justify-center'>
                     <Text className='text-2xl font-medium text-primary-foreground'>{initials}</Text>

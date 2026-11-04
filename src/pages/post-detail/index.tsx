@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { View, Text, Image } from '@tarojs/components'
+import { View, Text } from '@tarojs/components'
 import Taro, { useShareAppMessage } from '@tarojs/taro'
+import { StorageImage } from '@/components/ui/StorageImage'
 import { usePosts } from '@/hooks/usePosts'
 import { useAuthSession } from '@/hooks/useAuthSession'
 import { markPostSeen } from '@/lib/postSeen'
@@ -114,10 +115,8 @@ export default function PostDetailPage() {
     }
   }, [id, ready, userId, hasUser, restoreFailed, ensureSession, fetchOne, retryNonce])
 
-  const handlePreview = () => {
-    if (post?.image_url) {
-      void Taro.previewImage({ urls: [post.image_url], current: post.image_url })
-    }
+  const handlePreview = (url: string) => {
+    void Taro.previewImage({ urls: [url], current: url })
   }
 
   // 分享：标题 = post标题，路径 = 当前页面
@@ -233,7 +232,7 @@ export default function PostDetailPage() {
       {post.image_url && (
         <View className='mb-4'>
           <Text className='block text-base font-medium text-text'>{t('postDetail.image')}</Text>
-          <Image
+          <StorageImage
             src={post.image_url}
             mode='widthFix'
             className='mt-1 block h-auto w-full rounded-2xl border border-border'

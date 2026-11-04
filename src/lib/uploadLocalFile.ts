@@ -2,6 +2,7 @@ import Taro from '@tarojs/taro'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database.types'
 import type { TFn } from '@/i18n'
+import { hashBytes, uploadStorageObject, withContentHash } from './storage-upload'
 
 /** 标准 base64 → ArrayBuffer（不依赖 atob/wx.base64ToArrayBuffer，跨环境可用）。 */
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
@@ -141,11 +142,18 @@ export function guessContentType(name: string): string | undefined {
 
 /**
  * 通用本地文件上传：读出微信本地临时文件的字节后上传到指定存储桶。
- * 供请假附件、未来帖子图片等所有「小程序本地文件 → Supabase Storage」场景复用。
+ * 供请假附件、社区图片、头像等所有「小程序本地文件 → Supabase Storage」场景复用。
+ *
+ * 上传走 `storage-upload` 的 proxy-first + direct 兜底（与 supabase-js 的 storage
+ * 出口分开），因为 `taroFetch` 把 storage 固定成了直连；详见该文件头。
+ *
+ * `options.idempotent` 为真时，会在文件名前插入内容指纹。调用方传入的 `path` 应带
+ * 一个**同一份表单内稳定**的 key（见 `newIdempotencyKey`），这样代理/直连换腿或用户
+ * 重试都会命中同一个对象；换一张图则因指纹不同而落到新路径。
  *
  * @param client   注入的 Supabase 客户端（便于测试）
  * @param bucket   目标存储桶（如 'leave-attachments'）
- * @param path     目标对象路径（含 userId/时间戳等前缀）
+ * @param path     目标对象路径（含 userId/key 等前缀；idempotent 时再由本函数插入指纹）
  * @param tempFilePath  Taro.chooseMedia 等返回的本地临时路径
  * @param contentType  可选 MIME，未传则不设置（由存储端按扩展名推断）
  */
@@ -156,15 +164,23 @@ export async function uploadLocalFile(
   tempFilePath: string,
   contentType?: string,
   upsert = false,
-  t?: TFn
+  t?: TFn,
+  options: { idempotent?: boolean } = {}
 ): Promise<{ data: { path: string } | null; error: { message: string } | null }> {
   try {
     const body = await readTempFileBytes(tempFilePath, t)
-    const { error } = await client.storage
-      .from(bucket)
-      .upload(path, body, { upsert, ...(contentType ? { contentType } : {}) })
-    if (error) return { data: null, error }
-    return { data: { path }, error: null }
+    const finalPath = options.idempotent ? withContentHash(path, hashBytes(body)) : path
+    const result = await uploadStorageObject({
+      client,
+      bucket,
+      path: finalPath,
+      body,
+      contentType,
+      upsert,
+      idempotent: options.idempotent,
+    })
+    if (!result.ok) return { data: null, error: { message: result.message } }
+    return { data: { path: finalPath }, error: null }
   } catch (e) {
     return {
       data: null,
