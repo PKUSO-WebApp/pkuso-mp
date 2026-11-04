@@ -92,8 +92,10 @@ vi.mock('@tarojs/taro', () => ({
     openSetting: vi.fn(),
   },
   useDidShow: vi.fn(),
+  useDidHide: vi.fn(),
   useShareAppMessage: vi.fn(),
 }))
+vi.mock('@/lib/dataSync', () => ({ DATA_SYNC_INTERVAL_MS: 30_000 }))
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 vi.mock('@/context/user-context', () => ({

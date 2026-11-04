@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView, Textarea, Picker } from '@tarojs/components'
-import Taro from '@tarojs/taro'
+import Taro, { useDidHide, useDidShow } from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { usePageRestore } from '@/hooks/usePageRestore'
 import { useProfiles } from '@/hooks/useProfiles'
@@ -14,6 +14,7 @@ import { translateInstrument } from '@/lib/instrument-i18n'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { useUser } from '@/context/user-context'
+import { DATA_SYNC_INTERVAL_MS } from '@/lib/dataSync'
 import './index.scss'
 
 type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'exempt'
@@ -150,6 +151,9 @@ export default function MemberAttendancePage() {
   /** 哪些 pending 行正处在「修改请求」的编辑态 */
   const [modifying, setModifying] = useState<Set<number>>(new Set())
   const [submitting, setSubmitting] = useState(false)
+  const [pageActive, setPageActive] = useState(true)
+  const firstShowRef = useRef(true)
+  const submittingRef = useRef(false)
 
   const statusLabels: Record<AttendanceStatus, string> = {
     present: t('memberAttendance.status.present'),
@@ -166,14 +170,19 @@ export default function MemberAttendancePage() {
         ? t('sectionLeave.type.full')
         : t('sectionLeave.type.rehearsal')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true
     if (!userId) {
-      setLoading(false)
-      setFailed(true)
+      if (!silent) {
+        setLoading(false)
+        setFailed(true)
+      }
       return
     }
-    setLoading(true)
-    setFailed(false)
+    if (!silent) {
+      setLoading(true)
+      setFailed(false)
+    }
     const [attendanceRes, pendingRes] = await Promise.all([
       supabase
         .from('attendances')
@@ -189,8 +198,11 @@ export default function MemberAttendancePage() {
     ])
 
     if (attendanceRes.error || pendingRes.error) {
-      setLoading(false)
-      setFailed(true)
+      // 静默刷新失败时保留当前列表：管理员改考勤不该让正在看的页面突然变成失败态
+      if (!silent) {
+        setLoading(false)
+        setFailed(true)
+      }
       return
     }
 
@@ -219,7 +231,8 @@ export default function MemberAttendancePage() {
       )
     )
     setModifying(new Set())
-    setLoading(false)
+    setFailed(false)
+    if (!silent) setLoading(false)
   }, [userId])
 
   useEffect(() => {
@@ -248,6 +261,36 @@ export default function MemberAttendancePage() {
     [edits, modifying, pending, reasons, rows]
   )
 
+  // 后台静默刷新只在「没有未提交修改」时跑：否则 30s 一次的重载会把用户正在填的
+  // 状态/理由重置回服务端值。
+  const changedRowsRef = useRef(0)
+  changedRowsRef.current = changedRows.length
+  const modifyingRef = useRef(0)
+  modifyingRef.current = modifying.size
+
+  // 从子页面返回时重拉；首帧由上面的 effect 负责。没有未提交修改才刷新，避免吃掉编辑。
+  useDidShow(() => {
+    setPageActive(true)
+    if (firstShowRef.current) {
+      firstShowRef.current = false
+      return
+    }
+    if (submittingRef.current || changedRowsRef.current > 0 || modifyingRef.current > 0) return
+    void load({ silent: true })
+  })
+  useDidHide(() => setPageActive(false))
+
+  // 页面可见时每 30s 静默刷新：管理员直改考勤、或审批通过后，声部长停在本页也能看到
+  // pending 消失、状态更新；有未提交修改时跳过。
+  useEffect(() => {
+    if (!pageActive) return
+    const timer = setInterval(() => {
+      if (submittingRef.current || changedRowsRef.current > 0 || modifyingRef.current > 0) return
+      void load({ silent: true })
+    }, DATA_SYNC_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [pageActive, load])
+
   const mapError = (message: string): string => {
     if (message.includes('pending_exists')) return t('memberAttendance.errors.pendingExists')
     if (message.includes('attendance_missing'))
@@ -260,7 +303,8 @@ export default function MemberAttendancePage() {
   }
 
   const handleSubmit = async () => {
-    if (changedRows.length === 0 || submitting) return
+    if (changedRows.length === 0 || submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
     let ok = 0
     let failedCount = 0
@@ -290,6 +334,7 @@ export default function MemberAttendancePage() {
       }
     }
 
+    submittingRef.current = false
     setSubmitting(false)
     if (ok > 0) await load()
 
@@ -305,11 +350,13 @@ export default function MemberAttendancePage() {
   }
 
   const cancelRequest = async (requestId: string) => {
-    if (submitting) return
+    if (submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
     const { error } = await supabase.rpc('cancel_attendance_change_request', {
       p_request_id: requestId,
     })
+    submittingRef.current = false
     setSubmitting(false)
     if (error) {
       void Taro.showModal({

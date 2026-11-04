@@ -43,7 +43,12 @@ vi.mock('@tarojs/components', () => {
       ),
   }
 })
-vi.mock('@tarojs/taro', () => ({ default: { navigateTo: vi.fn() } }))
+vi.mock('@tarojs/taro', () => ({
+  default: { navigateTo: vi.fn() },
+  useDidShow: vi.fn(),
+  useDidHide: vi.fn(),
+}))
+vi.mock('@/lib/dataSync', () => ({ DATA_SYNC_INTERVAL_MS: 30_000 }))
 vi.mock('@/hooks/useAttendance', () => ({
   useAttendance: () => ({ fetchMyHistory: fetchMyHistoryMock }),
 }))
