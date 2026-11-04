@@ -717,6 +717,7 @@ export type Database = {
       }
       rehearsal_repertoire: {
         Row: {
+          content: string | null
           created_at: string
           id: string
           rehearsal_id: number
@@ -725,6 +726,7 @@ export type Database = {
           title: string
         }
         Insert: {
+          content?: string | null
           created_at?: string
           id?: string
           rehearsal_id: number
@@ -733,6 +735,7 @@ export type Database = {
           title: string
         }
         Update: {
+          content?: string | null
           created_at?: string
           id?: string
           rehearsal_id?: number
