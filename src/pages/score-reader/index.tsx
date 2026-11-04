@@ -484,6 +484,24 @@ export default function ScoreReader() {
   const inflightRef = useRef<Job | null>(null)
   /** 排队中的下一件（连点只保留最新一件） */
   const queuedRef = useRef<Job | null>(null)
+  /**
+   * 本页的 Taro 页面实例。所有选择器查询都必须绑定它：画布 id（`#reader-canvas-a/b/c`）
+   * 在每个阅读器页实例里都一样，不绑定页面上下文时，**旧页面卸载后的在飞任务会查到
+   * 新页面同 id 的画布**，把上一册的内容画到新册上（#113：读圆号1看到圆号2）。
+   */
+  const pageInstanceRef = useRef<ReturnType<typeof Taro.getCurrentInstance>['page']>(null)
+  useEffect(() => {
+    pageInstanceRef.current = Taro.getCurrentInstance().page ?? null
+  }, [])
+  /** 页面是否还活着。unload 后任何异步绘制不得再落笔。 */
+  const aliveRef = useRef(true)
+  /** 渲染世代：换册 / unload 时 +1，旧任务在每个 await 之后据此放弃。 */
+  const renderEpochRef = useRef(0)
+  /** 选择器查询统一入口：页面实例还没挂上时退回全局查询（只可能是首帧本页）。 */
+  const createPageSelectorQuery = useCallback(() => {
+    const query = Taro.createSelectorQuery()
+    return pageInstanceRef.current ? query.in(pageInstanceRef.current) : query
+  }, [])
   const runJobRef = useRef<(job: Job) => void>(() => {})
   const pageRef = useRef(1)
   const zoomRef = useRef(1)
@@ -505,7 +523,12 @@ export default function ScoreReader() {
   const queryCanvasNode = useCallback(
     (id: string): Promise<{ node: unknown; left: number; top: number }> =>
       new Promise((resolve, reject) => {
-        Taro.createSelectorQuery()
+        // 页面已经卸载：不再发查询，免得旧任务的回调落到新页面上
+        if (!aliveRef.current) {
+          reject(new Error('page unloaded'))
+          return
+        }
+        createPageSelectorQuery()
           .select(id)
           .fields({ node: true, size: true, rect: true })
           .exec((res) => {
@@ -519,7 +542,7 @@ export default function ScoreReader() {
             } else reject(new Error(t('scoreReader.notFound')))
           })
       }),
-    [t]
+    [createPageSelectorQuery, t]
   )
 
   /**
@@ -592,6 +615,7 @@ export default function ScoreReader() {
     if (liveCtxRef.current && liveNodeRef.current) return liveCtxRef.current
     try {
       const { node } = await queryCanvasNode(LIVE_SEL)
+      if (!aliveRef.current) return null
       const n = node as CanvasNode
       liveNodeRef.current = n
       liveCtxRef.current = n.getContext('2d')
@@ -858,6 +882,12 @@ export default function ScoreReader() {
 
   // 退出页面即停泵、停动画、停预绘制——后台抓取/计时器不该在页面销毁后继续
   useUnload(() => {
+    // 页面已经卸载：所有在飞/排队的渲染任务从此不得再落笔，也不得再排下一件。
+    // 只靠「画布 id 相同」时，旧任务会查到**新页面**的同名画布（#113）；这里先断掉
+    // 任务本身，再配合 `queryCanvasNode` 的页面作用域双保险。
+    aliveRef.current = false
+    renderEpochRef.current += 1
+    queuedRef.current = null
     // 页面**被销毁**（返回 / 重定向）时才走到这儿。这一条是给「横滑触发了返回手势之后
     // 绘画内容消失」那个问题做判据的：用户 2026-10-16 说这条**非常可疑**。
     // 与 `score_reader_stroke_cancelled` 对账就能把两种解释分开：
@@ -1160,8 +1190,9 @@ export default function ScoreReader() {
    * 那会让 `barH` 永远不更新，内缩与命中区一起失效。
    */
   const measureStage = useCallback(() => {
+    if (!aliveRef.current) return
     type Rect = { left?: number; top?: number; width?: number; height?: number } | null
-    Taro.createSelectorQuery()
+    createPageSelectorQuery()
       .select('#reader-stage')
       .boundingClientRect()
       .select('#reader-bottombar')
@@ -1180,7 +1211,7 @@ export default function ScoreReader() {
           setBarH((prev) => (prev.top === 0 && prev.bottom === bottom ? prev : { top: 0, bottom }))
         }
       })
-  }, [])
+  }, [createPageSelectorQuery])
 
   // 转屏 / 分屏后重量（也顺带让预绘制的 containerW 失效，见 lib/predraw.ts）
   useEffect(() => {
@@ -1202,7 +1233,11 @@ export default function ScoreReader() {
   const probeCanvasSize = useCallback(
     (id: string): Promise<{ width: number; height: number } | null> =>
       new Promise((resolve) => {
-        Taro.createSelectorQuery()
+        if (!aliveRef.current) {
+          resolve(null)
+          return
+        }
+        createPageSelectorQuery()
           .select(id)
           .fields({ size: true })
           .exec((res) => {
@@ -1214,7 +1249,7 @@ export default function ScoreReader() {
             )
           })
       }),
-    []
+    [createPageSelectorQuery]
   )
 
   /**
@@ -1251,6 +1286,9 @@ export default function ScoreReader() {
   const doRender = useCallback(
     async (job: Job) => {
       if (containerW <= 0 || pageCount <= 0) return
+      if (!aliveRef.current) return
+      const epoch = renderEpochRef.current
+      const stale = () => !aliveRef.current || epoch !== renderEpochRef.current
       const target = clamp(job.page, 1, pageCount)
       // 写哪块：不是显示中的那块，且是「最该被写掉」的那块（远的先弃、同远时弃上一页保下一页）
       const layer = spareLayer(ALL_LAYERS, activeLayerRef.current, layerMetaRef.current, target)
@@ -1263,6 +1301,7 @@ export default function ScoreReader() {
       if (firstPaint) setStage('rendering')
       const tStep = Date.now()
       const { node } = await queryCanvasNode(CANVAS_SEL[layer])
+      if (stale()) return
       const nodeMs = Date.now() - tStep
 
       let pageImg: LoadedPageImage
@@ -1283,7 +1322,10 @@ export default function ScoreReader() {
           { deps: { key: pageFileKey(target) } }
         )
         loadMs = Date.now() - tLoad
+        if (stale()) return
       } catch (err) {
+        // 页面已卸载 / 已换册：不要上报成「页图加载失败」，也不要再往画布写
+        if (stale()) return
         // 这条路径的失败原本**只在屏幕上可见**（图片层 onerror 不带状态码，唯一的原因
         // 文案也只有这里能拿到）——真机出现「页图加载失败」时事后完全无法定性，补上这条。
         const e = err as PageImageError
@@ -1346,6 +1388,7 @@ export default function ScoreReader() {
           height: h,
         })
         sizeWaitMs = Date.now() - tWait
+        if (stale()) return
       }
       // 目标块可能还在滑（上一次翻页的动画没走完）：等它停靠再动它。串行队列的下一件
       // 必然写「刚退役的那一块」，而清屏（paintPageImage 重设尺寸）落在滑行半路
@@ -1354,6 +1397,7 @@ export default function ScoreReader() {
       while (pageTurn && pageTurn.frame()?.layer === layer) {
         await pageTurn.settle(layer)
       }
+      if (stale()) return
       const tRender = Date.now()
       // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
       paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
@@ -1535,6 +1579,7 @@ export default function ScoreReader() {
    */
   const doPredraw = useCallback(
     async (job: Job, ctl: BgCtl) => {
+      if (!aliveRef.current) return
       const t0 = Date.now()
       const target = clamp(job.page, 1, pageCount)
       // ⚠️ 后台写帧**只准写视野外的那块**（UD 里三块都可见，写视野内的块 = 当着用户的面
@@ -1551,12 +1596,19 @@ export default function ScoreReader() {
       )
       if (layer === null) return
       const epoch = predrawEpochRef.current
-      const stale = () => ctl.cancelled || epoch !== predrawEpochRef.current
+      const renderEpoch = renderEpochRef.current
+      const stale = () =>
+        !aliveRef.current ||
+        renderEpoch !== renderEpochRef.current ||
+        ctl.cancelled ||
+        epoch !== predrawEpochRef.current
       /**
        * 采纳失败（取图失败 / 白帧 / 被失效打断）时的兜底：把这一页交回常规路径。
        * 判据在 lib/predraw.ts 的 predrawFallback 里（**刻意不看 cancelled**，见那里的注释）。
        */
       const fallback = () => {
+        // 页面已经卸载 / 已换册：不要再把旧册任务排回队列
+        if (!aliveRef.current || renderEpoch !== renderEpochRef.current) return
         const job2 = predrawFallback({
           adopt: ctl.adopt,
           target,
@@ -1712,6 +1764,8 @@ export default function ScoreReader() {
   // 后台预绘制（job.bg）也走这里：它借的是同一个「同一时刻只有一件在动画布」的不变量。
   const runJob = useCallback(
     (job: Job) => {
+      if (!aliveRef.current) return
+      const epoch = renderEpochRef.current
       void (async () => {
         inflightRef.current = job
         let ctl: BgCtl | null = null
@@ -1727,13 +1781,20 @@ export default function ScoreReader() {
           if (job.bg && ctl) await doPredraw(job, ctl)
           else await doRender(job)
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          setStage('error')
-          setMessage(msg)
+          // 页面已卸载 / 已换册：这个任务不能改用户界面（它可能属于上一册）
+          if (aliveRef.current && epoch === renderEpochRef.current) {
+            const msg = err instanceof Error ? err.message : String(err)
+            setStage('error')
+            setMessage(msg)
+          }
         } finally {
           inflightRef.current = null
           renderLayerRef.current = null
           if (bgRef.current === ctl) bgRef.current = null
+          // 只按「页面是否还活着」丢弃队列；**不要**按 epoch 丢。换册时 load 已经把
+          // 旧队列清空，此后排进来的都是新册的任务——epoch 不符就 return 会把新册的
+          // 渲染永远卡在 queuedRef 里。
+          if (!aliveRef.current) return
           const next = queuedRef.current
           queuedRef.current = null
           if (next) runJobRef.current(next)
@@ -1967,6 +2028,7 @@ export default function ScoreReader() {
       base: AnnoStroke[],
       live: LiveInk | null
     ): void => {
+      if (!aliveRef.current) return
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return
       const dpr = rasterDpr(w, h)
@@ -1995,6 +2057,7 @@ export default function ScoreReader() {
    */
   const paintLiveLayer = useCallback(
     (live: LiveInk | null) => {
+      if (!aliveRef.current) return
       const node = liveNodeRef.current
       const ctx = liveCtxRef.current
       if (!node || !ctx) return
@@ -2063,6 +2126,7 @@ export default function ScoreReader() {
 
   const paintLane = useCallback(
     async (l: Layer, pageNo: number): Promise<void> => {
+      if (!aliveRef.current) return
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return
       // **缓存命中就同步画完**（见 overlayCtxRef）：这条决定「抬笔 → 落定」之间有没有空窗，
@@ -2081,6 +2145,7 @@ export default function ScoreReader() {
       }
       try {
         const { node } = await queryCanvasNode(CANVAS_OVERLAY_SEL[l])
+        if (!aliveRef.current) return
         // **用中学**：画布刚挂上时那次预取可能扑空（渲染层还没建出节点）⇒ 这里查到就写回缓存，
         // 保证最多让一笔付一次查询。写的是**节点身份**，与页号守卫无关，故放在守卫之前。
         {
@@ -2132,6 +2197,7 @@ export default function ScoreReader() {
    */
   const appendStrokeToLane = useCallback(
     async (layer: Layer, pageNo: number, stroke: AnnoStroke, gen: number): Promise<boolean> => {
+      if (!aliveRef.current) return false
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return false
       // 节点**优先取缓存**（同步）—— 见 `overlayCtxRef`：这一条决定「抬笔 → 落定」之间有没有
@@ -2140,6 +2206,7 @@ export default function ScoreReader() {
       if (!overlay) {
         try {
           const n = (await queryCanvasNode(CANVAS_OVERLAY_SEL[layer])).node as CanvasNode
+          if (!aliveRef.current) return false
           overlay = n
           // 用中学：查到就写回缓存（见 `paintLane` 里同一条）
           overlayCtxRef.current[layer] = { node: n, ctx: n.getContext('2d') }
@@ -2397,6 +2464,11 @@ export default function ScoreReader() {
   )
 
   const load = useCallback(async () => {
+    if (!aliveRef.current) return
+    // 换册 / 重试：让上一册还在飞或在排队的渲染任务作废。只停泵不够——前台 doRender
+    // 可能正卡在取图/等布局上，它醒来后不能再往新册的画布上写旧册的页图。
+    renderEpochRef.current += 1
+    queuedRef.current = null
     let finalUrl = ''
     let imagePageTotal = 0
     // 上一册的本地记账先落盘（换册 = 这一册的账到此为止；不落就整册白下）
@@ -2556,11 +2628,12 @@ export default function ScoreReader() {
     t,
   ])
 
-  // 自动加载：带 file_id 进入时
+  // 自动加载：带 file_id 进入时；同一页面实例的 fileId / 分享参数变化也要重载
+  //（分享卡片复用、回前台参数被重置时 route.params 会变，旧实现空依赖会一直用旧册）。
   useEffect(() => {
     if (fileId) void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [fileId, presetStoragePath, presetPageCount])
 
   const clampPage = (n: number) => clamp(Math.round(n), 1, Math.max(pageCount, 1))
 
