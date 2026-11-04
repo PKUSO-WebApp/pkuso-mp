@@ -56,12 +56,112 @@ export type Database = {
         }
         Relationships: []
       }
+      attendance_change_requests: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          from_status: Database["public"]["Enums"]["attendanceStatus"]
+          id: string
+          reason: string | null
+          rehearsal_id: number
+          reject_reason: string | null
+          requested_by: string
+          status: Database["public"]["Enums"]["attendanceChangeRequestStatus"]
+          target_user_id: string
+          to_status: Database["public"]["Enums"]["attendanceStatus"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          from_status: Database["public"]["Enums"]["attendanceStatus"]
+          id?: string
+          reason?: string | null
+          rehearsal_id: number
+          reject_reason?: string | null
+          requested_by: string
+          status?: Database["public"]["Enums"]["attendanceChangeRequestStatus"]
+          target_user_id: string
+          to_status: Database["public"]["Enums"]["attendanceStatus"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          from_status?: Database["public"]["Enums"]["attendanceStatus"]
+          id?: string
+          reason?: string | null
+          rehearsal_id?: number
+          reject_reason?: string | null
+          requested_by?: string
+          status?: Database["public"]["Enums"]["attendanceChangeRequestStatus"]
+          target_user_id?: string
+          to_status?: Database["public"]["Enums"]["attendanceStatus"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_change_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_change_requests_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_change_requests_rehearsal_id_fkey"
+            columns: ["rehearsal_id"]
+            isOneToOne: false
+            referencedRelation: "rehearsals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_change_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_change_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_change_requests_target_user_id_fkey"
+            columns: ["target_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_change_requests_target_user_id_fkey"
+            columns: ["target_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attendances: {
         Row: {
           id: number
           rehearsal_id: number
           sign_in_time: string | null
           status: Database["public"]["Enums"]["attendanceStatus"] | null
+          updated_at: string | null
+          updated_by: string | null
           user_id: string
         }
         Insert: {
@@ -69,6 +169,8 @@ export type Database = {
           rehearsal_id: number
           sign_in_time?: string | null
           status?: Database["public"]["Enums"]["attendanceStatus"] | null
+          updated_at?: string | null
+          updated_by?: string | null
           user_id: string
         }
         Update: {
@@ -76,6 +178,8 @@ export type Database = {
           rehearsal_id?: number
           sign_in_time?: string | null
           status?: Database["public"]["Enums"]["attendanceStatus"] | null
+          updated_at?: string | null
+          updated_by?: string | null
           user_id?: string
         }
         Relationships: [
@@ -84,6 +188,20 @@ export type Database = {
             columns: ["rehearsal_id"]
             isOneToOne: false
             referencedRelation: "rehearsals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendances_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendances_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
             referencedColumns: ["id"]
           },
           {
@@ -212,6 +330,63 @@ export type Database = {
           year?: number
         }
         Relationships: []
+      }
+      instrument_principals: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          instrument: string
+          principal_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          instrument: string
+          principal_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          instrument?: string
+          principal_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "instrument_principals_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "instrument_principals_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "instrument_principals_instrument_fkey"
+            columns: ["instrument"]
+            isOneToOne: true
+            referencedRelation: "sections"
+            referencedColumns: ["name"]
+          },
+          {
+            foreignKeyName: "instrument_principals_principal_id_fkey"
+            columns: ["principal_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "instrument_principals_principal_id_fkey"
+            columns: ["principal_id"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       leave_requests: {
         Row: {
@@ -418,6 +593,56 @@ export type Database = {
           },
         ]
       }
+      president_capabilities: {
+        Row: {
+          capability: string
+          granted_at: string
+          granted_by: string | null
+          user_id: string
+        }
+        Insert: {
+          capability: string
+          granted_at?: string
+          granted_by?: string | null
+          user_id: string
+        }
+        Update: {
+          capability?: string
+          granted_at?: string
+          granted_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "president_capabilities_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "president_capabilities_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "president_capabilities_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "president_capabilities_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -432,6 +657,7 @@ export type Database = {
           id: string
           instrument: string | null
           is_in_orchestra: boolean | null
+          is_principal: boolean
           is_section_leader: boolean
           join_date: string | null
           phone_number: string | null
@@ -454,6 +680,7 @@ export type Database = {
           id: string
           instrument?: string | null
           is_in_orchestra?: boolean | null
+          is_principal?: boolean
           is_section_leader?: boolean
           join_date?: string | null
           phone_number?: string | null
@@ -476,6 +703,7 @@ export type Database = {
           id?: string
           instrument?: string | null
           is_in_orchestra?: boolean | null
+          is_principal?: boolean
           is_section_leader?: boolean
           join_date?: string | null
           phone_number?: string | null
@@ -486,6 +714,55 @@ export type Database = {
           wechat_openid?: string | null
         }
         Relationships: []
+      }
+      rehearsal_repertoire: {
+        Row: {
+          created_at: string
+          id: string
+          rehearsal_id: number
+          sheet_music_id: string | null
+          sort_order: number
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          rehearsal_id: number
+          sheet_music_id?: string | null
+          sort_order?: number
+          title: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          rehearsal_id?: number
+          sheet_music_id?: string | null
+          sort_order?: number
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rehearsal_repertoire_rehearsal_id_fkey"
+            columns: ["rehearsal_id"]
+            isOneToOne: false
+            referencedRelation: "rehearsals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rehearsal_repertoire_sheet_music_id_fkey"
+            columns: ["sheet_music_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rehearsal_repertoire_sheet_music_id_fkey"
+            columns: ["sheet_music_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music_shared_score_files"
+            referencedColumns: ["score_id"]
+          },
+        ]
       }
       rehearsals: {
         Row: {
@@ -726,6 +1003,113 @@ export type Database = {
           },
         ]
       }
+      section_leaders: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          leader_id: string
+          section: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          leader_id: string
+          section: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          leader_id?: string
+          section?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "section_leaders_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "section_leaders_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "section_leaders_leader_id_fkey"
+            columns: ["leader_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "section_leaders_leader_id_fkey"
+            columns: ["leader_id"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "section_leaders_section_fkey"
+            columns: ["section"]
+            isOneToOne: true
+            referencedRelation: "sections"
+            referencedColumns: ["name"]
+          },
+        ]
+      }
+      section_member_preferences: {
+        Row: {
+          preferred_sub_part: number | null
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          preferred_sub_part?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          preferred_sub_part?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "section_member_preferences_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "section_member_preferences_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "section_member_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "section_member_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sections: {
         Row: {
           can_lead: boolean
@@ -831,6 +1215,13 @@ export type Database = {
             referencedRelation: "sheet_music_files"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "sheet_music_annotation_history_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music_shared_score_files"
+            referencedColumns: ["file_id"]
+          },
         ]
       }
       sheet_music_annotations: {
@@ -866,65 +1257,12 @@ export type Database = {
             referencedRelation: "sheet_music_files"
             referencedColumns: ["id"]
           },
-        ]
-      }
-      sheet_music_distributions: {
-        Row: {
-          distributed_at: string | null
-          distributed_by: string | null
-          id: string
-          part_id: string | null
-          user_id: string | null
-        }
-        Insert: {
-          distributed_at?: string | null
-          distributed_by?: string | null
-          id?: string
-          part_id?: string | null
-          user_id?: string | null
-        }
-        Update: {
-          distributed_at?: string | null
-          distributed_by?: string | null
-          id?: string
-          part_id?: string | null
-          user_id?: string | null
-        }
-        Relationships: [
           {
-            foreignKeyName: "sheet_music_distributions_distributed_by_fkey"
-            columns: ["distributed_by"]
+            foreignKeyName: "sheet_music_annotations_file_id_fkey"
+            columns: ["file_id"]
             isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "sheet_music_distributions_distributed_by_fkey"
-            columns: ["distributed_by"]
-            isOneToOne: false
-            referencedRelation: "profiles_roster"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "sheet_music_distributions_part_id_fkey"
-            columns: ["part_id"]
-            isOneToOne: false
-            referencedRelation: "sheet_music_parts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "sheet_music_distributions_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "sheet_music_distributions_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles_roster"
-            referencedColumns: ["id"]
+            referencedRelation: "sheet_music_shared_score_files"
+            referencedColumns: ["file_id"]
           },
         ]
       }
@@ -1017,6 +1355,178 @@ export type Database = {
             columns: ["sheet_music_id"]
             isOneToOne: false
             referencedRelation: "sheet_music"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_parts_sheet_music_id_fkey"
+            columns: ["sheet_music_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music_shared_score_files"
+            referencedColumns: ["score_id"]
+          },
+        ]
+      }
+      sheet_music_print_copies: {
+        Row: {
+          copies: number
+          file_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          copies: number
+          file_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          copies?: number
+          file_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_music_print_copies_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: true
+            referencedRelation: "sheet_music_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_print_copies_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: true
+            referencedRelation: "sheet_music_shared_score_files"
+            referencedColumns: ["file_id"]
+          },
+          {
+            foreignKeyName: "sheet_music_print_copies_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_print_copies_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sheet_music_shared_annotation_history: {
+        Row: {
+          file_id: string
+          page: number
+          replaced_at: string
+          replaced_by: string | null
+          strokes: Json
+          version: string
+        }
+        Insert: {
+          file_id: string
+          page: number
+          replaced_at?: string
+          replaced_by?: string | null
+          strokes: Json
+          version?: string
+        }
+        Update: {
+          file_id?: string
+          page?: number
+          replaced_at?: string
+          replaced_by?: string | null
+          strokes?: Json
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_music_shared_annotation_history_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_shared_annotation_history_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music_shared_score_files"
+            referencedColumns: ["file_id"]
+          },
+          {
+            foreignKeyName: "sheet_music_shared_annotation_history_replaced_by_fkey"
+            columns: ["replaced_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_shared_annotation_history_replaced_by_fkey"
+            columns: ["replaced_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sheet_music_shared_annotations: {
+        Row: {
+          file_id: string
+          page: number
+          source_page_count: number | null
+          strokes: Json
+          updated_at: string
+          updated_by: string | null
+          version: string | null
+        }
+        Insert: {
+          file_id: string
+          page: number
+          source_page_count?: number | null
+          strokes?: Json
+          updated_at?: string
+          updated_by?: string | null
+          version?: string | null
+        }
+        Update: {
+          file_id?: string
+          page?: number
+          source_page_count?: number | null
+          strokes?: Json
+          updated_at?: string
+          updated_by?: string | null
+          version?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_music_shared_annotations_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_shared_annotations_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "sheet_music_shared_score_files"
+            referencedColumns: ["file_id"]
+          },
+          {
+            foreignKeyName: "sheet_music_shared_annotations_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sheet_music_shared_annotations_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
             referencedColumns: ["id"]
           },
         ]
@@ -1145,6 +1655,7 @@ export type Database = {
           id: string | null
           instrument: string | null
           is_in_orchestra: boolean | null
+          is_principal: boolean | null
           is_section_leader: boolean | null
           join_date: string | null
           phone_number: string | null
@@ -1164,6 +1675,7 @@ export type Database = {
           id?: string | null
           instrument?: string | null
           is_in_orchestra?: boolean | null
+          is_principal?: boolean | null
           is_section_leader?: boolean | null
           join_date?: string | null
           phone_number?: never
@@ -1183,6 +1695,7 @@ export type Database = {
           id?: string | null
           instrument?: string | null
           is_in_orchestra?: boolean | null
+          is_principal?: boolean | null
           is_section_leader?: boolean | null
           join_date?: string | null
           phone_number?: never
@@ -1191,10 +1704,103 @@ export type Database = {
         }
         Relationships: []
       }
+      sheet_music_shared_score_files: {
+        Row: {
+          annotated_pages: number | null
+          file_id: string | null
+          file_instrument: string | null
+          file_name: string | null
+          page_count: number | null
+          score_id: string | null
+          section: string | null
+          source_page_count: number | null
+          sub_parts: number[] | null
+          title: string | null
+          updated_at: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      admin_decide_attendance_change_request: {
+        Args: {
+          p_actor_id: string
+          p_approve: boolean
+          p_force: boolean
+          p_reject_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      admin_grant_capability: {
+        Args: { p_actor_id: string; p_capability: string; p_user_id: string }
+        Returns: undefined
+      }
+      admin_remove_president: {
+        Args: { p_actor_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      admin_remove_principal: {
+        Args: { p_actor_id: string; p_instrument: string }
+        Returns: undefined
+      }
+      admin_remove_section_leader: {
+        Args: { p_actor_id: string; p_section: string }
+        Returns: undefined
+      }
+      admin_revoke_capability: {
+        Args: { p_actor_id: string; p_capability: string; p_user_id: string }
+        Returns: undefined
+      }
+      admin_set_president: {
+        Args: { p_actor_id: string; p_user_id: string }
+        Returns: undefined
+      }
+      admin_set_principal: {
+        Args: {
+          p_actor_id: string
+          p_instrument: string
+          p_principal_id: string
+        }
+        Returns: undefined
+      }
+      admin_set_section_leader: {
+        Args: { p_actor_id: string; p_leader_id: string; p_section: string }
+        Returns: undefined
+      }
+      archive_shared_sheet_music_annotation: {
+        Args: { p_file_id: string; p_page: number; p_strokes: Json }
+        Returns: undefined
+      }
       archive_sheet_music_annotation: {
         Args: { p_file_id: string; p_page: number; p_strokes: Json }
+        Returns: undefined
+      }
+      assert_admin_actor: { Args: { p_actor_id: string }; Returns: undefined }
+      can_edit_shared_annotation: {
+        Args: { p_file_id: string }
+        Returns: boolean
+      }
+      can_manage_member_attendance: {
+        Args: { p_member: string }
+        Returns: boolean
+      }
+      can_manage_rehearsal_attendance: {
+        Args: { p_rehearsal_id: number }
+        Returns: boolean
+      }
+      can_manage_sheet_music: { Args: never; Returns: boolean }
+      can_set_preference: { Args: { p_member: string }; Returns: boolean }
+      can_view_member_attendance: {
+        Args: { p_member: string }
+        Returns: boolean
+      }
+      can_view_rehearsal_attendance: {
+        Args: { p_rehearsal_id: number }
+        Returns: boolean
+      }
+      cancel_attendance_change_request: {
+        Args: { p_request_id: string }
         Returns: undefined
       }
       cancel_leave_on_sign_in: {
@@ -1212,6 +1818,26 @@ export type Database = {
         Returns: boolean
       }
       cleanup_client_error_logs: { Args: never; Returns: number }
+      compute_rehearsal_attendance: {
+        Args: { p_rehearsal_id: number }
+        Returns: {
+          status: Database["public"]["Enums"]["attendanceStatus"]
+          user_id: string
+        }[]
+      }
+      create_attendance_change_request: {
+        Args: {
+          p_reason?: string
+          p_rehearsal_id: number
+          p_target_user_id: string
+          p_to_status: Database["public"]["Enums"]["attendanceStatus"]
+        }
+        Returns: string
+      }
+      create_rehearsal_with_repertoire: {
+        Args: { p_pieces?: Json; p_rehearsal: Json }
+        Returns: number
+      }
       delete_device: {
         Args: { p_device_id: string; p_self_device_id: string }
         Returns: undefined
@@ -1248,8 +1874,38 @@ export type Database = {
           trusted: boolean
         }[]
       }
+      get_score_print_plan: {
+        Args: { p_score_id: string }
+        Returns: {
+          assigned_members: number
+          auto_copies: number
+          copies: number
+          file_id: string
+          file_name: string
+          file_size: number
+          kind: string
+          manual_copies: number
+          part_id: string
+          section: string
+          section_members: number
+          storage_path: string
+          sub_parts: number[]
+        }[]
+      }
+      get_section_leave_requests: {
+        Args: { p_include_canceled?: boolean; p_rehearsal_id?: number }
+        Returns: {
+          created_at: string
+          rehearsal_id: number
+          request_id: string
+          status: Database["public"]["Enums"]["leaveStatus"]
+          user_id: string
+        }[]
+      }
+      has_capability: { Args: { p_capability: string }; Returns: boolean }
       is_admin: { Args: never; Returns: boolean }
       is_valid_sub_parts: { Args: { nums: number[] }; Returns: boolean }
+      led_sections: { Args: { p_leader: string }; Returns: string[] }
       list_my_devices: {
         Args: never
         Returns: {
@@ -1262,6 +1918,33 @@ export type Database = {
         }[]
       }
       log_client_errors: { Args: { rows: Json }; Returns: undefined }
+      my_capabilities: { Args: never; Returns: string[] }
+      my_leadership_roles: {
+        Args: never
+        Returns: {
+          role: string
+          scope: string
+        }[]
+      }
+      my_managed_sections: { Args: never; Returns: string[] }
+      president_capability_keys: { Args: never; Returns: string[] }
+      principal_instruments: {
+        Args: { p_principal: string }
+        Returns: string[]
+      }
+      push_shared_sheet_music_annotation: {
+        Args: {
+          p_expected_version?: string
+          p_file_id: string
+          p_page: number
+          p_strokes: Json
+        }
+        Returns: {
+          ok: boolean
+          strokes: Json
+          version: string
+        }[]
+      }
       push_sheet_music_annotation: {
         Args: {
           p_expected_version?: string
@@ -1279,12 +1962,24 @@ export type Database = {
         Args: { p_end: string; p_start: string }
         Returns: boolean
       }
+      save_rehearsal_repertoire: {
+        Args: { p_pieces: Json; p_rehearsal_id: number }
+        Returns: undefined
+      }
       set_device_trust: {
         Args: {
           p_device_id: string
           p_self_device_id: string
           p_trusted: boolean
         }
+        Returns: undefined
+      }
+      set_member_preference: {
+        Args: { p_member: string; p_sub_part: number }
+        Returns: undefined
+      }
+      set_print_copies: {
+        Args: { p_copies: number; p_file_id: string }
         Returns: undefined
       }
       sign_in_attendance_location: {
@@ -1325,8 +2020,25 @@ export type Database = {
         }
         Returns: undefined
       }
+      trim_sheet_music_shared_annotation_history: {
+        Args: { p_file_id: string; p_keep?: number; p_page: number }
+        Returns: undefined
+      }
+      update_attendance_change_request: {
+        Args: {
+          p_reason?: string
+          p_request_id: string
+          p_to_status: Database["public"]["Enums"]["attendanceStatus"]
+        }
+        Returns: undefined
+      }
     }
     Enums: {
+      attendanceChangeRequestStatus:
+        | "pending"
+        | "approved"
+        | "rejected"
+        | "canceled"
       attendanceStatus: "present" | "late" | "absent" | "excused" | "exempt"
       leaveStatus:
         | "pending"
@@ -1334,7 +2046,11 @@ export type Database = {
         | "rejected"
         | "withdrawn"
         | "canceled"
-      notificationCategory: "attendance" | "activity" | "system"
+      notificationCategory:
+        | "attendance"
+        | "activity"
+        | "system"
+        | "section_leave"
       postType: "ensemble" | "gathering"
       profileRole: "member" | "admin" | "score_manager"
       profileStatus: "pending" | "approved" | "rejected"
@@ -1465,9 +2181,20 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      attendanceChangeRequestStatus: [
+        "pending",
+        "approved",
+        "rejected",
+        "canceled",
+      ],
       attendanceStatus: ["present", "late", "absent", "excused", "exempt"],
       leaveStatus: ["pending", "approved", "rejected", "withdrawn", "canceled"],
-      notificationCategory: ["attendance", "activity", "system"],
+      notificationCategory: [
+        "attendance",
+        "activity",
+        "system",
+        "section_leave",
+      ],
       postType: ["ensemble", "gathering"],
       profileRole: ["member", "admin", "score_manager"],
       profileStatus: ["pending", "approved", "rejected"],
