@@ -1744,8 +1744,24 @@ export type Database = {
         Args: { p_actor_id: string; p_instrument: string }
         Returns: undefined
       }
+      admin_remove_principal_checked: {
+        Args: {
+          p_actor_id: string
+          p_expected_principal_id: string
+          p_instrument: string
+        }
+        Returns: undefined
+      }
       admin_remove_section_leader: {
         Args: { p_actor_id: string; p_section: string }
+        Returns: undefined
+      }
+      admin_remove_section_leader_checked: {
+        Args: {
+          p_actor_id: string
+          p_expected_leader_id: string
+          p_section: string
+        }
         Returns: undefined
       }
       admin_revoke_capability: {
