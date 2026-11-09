@@ -137,4 +137,26 @@ export const scoreReader = {
     resolvePersonalConflicts: '去解决个人批注冲突',
     loadFailedList: '读不到需要合并的页，请重试。',
   },
+  // 0.6.1：从原谱「共享批注」创建/更新自己的共享副本
+  share: {
+    entry: '共享批注…',
+    hardPushTitle: '更新共享批注',
+    hardPushHint: '将用你在原谱上的批注覆盖共享副本（包括直接在副本上做的修改）。继续？',
+    hardPushConfirm: '覆盖',
+    created: '已创建共享副本',
+    updated: '已更新共享副本',
+    noAnnotations: '这份谱还没有批注',
+    notShareable: '总谱不参与共享',
+    notAllowed: '你没有共享批注的权限',
+    failed: '共享批注失败，请稍后重试',
+  },
+  // 0.6.1：其他人打开共享副本时，拉共享层与个人层合并
+  sharePull: {
+    failed: '拉取共享批注失败，可稍后重试',
+    conflictHint: '共享批注与你的批注都有更新；选择每一页保留哪一版（只影响你的个人批注）。',
+    local: '我的批注',
+    remote: '共享批注',
+    merge: '合并',
+    useCurrent: '使用这一版',
+  },
 }

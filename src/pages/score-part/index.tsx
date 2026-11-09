@@ -11,12 +11,31 @@ import { sharedFileIds } from '@/lib/shared-scores'
 import { ListState } from '@/components/ui/ListState'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { compareFiles } from '@/lib/sheet-music-sort'
+import { pinyinSortKey } from '@/lib/pinyin-sort'
 import { formatFileSize } from '@/lib/format'
 import { pageImageUrls } from '@/lib/score-page-image'
 import type { SheetMusicFileRow, SheetMusicPartRow } from '@/types/database'
 import './index.scss'
 
 type PartWithFiles = SheetMusicPartRow & { files: SheetMusicFileRow[] }
+
+/** `sheet_music_annotation_share_files` 视图的一行（0.6.1 共享副本） */
+type ShareFileRow = {
+  share_id: string
+  source_file_id: string
+  owner_id: string | null
+  owner_name: string
+  file_name: string
+  storage_path: string
+  file_size: number | null
+  page_count: number | null
+  part_id: string
+  section: string
+  score_id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
 
 /** 声部三级页：曲目详情点声部进入，列出该声部全部文件并直达阅读器 */
 export default function ScorePart() {
@@ -34,6 +53,8 @@ export default function ScorePart() {
   const sharedIds = useMemo(() => sharedFileIds(shared.data), [shared.data])
 
   const [part, setPart] = useState<PartWithFiles | null>(null)
+  /** 共享副本（0.6.1）：**不写 `sheet_music_files`**，在声部页合成展示 */
+  const [shares, setShares] = useState<ShareFileRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,16 +65,36 @@ export default function ScorePart() {
     }
     setError(null)
     try {
-      const res = await supabase
-        .from('sheet_music_parts')
-        .select('*, files:sheet_music_files(*)')
-        .eq('id', partId)
-        .maybeSingle()
+      const [res, shareRes] = await Promise.all([
+        supabase
+          .from('sheet_music_parts')
+          .select('*, files:sheet_music_files(*)')
+          .eq('id', partId)
+          .maybeSingle(),
+        // 共享副本：按声部取（视图已排除总谱）；失败不阻断普通文件展示
+        (supabase as unknown as { from: (t: string) => any })
+          .from('sheet_music_annotation_share_files')
+          .select('*')
+          .eq('part_id', partId),
+      ])
       if (res.error) throw new Error(res.error.message)
       // 文件按业务契约排序（乐器拼音 / 分声部号）；查询返回顺序不保证
       const data = res.data as PartWithFiles | null
       if (data) data.files = [...(data.files ?? [])].sort(compareFiles)
       setPart(data)
+      if (shareRes.error) {
+        console.error('[score-part] 共享副本读取失败', shareRes.error.message)
+        setShares([])
+      } else {
+        // 按文件名拼音序（中文 localeCompare 在真机不可靠，见 pinyin-sort）
+        setShares(
+          [...((shareRes.data ?? []) as ShareFileRow[])].sort((a, b) => {
+            const ka = pinyinSortKey(a.file_name)
+            const kb = pinyinSortKey(b.file_name)
+            return ka < kb ? -1 : ka > kb ? 1 : 0
+          })
+        )
+      }
       setLoading(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -81,24 +122,25 @@ export default function ScorePart() {
     return part.files.filter((f) => sharedIds.has(f.id))
   }, [part, sharedMode, sharedIds])
 
-  const openFile = (f: SheetMusicFileRow) => {
-    // 预取第一页：跳转动画 + 页面初始化期间图就在下载（缓存由小程序图片层负责）。
-    // 失败静默 —— 真进到阅读器时还会再拉一次。
-    if (f.page_count && f.page_count > 0) {
-      const pdfUrl = supabase.storage.from('sheet-music').getPublicUrl(f.storage_path)
-        .data.publicUrl
-      // 预取逐条试候选（当前入口优先、另一个兜底）；全失败也无所谓，真进阅读器还会再拉
-      void (async () => {
-        for (const url of pageImageUrls(pdfUrl, 1)) {
-          try {
-            await Taro.getImageInfo({ src: url })
-            return
-          } catch {
-            // 换下一条候选
-          }
+  /** 预取第一页：跳转动画 + 页面初始化期间图就在下载（缓存由小程序图片层负责）。失败静默。 */
+  const prefetchFirstPage = (storagePath: string, pageCount: number | null) => {
+    if (!pageCount || pageCount <= 0) return
+    const pdfUrl = supabase.storage.from('sheet-music').getPublicUrl(storagePath).data.publicUrl
+    // 逐条试候选（当前入口优先、另一个兜底）；全失败也无所谓，真进阅读器还会再拉
+    void (async () => {
+      for (const url of pageImageUrls(pdfUrl, 1)) {
+        try {
+          await Taro.getImageInfo({ src: url })
+          return
+        } catch {
+          // 换下一条候选
         }
-      })()
-    }
+      }
+    })()
+  }
+
+  const openFile = (f: SheetMusicFileRow) => {
+    prefetchFirstPage(f.storage_path, f.page_count)
     // 元数据随参数带给阅读器，省掉一次走反代到境外库的查询（实测 ~600ms）；
     // 缺参数时阅读器回退查库（分享链接等旧入口不受影响）
     const q = [
@@ -113,6 +155,28 @@ export default function ScorePart() {
       // `{文件名}.pdf`。
       // 文件字节数：阅读器只用它做**分片下载**的终止条件与长度校验（见 lib/ranged-download.ts）
       f.file_size ? `sz=${f.file_size}` : '',
+      sheetTitle ? `title=${encodeURIComponent(sheetTitle)}` : '',
+      part?.section ? `sec=${encodeURIComponent(part.section)}` : '',
+    ]
+      .filter(Boolean)
+      .join('&')
+    void Taro.navigateTo({ url: `/pages/score-reader/index?${q}` })
+  }
+
+  /**
+   * 打开共享副本（0.6.1）：阅读器用 `kind=share` 区分；
+   * `file_id` 仍是**源文件**（页图/PDF/缓存都按它），批注层按 `share_id` 取。
+   */
+  const openShare = (s: ShareFileRow) => {
+    prefetchFirstPage(s.storage_path, s.page_count)
+    const q = [
+      'kind=share',
+      `share_id=${encodeURIComponent(s.share_id)}`,
+      `file_id=${encodeURIComponent(s.source_file_id)}`,
+      `sp=${encodeURIComponent(s.storage_path)}`,
+      s.page_count ? `pc=${s.page_count}` : '',
+      `fn=${encodeURIComponent(s.file_name)}`,
+      s.file_size ? `sz=${s.file_size}` : '',
       sheetTitle ? `title=${encodeURIComponent(sheetTitle)}` : '',
       part?.section ? `sec=${encodeURIComponent(part.section)}` : '',
     ]
@@ -153,7 +217,7 @@ export default function ScorePart() {
           >
             {part ? (
               <View className='overflow-hidden rounded-xl border border-border bg-card'>
-                {files.length === 0 ? (
+                {files.length === 0 && shares.length === 0 ? (
                   <Text className='block px-4 py-4 text-xs text-text-muted'>
                     {t(sharedMode ? 'score.emptyShared' : 'scoreDetail.emptyFiles')}
                   </Text>
@@ -177,6 +241,31 @@ export default function ScorePart() {
                         >
                           <View className='flex-1 pr-3'>
                             <Text className='block text-sm text-text'>{f.file_name}</Text>
+                            <Text className='mt-0.5 block text-xs text-text-muted'>
+                              {meta || t('scoreDetail.unknownSize')}
+                            </Text>
+                          </View>
+                          <Text className='text-lg text-text-muted'>›</Text>
+                        </View>
+                      )
+                    })}
+                    {shares.map((s, i) => {
+                      const sizeText = formatFileSize(s.file_size)
+                      const pagesText =
+                        s.page_count != null ? t('scoreDetail.pages', { n: s.page_count }) : ''
+                      const meta = [sizeText, pagesText].filter(Boolean).join(' · ')
+                      return (
+                        // 共享副本（0.6.1）：与普通文件同形；文件名已带「-批注by人名.pdf」。
+                        // 不计入文件数/打印份数，但在这张声部文件列表里是**可见、可打开**的。
+                        <View
+                          key={`share-${s.share_id}`}
+                          className={`flex flex-row items-center justify-between py-3${
+                            files.length + i === 0 ? '' : ' border-t border-border'
+                          }`}
+                          onClick={() => openShare(s)}
+                        >
+                          <View className='flex-1 pr-3'>
+                            <Text className='block text-sm text-text'>{s.file_name}</Text>
                             <Text className='mt-0.5 block text-xs text-text-muted'>
                               {meta || t('scoreDetail.unknownSize')}
                             </Text>

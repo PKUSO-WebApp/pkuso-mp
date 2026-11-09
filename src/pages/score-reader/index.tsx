@@ -47,7 +47,8 @@ import {
   type HistorySource,
 } from '@/lib/annotation-history'
 import { mergeStrokes } from '@/lib/annotation-sync'
-import { loadConflictPages } from '@/lib/annotation-sync-runner'
+import { loadConflictPages, syncAnnotationFile } from '@/lib/annotation-sync-runner'
+import { shareDocKey } from '@/lib/annotation-doc'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { pageImageUrls } from '@/lib/score-page-image'
 import type { SheetMusicFileRow } from '@/types/database'
@@ -55,11 +56,13 @@ import type { SheetMusicFileRow } from '@/types/database'
 import { createAnnotationBackend, type ReaderAnnotationBackend } from './lib/annotation-backend'
 import {
   createSharedAnnotationBackend,
+  SHARE_OWNER_CONFIG,
   type SharedAnnotationBackend,
   type SharedAnnotationConflict,
   type SharedSaveState,
 } from './lib/shared-annotation-backend'
 import { loadMergePages, type MergeDirection } from './lib/shared-merge'
+import { pullShareLayer, resolveSharePullConflict } from './lib/share-pull'
 import type { CanvasCtx, CanvasNode, Drag, Job, Layer, Pan, Pinch, Stage } from './lib/types'
 import { frameInk, rasterDpr, sampleEdgeColors } from './lib/raster'
 import { bytesToMB, createBitmapLedger } from './lib/raster-budget'
@@ -242,8 +245,11 @@ export default function ScoreReader() {
   useNavTitle('scoreReader.navTitle')
   const router = useRouter()
   const fileId = router.params.file_id ? decodeURIComponent(router.params.file_id) : ''
-  /** 共享谱模式（由「共享的乐谱」列表带进来）；参数名避开布局用的 mode */
-  const sharedMode = router.params.kind === 'shared'
+  /** 0.6.1 共享副本：`file_id` 仍是**源文件**（页图/PDF/缓存）；批注层按 `share_id` 取 */
+  const shareId = router.params.share_id ? decodeURIComponent(router.params.share_id) : ''
+  const shareCopyMode = router.params.kind === 'share' && !!shareId
+  /** 旧共享谱（0.6.0，挂在原文件上的共享层）；参数名避开布局用的 mode */
+  const legacySharedMode = router.params.kind === 'shared'
   /**
    * 批注归属（D16）：登录账号的 id，未登录为 guest。
    * 会话恢复完成前**不知道**该读谁的目录 ⇒ 批注区先按只读对待。
@@ -292,8 +298,12 @@ export default function ScoreReader() {
       presetTitle ? `title=${encodeURIComponent(presetTitle)}` : '',
       presetSection ? `sec=${encodeURIComponent(presetSection)}` : '',
       presetBytes ? `sz=${presetBytes}` : '',
-      // 共享谱转出去仍要落到共享模式：否则接收方会把它当个人谱，看不到共享批注
-      sharedMode ? 'kind=shared' : '',
+      // 共享谱/共享副本转出去仍要落到对应模式：否则接收方看不到共享批注
+      legacySharedMode
+        ? 'kind=shared'
+        : shareCopyMode
+          ? `kind=share&share_id=${encodeURIComponent(shareId)}`
+          : '',
     ]
       .filter(Boolean)
       .join('&')}`,
@@ -419,6 +429,40 @@ export default function ScoreReader() {
   const [sharedConflicts, setSharedConflicts] = useState<SharedAnnotationConflict[]>([])
   /** 正在预览哪一页的共享冲突；null = 只看列表 */
   const [sharedConflictPage, setSharedConflictPage] = useState<number | null>(null)
+  /**
+   * 0.6.1 共享副本：能否写共享层（owner 且仍满足 A2）。null = 还没查完，等它决定后端。
+   * 撤职后变 false ⇒ 本人也降级成「其他人」：编辑只写个人层。
+   */
+  const [shareCanPush, setShareCanPush] = useState<boolean | null>(shareCopyMode ? null : false)
+  /** 普通个人谱：当前用户对这份文件有没有共享写权（A2）；决定「保存到…」里出不出现「共享批注」 */
+  const [canShareAnnotations, setCanShareAnnotations] = useState(false)
+  const [shareBusy, setShareBusy] = useState(false)
+  /** 0.6.1 共享副本的个人层：拉共享层时判出的真分叉（只写个人层的三选一） */
+  const [sharePullConflicts, setSharePullConflicts] = useState<SharedAnnotationConflict[]>([])
+  const [sharePullConflictPage, setSharePullConflictPage] = useState<number | null>(null)
+  /**
+   * 共享层模式 = 旧共享谱 或 本次共享副本的 owner。
+   * 其他人的共享副本走个人后端 + 打开时拉共享层合并（shareCopyPersonalMode）。
+   */
+  const sharedMode = legacySharedMode || (shareCopyMode && shareCanPush === true)
+  const shareCopyPersonalMode = shareCopyMode && shareCanPush === false
+  /**
+   * 批注后端的文档键：
+   *   · 普通文件 / 旧共享谱：fileId；
+   *   · 共享副本 owner：shareId（共享层表的主键）；
+   *   · 其他人的共享副本：`share:<shareId>`（个人层，本地/个人云都按它隔离）。
+   */
+  const annoDocId = shareCopyMode
+    ? shareCanPush === true
+      ? shareId
+      : shareDocKey(shareId)
+    : fileId
+  /**
+   * 历史/冲突页用的是**带前缀**的文档键：共享副本无论 owner 还是其他人，
+   * 历史表都按 share 表选（见 annotation-history 的 historyTarget）；
+   * 而 owner 的批注后端用的是裸 shareId。两者别混。
+   */
+  const historyDocKey = shareCopyMode ? shareDocKey(shareId) : annoDocId
   /** P6c：合并批注面板（方向 + 需要选择的页） */
   const [mergeOn, setMergeOn] = useState(false)
   const [mergeDirection, setMergeDirection] = useState<MergeDirection>('to-personal')
@@ -910,7 +954,7 @@ export default function ScoreReader() {
     })
     // 触发点 ②：把挂着的那次停笔防抖立刻发掉（最后一班车）。拿不到结果是有意的——
     // 页面正在卸载，请求发不发得出去都无所谓，欠账有联网恢复那条路兜
-    if (fileId) annotationBackendRef.current?.flush?.(fileId)
+    if (annoDocId) annotationBackendRef.current?.flush?.(annoDocId)
     prefetchPumpRef.current?.stop()
     // 离开页面前把这一册的本地记账落盘（这一册下次进册才可能整册命中）
     flushAlbumFiles.current()
@@ -990,7 +1034,7 @@ export default function ScoreReader() {
    */
   const conflictShownRef = useRef('')
   const refreshConflicts = useCallback(async () => {
-    const pages = await loadConflictPages(fileId)
+    const pages = await loadConflictPages(annoDocId)
     setConflictPages(pages)
     if (pages.length === 0) {
       setConflictOn(false)
@@ -1001,7 +1045,7 @@ export default function ScoreReader() {
     if (key === conflictShownRef.current) return
     conflictShownRef.current = key
     setConflictOn(true)
-  }, [fileId])
+  }, [annoDocId])
 
   /**
    * 打开合并面板 / 换方向：算「哪些页需要选择」。
@@ -1017,7 +1061,7 @@ export default function ScoreReader() {
       setMergeError(null)
       setMergeReason(null)
       try {
-        const res = await loadMergePages(fileId, direction)
+        const res = await loadMergePages(annoDocId, direction)
         if (seq !== mergeSeqRef.current) return
         if (res.ok) {
           setMergePages(res.pages)
@@ -1045,8 +1089,55 @@ export default function ScoreReader() {
         if (seq === mergeSeqRef.current) setMergeLoading(false)
       }
     },
-    [fileId, t]
+    [annoDocId, t]
   )
+
+  // 0.6.1 共享副本：先问服务端「我还能不能写共享层」，再决定用哪个后端。
+  // owner 且仍满足 A2 ⇒ 共享后端（自动 push）；否则降级成个人后端（只写个人层）。
+  // 查询失败按「不能写」处理：宁可退回个人层，也不要误写共享层。
+  useEffect(() => {
+    if (!shareCopyMode) return
+    if (!userReady) return
+    let cancelled = false
+    setShareCanPush(null)
+    void (async () => {
+      const { data, error } = await (supabase.rpc as any)('can_push_shared_annotation', {
+        p_share_id: shareId,
+      })
+      if (cancelled) return
+      if (error) {
+        console.error('[score-reader] can_push_shared_annotation 失败', error.message)
+        setShareCanPush(false)
+      } else {
+        setShareCanPush(!!data)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [shareCopyMode, shareId, userReady])
+
+  // 普通个人谱：查一次 A2（本乐器首席/本作用域声部长），决定「共享批注」入口出不出。
+  useEffect(() => {
+    if (shareCopyMode || legacySharedMode || !userReady || !fileId) {
+      setCanShareAnnotations(false)
+      return
+    }
+    if ((presetSection ?? '').trim() === '总谱') {
+      setCanShareAnnotations(false)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const { data, error } = await supabase.rpc('can_edit_shared_annotation', {
+        p_file_id: fileId,
+      })
+      if (!cancelled) setCanShareAnnotations(!error && !!data)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [fileId, legacySharedMode, presetSection, shareCopyMode, userReady])
 
   const annotationBackend = useMemo(() => {
     const backend = sharedMode
@@ -1055,7 +1146,9 @@ export default function ScoreReader() {
             onSaveState: (state) => setSharedSaveState(state),
             onConflict: (conflicts) => setSharedConflicts(conflicts),
           },
-          annoOwner
+          annoOwner,
+          // 共享副本 owner 用 share 表；旧共享谱用默认的 file 表（0.6.0 兼容）
+          shareCopyMode ? SHARE_OWNER_CONFIG : undefined
         )
       : createAnnotationBackend(
           'personal',
@@ -1075,7 +1168,7 @@ export default function ScoreReader() {
         )
     annotationBackendRef.current = backend
     return backend
-  }, [annoOwner, refreshConflicts, sharedMode])
+  }, [annoOwner, refreshConflicts, sharedMode, shareCopyMode])
 
   // 个人批注专属 UI（历史、冲突列表、同步状态）只在 personal 模式出现；
   // 共享谱走自己的保存状态徽标与冲突面板。
@@ -1088,26 +1181,64 @@ export default function ScoreReader() {
     // 会话恢复完成前不读：D16 要把批注读到**当前账号**的目录里；
     // shared 的远程查询也要等登录态就绪（否则 RLS 会把它们当匿名返回空集）。
     if (!userReady) return
+    // 共享副本先等「能不能写共享层」查完，否则后端类型会在个人/共享之间跳一次
+    if (shareCopyMode && shareCanPush === null) return
     let cancelled = false
     // 加载完成前不许画：personal 的 owner 可能还没确定，shared 的权限/版本也还没回来
     setAnnotationReadOnly(true)
     // 换册时上一册的共享冲突/保存状态不跟过来
     setSharedConflicts([])
+    setSharePullConflicts([])
+    setSharePullConflictPage(null)
     setSharedSaveState('saved')
     void (async () => {
-      const doc = await annotationBackend.load(fileId)
+      const doc = await annotationBackend.load(annoDocId)
       if (cancelled) return
       // readOnly 要在 load 之后取：shared 的权限与远端版本都是这时才有的
       setAnnotationReadOnly(annotationBackend.readOnly)
       annosRef.current = doc
       setAnnos(doc)
-      await annotationBackend.onOpen?.(fileId)
+      // 先等个人云对账落地（personal backend 的 onOpen 会返回这次同步）
+      await annotationBackend.onOpen?.(annoDocId)
+      if (cancelled) return
+      // 0.6.1：其他人的共享副本 —— 默认 pull owner 的最新共享层，与个人层三方合并。
+      // 只在**个人层**里合并；冲突交给 sharePullConflicts（三选一）。
+      if (shareCopyPersonalMode) {
+        try {
+          const pulled = await pullShareLayer({
+            owner: annoOwner,
+            shareId,
+            docKey: annoDocId,
+          })
+          if (cancelled) return
+          if (pulled.adopted.length > 0) {
+            annosRef.current = pulled.doc
+            setAnnos(pulled.doc)
+          }
+          setSharePullConflicts(pulled.conflicts)
+        } catch (err) {
+          // 拉共享层失败不挡阅读：个人层照常可用，提示一次
+          console.error('[score-reader] 拉取共享批注失败', err)
+          void Taro.showToast({ title: t('scoreReader.sharePull.failed'), icon: 'none' })
+        }
+      }
     })()
     return () => {
       cancelled = true
       annotationBackend.onClose?.()
     }
-  }, [annotationBackend, fileId, userReady])
+  }, [
+    annotationBackend,
+    annoDocId,
+    annoOwner,
+    fileId,
+    shareCanPush,
+    shareCopyMode,
+    shareCopyPersonalMode,
+    shareId,
+    t,
+    userReady,
+  ])
 
   /**
    * 从「个人 → 共享」合并页回来时重载共享批注（P6c）。
@@ -1115,14 +1246,14 @@ export default function ScoreReader() {
    * 不重载就会拿着旧版本继续画，下一次 CAS 必然撞冲突。
    */
   const reloadSharedAnnotations = useCallback(async () => {
-    if (!sharedMode || !fileId) return
-    const doc = await annotationBackend.load(fileId)
+    if (!sharedMode || !annoDocId) return
+    const doc = await annotationBackend.load(annoDocId)
     setAnnotationReadOnly(annotationBackend.readOnly)
     // 重载同时也把共享冲突快照清掉：合并刚写完，旧冲突面板不能再挂着
     setSharedConflicts([])
     annosRef.current = doc
     setAnnos(doc)
-  }, [annotationBackend, fileId, sharedMode])
+  }, [annoDocId, annotationBackend, sharedMode])
 
   // 冲突在别处被解决 / 列表刷新后，预览页所指向的页可能已不存在：自动退回列表
   useEffect(() => {
@@ -1877,7 +2008,7 @@ export default function ScoreReader() {
   // 切后台 / 离开本页：把挂着的批注发出去。shared 的 600ms 防抖里可能还压着最后一笔，
   // 而微信随时可能杀进程；personal 这一下与 useUnload 的最后一班车同义，重复调用无害。
   useDidHide(() => {
-    if (fileId) annotationBackendRef.current?.flush?.(fileId)
+    if (annoDocId) annotationBackendRef.current?.flush?.(annoDocId)
   })
 
   // 回到前台：画布位图在前后台切换后是否还在没有实测证据，作废一次的代价只是
@@ -1901,7 +2032,7 @@ export default function ScoreReader() {
     if (mergeOn && fileId) void loadMergeFor(mergeDirection)
     // shared 模式下打开的是**个人**冲突列表（合并前置）：从冲突页回来也要摘掉已解决的页
     if (sharedMode && conflictOn && fileId) {
-      void loadConflictPages(fileId).then((pages) => {
+      void loadConflictPages(annoDocId).then((pages) => {
         setConflictPages(pages)
         if (pages.length === 0) setConflictOn(false)
       })
@@ -2458,9 +2589,9 @@ export default function ScoreReader() {
       setAnnos(next)
       // 存储、欠账标记、停笔防抖、失败上报都收在 backend 里（P6a）；
       // personal 是同步写盘，仍保持原来的手感与事件名。
-      if (fileId) annotationBackend.persist(fileId, next)
+      if (annoDocId) annotationBackend.persist(annoDocId, next)
     },
-    [fileId, annotationBackend]
+    [annoDocId, annotationBackend]
   )
 
   const load = useCallback(async () => {
@@ -3704,6 +3835,54 @@ export default function ScoreReader() {
     return { ok: true }
   }
 
+  /**
+   * 0.6.1 共享副本（其他人的个人层）：冲突三选一。
+   * 与 `submitSharedConflict` 的区别是**只写个人层**——这里没有写共享层的权限。
+   */
+  const submitSharePullConflict = async (
+    target: number,
+    side: CompareSide,
+    _previewRemoteVersion: string | null
+  ): Promise<CompareSubmitResult> => {
+    const conflict = sharePullConflicts.find((c) => c.page === target)
+    if (!conflict) return { ok: false, message: t('scoreReader.conflict.failed') }
+    const result = await resolveSharePullConflict({
+      owner: annoOwner,
+      shareId,
+      docKey: annoDocId,
+      conflict,
+      choice: side,
+    })
+    if (!result.ok) {
+      if (result.raced) {
+        // 共享层在预览之后又变了：重新拉一次，刷新冲突快照，让用户按新版本再选
+        try {
+          const pulled = await pullShareLayer({
+            owner: annoOwner,
+            shareId,
+            docKey: annoDocId,
+          })
+          if (pulled.adopted.length > 0) {
+            annosRef.current = pulled.doc
+            setAnnos(pulled.doc)
+          }
+          setSharePullConflicts(pulled.conflicts)
+          setSharePullConflictPage(null)
+        } catch {
+          // 刷新失败就保持旧快照；用户关掉重开也会重试
+        }
+        return { ok: false, raced: true }
+      }
+      return { ok: false, message: t('scoreReader.conflict.failed') }
+    }
+    if (result.strokes) {
+      annosRef.current = { ...annosRef.current, [String(target)]: result.strokes }
+      setAnnos(annosRef.current)
+    }
+    setSharePullConflicts((prev) => prev.filter((c) => c.page !== target))
+    return { ok: true }
+  }
+
   /** 打开合并面板（入口在「保存到…」里）；只读时不允许从「我的 → 共享」开始 */
   const openMerge = () => {
     handoff.close()
@@ -3729,7 +3908,7 @@ export default function ScoreReader() {
       }
     }
     const q = [
-      `file_id=${encodeURIComponent(fileId)}`,
+      `file_id=${encodeURIComponent(annoDocId)}`,
       `page=${target}`,
       `direction=${mergeDirection}`,
       `u=${encodeURIComponent(fileUrlRef.current)}`,
@@ -3745,7 +3924,7 @@ export default function ScoreReader() {
   const resolvePersonalConflicts = () => {
     setMergeOn(false)
     void (async () => {
-      const pages = await loadConflictPages(fileId)
+      const pages = await loadConflictPages(annoDocId)
       setConflictPages(pages)
       if (pages.length > 0) setConflictOn(true)
     })()
@@ -3761,7 +3940,7 @@ export default function ScoreReader() {
     setHistorySource('personal')
     setHistoryOn(true)
     setHistoryLoading(true)
-    void listAnnotationHistory(fileId).then((rows) => {
+    void listAnnotationHistory(historyDocKey).then((rows) => {
       setHistoryBatches(groupHistoryBatches(rows))
       setHistoryLoading(false)
     })
@@ -3774,7 +3953,7 @@ export default function ScoreReader() {
     setHistorySource('shared')
     setHistoryOn(true)
     setHistoryLoading(true)
-    void listAnnotationHistory(fileId, 'shared').then((rows) => {
+    void listAnnotationHistory(historyDocKey, 'shared').then((rows) => {
       setHistoryBatches(groupHistoryBatches(rows))
       setHistoryLoading(false)
     })
@@ -3789,7 +3968,7 @@ export default function ScoreReader() {
   const pickHistoryPage = (p: HistoryPage) => {
     setHistoryOn(false)
     const q = [
-      `file_id=${encodeURIComponent(fileId)}`,
+      `file_id=${encodeURIComponent(historyDocKey)}`,
       `page=${p.entry.page}`,
       `u=${encodeURIComponent(fileUrlRef.current)}`,
       presetFileName ? `fn=${encodeURIComponent(presetFileName)}` : '',
@@ -3847,12 +4026,14 @@ export default function ScoreReader() {
     setPenOn(false)
     handoff.open({
       fileId,
+      // 0.6.1 共享副本：PDF 原件仍是 fileId；批注层按 shareId 取（Edge Function 支持）
+      shareId: shareCopyMode ? shareId : undefined,
       url: () => fileUrlRef.current,
       title: presetTitle,
       section: presetSection,
       fileName: presetFileName,
       expectedBytes: presetBytes,
-      // 共享谱（P6d）：烧进去的是共享层笔迹，合成走 compose-shared-pdf；
+      // 共享层（旧共享谱 / 共享副本 owner）：烧进去的是共享层笔迹，合成走 compose-shared-pdf；
       // 合成前要把共享层的挂起写入 flush 掉，否则会漏掉刚画的几笔。
       ...(sharedMode
         ? {
@@ -3863,8 +4044,88 @@ export default function ScoreReader() {
               if (!ok) throw new Error(t('scoreReader.merge.syncFailed'))
             },
           }
-        : {}),
+        : shareCopyPersonalMode
+          ? {
+              // 其他人的共享副本：烧的是**个人层**（已包含拉下来的共享层），
+              // 合成前先把个人层同步到服务端；hasInk 读内存态，不能按源文件查本地。
+              hasInk: () => docHasInk(annosRef.current),
+              beforeCompose: async () => {
+                await syncAnnotationFile(annoDocId)
+              },
+            }
+          : {}),
     })
+  }
+
+  /**
+   * 0.6.1：从原谱「共享批注」。
+   *
+   * 首次 = 创建副本 + hard push；再次 = 更新同一副本 + hard push。
+   * 更新会**整份覆盖**共享层（包括直接在副本上做的修改），所以先弹确认。
+   * 服务端还会再校验一次 A2/总谱/有无笔迹（见 create_shared_annotation_share）。
+   */
+  const shareAnnotations = async () => {
+    if (!canShareAnnotations || shareBusy || !user?.id) return
+    setShareBusy(true)
+    handoff.close()
+    try {
+      // 已存在自己的副本 ⇒ 这次是 hard push：先确认会覆盖副本上的直接修改。
+      // 查不到不能默认「不存在」——查询失败时宁可让用户重试，也不要跳过确认直接覆盖。
+      const { data: existing, error: existingError } = await (
+        supabase as unknown as { from: (t: string) => any }
+      )
+        .from('sheet_music_annotation_share_files')
+        .select('share_id')
+        .eq('source_file_id', fileId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+      if (existingError) {
+        void Taro.showToast({ title: t('scoreReader.share.failed'), icon: 'none' })
+        return
+      }
+      if (existing) {
+        const modal = await Taro.showModal({
+          title: t('scoreReader.share.hardPushTitle'),
+          content: t('scoreReader.share.hardPushHint'),
+          confirmText: t('scoreReader.share.hardPushConfirm'),
+          cancelText: t('common.actions.cancel'),
+        })
+        if (!modal.confirm) return
+      }
+      const { data, error } = await (supabase.rpc as any)(
+        'create_shared_annotation_share',
+        { p_source_file_id: fileId }
+      )
+      if (error) {
+        const msg = String(error.message ?? '')
+        if (msg.includes('no_annotations')) {
+          void Taro.showToast({ title: t('scoreReader.share.noAnnotations'), icon: 'none' })
+        } else if (msg.includes('source_not_shareable')) {
+          void Taro.showToast({ title: t('scoreReader.share.notShareable'), icon: 'none' })
+        } else if (msg.includes('not_allowed')) {
+          void Taro.showToast({ title: t('scoreReader.share.notAllowed'), icon: 'none' })
+        } else {
+          void Taro.showToast({ title: t('scoreReader.share.failed'), icon: 'none' })
+        }
+        return
+      }
+      const row = (Array.isArray(data) ? data[0] : data) as
+        | { share_id?: string; display_name?: string; created?: boolean }
+        | null
+      void Taro.showToast({
+        title: t(row?.created ? 'scoreReader.share.created' : 'scoreReader.share.updated'),
+        icon: 'success',
+      })
+    } catch (err) {
+      reportClientError({
+        event: 'score_reader_share_annotations_failed',
+        message: describeError(err),
+        detail: { fileId },
+      })
+      void Taro.showToast({ title: t('scoreReader.share.failed'), icon: 'none' })
+    } finally {
+      setShareBusy(false)
+    }
   }
 
   /**
@@ -3876,7 +4137,7 @@ export default function ScoreReader() {
    */
   const openConflictPage = (target: number) => {
     const q = [
-      `file_id=${encodeURIComponent(fileId)}`,
+      `file_id=${encodeURIComponent(annoDocId)}`,
       `page=${target}`,
       `u=${encodeURIComponent(fileUrlRef.current)}`,
       presetFileName ? `fn=${encodeURIComponent(presetFileName)}` : '',
@@ -3939,6 +4200,10 @@ export default function ScoreReader() {
   const activeSharedConflict =
     sharedConflictPage != null
       ? (sharedConflicts.find((c) => c.page === sharedConflictPage) ?? null)
+      : null
+  const activeSharePullConflict =
+    sharePullConflictPage != null
+      ? (sharePullConflicts.find((c) => c.page === sharePullConflictPage) ?? null)
       : null
   const showStatusRow = stage !== 'ready' && stage !== 'error'
   const boxW = viewSize.w || containerW || 0
@@ -4345,6 +4610,53 @@ export default function ScoreReader() {
             />
           </View>
         ) : null}
+        {/* 0.6.1 共享副本（其他人的个人层）：打开时拉下来的共享层与个人层真分叉。
+            不可关闭（与共享冲突同款），教程期间也不弹。 */}
+        {shareCopyPersonalMode && sharePullConflicts.length > 0 && !tutorialOn ? (
+          <SharedConflictSheet
+            conflicts={sharePullConflicts}
+            onPick={setSharePullConflictPage}
+          />
+        ) : null}
+        {shareCopyPersonalMode && activeSharePullConflict ? (
+          <View className='fixed left-0 right-0 top-0 bottom-0' style={{ zIndex: Z_SHEET + 1 }}>
+            <ScoreCompareView
+              fileId={fileId}
+              page={activeSharePullConflict.page}
+              presetUrl={fileUrlRef.current}
+              presetName={presetFileName}
+              hint={t('scoreReader.sharePull.conflictHint')}
+              pageLabel={t('scoreReader.conflict.pageButton', {
+                page: activeSharePullConflict.page,
+              })}
+              labels={{
+                local: t('scoreReader.sharePull.local'),
+                remote: t('scoreReader.sharePull.remote'),
+                merge: t('scoreReader.sharePull.merge'),
+              }}
+              submitLabel={t('scoreReader.sharePull.useCurrent')}
+              defaultSide='local'
+              racedText={t('scoreReader.conflict.raced')}
+              failedText={t('scoreReader.conflict.failed')}
+              loadData={async () => {
+                const c = sharePullConflicts.find(
+                  (x) => x.page === activeSharePullConflict.page
+                )
+                if (!c) throw new Error(t('scoreReader.conflict.failed'))
+                return { local: c.local, remote: c.remote, remoteVersion: c.remoteVersion }
+              }}
+              submit={(side, data) =>
+                submitSharePullConflict(
+                  activeSharePullConflict.page,
+                  side,
+                  data.remoteVersion
+                )
+              }
+              onSuccess={() => setSharePullConflictPage(null)}
+              onCancel={() => setSharePullConflictPage(null)}
+            />
+          </View>
+        ) : null}
         {handoff.sheetOn ? (
           <SaveToSheet
             kinds={handoff.kinds}
@@ -4362,8 +4674,19 @@ export default function ScoreReader() {
             // 云端历史：个人与共享是两张表，各自一个入口
             onHistory={personalAnnotation ? openHistory : undefined}
             onSharedHistory={sharedMode ? openSharedHistory : undefined}
-            // 共享谱才有「合并批注…」（P6c）
-            onMergeShared={sharedMode ? openMerge : undefined}
+            // 0.6.1：原谱上的「共享批注」（创建/更新自己的副本）。
+            // 只对 A2 且这一册有笔迹显示；共享副本自己不再有这个入口。
+            onShareAnnotations={
+              !shareCopyMode &&
+              !legacySharedMode &&
+              canShareAnnotations &&
+              !shareBusy &&
+              docHasInk(annosRef.current)
+                ? () => void shareAnnotations()
+                : undefined
+            }
+            // 旧共享谱才有「合并批注…」（P6c）；共享副本是自动 pull + 冲突三选一
+            onMergeShared={legacySharedMode ? openMerge : undefined}
             onClose={handoff.close}
           />
         ) : null}
@@ -4385,7 +4708,7 @@ export default function ScoreReader() {
         {/* 「恢复历史」：个人/共享两张表；与分享面板同一个 z（Z_SHEET） */}
         {(personalAnnotation || sharedMode) && historyOn ? (
           <AnnotationHistorySheet
-            fileId={fileId}
+            fileId={historyDocKey}
             source={historySource}
             batches={historyBatches}
             loading={historyLoading}

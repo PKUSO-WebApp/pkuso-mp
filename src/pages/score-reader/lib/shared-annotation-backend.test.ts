@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AnnoStroke } from '@/lib/annotation'
-import { createSharedAnnotationBackend } from './shared-annotation-backend'
+import { createSharedAnnotationBackend, SHARE_OWNER_CONFIG } from './shared-annotation-backend'
 
 const { draftStorage } = vi.hoisted(() => ({ draftStorage: new Map<string, string>() }))
 
@@ -462,5 +462,55 @@ describe('createSharedAnnotationBackend', () => {
       remoteVersion: 'v3',
     })
     expect(draftStorage.has('score-shared-draft-v1:u1:f1')).toBe(true)
+  })
+})
+
+describe('SHARE_OWNER_CONFIG（0.6.1 共享副本 owner）', () => {
+  const CAN_PUSH = 'can_push_shared_annotation'
+  const PUSH_SHARE = 'push_shared_annotation'
+
+  it('load：读 share 表 + can_push_shared_annotation(p_share_id)', async () => {
+    const remote = stroke('red')
+    annEq.mockResolvedValue({
+      data: [{ page: 1, strokes: [remote], version: 'v1' }],
+      error: null,
+    })
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === CAN_PUSH) return Promise.resolve({ data: true, error: null })
+      return Promise.resolve({ data: [{ ok: true, version: 'v2', strokes: null }], error: null })
+    })
+
+    const backend = createSharedAnnotationBackend({}, 'u1', SHARE_OWNER_CONFIG)
+    await expect(backend.load('s1')).resolves.toEqual({ '1': [remote] })
+
+    expect(annEq).toHaveBeenCalledWith('share_id', 's1')
+    expect(mocks.rpc).toHaveBeenCalledWith(CAN_PUSH, { p_share_id: 's1' })
+    expect(backend.readOnly).toBe(false)
+  })
+
+  it('persist：写共享副本走 push_shared_annotation + p_share_id', async () => {
+    const remote = stroke('red')
+    const mine = stroke('blue')
+    annEq.mockResolvedValue({
+      data: [{ page: 1, strokes: [remote], version: 'v1' }],
+      error: null,
+    })
+    mocks.rpc.mockImplementation((name: string) => {
+      if (name === CAN_PUSH) return Promise.resolve({ data: true, error: null })
+      return Promise.resolve({ data: [{ ok: true, version: 'v2', strokes: null }], error: null })
+    })
+
+    const backend = createSharedAnnotationBackend({}, 'u1', SHARE_OWNER_CONFIG)
+    await backend.load('s1')
+    backend.persist('s1', { '1': [mine] })
+    await vi.advanceTimersByTimeAsync(600)
+
+    const call = mocks.rpc.mock.calls.find(([name]) => name === PUSH_SHARE)
+    expect(call?.[1]).toMatchObject({
+      p_share_id: 's1',
+      p_page: 1,
+      p_strokes: [mine],
+      p_expected_version: 'v1',
+    })
   })
 })

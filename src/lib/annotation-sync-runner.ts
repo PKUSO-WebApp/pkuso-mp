@@ -3,8 +3,8 @@ import { supabase } from '@/lib/supabase'
 import { reportClientError } from '@/lib/error-report'
 import { loadAnnoDoc, saveAnnoDoc, type AnnoDoc, type AnnoStroke } from '@/lib/annotation'
 import { fetchArchivePage } from '@/lib/annotation-history'
+import { parseAnnotationDocKey } from '@/lib/annotation-doc'
 import { migrateAnnotationStorage } from '@/lib/annotation-migration'
-import type { Json } from '@/types/database.types'
 import {
   clearAnnoPending,
   contentCovers,
@@ -128,11 +128,20 @@ export async function currentUserId(): Promise<string | null> {
 }
 
 async function fetchRemotePages(fileId: string): Promise<RemotePage[]> {
-  // 不按 user_id 过滤：RLS 已经只给本人可见，多带一个条件只是重复一遍策略
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select('page, strokes, version, updated_at')
-    .eq('file_id', fileId)
+  // 不按 user_id 过滤：RLS 已经只给本人可见，多带一个条件只是重复一遍策略。
+  // `share:` 前缀的键走共享副本的个人层表（两表同形，见 0.6.1 migration）。
+  const ref = parseAnnotationDocKey(fileId)
+  const query =
+    ref.kind === 'share'
+      ? supabase
+          .from('sheet_music_share_user_annotations')
+          .select('page, strokes, version, updated_at')
+          .eq('share_id', ref.id)
+      : supabase
+          .from(TABLE)
+          .select('page, strokes, version, updated_at')
+          .eq('file_id', ref.id)
+  const { data, error } = await query
   if (error) throw new Error(error.message)
   return (data ?? []).map((row) => ({
     page: row.page as number,
@@ -148,12 +157,20 @@ async function fetchRemotePage(
   fileId: string,
   page: number
 ): Promise<{ strokes: AnnoStroke[]; version: string | null }> {
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select('strokes, version')
-    .eq('file_id', fileId)
-    .eq('page', page)
-    .maybeSingle()
+  const ref = parseAnnotationDocKey(fileId)
+  const query =
+    ref.kind === 'share'
+      ? supabase
+          .from('sheet_music_share_user_annotations')
+          .select('strokes, version')
+          .eq('share_id', ref.id)
+          .eq('page', page)
+      : supabase
+          .from(TABLE)
+          .select('strokes, version')
+          .eq('file_id', ref.id)
+          .eq('page', page)
+  const { data, error } = await query.maybeSingle()
   if (error) throw new Error(error.message)
   return {
     strokes: (Array.isArray(data?.strokes) ? data?.strokes : []) as unknown as AnnoStroke[],
@@ -186,20 +203,22 @@ async function pushRemotePage(
   strokes: AnnoStroke[],
   expected: string | null
 ): Promise<PushOutcome> {
-  const args: {
-    p_file_id: string
-    p_page: number
-    p_strokes: Json
-    p_expected_version?: string
-  } = {
-    p_file_id: fileId,
-    p_page: page,
-    p_strokes: strokes,
-  }
+  const ref = parseAnnotationDocKey(fileId)
   // 不传 = 用函数默认值 NULL（无条件覆盖）。传 null 会被类型拒掉，而语义完全一样
-  if (expected !== null) args.p_expected_version = expected
-
-  const { data, error } = await supabase.rpc('push_sheet_music_annotation', args)
+  const { data, error } =
+    ref.kind === 'share'
+      ? await supabase.rpc('push_share_user_annotation', {
+          p_share_id: ref.id,
+          p_page: page,
+          p_strokes: strokes as never,
+          ...(expected !== null ? { p_expected_version: expected } : {}),
+        })
+      : await supabase.rpc('push_sheet_music_annotation', {
+          p_file_id: ref.id,
+          p_page: page,
+          p_strokes: strokes as never,
+          ...(expected !== null ? { p_expected_version: expected } : {}),
+        })
   if (error) throw new Error(error.message)
   // 生成类型说这两列非空，但 SQL 里冲突时它们可以是 NULL（没有行）——按实际形状读
   const row = (Array.isArray(data) ? data[0] : null) as
@@ -220,11 +239,19 @@ async function archiveRemotePage(
   page: number,
   strokes: AnnoStroke[]
 ): Promise<void> {
-  const { error } = await supabase.rpc('archive_sheet_music_annotation', {
-    p_file_id: fileId,
-    p_page: page,
-    p_strokes: strokes,
-  })
+  const ref = parseAnnotationDocKey(fileId)
+  const { error } =
+    ref.kind === 'share'
+      ? await supabase.rpc('archive_share_user_annotation', {
+          p_share_id: ref.id,
+          p_page: page,
+          p_strokes: strokes as never,
+        })
+      : await supabase.rpc('archive_sheet_music_annotation', {
+          p_file_id: ref.id,
+          p_page: page,
+          p_strokes: strokes as never,
+        })
   if (error) throw new Error(error.message)
 }
 

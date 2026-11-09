@@ -106,8 +106,9 @@ function createPersonalAnnotationBackend(
       setAnnotationConflictListener((id) => {
         if (id === fileId) callbacks.onConflict()
       })
-      // 进册先拉后推对一次账；完成后再刷一次冲突列表（与 P6a 之前一致）
-      void syncAnnotationFile(fileId).then(() => callbacks.onSynced())
+      // 进册先拉后推对一次账；完成后再刷一次冲突列表（与 P6a 之前一致）。
+      // 返回 Promise：共享副本的「拉共享层再合并」必须等这次对账落地（见 share-pull.ts）。
+      return syncAnnotationFile(fileId).then(() => callbacks.onSynced())
     },
 
     onClose() {

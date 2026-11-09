@@ -2,7 +2,7 @@ export const score = {
   navTitle: 'Scores',
   tabs: {
     all: 'All',
-    mine: 'Assigned to me',
+    mine: 'Mine',
     shared: 'Shared scores',
   },
   loadFailed: 'Failed to load: {error}',

@@ -34,6 +34,7 @@ export function SaveToSheet({
   onHistory,
   onSharedHistory,
   onMergeShared,
+  onShareAnnotations,
   onClose,
 }: {
   kinds: HandoffKind[]
@@ -70,6 +71,11 @@ export function SaveToSheet({
    * 给了入口也只会让人点进一个空面板。
    */
   onMergeShared?: () => void
+  /**
+   * 0.6.1「共享批注」：只有本人对这份原谱有 A2 且这一册有笔迹时才给。
+   * 它不是文件出口，所以**不受 `ready` 影响**（走的是 RPC，不依赖本地 PDF）。
+   */
+  onShareAnnotations?: () => void
   onClose: () => void
 }) {
   const { t } = useT()
@@ -105,6 +111,12 @@ export function SaveToSheet({
             <Text className='block text-center text-xs text-text-subtle'>
               {t('common.saveTo.preparing')}
             </Text>
+          </View>
+        ) : null}
+        {/* 0.6.1：把这一册的批注共享成一份新谱（创建/更新自己的副本） */}
+        {onShareAnnotations ? (
+          <View className='border-b border-border px-4 py-4' onClick={onShareAnnotations}>
+            <Text className='text-sm text-text'>{t('scoreReader.share.entry')}</Text>
           </View>
         ) : null}
         {kinds.map((kind) => (

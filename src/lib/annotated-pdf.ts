@@ -93,10 +93,13 @@ async function composePdf(
   fn: ComposeFn,
   fileId: string,
   invoke: InvokeFn,
-  refresh: RefreshFn
+  refresh: RefreshFn,
+  shareId?: string
 ): Promise<ComposedPdf> {
   const run = async (): Promise<ComposedPdf> => {
-    const { data, error } = await invoke(fn, { body: { file_id: fileId } })
+    const reqBody: Record<string, unknown> = { file_id: fileId }
+    if (shareId) reqBody.share_id = shareId
+    const { data, error } = await invoke(fn, { body: reqBody })
     if (error) {
       const message = await serverMessage(error)
       throw new AnnotatedPdfError(codeOf(message), message)
@@ -130,16 +133,18 @@ async function composePdf(
 export async function composeAnnotatedPdf(
   fileId: string,
   invoke: InvokeFn = defaultInvoke,
-  refresh: RefreshFn = defaultRefresh
+  refresh: RefreshFn = defaultRefresh,
+  shareId?: string
 ): Promise<ComposedPdf> {
-  return composePdf('compose-annotated-pdf', fileId, invoke, refresh)
+  return composePdf('compose-annotated-pdf', fileId, invoke, refresh, shareId)
 }
 
-/** 共享批注 PDF（全团共享层；P6d） */
+/** 共享批注 PDF（全团共享层；P6d / 0.6.1 共享副本） */
 export async function composeSharedPdf(
   fileId: string,
   invoke: InvokeFn = defaultInvoke,
-  refresh: RefreshFn = defaultRefresh
+  refresh: RefreshFn = defaultRefresh,
+  shareId?: string
 ): Promise<ComposedPdf> {
-  return composePdf('compose-shared-pdf', fileId, invoke, refresh)
+  return composePdf('compose-shared-pdf', fileId, invoke, refresh, shareId)
 }
