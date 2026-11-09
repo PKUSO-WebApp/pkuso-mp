@@ -14,6 +14,7 @@ const store = vi.hoisted(() => ({
   versionRow: null as { version: string | null } | null,
   schedule: vi.fn(),
   archive: vi.fn(),
+  saveFails: false,
 }))
 
 vi.mock('@tarojs/taro', () => ({
@@ -28,6 +29,7 @@ vi.mock('@/lib/annotation', () => ({
   // 本模块只关心「本地文档」这一层语义；真正的存储键规则由 annotation.test 钉
   loadAnnoDoc: (owner: string, key: string) => store.docs.get(`${owner}:${key}`) ?? {},
   saveAnnoDoc: (owner: string, key: string, doc: AnnoDoc) => {
+    if (store.saveFails) return false
     store.docs.set(`${owner}:${key}`, doc)
     return true
   },
@@ -70,6 +72,7 @@ beforeEach(() => {
   store.storage.clear()
   store.shareRows = []
   store.versionRow = null
+  store.saveFails = false
   store.archive.mockResolvedValue({ data: null, error: null })
 
   // 两条查询形状：整册 select('page, strokes, version, updated_at') 是 thenable；
@@ -148,6 +151,18 @@ describe('pullShareLayer：打开共享副本时把共享层拉进个人层', ()
     expect(res.conflicts).toEqual([])
     expect(res.doc['1']).toEqual(local)
     // 只更新了基线，没有把本地的笔迹推到共享层
+    expect(store.schedule).not.toHaveBeenCalled()
+  })
+
+  it('写盘失败：不推进基线、adopted 为空（下一轮重试，不静默丢内容）', async () => {
+    store.saveFails = true
+    store.shareRows = [remoteRow(1, [stroke('red')], 'v1')]
+
+    const res = await pullShareLayer({ owner: OWNER, shareId: SHARE, docKey: DOC })
+
+    expect(res.adopted).toEqual([])
+    expect(res.saveFailed).toBe(true)
+    expect(store.storage.get(`share-pull-base-v1:${OWNER}:${SHARE}`)).toBeUndefined()
     expect(store.schedule).not.toHaveBeenCalled()
   })
 
@@ -230,6 +245,23 @@ describe('resolveSharePullConflict：三选一，只写个人层', () => {
     expect(res.ok).toBe(true)
     expect(res.strokes).toEqual([...local, ...remote])
     expect(store.docs.get(`${OWNER}:${DOC}`)?.['1']).toEqual([...local, ...remote])
+  })
+
+  it('写盘失败：返回 ok=false，不推进基线', async () => {
+    store.docs.set(`${OWNER}:${DOC}`, { '1': local })
+    store.saveFails = true
+    store.versionRow = { version: 'v1' }
+
+    const res = await resolveSharePullConflict({
+      owner: OWNER,
+      shareId: SHARE,
+      docKey: DOC,
+      conflict,
+      choice: 'merge',
+    })
+
+    expect(res).toEqual({ ok: false, strokes: null })
+    expect(store.storage.get(`share-pull-base-v1:${OWNER}:${SHARE}`)).toBeUndefined()
   })
 
   it('提交前共享层又变了 ⇒ raced，什么都不写', async () => {

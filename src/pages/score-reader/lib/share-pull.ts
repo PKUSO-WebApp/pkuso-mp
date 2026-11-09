@@ -41,10 +41,12 @@ export type SharePullConflict = {
 export type SharePullResult = {
   /** 合并后的个人文档（未采纳时为原样） */
   doc: AnnoDoc
-  /** 被收下的共享层页 */
+  /** 被收下的共享层页（落盘失败时为空：下一轮还要重新收） */
   adopted: number[]
   /** 需要用户选的真分叉 */
   conflicts: SharePullConflict[]
+  /** 本地写盘失败（存储满）：基线不推进，下一轮重来 */
+  saveFailed?: boolean
 }
 
 const BASE_PREFIX = 'share-pull-base-v1:'
@@ -147,15 +149,29 @@ export async function pullShareLayer(args: {
       version: r?.version ?? undefined,
     }
   }
-  saveBase(owner, shareId, nextBase)
 
+  /**
+   * 写盘失败（存储满）时**绝不能推进基线**：否则「共享层已收下」被记成事实，
+   * 而本地其实没有这份内容——之后共享层没再变，就再也不会重新收，等于静默丢内容。
+   * 本轮返回 adopted=[]，让阅读器保持原文档；下一轮按旧基线重算。
+   */
+  let saveFailed = false
   if (adopted.length > 0) {
-    saveAnnoDoc(owner, docKey, doc)
-    markAnnoPending(owner)
-    scheduleAnnotationSync(docKey)
+    saveFailed = !saveAnnoDoc(owner, docKey, doc)
+    if (!saveFailed) {
+      markAnnoPending(owner)
+      scheduleAnnotationSync(docKey)
+    }
   }
 
-  return { doc, adopted, conflicts }
+  if (!saveFailed) saveBase(owner, shareId, nextBase)
+
+  return {
+    doc,
+    adopted: saveFailed ? [] : adopted,
+    conflicts,
+    ...(saveFailed ? { saveFailed: true } : {}),
+  }
 }
 
 export type SharePullChoice = 'local' | 'remote' | 'merge'
@@ -234,7 +250,8 @@ export async function resolveSharePullConflict(args: {
 
   if (pageFingerprint(currentLocal) !== pageFingerprint(next)) {
     doc[key] = next
-    saveAnnoDoc(owner, docKey, doc)
+    // 写盘失败就不能推进基线，否则「已解决」被记成事实而本地没有这份内容
+    if (!saveAnnoDoc(owner, docKey, doc)) return { ok: false, strokes: null }
     markAnnoPending(owner)
     scheduleAnnotationSync(docKey)
   }
