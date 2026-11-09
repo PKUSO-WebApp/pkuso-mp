@@ -3854,7 +3854,25 @@ export default function ScoreReader() {
       choice: side,
     })
     if (!result.ok) {
-      if (result.raced) return { ok: false, raced: true }
+      if (result.raced) {
+        // 共享层在预览之后又变了：重新拉一次，刷新冲突快照，让用户按新版本再选
+        try {
+          const pulled = await pullShareLayer({
+            owner: annoOwner,
+            shareId,
+            docKey: annoDocId,
+          })
+          if (pulled.adopted.length > 0) {
+            annosRef.current = pulled.doc
+            setAnnos(pulled.doc)
+          }
+          setSharePullConflicts(pulled.conflicts)
+          setSharePullConflictPage(null)
+        } catch {
+          // 刷新失败就保持旧快照；用户关掉重开也会重试
+        }
+        return { ok: false, raced: true }
+      }
       return { ok: false, message: t('scoreReader.conflict.failed') }
     }
     if (result.strokes) {
@@ -4051,8 +4069,9 @@ export default function ScoreReader() {
     setShareBusy(true)
     handoff.close()
     try {
-      // 已存在自己的副本 ⇒ 这次是 hard push：先确认会覆盖副本上的直接修改
-      const { data: existing } = await (
+      // 已存在自己的副本 ⇒ 这次是 hard push：先确认会覆盖副本上的直接修改。
+      // 查不到不能默认「不存在」——查询失败时宁可让用户重试，也不要跳过确认直接覆盖。
+      const { data: existing, error: existingError } = await (
         supabase as unknown as { from: (t: string) => any }
       )
         .from('sheet_music_annotation_share_files')
@@ -4060,6 +4079,10 @@ export default function ScoreReader() {
         .eq('source_file_id', fileId)
         .eq('owner_id', user.id)
         .maybeSingle()
+      if (existingError) {
+        void Taro.showToast({ title: t('scoreReader.share.failed'), icon: 'none' })
+        return
+      }
       if (existing) {
         const modal = await Taro.showModal({
           title: t('scoreReader.share.hardPushTitle'),
