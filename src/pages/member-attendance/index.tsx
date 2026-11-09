@@ -25,6 +25,7 @@ import {
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { useUser } from '@/context/user-context'
+import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import { DATA_SYNC_INTERVAL_MS } from '@/lib/dataSync'
 import './index.scss'
 
@@ -66,6 +67,8 @@ export default function MemberAttendancePage() {
   // 0.6.2：详情页不再显示「成员考勤」导航标题（产品要求什么都不显示）
   useNavTitle('memberAttendance.navTitleBlank')
   const darkClass = useThemeClass()
+  // 原生 Textarea 的 placeholder 吃不到 CSS 变量，必须显式传主题色（与 TextField 同一条路）
+  const placeholderStyle = usePlaceholderStyle()
 
   const cachedUserId = usePageRestore<string>('userId')
   const userId = cachedUserId ?? ''
@@ -802,6 +805,7 @@ export default function MemberAttendancePage() {
                                 }))
                               }
                               placeholder={t('memberAttendance.reasonPlaceholder')}
+                              placeholderStyle={placeholderStyle}
                               maxlength={200}
                             />
                           </View>

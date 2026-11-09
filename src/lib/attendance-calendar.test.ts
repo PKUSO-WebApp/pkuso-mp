@@ -27,6 +27,11 @@ describe('localDateKey / monthOfDateKey', () => {
     expect(localDateKey('not-a-date')).toBeNull()
   })
 
+  it('同时接受空格分隔的本地时间（旧 JSCore 上 Date.parse 会失败）', () => {
+    expect(localDateKey('2026-10-08 19:00:00')).toBe('2026-10-08')
+    expect(dayTone([row('absent', '2026-10-08 19:00:00')], NOW)).toBe('danger')
+  })
+
   it('日期键 → 年/月；不合法返回 null', () => {
     expect(monthOfDateKey('2026-10-22')).toEqual({ year: 2026, month: 9 })
     expect(monthOfDateKey('2026-13-01')).toBeNull()

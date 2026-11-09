@@ -42,11 +42,38 @@ const SEVERITY: Record<StatusTone, number> = {
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 
-/** ISO 时间 → 本地日期键 `YYYY-MM-DD`；无法解析返回 null */
+/**
+ * 解析本地时间字符串（`YYYY-MM-DDTHH:mm:ss` 或空格分隔）。
+ *
+ * ⚠️ **不要用 `new Date(str)` / `Date.parse(str)`**：同一份 `2026-11-08T19:00:00`
+ * 在部分旧 JSCore（iOS 微信）上会解析失败，而在 Chrome 上正常 —— 那会导致某些排练
+ * （尤其是分排）在日历里整行消失。`lib/date-utils` 的 `parseLocalISO` 早就是为这件事
+ * 存在的；这里实现同一套规则，但不 import 它（那会经 i18n 把 Taro 拖进纯逻辑模块）。
+ */
+function parseLocalDateTime(value: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?/.exec(value)
+  if (!m) return null
+  const year = Number(m[1])
+  const month = Number(m[2]) - 1
+  const day = Number(m[3])
+  const d = new Date(
+    year,
+    month,
+    day,
+    Number(m[4] ?? 0),
+    Number(m[5] ?? 0),
+    Number(m[6] ?? 0)
+  )
+  // 显式校验：Date 会把 2026-02-30 静默翻滚到 3 月
+  if (d.getFullYear() !== year || d.getMonth() !== month || d.getDate() !== day) return null
+  return d
+}
+
+/** ISO/本地时间 → 本地日期键 `YYYY-MM-DD`；无法解析返回 null */
 export function localDateKey(iso: string | null | undefined): string | null {
   if (!iso) return null
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return null
+  const d = parseLocalDateTime(iso)
+  if (!d) return null
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
@@ -79,8 +106,10 @@ export function groupRowsByDate<T extends AttendanceRowLike>(rows: T[]): Map<str
 }
 
 const startMs = (row: AttendanceRowLike): number | null => {
-  const t = Date.parse(row.rehearsals?.start_time ?? '')
-  return Number.isFinite(t) ? t : null
+  const raw = row.rehearsals?.start_time
+  if (!raw) return null
+  const d = parseLocalDateTime(raw)
+  return d ? d.getTime() : null
 }
 
 /**

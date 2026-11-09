@@ -16,7 +16,6 @@ export const profileInfo = {
   collegeLabel: '学院',
   birthdayLabel: '生日',
   birthdayPlaceholder: '请选择生日',
-  birthdayClear: '清除',
   collegePlaceholder: '所在学院',
   profileLoading: '个人信息加载中，请稍候再试',
   phoneInvalid: '手机号格式不正确（11 位数字，以 1 开头）',

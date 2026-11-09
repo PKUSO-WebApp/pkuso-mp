@@ -16,7 +16,6 @@ export const profileInfo = {
   collegeLabel: 'College',
   birthdayLabel: 'Birthday',
   birthdayPlaceholder: 'Select birthday',
-  birthdayClear: 'Clear',
   collegePlaceholder: 'Your college',
   profileLoading: 'Profile is loading, please wait',
   phoneInvalid: 'Invalid phone number (11 digits, starting with 1)',

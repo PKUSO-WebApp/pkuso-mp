@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 import { View, Text, Image } from '@tarojs/components'
 import { useT } from '@/i18n'
 import { StorageImage } from '@/components/ui/StorageImage'
-import { StatusChip } from '@/components/ui/StatusChip'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { translateJoinDate } from '@/lib/join-date-i18n'
 import defaultAvatar from '@/assets/icons/user-round.png'
@@ -50,15 +49,7 @@ export function ProfileInfoView({
 
       <View>
         <InfoRow label={t('profileInfo.nameLabel')}>
-          <View className='flex flex-wrap items-center gap-1.5'>
-            <Text className='text-sm text-text'>{profile.full_name ?? notFilled}</Text>
-            {profile.is_section_leader && (
-              <StatusChip tone='warning'>{t('members.sectionLeader')}</StatusChip>
-            )}
-            {profile.is_principal && (
-              <StatusChip tone='success'>{t('members.principal')}</StatusChip>
-            )}
-          </View>
+          <Text className='text-sm text-text'>{profile.full_name ?? notFilled}</Text>
         </InfoRow>
 
         <InfoRow label={t('profileInfo.instrumentLabel')}>
@@ -133,9 +124,7 @@ function InfoRow({
   return (
     <View className='flex items-center gap-3 border-b border-border py-3'>
       <Text className='w-20 shrink-0 text-sm text-primary'>{label}</Text>
-      <View className='min-w-0 flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
-        {children}
-      </View>
+      <View className='min-w-0 flex-1'>{children}</View>
     </View>
   )
 }

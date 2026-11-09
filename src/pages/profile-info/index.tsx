@@ -651,17 +651,6 @@ export default function ProfileInfoPage() {
                 </Text>
               </View>
             </Picker>
-            {editBirthday ? (
-              <Text
-                className='shrink-0 text-xs text-text-muted'
-                onClick={() => {
-                  setEditBirthday('')
-                  editDraft.update({ birthday: '' })
-                }}
-              >
-                {t('profileInfo.birthdayClear')}
-              </Text>
-            ) : null}
             <Image
               src={editHideBirthday ? eyeOffImg : eyeImg}
               className='h-5 w-5 shrink-0'
