@@ -285,6 +285,8 @@ export default function MemberAttendancePage() {
   const latestDate = useMemo(() => {
     let latest: string | null = null
     for (const row of rows) {
+      // 默认落到最近一个**可修改**的日期；exempt 与「无排练」同处理
+      if ((row.status ?? 'absent') === 'exempt') continue
       const key = localDateKey(row.rehearsals?.start_time ?? null)
       if (key && (!latest || key > latest)) latest = key
     }
@@ -310,7 +312,12 @@ export default function MemberAttendancePage() {
   const percent = (n: number, total: number): number =>
     total > 0 ? Math.round((n / total) * 100) : 0
   const selectedRows = useMemo(
-    () => (selectedDate ? (byDate.get(selectedDate) ?? []) : []),
+    () =>
+      selectedDate
+        ? (byDate.get(selectedDate) ?? []).filter(
+            (row) => (row.status ?? 'absent') !== 'exempt'
+          )
+        : [],
     [byDate, selectedDate]
   )
   /** 提交只针对**当前展开的那一天**（产品 2026-11-10 定） */
@@ -357,8 +364,8 @@ export default function MemberAttendancePage() {
     void Taro.showModal({
       title: t('memberAttendance.unsavedTitle'),
       content: t('memberAttendance.unsavedHint'),
+      // 微信限制 confirmText ≤ 4 个汉字；「丢弃并切换」会直接报错
       confirmText: t('memberAttendance.discardChanges'),
-      cancelText: t('common.actions.cancel'),
       success: (res) => {
         if (!res.confirm) return
         revertDay(selectedDate)
@@ -406,6 +413,8 @@ export default function MemberAttendancePage() {
     if (message.includes('pending_exists')) return t('memberAttendance.errors.pendingExists')
     if (message.includes('attendance_missing'))
       return t('memberAttendance.errors.attendanceMissing')
+    if (message.includes('exempt_not_editable'))
+      return t('memberAttendance.errors.exemptNotEditable')
     if (message.includes('exempt_not_allowed'))
       return t('memberAttendance.errors.exemptNotAllowed')
     if (message.includes('not_allowed') || message.includes('not_request_owner'))
@@ -512,22 +521,32 @@ export default function MemberAttendancePage() {
   const memberInfoPending = profileLoading && !member
   const memberInfoFailed = !!profileError && !member
 
+  // 0.6.2：资料没回来之前只显示**一个**加载态，别把下面各区块的占位一起叠出来
+  if (memberInfoPending) {
+    return (
+      <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
+        <View className='flex flex-1 items-center justify-center px-4'>
+          <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
+        </View>
+      </View>
+    )
+  }
+  if (memberInfoFailed) {
+    return (
+      <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
+        <View className='flex flex-1 items-center justify-center px-4'>
+          <Text className='text-sm text-danger'>{t('memberAttendance.loadFailed')}</Text>
+        </View>
+      </View>
+    )
+  }
+
   return (
     <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='px-4 pt-3 pb-6'>
           {/* 个人信息：复用「我的 → 个人信息」布局（0.6.2） */}
-          {memberInfoPending ? (
-            <View className='rounded-xl border border-border bg-card p-4'>
-              <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
-            </View>
-          ) : memberInfoFailed ? (
-            <View className='rounded-xl border border-border bg-card p-4'>
-              <Text className='text-sm text-danger'>{t('memberAttendance.loadFailed')}</Text>
-            </View>
-          ) : member ? (
-            <ProfileInfoView profile={member} viewerId={user?.id ?? null} />
-          ) : null}
+          {member ? <ProfileInfoView profile={member} viewerId={user?.id ?? null} /> : null}
 
           {/* 没有考勤管理权：只展示个人信息（详情页对所有成员开放） */}
           {canManage === null ? (
@@ -577,14 +596,16 @@ export default function MemberAttendancePage() {
                   </Picker>
                 </>
               ) : (
-                // 条件还没回来：先占住卡片的位置，避免整块晚一拍才弹出来
-                <View className='mt-3 rounded-xl border border-border bg-muted px-3 py-2'>
-                  <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
+                // 条件还没回来：用无文字的骨架占位，避免再叠一条「加载中」
+                <View className='mt-3'>
+                  <View className='h-10 w-full rounded-xl bg-muted' />
                 </View>
               )}
             </View>
           ) : null}
 
+          {!loading && !failed ? (
+            <>
           {/* 出勤占比：排除 exempt 与未来；late 归入出勤（0.6.2） */}
           <View className='mt-3 rounded-xl border border-border bg-card p-4'>
             <Text className='text-sm font-medium text-text'>
@@ -648,6 +669,8 @@ export default function MemberAttendancePage() {
               now={Date.now()}
             />
           </View>
+            </>
+          ) : null}
 
           {/* 当天排练：点日历里有排练的日期后显示 */}
           {loading ? (
@@ -657,6 +680,9 @@ export default function MemberAttendancePage() {
           ) : failed ? (
             <View className='mt-3 rounded-xl border border-border bg-card p-4'>
               <Text className='text-sm text-danger'>{t('memberAttendance.loadFailed')}</Text>
+              <View className='mt-2' onClick={() => void load()}>
+                <Text className='text-xs text-primary'>{t('memberAttendance.retry')}</Text>
+              </View>
             </View>
           ) : selectedDate ? (
             <View className='mt-3'>
@@ -769,9 +795,6 @@ export default function MemberAttendancePage() {
 
                       {showReason ? (
                         <View className='mt-2'>
-                          <Text className='mb-1 block text-xs text-text-muted'>
-                            {t('memberAttendance.reasonLabel')}
-                          </Text>
                           <View className='w-full overflow-hidden rounded-xl border border-border bg-muted px-3 py-2'>
                             <Textarea
                               className='h-16 w-full bg-transparent text-sm text-text'

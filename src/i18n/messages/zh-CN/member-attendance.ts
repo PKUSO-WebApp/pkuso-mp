@@ -21,7 +21,7 @@ export const memberAttendance = {
   },
   unsavedTitle: '有未提交的修改',
   unsavedHint: '切换日期会丢弃当前未提交的修改。',
-  discardChanges: '丢弃并切换',
+  discardChanges: '丢弃',
   info: {
     sectionLeader: '声部长',
     principal: '首席',
@@ -46,8 +46,8 @@ export const memberAttendance = {
     saved: '已保存',
     saveFailed: '保存失败，请稍后重试',
   },
-  reasonLabel: '修改理由（可选）：',
-  reasonPlaceholder: '请填写修改原因',
+  reasonLabel: '修改理由：',
+  reasonPlaceholder: '修改理由（可选）',
   submit: '提交修改考勤申请',
   submitting: '提交中…',
   submitted: '已提交',
@@ -68,6 +68,7 @@ export const memberAttendance = {
   },
   errors: {
     exemptNotAllowed: '无需出勤不再允许通过修改申请设置',
+    exemptNotEditable: '无需出勤的排练不能修改考勤',
     pendingExists: '该成员这场排练已有待审批申请',
     attendanceMissing: '找不到该成员的考勤记录',
     notAllowed: '你无权修改这条考勤',

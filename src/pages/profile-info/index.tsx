@@ -613,14 +613,16 @@ export default function ProfileInfoPage() {
           )}
         </View>
 
-        {/* 生日（查看态；本人始终可见） */}
-        {!isEditing && myProfile.birthday && (
+        {/* 生日（查看态；本人始终可见，未填写就显示「未填写」） */}
+        {!isEditing && (
           <View className='flex items-center gap-3 border-b border-border py-3'>
             <Text className='w-20 shrink-0 text-sm text-primary'>
               {t('profileInfo.birthdayLabel')}
             </Text>
             <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
-              <Text className='block text-sm text-text'>{myProfile.birthday}</Text>
+              <Text className='block text-sm text-text'>
+                {myProfile.birthday ?? notFilled}
+              </Text>
             </View>
           </View>
         )}

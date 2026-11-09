@@ -20,7 +20,7 @@ export const memberAttendance = {
   },
   unsavedTitle: 'Unsubmitted changes',
   unsavedHint: 'Switching dates will discard the unsubmitted changes.',
-  discardChanges: 'Discard and switch',
+  discardChanges: 'OK',
   info: {
     sectionLeader: 'Section Leader',
     principal: 'Principal',
@@ -45,8 +45,8 @@ export const memberAttendance = {
     saved: 'Saved',
     saveFailed: 'Save failed. Please try again.',
   },
-  reasonLabel: 'Reason (optional):',
-  reasonPlaceholder: 'Please enter a reason for the change',
+  reasonLabel: 'Reason:',
+  reasonPlaceholder: 'Reason (optional)',
   submit: 'Submit attendance change request',
   submitting: 'Submitting…',
   submitted: 'Submitted',
@@ -67,6 +67,7 @@ export const memberAttendance = {
   },
   errors: {
     exemptNotAllowed: 'Exempt can no longer be set through change requests',
+    exemptNotEditable: 'Attendance cannot be changed for exempt rehearsals',
     pendingExists: 'A pending request already exists for this rehearsal',
     attendanceMissing: 'Attendance record not found',
     notAllowed: 'You are not allowed to change this attendance',

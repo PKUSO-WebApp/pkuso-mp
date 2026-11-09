@@ -109,7 +109,7 @@ export const scoreReader = {
     hardPushTitle: 'Update shared annotations',
     hardPushHint:
       'This replaces the shared copy with your annotations on the original score, including changes made directly on the shared copy. Continue?',
-    hardPushConfirm: 'Replace',
+    hardPushConfirm: 'OK',
     created: 'Shared copy created',
     updated: 'Shared copy updated',
     noAnnotations: 'This score has no annotations yet',
