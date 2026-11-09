@@ -226,7 +226,7 @@ describe('排练详情页', () => {
     setRoute({ id: '7' }, '/auth-pending')
     render(<RehearsalDetail />)
 
-    expect(screen.getByText(/加载中/)).toBeTruthy()
+    expect(document.querySelector('.ui-spinner')).toBeTruthy()
     expect(screen.queryByText('排练不存在')).toBeNull()
     expect(mocks.maybeSingle).not.toHaveBeenCalled()
   })

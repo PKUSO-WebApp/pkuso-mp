@@ -1,0 +1,15 @@
+/* 转圈加载：灰色圆环 + 主色缺口；颜色全部走语义 token，亮/暗模式自动跟随 */
+.ui-spinner {
+  border-color: var(--color-border);
+  border-top-color: var(--color-primary);
+  animation: ui-spinner-spin 0.9s linear infinite;
+}
+
+@keyframes ui-spinner-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

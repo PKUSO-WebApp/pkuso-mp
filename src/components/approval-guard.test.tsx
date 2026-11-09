@@ -135,7 +135,7 @@ describe('ApprovalGuard', () => {
   it('会话恢复完成前：显示加载占位，不跳转', () => {
     userCtx.ready = false
     render(<ApprovalGuard expected='pending' />)
-    expect(screen.getByText('加载中…')).toBeTruthy()
+    expect(document.querySelector('.ui-spinner')).toBeTruthy()
     expect(taroMock.reLaunch).not.toHaveBeenCalled()
   })
 

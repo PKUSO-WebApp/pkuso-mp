@@ -6,6 +6,8 @@ import { usePageRestore } from '@/hooks/usePageRestore'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useMemberPreference } from '@/hooks/useMemberPreference'
 import { StatusChip } from '@/components/ui/StatusChip'
+import { PageLoading } from '@/components/ui/PageLoading'
+import { Spinner } from '@/components/ui/Spinner'
 import { ProfileInfoView } from '@/components/profile/ProfileInfoView'
 import { AttendanceCalendar } from '@/components/attendance/AttendanceCalendar'
 import { formatRehearsalRange } from '@/lib/date-utils'
@@ -521,15 +523,9 @@ export default function MemberAttendancePage() {
   const memberInfoPending = profileLoading && !member
   const memberInfoFailed = !!profileError && !member
 
-  // 0.6.2：资料没回来之前只显示**一个**加载态，别把下面各区块的占位一起叠出来
+  // 0.6.2：资料没回来之前只显示**一个**加载态（转圈），别把下面各区块的占位一起叠出来
   if (memberInfoPending) {
-    return (
-      <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
-        <View className='flex flex-1 items-center justify-center px-4'>
-          <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
-        </View>
-      </View>
-    )
+    return <PageLoading darkClass={darkClass} />
   }
   if (memberInfoFailed) {
     return (
@@ -550,8 +546,8 @@ export default function MemberAttendancePage() {
 
           {/* 没有考勤管理权：只展示个人信息（详情页对所有成员开放） */}
           {canManage === null ? (
-            <View className='mt-3 rounded-xl border border-border bg-card p-4'>
-              <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
+            <View className='mt-3 flex justify-center rounded-xl border border-border bg-card p-6'>
+              <Spinner size='sm' />
             </View>
           ) : null}
 
@@ -674,8 +670,8 @@ export default function MemberAttendancePage() {
 
           {/* 当天排练：点日历里有排练的日期后显示 */}
           {loading ? (
-            <View className='mt-3 rounded-xl border border-border bg-card p-4'>
-              <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
+            <View className='mt-3 flex justify-center rounded-xl border border-border bg-card p-6'>
+              <Spinner size='sm' />
             </View>
           ) : failed ? (
             <View className='mt-3 rounded-xl border border-border bg-card p-4'>

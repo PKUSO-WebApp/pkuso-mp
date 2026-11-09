@@ -14,6 +14,7 @@ import { buildReturnTo, redirectToLogin } from '@/lib/login-redirect'
 import { logDiag } from '@/lib/session-diag'
 import { FieldRow } from '@/components/ui/FieldRow'
 import { ListState } from '@/components/ui/ListState'
+import { PageLoading } from '@/components/ui/PageLoading'
 import type { RehearsalRow } from '@/types/database'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
@@ -252,13 +253,7 @@ export default function RehearsalDetail() {
     status === 'auth-pending' || status === 'auth-required' || status === 'loading' || restoring
 
   if (pagePending) {
-    return (
-      <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
-        <View className='flex flex-1 items-center justify-center'>
-          <Text className='text-xs text-text-muted'>{t('common.actions.loading')}</Text>
-        </View>
-      </View>
-    )
+    return <PageLoading darkClass={darkClass} size='xs' />
   }
 
   // 查询失败 / 会话恢复失败：与「不存在」严格分开，给重试入口。
