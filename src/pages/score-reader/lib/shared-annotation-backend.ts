@@ -45,6 +45,43 @@ export type SharedAnnotationBackend = ReaderAnnotationBackend & {
   resolveConflict: (page: number, choice: SharedConflictChoice) => Promise<AnnoStroke[] | null>
 }
 
+/**
+ * 共享层的配置（0.6.1 参数化）。
+ *
+ * - 默认（不传）是 P5' 的「共享层挂在原文件上」：表 `sheet_music_shared_annotations`、
+ *   写权 `can_edit_shared_annotation(file_id)`、写 RPC `push_shared_sheet_music_annotation`；
+ * - 0.6.1 的共享副本传 `SHARE_OWNER_CONFIG`：表 `sheet_music_share_annotations`、
+ *   写权 `can_push_shared_annotation(share_id)`、写 RPC `push_shared_annotation`。
+ *
+ * 两套语义（CAS/草稿/冲突面板/防抖）逐字相同，只有「读哪张表、调哪个函数」不同。
+ */
+export type SharedLayerConfig = {
+  kind: 'file' | 'share'
+  table: string
+  canWriteRpc: string
+  canWriteArg: 'p_file_id' | 'p_share_id'
+  pushRpc: string
+  pushArg: 'p_file_id' | 'p_share_id'
+}
+
+const FILE_SHARED_CONFIG: SharedLayerConfig = {
+  kind: 'file',
+  table: 'sheet_music_shared_annotations',
+  canWriteRpc: 'can_edit_shared_annotation',
+  canWriteArg: 'p_file_id',
+  pushRpc: 'push_shared_sheet_music_annotation',
+  pushArg: 'p_file_id',
+}
+
+export const SHARE_OWNER_CONFIG: SharedLayerConfig = {
+  kind: 'share',
+  table: 'sheet_music_share_annotations',
+  canWriteRpc: 'can_push_shared_annotation',
+  canWriteArg: 'p_share_id',
+  pushRpc: 'push_shared_annotation',
+  pushArg: 'p_share_id',
+}
+
 /** 停笔后合并多次写入的防抖（共享谱每次 CAS 是一次网络往返） */
 const DEBOUNCE_MS = 600
 
@@ -63,7 +100,8 @@ const cloneDoc = (doc: AnnoDoc): AnnoDoc => JSON.parse(JSON.stringify(doc)) as A
 export function createSharedAnnotationBackend(
   callbacks: SharedAnnotationBackendCallbacks,
   /** 草稿按账号隔离（D16）；与 reader 的 annoOwner 同一个值 */
-  owner: string
+  owner: string,
+  config: SharedLayerConfig = FILE_SHARED_CONFIG
 ): SharedAnnotationBackend {
   let readOnly = true
   let currentFileId = ''
@@ -82,6 +120,20 @@ export function createSharedAnnotationBackend(
   }
   const setState = (state: SharedSaveState) => callbacks.onSaveState?.(state)
   const reportConflicts = () => callbacks.onConflict?.([...conflicts.values()])
+
+  /** 两套共享层的写 RPC 形状相同，只有函数名与 id 参数名不同 */
+  const pushPage = (
+    id: string,
+    page: number,
+    strokes: AnnoStroke[],
+    expected: string | null
+  ): Promise<{ data: RpcRow[] | null; error: { message: string } | null }> =>
+    (supabase.rpc as any)(config.pushRpc, {
+      [config.pushArg]: id,
+      p_page: page,
+      p_strokes: strokes as never,
+      ...(expected !== null ? { p_expected_version: expected } : {}),
+    })
 
   const scheduleFlush = (fileId: string) => {
     clearTimer()
@@ -113,12 +165,12 @@ export function createSharedAnnotationBackend(
             dirty.delete(page)
             continue
           }
-          const { data, error } = await supabase.rpc('push_shared_sheet_music_annotation', {
-            p_file_id: fileId,
-            p_page: page,
-            p_strokes: strokes as never,
-            p_expected_version: versions[page] ?? '',
-          })
+          const { data, error } = await pushPage(
+            fileId,
+            page,
+            strokes,
+            versions[page] ?? ''
+          )
           if (error) {
             failed = true
             break
@@ -195,12 +247,12 @@ export function createSharedAnnotationBackend(
       conflicts = new Map()
       clearTimer()
 
+      // 两套共享层的表/函数形状相同，只有名字与 id 列不同（见 SharedLayerConfig）
+      const db = supabase as unknown as { from: (table: string) => any }
+      const idColumn = config.kind === 'share' ? 'share_id' : 'file_id'
       const [annRes, permRes] = await Promise.all([
-        supabase
-          .from('sheet_music_shared_annotations')
-          .select('page, strokes, version')
-          .eq('file_id', fileId),
-        supabase.rpc('can_edit_shared_annotation', { p_file_id: fileId }),
+        db.from(config.table).select('page, strokes, version').eq(idColumn, fileId),
+        (supabase.rpc as any)(config.canWriteRpc, { [config.canWriteArg]: fileId }),
       ])
 
       const remoteDoc: AnnoDoc = {}
@@ -316,12 +368,12 @@ export function createSharedAnnotationBackend(
 
     async restorePage(page, strokes) {
       if (readOnly) return { ok: false }
-      const { data, error } = await supabase.rpc('push_shared_sheet_music_annotation', {
-        p_file_id: currentFileId,
-        p_page: page,
-        p_strokes: strokes as never,
-        p_expected_version: versions[page] ?? '',
-      })
+      const { data, error } = await pushPage(
+        currentFileId,
+        page,
+        strokes,
+        versions[page] ?? ''
+      )
       const row = (data as RpcRow[] | null)?.[0]
       if (error || !row) {
         setState('error')
@@ -378,12 +430,12 @@ export function createSharedAnnotationBackend(
 
       const next =
         choice === 'merge' ? mergeStrokes(conflict.local, conflict.remote) : conflict.local
-      const { data, error } = await supabase.rpc('push_shared_sheet_music_annotation', {
-        p_file_id: currentFileId,
-        p_page: page,
-        p_strokes: next as never,
-        p_expected_version: conflict.remoteVersion,
-      })
+      const { data, error } = await pushPage(
+        currentFileId,
+        page,
+        next,
+        conflict.remoteVersion
+      )
       const row = (data as RpcRow[] | null)?.[0]
       if (error || !row) {
         setState('error')

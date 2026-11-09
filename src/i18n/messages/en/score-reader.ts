@@ -104,4 +104,26 @@ export const scoreReader = {
     resolvePersonalConflicts: 'Resolve personal conflicts',
     loadFailedList: 'Could not load the pages to merge. Try again.',
   },
+  share: {
+    entry: 'Share annotations…',
+    hardPushTitle: 'Update shared annotations',
+    hardPushHint:
+      'This replaces the shared copy with your annotations on the original score, including changes made directly on the shared copy. Continue?',
+    hardPushConfirm: 'Replace',
+    created: 'Shared copy created',
+    updated: 'Shared copy updated',
+    noAnnotations: 'This score has no annotations yet',
+    notShareable: 'Full scores cannot be shared',
+    notAllowed: 'You do not have permission to share annotations',
+    failed: 'Failed to share annotations. Try again later.',
+  },
+  sharePull: {
+    failed: 'Could not load shared annotations. Try again later.',
+    conflictHint:
+      'Both the shared annotations and yours have changed. Choose which version to keep for each page (your personal copy only).',
+    local: 'My annotations',
+    remote: 'Shared annotations',
+    merge: 'Merge',
+    useCurrent: 'Use this version',
+  },
 }

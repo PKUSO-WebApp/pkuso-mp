@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro from '@tarojs/taro'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
@@ -8,16 +8,14 @@ import { tabBarReserveCss } from '@/lib/ui-scale'
 import { useUser } from '@/context/user-context'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useSheetMusic, type SheetMusicWithParts } from '@/hooks/useSheetMusic'
-import { useSharedScoreFiles } from '@/hooks/useSharedScoreFiles'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { ListState } from '@/components/ui/ListState'
 import { StaffBlockedPage } from '@/components/staff-blocked-page'
 import { myPartOf } from '@/lib/sheet-music-mine'
-import { groupSharedFilesByScore, type SharedScoreGroup } from '@/lib/shared-scores'
 import { isOrchestraMember } from '@/lib/role-gate'
 import './index.scss'
 
-type TabKey = 'mine' | 'shared' | 'all'
+type TabKey = 'mine' | 'all'
 
 export default function Score() {
   const { t } = useT()
@@ -29,19 +27,6 @@ export default function Score() {
   const { profile: myProfile, loading: myProfileLoading } = useMyProfile()
   const [tab, setTab] = useState<TabKey>('mine')
   const { items, loading, error, fetch } = useSheetMusic()
-  const shared = useSharedScoreFiles()
-
-  // 从阅读器返回时刷新共享谱列表：`updated_at` 会在那边变化，而 tab 页返回不会重新挂载。
-  // personal 列表没有这类计数，不需要跟着刷。
-  useDidShow(() => {
-    void shared.fetch()
-  })
-
-  /**
-   * 共享谱按「曲子」聚合（验收：平铺全部文件找不到特定声部/曲子的共享谱）。
-   * 总谱不参与共享（`groupSharedFilesByScore` 已过滤）。
-   */
-  const sharedGroups = useMemo(() => groupSharedFilesByScore(shared.data), [shared.data])
 
   /**
    * 「分发给我的」= **含我声部的乐谱**（2026-10-11 用户定的现阶段口径：暂时不看
@@ -52,7 +37,6 @@ export default function Score() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'mine', label: t('score.tabs.mine') },
-    { key: 'shared', label: t('score.tabs.shared') },
     { key: 'all', label: t('score.tabs.all') },
   ]
 
@@ -102,18 +86,6 @@ export default function Score() {
     })
   }
 
-  /**
-   * 共享谱的层级是**曲子 / 声部 / 谱子**：共享 tab 只到曲子一层，
-   * 声部与文件复用普通谱务的 score-detail / score-part（带 `shared=1` 收窄）。
-   */
-  const openSharedGroup = (group: SharedScoreGroup) => {
-    // 视图里 score_id 来自内连接，正常不会为空；为空说明数据异常，宁可不跳
-    if (!group.scoreId) return
-    void Taro.navigateTo({
-      url: `/pages/score-detail/index?id=${encodeURIComponent(group.scoreId)}&shared=1`,
-    })
-  }
-
   const fileCount = (s: SheetMusicWithParts) => s.parts.reduce((acc, p) => acc + p.files.length, 0)
 
   return (
@@ -125,96 +97,51 @@ export default function Score() {
 
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='px-4 pb-3 pt-3'>
-          {tab === 'shared' ? (
-            <ListState
-              loading={shared.loading}
-              isEmpty={sharedGroups.length === 0}
-              error={shared.error ? t('score.loadFailed', { error: shared.error }) : null}
-              emptyText={t('score.emptyShared')}
-              onRetry={() => void shared.fetch()}
-            >
-              {sharedGroups.map((group) => {
-                // 任一份文件在上传新版本后页数变了 = 共享批注可能已过期（原有口径）
-                const updated = group.files.some(
-                  (f) =>
-                    f.source_page_count != null &&
-                    f.page_count != null &&
-                    f.source_page_count !== f.page_count
-                )
-                return (
-                  <View
-                    key={group.key}
-                    className='mb-3 rounded-xl border border-border bg-card p-4'
-                    onClick={() => openSharedGroup(group)}
-                  >
-                    <Text className='block text-base font-semibold text-text'>
-                      {group.title || '—'}
-                    </Text>
+          <ListState
+            // 「我的」还得等 profile（我的声部就在里面）：没到手之前**不能**把
+            // 「还不知道」显示成「你的声部暂无乐谱」——那是句陈述。ListState 只在
+            // 「loading && 内容为空」时显示加载中，所以这里把它一并抬起来即可。
+            loading={loading || (tab === 'mine' && myProfileLoading)}
+            isEmpty={visible.length === 0}
+            error={error ? t('score.loadFailed', { error }) : null}
+            emptyText={tab === 'all' ? t('score.emptyAll') : t('score.emptyMine')}
+            onRetry={() => void fetch()}
+          >
+            {visible.map((s) => {
+              const mine = tab === 'mine' ? myPartOf(s.parts, mySection) : null
+              return (
+                <View
+                  key={s.id}
+                  className='mb-3 rounded-xl border border-border bg-card p-4'
+                  onClick={() => (tab === 'mine' ? openMyFiles(s) : openDetail(s.id))}
+                >
+                  <Text className='block text-base font-semibold text-text'>{s.title}</Text>
+                  {s.composer ? (
+                    <Text className='mt-1 block text-sm text-text-muted'>{s.composer}</Text>
+                  ) : null}
+                  {tab === 'mine' ? (
+                    // 这一栏列的是**我的**谱子，所以数量按我那份算：「整曲有多少声部 / 多少文件」
+                    // 在这里没有意义（谁在这栏里看到的都是同一份曲子）。
+                    // 共享副本不计入这里（0.6.1 产品规则：只在「全部」里出现）。
                     <View className='mt-2 flex flex-row items-center'>
                       <Text className='text-xs text-text-muted'>
-                        {t('score.partsCount', { n: group.sections.length })}
-                      </Text>
-                      <Text className='ml-3 text-xs text-text-muted'>
-                        {t('score.filesCount', { n: group.files.length })}
+                        {t('score.filesCount', { n: mine?.files.length ?? 0 })}
                       </Text>
                     </View>
-                    {updated && (
-                      <Text className='mt-1 block text-xs text-warning'>
-                        {t('score.sharedUpdated')}
+                  ) : (
+                    <View className='mt-2 flex flex-row items-center'>
+                      <Text className='text-xs text-text-muted'>
+                        {t('score.partsCount', { n: s.parts.length })}
                       </Text>
-                    )}
-                  </View>
-                )
-              })}
-            </ListState>
-          ) : (
-            <ListState
-              // 「分发给我的」还得等 profile（我的声部就在里面）：没到手之前**不能**把
-              // 「还不知道」显示成「你的声部暂无乐谱」——那是句陈述。ListState 只在
-              // 「loading && 内容为空」时显示加载中，所以这里把它一并抬起来即可。
-              loading={loading || (tab === 'mine' && myProfileLoading)}
-              isEmpty={visible.length === 0}
-              error={error ? t('score.loadFailed', { error }) : null}
-              emptyText={tab === 'all' ? t('score.emptyAll') : t('score.emptyMine')}
-              onRetry={() => void fetch()}
-            >
-              {visible.map((s) => {
-                const mine = tab === 'mine' ? myPartOf(s.parts, mySection) : null
-                return (
-                  <View
-                    key={s.id}
-                    className='mb-3 rounded-xl border border-border bg-card p-4'
-                    onClick={() => (tab === 'mine' ? openMyFiles(s) : openDetail(s.id))}
-                  >
-                    <Text className='block text-base font-semibold text-text'>{s.title}</Text>
-                    {s.composer ? (
-                      <Text className='mt-1 block text-sm text-text-muted'>{s.composer}</Text>
-                    ) : null}
-                    {tab === 'mine' ? (
-                      // 这一栏列的是**我的**谱子，所以数量按我那份算：「整曲有多少声部 / 多少文件」
-                      // 在这里没有意义（谁在这栏里看到的都是同一份曲子）。
-                      // 「我的声部：xxx」徽标已去掉（用户 2026-10-11）：这栏的判定逻辑后面要改，
-                      // 现在把一个具体声部名钉在卡片上会与将来不符。
-                      <View className='mt-2 flex flex-row items-center'>
-                        <Text className='text-xs text-text-muted'>
-                          {t('score.filesCount', { n: mine?.files.length ?? 0 })}
-                        </Text>
-                      </View>
-                    ) : (
-                      <View className='mt-2 flex flex-row items-center'>
-                        <Text className='text-xs text-text-muted'>
-                          {t('score.partsCount', { n: s.parts.length })}
-                        </Text>
-                        <Text className='ml-3 text-xs text-text-muted'>
-                          {t('score.filesCount', { n: fileCount(s) })}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                )
-              })}
-            </ListState>
-          )}
+                      <Text className='ml-3 text-xs text-text-muted'>
+                        {t('score.filesCount', { n: fileCount(s) })}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )
+            })}
+          </ListState>
         </View>
       </ScrollView>
     </View>

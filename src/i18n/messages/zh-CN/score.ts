@@ -2,7 +2,7 @@ export const score = {
   navTitle: '乐谱',
   tabs: {
     all: '全部',
-    mine: '分发给我的',
+    mine: '我的',
     shared: '共享的乐谱',
   },
   loadFailed: '加载失败：{error}',

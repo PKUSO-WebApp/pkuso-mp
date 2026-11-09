@@ -13,6 +13,8 @@ import { getStorageObjectSize } from '@/lib/storage-upload'
 
 export type PdfHandoffMeta = {
   fileId: string
+  /** 0.6.1 共享副本：PDF 原件仍来自 fileId（源文件），批注层按 shareId 取。 */
+  shareId?: string
   /** **惰性取**本地 PDF 的下载源：阅读器里它在 `load()` 之后才有值（存在 ref 里，不是 state），
    *  渲染期读会拿到空串。所以传函数，别传值。 */
   url: () => string
@@ -64,8 +66,15 @@ export type PdfHandoffMeta = {
  * 一次「准备」请求的键。**选择也在里面**：带批注与不带批注是两个不同的文件，
  * 而 `ready` 与 `pick` 比的就是它（见 readyId 的注释）。
  */
-const reqKeyOf = (fileId: string, anno: boolean, kind: 'personal' | 'shared' = 'personal') =>
-  `${fileId}#${anno ? (kind === 'shared' ? 'shared-anno' : 'anno') : 'orig'}`
+const reqKeyOf = (
+  fileId: string,
+  anno: boolean,
+  kind: 'personal' | 'shared' = 'personal',
+  shareId?: string
+) =>
+  `${fileId}#${shareId ? `${shareId}#` : ''}${
+    anno ? (kind === 'shared' ? 'shared-anno' : 'anno') : 'orig'
+  }`
 
 export function usePdfHandoff(owner: string) {
   const { t } = useT()
@@ -132,7 +141,7 @@ export function usePdfHandoff(owner: string) {
    */
   const seqRef = useRef(0)
 
-  const ready = !!meta && readyId === reqKeyOf(meta.fileId, withAnno, meta.composeKind)
+  const ready = !!meta && readyId === reqKeyOf(meta.fileId, withAnno, meta.composeKind, meta.shareId)
 
   // `platform` 一并进上报：面板里出现哪几项完全由它决定（PC 才多「保存到电脑」），
   // 而「为什么这台设备上少一项 / 多一项」这类问题只能靠它判读——`getDeviceInfo().platform`
@@ -157,9 +166,14 @@ export function usePdfHandoff(owner: string) {
     const id = m.fileId
     if (!id) return
     // 带批注的本地记账键要区分个人/共享：同一个 fileId 的两份产物内容不同，
-    // 共用一个键会把上一份交给用户
-    const key = anno ? (m.composeKind === 'shared' ? `${id}#shared-anno` : `${id}#anno`) : id
-    const reqKey = reqKeyOf(id, anno, m.composeKind)
+    // 共用一个键会把上一份交给用户。共享副本再按 shareId 隔离一层。
+    const docId = m.shareId ? `${id}#share-${m.shareId}` : id
+    const key = anno
+      ? m.composeKind === 'shared'
+        ? `${docId}#shared-anno`
+        : `${docId}#anno`
+      : docId
+    const reqKey = reqKeyOf(id, anno, m.composeKind, m.shareId)
     if (pdfRef.current?.reqKey === reqKey) {
       setReadyId(reqKey)
       return
@@ -196,8 +210,15 @@ export function usePdfHandoff(owner: string) {
         await (m.beforeCompose ? m.beforeCompose() : syncAnnotationFile(id))
         tSync = Date.now() - t0
         // 云端合成：这一步要走网络，所以「正在准备文件…」会停得比平时久
+        // 无 shareId 时保持原来的单参调用（旧测试/旧缓存的调用形状不变）
         const composed =
-          m.composeKind === 'shared' ? await composeSharedPdf(id) : await composeAnnotatedPdf(id)
+          m.composeKind === 'shared'
+            ? m.shareId
+              ? await composeSharedPdf(id, undefined, undefined, m.shareId)
+              : await composeSharedPdf(id)
+            : m.shareId
+              ? await composeAnnotatedPdf(id, undefined, undefined, m.shareId)
+              : await composeAnnotatedPdf(id)
         tCompose = Date.now() - t0 - tSync
         url = composed.url
         // 签名 URL 的**长度只有服务端知道**（本地没有库里的 file_size 可比），
@@ -319,7 +340,10 @@ export function usePdfHandoff(owner: string) {
     // 原件 URL 在打开这一刻就有：先记下，复制链接不必等 prepare 的下载/合成
     const originalUrl = m.url()
     if (originalUrl) {
-      linkRef.current = { reqKey: reqKeyOf(m.fileId, false, m.composeKind), url: originalUrl }
+      linkRef.current = {
+        reqKey: reqKeyOf(m.fileId, false, m.composeKind, m.shareId),
+        url: originalUrl,
+      }
     }
     setMeta(m)
     setSheetOn(true)
@@ -353,7 +377,12 @@ export function usePdfHandoff(owner: string) {
     const pdf = pdfRef.current
     // 最后一道闸：交付出去的东西必须就是此刻那一次准备的结果（面板上的按钮在未就绪时
     // 本来就不可点，这条防的是「点下去的那一拍状态还没更新」）
-    if (!pdf || !meta || pdf.reqKey !== reqKeyOf(meta.fileId, withAnno, meta.composeKind) || busy) {
+    if (
+      !pdf ||
+      !meta ||
+      pdf.reqKey !== reqKeyOf(meta.fileId, withAnno, meta.composeKind, meta.shareId) ||
+      busy
+    ) {
       return
     }
     setSheetOn(false)
@@ -376,7 +405,9 @@ export function usePdfHandoff(owner: string) {
 
   /** 当前选择对应的下载链接是否已经拿到（原件打开即得；带批注要等云端合成） */
   const copyable =
-    !!meta && !!linkRef.current && linkRef.current.reqKey === reqKeyOf(meta.fileId, withAnno, meta.composeKind)
+    !!meta &&
+    !!linkRef.current &&
+    linkRef.current.reqKey === reqKeyOf(meta.fileId, withAnno, meta.composeKind, meta.shareId)
 
   /**
    * 复制当前选择的**下载源链接**，并告诉用户怎么在浏览器里打开。
@@ -387,7 +418,11 @@ export function usePdfHandoff(owner: string) {
    */
   const copyLink = () => {
     const link = linkRef.current
-    if (!meta || !link || link.reqKey !== reqKeyOf(meta.fileId, withAnno, meta.composeKind)) {
+    if (
+      !meta ||
+      !link ||
+      link.reqKey !== reqKeyOf(meta.fileId, withAnno, meta.composeKind, meta.shareId)
+    ) {
       void Taro.showToast({ title: t('common.saveTo.copyNotReady'), icon: 'none' })
       return
     }

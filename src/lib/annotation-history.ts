@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import type { AnnoStroke } from '@/lib/annotation'
+import { parseAnnotationDocKey } from '@/lib/annotation-doc'
 
 /**
  * 云端**历史**的读侧（写侧只有服务端：推送 RPC 覆盖时自动归档，客户端只调 `archive_...`）。
@@ -21,6 +22,23 @@ export type HistorySource = 'personal' | 'shared'
 const HISTORY_TABLES: Record<HistorySource, string> = {
   personal: 'sheet_music_annotation_history',
   shared: 'sheet_music_shared_annotation_history',
+}
+
+/**
+ * 历史表的目标（0.6.1）：普通文件按 file_id；共享副本按 share_id，且个人/共享是两张表。
+ * 这个选择只在这里做一次，三个读函数共用。
+ */
+function historyTarget(
+  docKey: string,
+  source: HistorySource
+): { table: string; column: 'file_id' | 'share_id'; id: string } {
+  const ref = parseAnnotationDocKey(docKey)
+  if (ref.kind === 'share') {
+    return source === 'shared'
+      ? { table: 'sheet_music_share_annotation_history', column: 'share_id', id: ref.id }
+      : { table: 'sheet_music_share_user_annotation_history', column: 'share_id', id: ref.id }
+  }
+  return { table: HISTORY_TABLES[source], column: 'file_id', id: ref.id }
 }
 
 /** 历史里的一页（一级列表用，**不含内容**） */
@@ -80,10 +98,11 @@ export async function listAnnotationHistory(
 ): Promise<HistoryEntry[]> {
   // 表名是二选一的闭集，但 typed client 不接受动态 relation ⇒ 只在这一层放宽
   const db = supabase as unknown as { from: (table: string) => any }
+  const target = historyTarget(fileId, source)
   const { data, error } = await db
-    .from(HISTORY_TABLES[source])
+    .from(target.table)
     .select('page, version, replaced_at')
-    .eq('file_id', fileId)
+    .eq(target.column, target.id)
     .order('replaced_at', { ascending: false })
   if (error) return []
   const rows = (data ?? []) as Array<{
@@ -119,10 +138,11 @@ export async function loadHistoryBatch(
   const hi = times.reduce((a, b) => (a > b ? a : b))
   // 表名是二选一的闭集，但 typed client 不接受动态 relation ⇒ 只在这一层放宽
   const db = supabase as unknown as { from: (table: string) => any }
+  const target = historyTarget(fileId, source)
   const { data, error } = await db
-    .from(HISTORY_TABLES[source])
+    .from(target.table)
     .select('page, version, replaced_at, strokes')
-    .eq('file_id', fileId)
+    .eq(target.column, target.id)
     .gte('replaced_at', lo)
     .lte('replaced_at', hi)
   if (error) return []
@@ -158,10 +178,11 @@ export async function fetchArchivePage(
 ): Promise<AnnoStroke[] | null> {
   // 表名是二选一的闭集，但 typed client 不接受动态 relation ⇒ 只在这一层放宽
   const db = supabase as unknown as { from: (table: string) => any }
+  const target = historyTarget(fileId, source)
   const { data, error } = await db
-    .from(HISTORY_TABLES[source])
+    .from(target.table)
     .select('strokes')
-    .eq('file_id', fileId)
+    .eq(target.column, target.id)
     .eq('page', page)
     .eq('version', version)
     .maybeSingle()
