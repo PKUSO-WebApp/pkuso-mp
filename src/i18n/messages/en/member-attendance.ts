@@ -1,5 +1,26 @@
 export const memberAttendance = {
   navTitle: 'Member Attendance',
+  navTitleBlank: '',
+  currentStatus: 'Current:',
+  progress: {
+    title: 'Attendance breakdown',
+    present: 'Present {n}%',
+    absent: 'Absent {n}%',
+    excused: 'Excused {n}%',
+    empty: 'No required attendance yet',
+  },
+  calendar: {
+    weekdays: 'Sun|Mon|Tue|Wed|Thu|Fri|Sat',
+    monthTitle: '{month}/{year}',
+  },
+  day: {
+    title: '{date} · {n} rehearsal(s)',
+    empty: 'No rehearsals on this day',
+    pick: 'Tap a shaded date to view or edit attendance',
+  },
+  unsavedTitle: 'Unsubmitted changes',
+  unsavedHint: 'Switching dates will discard the unsubmitted changes.',
+  discardChanges: 'Discard and switch',
   info: {
     sectionLeader: 'Section Leader',
     principal: 'Principal',
@@ -25,7 +46,7 @@ export const memberAttendance = {
     saveFailed: 'Save failed. Please try again.',
   },
   reasonLabel: 'Reason (optional):',
-  reasonPlaceholder: 'Optional',
+  reasonPlaceholder: 'Please enter a reason for the change',
   submit: 'Submit attendance change request',
   submitting: 'Submitting…',
   submitted: 'Submitted',
@@ -45,6 +66,7 @@ export const memberAttendance = {
     exempt: 'Exempt',
   },
   errors: {
+    exemptNotAllowed: 'Exempt can no longer be set through change requests',
     pendingExists: 'A pending request already exists for this rehearsal',
     attendanceMissing: 'Attendance record not found',
     notAllowed: 'You are not allowed to change this attendance',

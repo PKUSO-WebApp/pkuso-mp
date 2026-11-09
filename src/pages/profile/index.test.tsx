@@ -45,6 +45,7 @@ vi.mock('@tarojs/components', () => {
     Button: create('button'),
     Picker,
     Input,
+    Image: create('img'),
     ScrollView: create('div'),
   }
 })
@@ -63,6 +64,7 @@ vi.mock('@/context/user-context', () => ({
 }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ signOut: vi.fn() }) }))
 vi.mock('@/lib/profile-gate', () => ({ isSyntheticEmail: () => false }))
+vi.mock('@/assets/icons/user-round.png', () => ({ default: 'user-round.png' }))
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     auth: { getUser: vi.fn(() => Promise.resolve({ data: { user: { email: 'a@b.com' } } })) },

@@ -31,8 +31,14 @@ vi.mock('@tarojs/components', () => {
     const { hoverClass, catchMove, ...rest } = props
     return React.createElement(tag, rest)
   }
-  return { View: create('div'), Text: create('span'), ScrollView: create('div') }
+  return {
+    View: create('div'),
+    Text: create('span'),
+    ScrollView: create('div'),
+    Image: create('img'),
+  }
 })
+vi.mock('@/assets/icons/user-round.png', () => ({ default: 'user-round.png' }))
 vi.mock('@tarojs/taro', () => ({
   default: { stopPullDownRefresh: vi.fn() },
   // 首页那次/切回 tab 那次都用它触发 fetch——此处置空，让 fetch 的调用次数只由「重试」决定
@@ -67,7 +73,6 @@ vi.mock('@/components/ui/StatusChip', () => ({
 vi.mock('@/lib/supabase', () => ({
   supabase: { rpc: vi.fn(async () => ({ data: [], error: null })) },
 }))
-vi.mock('./components/member-detail-modal', () => ({ MemberDetailModal: () => null }))
 vi.mock('@/components/ui/FormFields', () => ({
   TextField: ({ value, onInput, placeholder }: any) =>
     React.createElement('input', {

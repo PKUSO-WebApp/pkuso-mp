@@ -20,12 +20,21 @@ import eyeDarkIcon from '@/assets/icons/eye-dark.png'
 import eyeOffDarkIcon from '@/assets/icons/eye-off-dark.png'
 import pencilIcon from '@/assets/icons/pencil-line.png'
 import pencilDarkIcon from '@/assets/icons/pencil-line-dark.png'
+import defaultAvatar from '@/assets/icons/user-round.png'
 import { invokeFunction } from '@/lib/functions'
 import './index.scss'
 
 // 入团时间选择器：年份区间 + 春/秋两季；存储恒为规范值「YYYY春/YYYY秋」，展示层经 translateJoinDate 本地化
 const CURRENT_YEAR = new Date().getFullYear()
 const JOIN_YEARS = Array.from({ length: CURRENT_YEAR - 1990 + 2 }, (_, i) => String(1990 + i))
+
+/** 生日选择范围：1990-01-01 至今天（本地时区） */
+const BIRTHDAY_MIN = '1990-01-01'
+const todayYmd = (): string => {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
 
 const parseJoinDate = (v: string | null | undefined): { year: string; season: string } => {
   if (v) {
@@ -65,6 +74,8 @@ export default function ProfileInfoPage() {
   const [editJoinYear, setEditJoinYear] = useState(String(CURRENT_YEAR))
   const [editJoinSeason, setEditJoinSeason] = useState<string>('秋')
   const [editIsInOrchestra, setEditIsInOrchestra] = useState(false)
+  const [editBirthday, setEditBirthday] = useState('')
+  const [editHideBirthday, setEditHideBirthday] = useState(false)
   const [isJoinTouched, setIsJoinTouched] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -84,6 +95,8 @@ export default function ProfileInfoPage() {
     joinYear: string
     joinSeason: string
     isInOrchestra: boolean
+    birthday: string
+    hideBirthday: boolean
     isJoinTouched: boolean
   }
   const editDraft = useEditDraft<DraftData>('profile-info', {
@@ -96,6 +109,8 @@ export default function ProfileInfoPage() {
     joinYear: String(CURRENT_YEAR),
     joinSeason: '秋',
     isInOrchestra: false,
+    birthday: '',
+    hideBirthday: false,
     isJoinTouched: false,
   })
 
@@ -113,6 +128,8 @@ export default function ProfileInfoPage() {
       setEditJoinYear(draft.joinYear)
       setEditJoinSeason(draft.joinSeason)
       setEditIsInOrchestra(draft.isInOrchestra)
+      setEditBirthday(draft.birthday ?? '')
+      setEditHideBirthday(draft.hideBirthday ?? false)
       setIsJoinTouched(draft.isJoinTouched)
       setIsEditing(true)
     }
@@ -120,13 +137,6 @@ export default function ProfileInfoPage() {
 
   const fullName = myProfile?.full_name ?? notFilled
   const email = myProfile?.email ?? notFilled
-  const isChineseName = fullName !== notFilled && /[\u4e00-\u9fff]/.test(fullName)
-  const initials =
-    fullName !== notFilled
-      ? isChineseName
-        ? fullName.slice(0, 1)
-        : fullName.slice(0, 2) || fullName.slice(0, 1) || '--'
-      : '--'
   // 视图态用资料实际隐藏状态；编辑态用本地草稿
   const hideEmail = isEditing ? editHideEmail : (myProfile?.hide_email ?? false)
   const hidePhone = isEditing ? editHidePhone : (myProfile?.hide_phone ?? false)
@@ -164,6 +174,8 @@ export default function ProfileInfoPage() {
       joinYear: parsed.year,
       joinSeason: parsed.season,
       isInOrchestra: myProfile.is_in_orchestra === true,
+      birthday: myProfile.birthday ?? '',
+      hideBirthday: myProfile.hide_birthday,
       isJoinTouched: false,
     }
     editDraft.save(draftData)
@@ -177,6 +189,8 @@ export default function ProfileInfoPage() {
     setEditJoinSeason(draftData.joinSeason)
     setIsJoinTouched(false)
     setEditIsInOrchestra(draftData.isInOrchestra)
+    setEditBirthday(draftData.birthday)
+    setEditHideBirthday(draftData.hideBirthday)
     setError(null)
     setIsEditing(true)
   }
@@ -236,6 +250,8 @@ export default function ProfileInfoPage() {
         hide_phone: editHidePhone,
         hide_college: editHideCollege,
         is_in_orchestra: editIsInOrchestra,
+        birthday: editBirthday || null,
+        hide_birthday: editHideBirthday,
         ...(willWriteJoin ? { join_date: newJoin } : {}),
       })
       if (ok) {
@@ -345,7 +361,7 @@ export default function ProfileInfoPage() {
               <Button
                 openType='chooseAvatar'
                 onChooseAvatar={handleWechatAvatar}
-                className='h-20 w-20 rounded-full overflow-hidden bg-primary p-0 m-0 leading-normal min-h-0'
+                className='h-20 w-20 rounded-full overflow-hidden bg-muted p-0 m-0 leading-normal min-h-0'
               >
                 {avatarUrl ? (
                   <StorageImage
@@ -355,7 +371,7 @@ export default function ProfileInfoPage() {
                   />
                 ) : (
                   <View className='flex h-full w-full items-center justify-center'>
-                    <Text className='text-2xl font-medium text-primary-foreground'>{initials}</Text>
+                    <Image src={defaultAvatar} className='h-full w-full' mode='aspectFit' />
                   </View>
                 )}
               </Button>
@@ -372,13 +388,11 @@ export default function ProfileInfoPage() {
               </Button>
             </>
           ) : (
-            <View className='h-20 w-20 rounded-full overflow-hidden bg-primary'>
+            <View className='h-20 w-20 rounded-full overflow-hidden bg-muted'>
               {avatarUrl ? (
                 <Image src={avatarUrl} className='h-full w-full rounded-full' mode='aspectFill' />
               ) : (
-                <View className='flex h-full w-full items-center justify-center'>
-                  <Text className='text-2xl font-medium text-primary-foreground'>{initials}</Text>
-                </View>
+                <Image src={defaultAvatar} className='h-full w-full' mode='aspectFit' />
               )}
             </View>
           )}
@@ -598,6 +612,66 @@ export default function ProfileInfoPage() {
             />
           )}
         </View>
+
+        {/* 生日（查看态；本人始终可见） */}
+        {!isEditing && myProfile.birthday && (
+          <View className='flex items-center gap-3 border-b border-border py-3'>
+            <Text className='w-20 shrink-0 text-sm text-primary'>
+              {t('profileInfo.birthdayLabel')}
+            </Text>
+            <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
+              <Text className='block text-sm text-text'>{myProfile.birthday}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* 生日（可编辑 + 隐藏开关；与邮箱/联系方式/学院同一套隐私语义） */}
+        {isEditing && (
+          <View className='flex items-center gap-3 border-b border-border py-3'>
+            <Text className='w-20 shrink-0 text-sm text-primary'>
+              {t('profileInfo.birthdayLabel')}
+            </Text>
+            <Picker
+              className='flex-1'
+              mode='date'
+              start={BIRTHDAY_MIN}
+              end={todayYmd()}
+              value={editBirthday || BIRTHDAY_MIN}
+              onChange={(e) => {
+                const value = String(e.detail.value)
+                setEditBirthday(value)
+                editDraft.update({ birthday: value })
+              }}
+            >
+              <View className='rounded-xl border border-border bg-muted px-3 py-2'>
+                <Text className='text-sm text-text'>
+                  {editBirthday || t('profileInfo.birthdayPlaceholder')}
+                </Text>
+              </View>
+            </Picker>
+            {editBirthday ? (
+              <Text
+                className='shrink-0 text-xs text-text-muted'
+                onClick={() => {
+                  setEditBirthday('')
+                  editDraft.update({ birthday: '' })
+                }}
+              >
+                {t('profileInfo.birthdayClear')}
+              </Text>
+            ) : null}
+            <Image
+              src={editHideBirthday ? eyeOffImg : eyeImg}
+              className='h-5 w-5 shrink-0'
+              onClick={() => {
+                setEditHideBirthday((v) => {
+                  editDraft.update({ hideBirthday: !v })
+                  return !v
+                })
+              }}
+            />
+          </View>
+        )}
 
         {error && <Text className='mt-3 block text-xs text-danger'>{error}</Text>}
 

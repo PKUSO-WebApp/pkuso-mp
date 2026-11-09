@@ -4,31 +4,27 @@ import Taro, { useDidHide, useDidShow } from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { usePageRestore } from '@/hooks/usePageRestore'
 import { useProfiles } from '@/hooks/useProfiles'
-import { useMyProfile } from '@/hooks/useMyProfile'
 import { useMemberPreference } from '@/hooks/useMemberPreference'
-import { ListState } from '@/components/ui/ListState'
-import { StatusChip, type StatusTone } from '@/components/ui/StatusChip'
+import { StatusChip } from '@/components/ui/StatusChip'
+import { ProfileInfoView } from '@/components/profile/ProfileInfoView'
+import { AttendanceCalendar } from '@/components/attendance/AttendanceCalendar'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { defaultSubPartNumbers, mergeSubPartOptions, resolveSubPartPolicy } from '@/lib/sub-parts'
-import { translateInstrument } from '@/lib/instrument-i18n'
+import {
+  ATTENDANCE_EDIT_OPTIONS,
+  ATTENDANCE_TONE,
+  addMonths,
+  computeAttendanceStats,
+  groupRowsByDate,
+  localDateKey,
+  monthOfDateKey,
+  type AttendanceStatus,
+} from '@/lib/attendance-calendar'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { useUser } from '@/context/user-context'
 import { DATA_SYNC_INTERVAL_MS } from '@/lib/dataSync'
 import './index.scss'
-
-type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'exempt'
-
-const STATUS_OPTIONS: AttendanceStatus[] = ['present', 'late', 'absent', 'excused', 'exempt']
-
-/** 状态色：与列表里的 StatusChip 同一套 token，不再所有按钮一个颜色 */
-const STATUS_TONE: Record<AttendanceStatus, StatusTone> = {
-  present: 'success',
-  late: 'warning',
-  absent: 'danger',
-  excused: 'info',
-  exempt: 'neutral',
-}
 
 type RehearsalMini = {
   id: number
@@ -65,7 +61,8 @@ type PendingRequest = {
  */
 export default function MemberAttendancePage() {
   const { t } = useT()
-  useNavTitle('memberAttendance.navTitle')
+  // 0.6.2：详情页不再显示「成员考勤」导航标题（产品要求什么都不显示）
+  useNavTitle('memberAttendance.navTitleBlank')
   const darkClass = useThemeClass()
 
   const cachedUserId = usePageRestore<string>('userId')
@@ -84,12 +81,28 @@ export default function MemberAttendancePage() {
   const memberInstrument = (member?.instrument ?? '').trim() || sectionFromRoute
 
   const { user } = useUser()
-  const { profile: myProfile } = useMyProfile()
   /**
-   * 用**已缓存**的 profile flags 先决定要不要占位：声部长/首席一定有可能写权限，
-   * 卡片立刻显示（值未到就显示加载态）；只有 capability 的团长退回等 RPC。
+   * 能否管理该成员的考勤（0.6.2：详情页对所有人开放，只有有权限的人才显示考勤区）。
+   * `null` = 查询中；查询失败按「不能管理」处理，避免把无权者的请求打出去。
    */
-  const canPrefHint = !!myProfile?.is_section_leader || !!myProfile?.is_principal
+  const [canManage, setCanManage] = useState<boolean | null>(null)
+  useEffect(() => {
+    // 0.6.2：自己点自己只进只读详情页（即使自己是声部长/首席）
+    if (!userId || (user?.id && user.id === userId)) {
+      setCanManage(false)
+      return
+    }
+    let cancelled = false
+    void supabase
+      .rpc('can_manage_member_attendance', { p_member: userId })
+      .then(({ data, error }) => {
+        if (!cancelled) setCanManage(!error && !!data)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id, userId])
+  const canPrefHint = canManage === true
 
   /** 默认分声部（P7'）：缓存优先、后台核对；见 useMemberPreference 的注释 */
   const {
@@ -98,7 +111,8 @@ export default function MemberAttendancePage() {
     save: saveSubPart,
   } = useMemberPreference({
     ownerId: user?.id ?? null,
-    memberId: userId,
+    // 无管理权限时不要替别人拉偏好（RLS 会白跑一趟）
+    memberId: canManage === true ? userId : '',
     instrument: memberInstrument,
   })
   const [savingSubPart, setSavingSubPart] = useState(false)
@@ -241,9 +255,14 @@ export default function MemberAttendancePage() {
       setFailed(true)
       return
     }
-    void load()
     void fetchProfile()
-  }, [fetchProfile, load, userId])
+    if (canManage === true) {
+      void load()
+    } else {
+      // 没有考勤管理权：详情页只展示个人信息，不跑考勤查询
+      setLoading(false)
+    }
+  }, [canManage, fetchProfile, load, userId])
 
   /** 真正需要提交的行：普通行比当前考勤；pending 行只在编辑态且状态/理由变了 */
   const changedRows = useMemo(
@@ -261,6 +280,97 @@ export default function MemberAttendancePage() {
     [edits, modifying, pending, reasons, rows]
   )
 
+  // ---- 0.6.2 日历 + 占比 ----
+  const byDate = useMemo(() => groupRowsByDate(rows), [rows])
+  const latestDate = useMemo(() => {
+    let latest: string | null = null
+    for (const row of rows) {
+      const key = localDateKey(row.rehearsals?.start_time ?? null)
+      if (key && (!latest || key > latest)) latest = key
+    }
+    return latest
+  }, [rows])
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date()
+    return { year: d.getFullYear(), month: d.getMonth() }
+  })
+  const didInitDateRef = useRef(false)
+
+  // 首次拿到数据时定位到最近一次排练的月份与日期；之后不再自动跳（用户翻月/选日优先）
+  useEffect(() => {
+    if (didInitDateRef.current || !latestDate) return
+    didInitDateRef.current = true
+    setSelectedDate(latestDate)
+    const m = monthOfDateKey(latestDate)
+    if (m) setCalendarMonth(m)
+  }, [latestDate])
+
+  const stats = useMemo(() => computeAttendanceStats(rows, Date.now()), [rows])
+  const percent = (n: number, total: number): number =>
+    total > 0 ? Math.round((n / total) * 100) : 0
+  const selectedRows = useMemo(
+    () => (selectedDate ? (byDate.get(selectedDate) ?? []) : []),
+    [byDate, selectedDate]
+  )
+  /** 提交只针对**当前展开的那一天**（产品 2026-11-10 定） */
+  const selectedDayChangedRows = useMemo(
+    () =>
+      changedRows.filter(
+        (row) => localDateKey(row.rehearsals?.start_time ?? null) === selectedDate
+      ),
+    [changedRows, selectedDate]
+  )
+
+  /** 切换日期前丢弃当天未提交的编辑，回到服务端/待审批值 */
+  const revertDay = (dateKey: string | null) => {
+    if (!dateKey) return
+    const dayRows = byDate.get(dateKey) ?? []
+    setEdits((prev) => {
+      const next = { ...prev }
+      for (const row of dayRows) {
+        const p = pending.get(row.rehearsal_id)
+        next[row.rehearsal_id] = p ? p.to_status : (row.status ?? 'absent')
+      }
+      return next
+    })
+    setReasons((prev) => {
+      const next = { ...prev }
+      for (const row of dayRows) {
+        next[row.rehearsal_id] = pending.get(row.rehearsal_id)?.reason ?? ''
+      }
+      return next
+    })
+    setModifying((prev) => {
+      const next = new Set(prev)
+      for (const row of dayRows) next.delete(row.rehearsal_id)
+      return next
+    })
+  }
+
+  const selectDate = (dateKey: string) => {
+    if (dateKey === selectedDate) return
+    if (selectedDayChangedRows.length === 0) {
+      setSelectedDate(dateKey)
+      return
+    }
+    void Taro.showModal({
+      title: t('memberAttendance.unsavedTitle'),
+      content: t('memberAttendance.unsavedHint'),
+      confirmText: t('memberAttendance.discardChanges'),
+      cancelText: t('common.actions.cancel'),
+      success: (res) => {
+        if (!res.confirm) return
+        revertDay(selectedDate)
+        setSelectedDate(dateKey)
+      },
+    })
+  }
+
+  const changeMonth = (delta: number) => {
+    setCalendarMonth((prev) => addMonths(prev.year, prev.month, delta))
+  }
+
   // 后台静默刷新只在「没有未提交修改」时跑：否则 30s 一次的重载会把用户正在填的
   // 状态/理由重置回服务端值。
   const changedRowsRef = useRef(0)
@@ -275,6 +385,7 @@ export default function MemberAttendancePage() {
       firstShowRef.current = false
       return
     }
+    if (canManage !== true) return
     if (submittingRef.current || changedRowsRef.current > 0 || modifyingRef.current > 0) return
     void load({ silent: true })
   })
@@ -283,18 +394,20 @@ export default function MemberAttendancePage() {
   // 页面可见时每 30s 静默刷新：管理员直改考勤、或审批通过后，声部长停在本页也能看到
   // pending 消失、状态更新；有未提交修改时跳过。
   useEffect(() => {
-    if (!pageActive) return
+    if (!pageActive || canManage !== true) return
     const timer = setInterval(() => {
       if (submittingRef.current || changedRowsRef.current > 0 || modifyingRef.current > 0) return
       void load({ silent: true })
     }, DATA_SYNC_INTERVAL_MS)
     return () => clearInterval(timer)
-  }, [pageActive, load])
+  }, [canManage, pageActive, load])
 
   const mapError = (message: string): string => {
     if (message.includes('pending_exists')) return t('memberAttendance.errors.pendingExists')
     if (message.includes('attendance_missing'))
       return t('memberAttendance.errors.attendanceMissing')
+    if (message.includes('exempt_not_allowed'))
+      return t('memberAttendance.errors.exemptNotAllowed')
     if (message.includes('not_allowed') || message.includes('not_request_owner'))
       return t('memberAttendance.errors.notAllowed')
     if (message.includes('request_not_pending') || message.includes('request_not_found'))
@@ -303,14 +416,14 @@ export default function MemberAttendancePage() {
   }
 
   const handleSubmit = async () => {
-    if (changedRows.length === 0 || submittingRef.current) return
+    if (selectedDayChangedRows.length === 0 || submittingRef.current) return
     submittingRef.current = true
     setSubmitting(true)
     let ok = 0
     let failedCount = 0
     let firstError = ''
 
-    for (const row of changedRows) {
+    for (const row of selectedDayChangedRows) {
       const p = pending.get(row.rehearsal_id)
       const toStatus = edits[row.rehearsal_id]
       const reason = (reasons[row.rehearsal_id] ?? '').trim() || undefined
@@ -403,67 +516,33 @@ export default function MemberAttendancePage() {
     <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='px-4 pt-3 pb-6'>
-          {/* 成员信息 */}
-          <View className='mb-3 rounded-xl border border-border bg-card p-4'>
-            {memberInfoPending ? (
+          {/* 个人信息：复用「我的 → 个人信息」布局（0.6.2） */}
+          {memberInfoPending ? (
+            <View className='rounded-xl border border-border bg-card p-4'>
               <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
-            ) : memberInfoFailed ? (
+            </View>
+          ) : memberInfoFailed ? (
+            <View className='rounded-xl border border-border bg-card p-4'>
               <Text className='text-sm text-danger'>{t('memberAttendance.loadFailed')}</Text>
-            ) : (
-              <>
-                <View className='flex flex-wrap items-center gap-1.5'>
-                  <Text className='text-base font-semibold text-text'>
-                    {member?.full_name ?? '—'}
-                  </Text>
-                  {member?.is_section_leader && (
-                    <StatusChip tone='warning'>
-                      {t('memberAttendance.info.sectionLeader')}
-                    </StatusChip>
-                  )}
-                  {member?.is_principal && (
-                    <StatusChip tone='success'>{t('memberAttendance.info.principal')}</StatusChip>
-                  )}
-                </View>
-                <View className='mt-2'>
-                  <Text className='text-xs text-text-muted'>
-                    {t('memberAttendance.info.instrument')}：
-                  </Text>
-                  <Text className='text-sm text-text'>
-                    {translateInstrument(member?.instrument ?? '', t) || '—'}
-                  </Text>
-                </View>
-                {member?.college?.trim() && (
-                  <View className='mt-1'>
-                    <Text className='text-xs text-text-muted'>
-                      {t('memberAttendance.info.college')}：
-                    </Text>
-                    <Text className='text-sm text-text'>{member.college}</Text>
-                  </View>
-                )}
-                {member?.email && (
-                  <View className='mt-1'>
-                    <Text className='text-xs text-text-muted'>
-                      {t('memberAttendance.info.email')}：
-                    </Text>
-                    <Text className='text-sm text-text'>{member.email}</Text>
-                  </View>
-                )}
-                {member?.phone_number && (
-                  <View className='mt-1'>
-                    <Text className='text-xs text-text-muted'>
-                      {t('memberAttendance.info.phone')}：
-                    </Text>
-                    <Text className='text-sm text-text'>{member.phone_number}</Text>
-                  </View>
-                )}
-              </>
-            )}
-          </View>
+            </View>
+          ) : member ? (
+            <ProfileInfoView profile={member} viewerId={user?.id ?? null} />
+          ) : null}
+
+          {/* 没有考勤管理权：只展示个人信息（详情页对所有成员开放） */}
+          {canManage === null ? (
+            <View className='mt-3 rounded-xl border border-border bg-card p-4'>
+              <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
+            </View>
+          ) : null}
+
+          {canManage === true ? (
+            <>
 
           {/* 默认分声部：有写权才显示；弦乐整块不出（已有历史值例外，便于清除）；
               打击乐等暂未定义范围，只给「未设置」 */}
           {showSubPartCard ? (
-            <View className='mb-3 rounded-xl border border-border bg-card p-4'>
+            <View className='mt-3 rounded-xl border border-border bg-card p-4'>
               <View className='flex flex-row items-center justify-between'>
                 <Text className='text-sm font-medium text-text'>
                   {t('memberAttendance.subPart.title')}
@@ -506,18 +585,93 @@ export default function MemberAttendancePage() {
             </View>
           ) : null}
 
-          <Text className='mb-2 block text-xs font-medium uppercase tracking-wide text-text-muted'>
-            {t('memberAttendance.listTitle')}
-          </Text>
+          {/* 出勤占比：排除 exempt 与未来；late 归入出勤（0.6.2） */}
+          <View className='mt-3 rounded-xl border border-border bg-card p-4'>
+            <Text className='text-sm font-medium text-text'>
+              {t('memberAttendance.progress.title')}
+            </Text>
+            {stats.total > 0 ? (
+              <>
+                <View className='mt-2 flex h-3 w-full flex-row overflow-hidden rounded-full bg-muted'>
+                  {stats.present > 0 ? (
+                    <View
+                      className='h-full bg-success'
+                      style={{ width: `${(stats.present / stats.total) * 100}%` }}
+                    />
+                  ) : null}
+                  {stats.absent > 0 ? (
+                    <View
+                      className='h-full bg-danger'
+                      style={{ width: `${(stats.absent / stats.total) * 100}%` }}
+                    />
+                  ) : null}
+                  {stats.excused > 0 ? (
+                    <View
+                      className='h-full bg-info'
+                      style={{ width: `${(stats.excused / stats.total) * 100}%` }}
+                    />
+                  ) : null}
+                </View>
+                <View className='mt-2 flex flex-row flex-wrap gap-x-3 gap-y-1'>
+                  <Text className='text-xs text-success'>
+                    {t('memberAttendance.progress.present', {
+                      n: percent(stats.present, stats.total),
+                    })}
+                  </Text>
+                  <Text className='text-xs text-danger'>
+                    {t('memberAttendance.progress.absent', {
+                      n: percent(stats.absent, stats.total),
+                    })}
+                  </Text>
+                  <Text className='text-xs text-info'>
+                    {t('memberAttendance.progress.excused', {
+                      n: percent(stats.excused, stats.total),
+                    })}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <Text className='mt-2 block text-xs text-text-muted'>
+                {t('memberAttendance.progress.empty')}
+              </Text>
+            )}
+          </View>
 
-          <ListState
-            loading={loading}
-            error={failed ? t('memberAttendance.loadFailed') : null}
-            isEmpty={rows.length === 0}
-            emptyText={t('memberAttendance.empty')}
-            onRetry={() => void load()}
-          >
-            {rows.map((row) => {
+          <View className='mt-3'>
+            <AttendanceCalendar
+              year={calendarMonth.year}
+              month={calendarMonth.month}
+              byDate={byDate}
+              selectedDate={selectedDate}
+              onSelect={selectDate}
+              onMonthChange={changeMonth}
+              now={Date.now()}
+            />
+          </View>
+
+          {/* 当天排练：点日历里有排练的日期后显示 */}
+          {loading ? (
+            <View className='mt-3 rounded-xl border border-border bg-card p-4'>
+              <Text className='text-sm text-text-muted'>{t('common.actions.loading')}</Text>
+            </View>
+          ) : failed ? (
+            <View className='mt-3 rounded-xl border border-border bg-card p-4'>
+              <Text className='text-sm text-danger'>{t('memberAttendance.loadFailed')}</Text>
+            </View>
+          ) : selectedDate ? (
+            <View className='mt-3'>
+              <Text className='mb-2 block text-sm font-medium text-text'>
+                {t('memberAttendance.day.title', {
+                  date: selectedDate,
+                  n: selectedRows.length,
+                })}
+              </Text>
+              {selectedRows.length === 0 ? (
+                <Text className='block rounded-xl border border-border bg-card p-4 text-sm text-text-muted'>
+                  {t('memberAttendance.day.empty')}
+                </Text>
+              ) : (
+                selectedRows.map((row) => {
               const rehearsal = row.rehearsals
               const typeText = rehearsalTypeLabel(rehearsal?.type ?? null)
               const timeText = rehearsal?.start_time
@@ -528,7 +682,8 @@ export default function MemberAttendancePage() {
               const selected = edits[row.rehearsal_id] ?? row.status ?? 'absent'
               const original = row.status ?? 'absent'
               const showEditor = !p || isModifying
-              const showReason = showEditor && (isModifying || selected !== original)
+              // 0.6.2：textarea 始终显示（即使还没改状态）
+              const showReason = showEditor
               return (
                 <View
                   key={row.rehearsal_id}
@@ -542,6 +697,14 @@ export default function MemberAttendancePage() {
                     )}
                     {p && <StatusChip tone='warning'>{t('memberAttendance.pending')}</StatusChip>}
                   </View>
+                  <View className='mt-1 flex flex-wrap items-center gap-1.5'>
+                    <Text className='text-xs text-text-muted'>
+                      {t('memberAttendance.currentStatus')}
+                    </Text>
+                    <StatusChip tone={ATTENDANCE_TONE[original]}>
+                      {statusLabels[original]}
+                    </StatusChip>
+                  </View>
 
                   {p && !isModifying ? (
                     <>
@@ -549,7 +712,7 @@ export default function MemberAttendancePage() {
                         <Text className='text-xs text-text-muted'>
                           {t('memberAttendance.requestedStatus')}
                         </Text>
-                        <StatusChip tone={STATUS_TONE[p.to_status]}>
+                        <StatusChip tone={ATTENDANCE_TONE[p.to_status]}>
                           {statusLabels[p.to_status]}
                         </StatusChip>
                       </View>
@@ -581,7 +744,7 @@ export default function MemberAttendancePage() {
                   ) : (
                     <>
                       <View className='mt-2 flex flex-wrap gap-1.5'>
-                        {STATUS_OPTIONS.map((status) => {
+                        {ATTENDANCE_EDIT_OPTIONS.map((status) => {
                           const active = selected === status
                           return (
                             <View
@@ -596,7 +759,7 @@ export default function MemberAttendancePage() {
                                 }))
                               }
                             >
-                              <StatusChip tone={STATUS_TONE[status]}>
+                              <StatusChip tone={ATTENDANCE_TONE[status]}>
                                 {statusLabels[status]}
                               </StatusChip>
                             </View>
@@ -640,13 +803,21 @@ export default function MemberAttendancePage() {
                   )}
                 </View>
               )
-            })}
-          </ListState>
+                })
+              )}
+            </View>
+          ) : (
+            <Text className='mt-3 block rounded-xl border border-border bg-card p-4 text-sm text-text-muted'>
+              {t('memberAttendance.day.pick')}
+            </Text>
+          )}
+            </>
+          ) : null}
         </View>
       </ScrollView>
 
-      {/* 底部提交：只有真的有改动才出现；底部留出安全区 + 16px，别贴着手机底边 */}
-      {changedRows.length > 0 ? (
+      {/* 底部提交：只有当前展开的那天有改动才出现；底部留出安全区 + 16px，别贴着手机底边 */}
+      {selectedDayChangedRows.length > 0 ? (
         <View
           className='border-t border-border bg-surface px-4 pt-3'
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
