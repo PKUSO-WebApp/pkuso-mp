@@ -4,6 +4,7 @@ import {
   computeAttendanceStats,
   dayTone,
   groupRowsByDate,
+  isEditableAttendanceRow,
   localDateKey,
   monthGrid,
   monthOfDateKey,
@@ -102,6 +103,15 @@ describe('dayTone：日历阴影', () => {
         NOW
       )
     ).toBe('success')
+  })
+})
+
+describe('isEditableAttendanceRow：未来 / exempt 与无排练同处理', () => {
+  it('只有已过去/当前的非 exempt 行可编辑', () => {
+    expect(isEditableAttendanceRow(row('absent', '2026-10-20T19:00:00'), NOW)).toBe(false)
+    expect(isEditableAttendanceRow(row('absent', '2026-10-08T19:00:00'), NOW)).toBe(true)
+    expect(isEditableAttendanceRow(row('exempt', '2026-10-08T19:00:00'), NOW)).toBe(false)
+    expect(isEditableAttendanceRow(row('absent', null), NOW)).toBe(false)
   })
 })
 

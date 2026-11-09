@@ -74,14 +74,6 @@ export function ProfileInfoView({
           </Text>
         </InfoRow>
 
-        {(showEmail || showPhone || showCollege || showBirthday) && (
-          <View className='mt-4 flex items-center gap-3'>
-            <View className='h-px flex-1 bg-border' />
-            <Text className='text-xs text-text-subtle'>{t('profileInfo.hideHint')}</Text>
-            <View className='h-px flex-1 bg-border' />
-          </View>
-        )}
-
         {showEmail && (
           <InfoRow label={t('profileInfo.emailLabel')}>
             <Text className='block truncate text-sm text-text'>{profile.email ?? notFilled}</Text>

@@ -113,19 +113,26 @@ const startMs = (row: AttendanceRowLike): number | null => {
 }
 
 /**
+ * 这一行是否**可编辑**：已过去/当前、且不是 exempt。
+ * 未来与 exempt 与「没有排练」同处理（0.6.2 产品定）：不画阴影、不提供修改入口。
+ */
+export function isEditableAttendanceRow(row: AttendanceRowLike, now: number): boolean {
+  const t = startMs(row)
+  if (t === null || t > now) return false
+  return (row.status ?? 'absent') !== 'exempt'
+}
+
+/**
  * 某一天日历格的阴影色：
  *   · 未来 / 无需出勤（exempt）不参与；
  *   · 一天多场取**最严重**的一色：缺席 > 请假 > 迟到 > 出勤（产品 2026-11-10 确认）；
- *   · 一场都不参与 → null（不画阴影）。
+ *   · 一场都不参与 → null（不画阴影，也不可点）。
  */
 export function dayTone(rows: AttendanceRowLike[], now: number): StatusTone | null {
   let tone: StatusTone | null = null
   for (const row of rows) {
-    const t = startMs(row)
-    if (t === null || t > now) continue
-    const status = row.status ?? 'absent'
-    if (status === 'exempt') continue
-    const next = ATTENDANCE_TONE[status]
+    if (!isEditableAttendanceRow(row, now)) continue
+    const next = ATTENDANCE_TONE[row.status ?? 'absent']
     if (!tone || SEVERITY[next] > SEVERITY[tone]) tone = next
   }
   return tone

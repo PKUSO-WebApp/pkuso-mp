@@ -18,6 +18,7 @@ import {
   addMonths,
   computeAttendanceStats,
   groupRowsByDate,
+  isEditableAttendanceRow,
   localDateKey,
   monthOfDateKey,
   type AttendanceStatus,
@@ -289,9 +290,10 @@ export default function MemberAttendancePage() {
   const byDate = useMemo(() => groupRowsByDate(rows), [rows])
   const latestDate = useMemo(() => {
     let latest: string | null = null
+    const now = Date.now()
     for (const row of rows) {
-      // 默认落到最近一个**可修改**的日期；exempt 与「无排练」同处理
-      if ((row.status ?? 'absent') === 'exempt') continue
+      // 默认落到最近一个**可修改**的日期；未来 / exempt 与「无排练」同处理
+      if (!isEditableAttendanceRow(row, now)) continue
       const key = localDateKey(row.rehearsals?.start_time ?? null)
       if (key && (!latest || key > latest)) latest = key
     }
@@ -302,6 +304,8 @@ export default function MemberAttendancePage() {
     const d = new Date()
     return { year: d.getFullYear(), month: d.getMonth() }
   })
+  /** 切日期后把「当天排练」滚回视野（键盘收起/内容切换会把 ScrollView 顶回顶部） */
+  const [scrollAnchor, setScrollAnchor] = useState('')
   const didInitDateRef = useRef(false)
 
   // 首次拿到数据时定位到最近一次排练的月份与日期；之后不再自动跳（用户翻月/选日优先）
@@ -319,8 +323,8 @@ export default function MemberAttendancePage() {
   const selectedRows = useMemo(
     () =>
       selectedDate
-        ? (byDate.get(selectedDate) ?? []).filter(
-            (row) => (row.status ?? 'absent') !== 'exempt'
+        ? (byDate.get(selectedDate) ?? []).filter((row) =>
+            isEditableAttendanceRow(row, Date.now())
           )
         : [],
     [byDate, selectedDate]
@@ -366,6 +370,12 @@ export default function MemberAttendancePage() {
       setSelectedDate(dateKey)
       return
     }
+    // 先收键盘：textarea 聚焦时弹 modal，收起键盘会把页面顶回顶部
+    try {
+      void Taro.hideKeyboard().catch(() => {})
+    } catch {
+      /* 部分环境无此 API */
+    }
     void Taro.showModal({
       title: t('memberAttendance.unsavedTitle'),
       content: t('memberAttendance.unsavedHint'),
@@ -375,6 +385,11 @@ export default function MemberAttendancePage() {
         if (!res.confirm) return
         revertDay(selectedDate)
         setSelectedDate(dateKey)
+        // 下一帧再滚回当天区块（等 React 把新日期的内容换完）
+        setTimeout(() => {
+          setScrollAnchor('member-attendance-day')
+          setTimeout(() => setScrollAnchor(''), 400)
+        }, 0)
       },
     })
   }
@@ -542,7 +557,7 @@ export default function MemberAttendancePage() {
 
   return (
     <View className={`${darkClass} flex h-full flex-col bg-page-bg`}>
-      <ScrollView scrollY className='flex-1 min-h-0'>
+      <ScrollView scrollY scrollIntoView={scrollAnchor} className='flex-1 min-h-0'>
         <View className='px-4 pt-3 pb-6'>
           {/* 个人信息：复用「我的 → 个人信息」布局（0.6.2） */}
           {member ? <ProfileInfoView profile={member} viewerId={user?.id ?? null} /> : null}
@@ -684,7 +699,7 @@ export default function MemberAttendancePage() {
               </View>
             </View>
           ) : selectedDate ? (
-            <View className='mt-3'>
+            <View id='member-attendance-day' className='mt-3'>
               <Text className='mb-2 block text-sm font-medium text-text'>
                 {t('memberAttendance.day.title', {
                   date: selectedDate,

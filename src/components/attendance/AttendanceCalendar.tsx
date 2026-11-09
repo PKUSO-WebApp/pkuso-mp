@@ -81,8 +81,8 @@ export function AttendanceCalendar({
           }
           const rows = byDate.get(dateKey)
           const tone = rows ? dayTone(rows, now) : null
-          // 无需出勤（exempt）与「无排练」同处理：不提供点击/修改入口
-          const clickable = !!rows && rows.some((r) => (r.status ?? 'absent') !== 'exempt')
+          // 未来 / 无需出勤（exempt）与「无排练」同处理：不画阴影，也不提供点击/修改入口
+          const clickable = tone !== null
           const selected = dateKey === selectedDate
           return (
             <View
