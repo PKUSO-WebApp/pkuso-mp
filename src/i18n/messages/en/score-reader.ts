@@ -11,6 +11,7 @@ export const scoreReader = {
   retry: 'Retry',
   noImages: 'No page images for this score yet',
   loading: 'Loading…',
+  blankFrame: 'This page failed to render. Please retry.',
   ready: 'Ready',
   idle: 'Not loaded',
   annotation: 'Ink',

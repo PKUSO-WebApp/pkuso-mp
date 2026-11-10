@@ -136,10 +136,11 @@ import {
   frameForPage,
   missingNeighbor,
   neighborFrames,
+  pickRenderLayer,
   predrawFallback,
   predrawGo,
-  spareLayer,
   spareLayerOffscreen,
+  usableLayers,
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
   type LayerMetas,
@@ -177,6 +178,22 @@ const RENDER_RETRY_MS = 140
  * 而这两条的修法完全不同。loadMs 是纯取图时间，renderMs 是画进画布的时间，两者分开记。
  */
 const SLOW_LOAD_REPORT_MS = 2000
+/**
+ * 被判「画不出东西」的画布冷却多久：这段时间内前台渲染优先换一块。
+ *
+ * 只冷却、不销毁：一块画布未必永久坏掉（例如内存告警当时的瞬时状态），到期后
+ * 重新给它机会；`usableLayers` 的判据就是「到期时间 <= now」。
+ */
+const BAD_LAYER_TTL_MS = 30_000
+/**
+ * 同一页最多主动补画几次。
+ *
+ * 防的是「页本来就是纯白」或「三块画布都坏了」把渲染变成无限循环——那会比白页更难查。
+ * 两次足够覆盖一次瞬时坏帧 + 一次换块重试；仍白就落到错误条，让用户手动重试。
+ */
+const BLANK_FRAME_RETRIES = 2
+/** 有墨校验的来源（只用于诊断字段，别拿来控制业务） */
+type FrameInkSource = 'render' | 'promote' | 'predraw' | 'memory-warning'
 /** 备用帧停靠位置：移出视口即可（overflow:hidden 会裁掉），它仍是正常在绘制的画布 */
 const OFFSCREEN = '-99999px'
 
@@ -983,7 +1000,182 @@ export default function ScoreReader() {
   const renderLayerRef = useRef<Layer | null>(null)
   /** 指向 requestRender（doRender 的延迟探针要用，避免循环依赖） */
   const requestRef = useRef<(job: Job) => void>(() => {})
+  /** 被判「画不出东西」的画布冷却截止时刻（见 BAD_LAYER_TTL_MS） */
+  const badLayerUntilRef = useRef<Partial<Record<Layer, number>>>({})
+  /** 空白帧 / 有墨探测失败只报一次（键见 handleFrameInk；去重只为少刷表，不改变处理） */
+  const blankFrameReportedRef = useRef<Set<string>>(new Set())
+  /** 同一页的空白补画次数（见 BLANK_FRAME_RETRIES） */
+  const blankRetryRef = useRef<Map<number, number>>(new Map())
+  /** 最近一次内存告警时刻（诊断字段 afterMemoryWarning / memoryWarnAgoMs 用） */
+  const memoryWarnAtRef = useRef(0)
+  /**
+   * 指向「缓存帧换帧后的异步有墨校验」。
+   *
+   * `promoteFrame` 是刻意保持同步的 0ms 路径（见那里的注释），不能为了验帧加一次
+   * `queryCanvasNode` 往返；用 ref 在换帧**之后**再补一次检查。
+   */
+  const verifyPromotedRef = useRef<(f: PredrawFrame) => void>(() => {})
   const timingRef = useRef<Record<string, number | string | boolean>>({})
+
+  /** 把一块画布标成「画不出东西」，后续渲染优先避开它（冷却见 BAD_LAYER_TTL_MS） */
+  const markLayerBad = useCallback((layer: Layer) => {
+    badLayerUntilRef.current[layer] = Date.now() + BAD_LAYER_TTL_MS
+  }, [])
+
+  /**
+   * 有墨校验的统一出口：预绘制、前台渲染、缓存帧换帧、内存告警后共用。
+   *
+   * 返回 true = 这一帧可以当成有效帧继续上屏；false = 纯白帧，调用方必须放弃这一帧。
+   * - `ink > 0`：正常，顺手清掉这一块的「坏画布」标记；
+   * - `ink === -1`：探测本身失败，**不参与判定**（按未知放行），但留一条证；
+   * - `ink === 0`：空白帧。撤掉这一块的摆位/帧记账（否则白色会被当成「已渲染」，
+   *   既不转圈也不会再重画），标成坏画布，并在当前页上补排一次渲染。
+   *
+   * ⚠️ 只在**预绘制建帧时**验一次是不够的：帧可能先在备用块里放一段时间，等用户
+   * 回拉时才上屏；这段时间里画布位图可能被系统回收（内存告警那条尤其明显）。
+   * `promoteFrame` 本身又是 0ms 路径，不能在里面同步查询画布 ⇒ 换帧后再异步验。
+   */
+  const handleFrameInk = useCallback(
+    (
+      args: {
+        page: number
+        layer: Layer
+        source: FrameInkSource
+        ink: number
+        zoom: number
+        ageMs?: number
+      },
+      opts?: { retry?: boolean }
+    ): boolean => {
+      const { page: target, layer, source, ink, zoom: frameZoom } = args
+      const warnAgo = memoryWarnAtRef.current > 0 ? Date.now() - memoryWarnAtRef.current : -1
+      if (ink > 0) {
+        badLayerUntilRef.current[layer] = 0
+        blankRetryRef.current.delete(target)
+        return true
+      }
+      if (ink === -1) {
+        // 探测失败不是「白」：保持与从前一致的放行，只留证。每类来源每次会话只报一条。
+        const key = `probe:${fileId}:${source}`
+        if (!blankFrameReportedRef.current.has(key)) {
+          blankFrameReportedRef.current.add(key)
+          reportClientError({
+            event: 'score_reader_frame_probe_failed',
+            level: 'warn',
+            message: `有墨探测失败（${source}）page ${target}`,
+            detail: {
+              fileId,
+              page: target,
+              layer,
+              source,
+              ink,
+              zoom: frameZoom,
+              afterMemoryWarning: warnAgo >= 0 && warnAgo < 60_000,
+              memoryWarnAgoMs: warnAgo,
+            },
+          })
+        }
+        return true
+      }
+      // ink === 0：纯白帧。先留证（同册同页同块同来源只报一次）
+      const key = `blank:${fileId}:${source}:${target}:${layer}`
+      if (!blankFrameReportedRef.current.has(key)) {
+        blankFrameReportedRef.current.add(key)
+        reportClientError({
+          event: 'score_reader_blank_frame',
+          level: 'warn',
+          message: `空白帧（${source}）page ${target}`,
+          detail: {
+            fileId,
+            page: target,
+            layer,
+            source,
+            ink,
+            zoom: frameZoom,
+            afterMemoryWarning: warnAgo >= 0 && warnAgo < 60_000,
+            memoryWarnAgoMs: warnAgo,
+            ...(args.ageMs !== undefined ? { ageMs: args.ageMs } : {}),
+          },
+        })
+      }
+      markLayerBad(layer)
+      // 这一块不能再冒充「显示着某一页」：它写进去的像素是白的。清掉摆位后，
+      // pending 判据会把这一页算回「待渲染」，至少显示加载圈而不是一片白。
+      layerMetaRef.current[layer] = null
+      layerSlotRef.current = { ...layerSlotRef.current, [layer]: null }
+      setLayerSlot((prev) => (prev[layer] === null ? prev : { ...prev, [layer]: null }))
+      const retry = opts?.retry ?? true
+      if (!retry || pageRef.current !== target) return false
+      const used = blankRetryRef.current.get(target) ?? 0
+      if (used >= BLANK_FRAME_RETRIES) {
+        // 同一页补画两次还白：不再无限重试，交给错误条的「重试」（整册重载）
+        setStage('error')
+        setMessage(t('scoreReader.blankFrame'))
+        return false
+      }
+      blankRetryRef.current.set(target, used + 1)
+      // 放到下一拍：调用方（runJob）还要在 finally 里清 inflightRef，提前 request 会被
+      // 当成「同一件」吞掉。渲染队列是单槽的，这一拍不会和别的前台请求抢着写画布。
+      setTimeout(() => {
+        if (!aliveRef.current || pageRef.current !== target) return
+        requestRef.current({ page: target, zoom: zoomRef.current })
+      }, 0)
+      return false
+    },
+    [fileId, markLayerBad, t]
+  )
+
+  /**
+   * 缓存帧换帧后异步验一次：帧可能在备用块里放了一段时间，画布位图已被系统回收。
+   * 只验「这一块此刻真的还是当前页」的帧；用户已经翻走/换块的，不归这次检查管。
+   */
+  const verifyPromotedFrame = useCallback(
+    (f: PredrawFrame) => {
+      void queryCanvasNode(CANVAS_SEL[f.layer])
+        .then(({ node }) => {
+          if (!aliveRef.current) return
+          if (activeLayerRef.current !== f.layer || pageRef.current !== f.page) return
+          handleFrameInk({
+            page: f.page,
+            layer: f.layer,
+            source: 'promote',
+            ink: frameInk(node as CanvasNode),
+            zoom: f.zoom,
+            ageMs: Date.now() - f.at,
+          })
+        })
+        .catch(() => {
+          // 页面已卸载 / 查询失败：不改变任何行为（下一次渲染会自己验）
+        })
+    },
+    [handleFrameInk, queryCanvasNode]
+  )
+  // 同步写 ref：promoteFrame 可能在首个 effect 之前就被调用，默认 no-op 也安全，
+  // 但同步赋值能让第一次换帧就进入校验。
+  verifyPromotedRef.current = verifyPromotedFrame
+
+  /** 内存告警后验一遍三块已上屏的画布：系统可能刚回收了位图 */
+  const verifyDisplayedFrames = useCallback(() => {
+    const slots = { ...layerSlotRef.current }
+    for (const layer of ALL_LAYERS) {
+      const displayed = slots[layer]
+      if (displayed === null) continue
+      void queryCanvasNode(CANVAS_SEL[layer])
+        .then(({ node }) => {
+          if (!aliveRef.current || layerSlotRef.current[layer] !== displayed) return
+          handleFrameInk({
+            page: displayed,
+            layer,
+            source: 'memory-warning',
+            ink: frameInk(node as CanvasNode),
+            zoom: zoomRef.current,
+          })
+        })
+        .catch(() => {
+          // 页面已卸载 / 查询失败：不改变任何行为
+        })
+    }
+  }, [handleFrameInk, queryCanvasNode])
 
   /**
    * 状态提示：首帧真正落地之前**只有一个词**「加载中…」。
@@ -1421,8 +1613,16 @@ export default function ScoreReader() {
       const epoch = renderEpochRef.current
       const stale = () => !aliveRef.current || epoch !== renderEpochRef.current
       const target = clamp(job.page, 1, pageCount)
-      // 写哪块：不是显示中的那块，且是「最该被写掉」的那块（远的先弃、同远时弃上一页保下一页）
-      const layer = spareLayer(ALL_LAYERS, activeLayerRef.current, layerMetaRef.current, target)
+      // 写哪块：不是显示中的那块，且是「最该被写掉」的那块（远的先弃、同远时弃上一页保下一页）；
+      // 同时避开刚产生过空白帧的画布（见 BAD_LAYER_TTL_MS / pickRenderLayer）
+      const layer = pickRenderLayer(
+        ALL_LAYERS,
+        activeLayerRef.current,
+        layerMetaRef.current,
+        target,
+        badLayerUntilRef.current,
+        Date.now()
+      )
       renderLayerRef.current = layer
       // 铁律：马上要写这块位图了（paintPageImage 一上来就重设 canvas 尺寸 = 清屏），
       // 这块画布的记账必须当场作废——留着它就是**直接上错页**，比白页更坏
@@ -1539,6 +1739,18 @@ export default function ScoreReader() {
         (node as CanvasNode).height
       )
       const renderMs = Date.now() - tRender
+      // 有墨校验：图片模式没有「渲染失败」的返回值，`paintPageImage` 里 drawImage 静默失败
+      // 就是整帧纯白。预绘制那条路建帧时验过一次，前台这条从来没有；而帧从画完到上屏
+      // 之间画布位图可能被系统回收（内存告警是已知触发点）。纯白帧不能记账、不能上屏。
+      let ink = frameInk(node as CanvasNode)
+      if (ink === 0) {
+        // 就地重画一次：页图还在内存里，成本只有几毫秒；个别时序问题会因此恢复
+        paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
+        ink = frameInk(node as CanvasNode)
+      }
+      if (!handleFrameInk({ page: target, layer, source: 'render', ink, zoom: job.zoom })) {
+        return
+      }
       // 慢帧留证（每页每次会话一条）：loadMs 与 renderMs 分开记，本地命中与否也记
       if (loadMs > SLOW_LOAD_REPORT_MS && !slowReportedRef.current.has(target)) {
         slowReportedRef.current.add(target)
@@ -1652,7 +1864,15 @@ export default function ScoreReader() {
       // 换帧落地，趁空闲把「下一页」备进备用块（见 schedulePredraw）
       schedulePredrawRef.current()
     },
-    [containerW, fileId, pageCount, pageFileKey, probeCanvasSize, queryCanvasNode]
+    [
+      containerW,
+      fileId,
+      handleFrameInk,
+      pageCount,
+      pageFileKey,
+      probeCanvasSize,
+      queryCanvasNode,
+    ]
   )
 
   /**
@@ -1698,6 +1918,8 @@ export default function ScoreReader() {
     })
     setStage('ready')
     schedulePredrawRef.current()
+    // 换帧不阻塞（0ms 路径）；像素校验在下一拍异步做，见 verifyPromotedRef 的注释
+    verifyPromotedRef.current(f)
     return true
   }, [])
 
@@ -1717,8 +1939,10 @@ export default function ScoreReader() {
       // 换掉他正看着的内容 —— 真机 2026-10-09「内容跳来跳去/显出别的页」的成因之一）。
       // 返回 null = 没有可写的块（剩下的都在视野里）⇒ 这一次预绘制直接作罢，什么都不做：
       // 宁可这一页晚点备好，也不搅动正在读的页面。见 lib/predraw.ts 的 spareLayerOffscreen。
+      // 先避开刚产生过空白帧的画布；全在冷却期才退回全部（总得挑一块画）
+      const usable = usableLayers(ALL_LAYERS, badLayerUntilRef.current, Date.now())
       const layer = spareLayerOffscreen(
-        ALL_LAYERS,
+        usable.length > 0 ? usable : ALL_LAYERS,
         activeLayerRef.current,
         layerMetaRef.current,
         target,
@@ -1789,7 +2013,13 @@ export default function ScoreReader() {
         // 有墨校验：帧从画完到上屏之间隔着不确定时间（位图可能被系统回收），而图片模式
         // 没有自愈路径 —— 只丢弃、不重试（误丢的代价只是这一页走常规渲染 ~50ms）
         const ink = frameInk(node as CanvasNode)
-        if (ink === 0) {
+        const ok = handleFrameInk(
+          { page: target, layer, source: 'predraw', ink, zoom: job.zoom },
+          // 用户已经翻到这一页时由 fallback 交回常规路径；否则由校验自己补排一次，
+          // 避免两条路同时排队（单槽队列会变成两页互相挤掉）
+          { retry: !ctl.adopt }
+        )
+        if (!ok) {
           // eslint-disable-next-line no-console
           console.warn('[score-reader] predraw dropped: blank frame', { page: target })
           return fallback()
@@ -1833,7 +2063,7 @@ export default function ScoreReader() {
         return fallback()
       }
     },
-    [pageCount, promoteFrame, queryCanvasNode, pageFileKey]
+    [handleFrameInk, pageCount, promoteFrame, queryCanvasNode, pageFileKey]
   )
 
   /**
@@ -2492,6 +2722,8 @@ export default function ScoreReader() {
 
   useEffect(() => {
     const onWarn = (res?: { level?: number }) => {
+      // 记下时刻：之后产生的空白帧要能和这次告警对账（afterMemoryWarning / memoryWarnAgoMs）
+      memoryWarnAtRef.current = Date.now()
       prefetchPumpRef.current?.stop()
       invalidatePredraw('memory-warning')
       // 账本快照：**这是唯一能拿到「告警那一刻账上有多少」的机会**（#91 的第一步正是
@@ -2511,10 +2743,13 @@ export default function ScoreReader() {
           bitmaps: bitmapLedgerRef.current.detail(ids),
         },
       })
+      // 系统可能刚回收了画布位图：**只校验、不主动清屏**。没白就什么都不做；
+      // 白了才撤掉那一块的摆位记账并补画（见 handleFrameInk）。
+      verifyDisplayedFrames()
     }
     Taro.onMemoryWarning?.(onWarn)
     return () => Taro.offMemoryWarning?.(onWarn)
-  }, [invalidatePredraw, bitmapIdsNow, fileId])
+  }, [invalidatePredraw, bitmapIdsNow, fileId, verifyDisplayedFrames])
 
   /**
    * 批注层的更新入口：**先问「变了什么」，再决定做多少**（判据是纯函数 `inkUpdateFor`）。
