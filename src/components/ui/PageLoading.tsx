@@ -1,5 +1,5 @@
-import { View, Text } from '@tarojs/components'
-import { useT } from '@/i18n'
+import { View } from '@tarojs/components'
+import { Spinner } from './Spinner'
 
 type PageLoadingProps = {
   /** 页面自己的暗色类名（各页从 `useThemeClass()` 拿的那个；不传就是亮色） */
@@ -30,14 +30,11 @@ type PageLoadingProps = {
  * 本组件只管**整页**那一层（页面还没拿到数据时连骨架都不该画）。
  */
 export function PageLoading({ darkClass = '', height = 'full', size = 'sm' }: PageLoadingProps) {
-  const { t } = useT()
   return (
     <View
       className={`${darkClass} flex ${height === 'screen' ? 'min-h-screen' : 'min-h-full'} items-center justify-center bg-page-bg`}
     >
-      <Text className={`${size === 'xs' ? 'text-xs' : 'text-sm'} text-text-muted`}>
-        {t('common.actions.loading')}
-      </Text>
+      <Spinner size={size === 'xs' ? 'sm' : 'md'} />
     </View>
   )
 }

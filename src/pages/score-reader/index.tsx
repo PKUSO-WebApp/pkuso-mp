@@ -4088,7 +4088,6 @@ export default function ScoreReader() {
           title: t('scoreReader.share.hardPushTitle'),
           content: t('scoreReader.share.hardPushHint'),
           confirmText: t('scoreReader.share.hardPushConfirm'),
-          cancelText: t('common.actions.cancel'),
         })
         if (!modal.confirm) return
       }

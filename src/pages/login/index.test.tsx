@@ -246,10 +246,11 @@ describe('LoginPage', () => {
     expect(screen.queryByText('获取验证码')).toBeNull()
   })
 
-  it('会话恢复完成前显示加载占位', () => {
+  it('会话恢复完成前显示加载占位（转圈）', () => {
     ctx.ready = false
     renderPage()
-    expect(screen.getByText(/加载中/)).toBeTruthy()
+    // 0.6.2 起整页加载统一为转圈，不再用「加载中」文字
+    expect(document.querySelector('.ui-spinner')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '微信授权登录' })).toBeNull()
   })
 

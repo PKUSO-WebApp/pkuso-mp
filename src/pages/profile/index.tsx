@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, Input } from '@tarojs/components'
+import { View, Text, ScrollView, Input, Image } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import { StorageImage } from '@/components/ui/StorageImage'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
@@ -26,6 +26,7 @@ import { dataSyncBump } from '@/lib/dataSync'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import { useCountdown } from '@/hooks/useCountdown'
 import { invokeFunction } from '@/lib/functions'
+import defaultAvatar from '@/assets/icons/user-round.png'
 
 import { SkeletonCircle, SkeletonText } from '@/components/ui/Skeleton'
 import { AppearanceModal } from './components/appearance-modal'
@@ -95,14 +96,6 @@ export default function Profile() {
   // （wechat_<openid>@placeholder.local），资料补全写入的真实邮箱在 profiles.email；
   // 邮箱注册用户两者一致（换绑邮箱确认后由同步 effect 对齐），无感知差异
   const email = myProfile?.email ?? user?.email ?? '—'
-  // 中文名：仅取首字；非中文：取前 2 字，兜底 1 字
-  const isChineseName = fullName !== '—' && /[\u4e00-\u9fff]/.test(fullName)
-  const initials =
-    fullName !== '—'
-      ? isChineseName
-        ? fullName.slice(0, 1)
-        : fullName.slice(0, 2) || fullName.slice(0, 1) || '--'
-      : '--'
   const avatarUrl = myProfile?.avatar_url ?? null
 
   // 显示用邮箱：若为合成占位邮箱，显示「未填写」
@@ -444,11 +437,11 @@ export default function Profile() {
             </View>
           ) : (
             <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
-              <View className='flex w-[var(--size-avatar)] h-[var(--size-avatar)] shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary'>
+              <View className='flex w-[var(--size-avatar)] h-[var(--size-avatar)] shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted'>
                 {avatarUrl ? (
                   <StorageImage src={avatarUrl} className='h-full w-full' mode='aspectFill' />
                 ) : (
-                  <Text className='text-base font-medium text-primary-foreground'>{initials}</Text>
+                  <Image src={defaultAvatar} className='h-full w-full' mode='aspectFit' />
                 )}
               </View>
               <View className='min-w-0 flex-1'>

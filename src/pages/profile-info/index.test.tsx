@@ -83,6 +83,7 @@ vi.mock('@/assets/icons/eye-dark.png', () => ({ default: 'eye-dark.png' }))
 vi.mock('@/assets/icons/eye-off-dark.png', () => ({ default: 'eye-off-dark.png' }))
 vi.mock('@/assets/icons/pencil-line.png', () => ({ default: 'pencil-line.png' }))
 vi.mock('@/assets/icons/pencil-line-dark.png', () => ({ default: 'pencil-line-dark.png' }))
+vi.mock('@/assets/icons/user-round.png', () => ({ default: 'user-round.png' }))
 vi.mock('@/components/ui/ImageCropper', () => ({
   ImageCropper: ({ children }: any) =>
     React.createElement('div', { 'data-testid': 'image-cropper' }, children),
@@ -127,8 +128,9 @@ describe('ProfileInfoPage', () => {
     expect(screen.getByText('长笛')).toBeTruthy()
     expect(screen.getByText('元培学院')).toBeTruthy()
     expect(screen.getByText('以下信息可编辑隐藏')).toBeTruthy()
-    // 查看态不显示头像编辑图标
-    expect(document.querySelectorAll('img').length).toBe(0)
+    // 查看态：没有头像上传文件，显示默认头像；不显示「编辑头像」的铅笔角标
+    expect(document.querySelectorAll('img').length).toBe(1)
+    expect(document.querySelector('img')?.getAttribute('src')).toBe('user-round.png')
   })
 
   it('点击「编辑」进入编辑态，点击「保存」写入 profiles', async () => {
@@ -145,9 +147,11 @@ describe('ProfileInfoPage', () => {
   it('编辑态点击眼图标切换隐藏状态并随保存写入', async () => {
     const { container } = render(<ProfileInfoPage />)
     fireEvent.click(screen.getByText('编辑'))
-    const imgs = container.querySelectorAll('img')
-    // imgs[0] 是头像编辑图标，imgs[1-3] 依次为：绑定邮箱 / 联系方式 / 学院眼图标
-    fireEvent.click(imgs[1])
+    // 按 src 找眼睛图标：第一个是「绑定邮箱」的隐藏开关
+    // （头像与铅笔角标也是 img，按顺序取会随布局变化而错位）
+    const eye = container.querySelectorAll('img[src="eye.png"]')[0]
+    expect(eye).toBeTruthy()
+    fireEvent.click(eye!)
     fireEvent.click(screen.getByText('保存'))
     await waitFor(() => expect(updateProfileMock).toHaveBeenCalled())
     const payload = updateProfileMock.mock.calls[0][1]

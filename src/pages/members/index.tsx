@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { View, Text, ScrollView } from '@tarojs/components'
+import { View, Text, ScrollView, Image } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import { supabase } from '@/lib/supabase'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
@@ -23,7 +23,8 @@ import { useT, useNavTitle } from '@/i18n'
 import { translateInstrument, matchInstrumentSection } from '@/lib/instrument-i18n'
 import { translateJoinDate } from '@/lib/join-date-i18n'
 import type { ProfileRow } from '@/types/database'
-import { MemberDetailModal } from './components/member-detail-modal'
+import { StorageImage } from '@/components/ui/StorageImage'
+import defaultAvatar from '@/assets/icons/user-round.png'
 import './index.scss'
 
 export default function Members() {
@@ -83,8 +84,6 @@ export default function Members() {
 
   // 拼音/首字母搜索：输入为空时显示全部
   const [searchQuery, setSearchQuery] = useState('')
-  // 详情弹窗：点击花名册成员打开（只读）
-  const [selectedUser, setSelectedUser] = useState<ProfileRow | null>(null)
 
   // 花名册只列团员：判据是「**是** member」（不是「不是 admin」）—— admin 与谱务账号都
   // 不是团员，将来新增角色也不必回来改这里。role 列可空，空值按**列默认值** member 算，
@@ -201,57 +200,67 @@ export default function Members() {
                       return (
                         <View
                           key={u.id}
-                          className='mb-2 rounded-xl border border-border bg-card px-3 py-2'
+                          className='mb-2 flex flex-row items-start rounded-xl border border-border bg-card px-3 py-2'
                           onClick={() => {
-                            // 「我的声部」里点卡片 = 进成员详情（可改考勤）；
-                            // 「全部」里仍是只读弹窗（无管理权限）
-                            if (tab === 'mine') {
-                              // 把声部一并带过去：成员详情页的分声部卡片不必等 profile 查询
-                              const sec = encodeURIComponent((u.instrument ?? '').trim())
-                              void Taro.navigateTo({
-                                url: `/pages/member-attendance/index?userId=${u.id}&sec=${sec}`,
-                              })
-                            } else {
-                              setSelectedUser(u)
-                            }
+                            // 0.6.2：任何入口点任何人的卡片都进同一个详情页；
+                            // 是否有考勤管理权由详情页按后端 RPC 决定，不再按 tab 区分。
+                            const sec = encodeURIComponent((u.instrument ?? '').trim())
+                            void Taro.navigateTo({
+                              url: `/pages/member-attendance/index?userId=${u.id}&sec=${sec}`,
+                            })
                           }}
                         >
-                          <View className='flex flex-wrap items-center gap-1.5'>
-                            <Text className='text-base font-normal text-text'>
-                              {u.full_name ?? '—'}
-                            </Text>
-                            {u.is_section_leader && (
-                              <StatusChip tone='warning'>{t('members.sectionLeader')}</StatusChip>
-                            )}
-                            {u.is_principal && (
-                              <StatusChip tone='success'>{t('members.principal')}</StatusChip>
-                            )}
-                            {tab === 'mine' && (
-                              <Text className='ml-auto text-xs text-text-muted'>›</Text>
+                          <View className='mr-3 h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted'>
+                            {u.avatar_url ? (
+                              <StorageImage
+                                src={u.avatar_url}
+                                className='h-full w-full'
+                                mode='aspectFill'
+                              />
+                            ) : (
+                              <Image
+                                src={defaultAvatar}
+                                className='h-full w-full'
+                                mode='aspectFit'
+                              />
                             )}
                           </View>
-                          {u.college?.trim() && !(u.hide_college && !isSelf) && (
-                            <Text className='mt-1 block text-xs text-text-muted'>
-                              {t('members.collegeLabel')}
-                              {u.college}
-                            </Text>
-                          )}
-                          {u.email && !(u.hide_email && !isSelf) && (
-                            <Text className='mt-1 block text-xs text-text-muted'>
-                              {t('members.emailLabel')}
-                              {u.email}
-                            </Text>
-                          )}
-                          {u.join_date && !(u.hide_join_date && !isSelf) && (
-                            <Text className='mt-1 block text-xs text-text-muted'>
-                              {t('members.joinDateLabel')}
-                              {translateJoinDate(u.join_date, t)}
-                              {/* 在团标记（"-" 连接）：true=团员，false=团友；null 未填写则不追加 */}
-                              {u.is_in_orchestra == null
-                                ? ''
-                                : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagAlumni')}`}
-                            </Text>
-                          )}
+                          <View className='min-w-0 flex-1'>
+                            <View className='flex flex-wrap items-center gap-1.5'>
+                              <Text className='text-base font-normal text-text'>
+                                {u.full_name ?? '—'}
+                              </Text>
+                              {u.is_section_leader && (
+                                <StatusChip tone='warning'>{t('members.sectionLeader')}</StatusChip>
+                              )}
+                              {u.is_principal && (
+                                <StatusChip tone='success'>{t('members.principal')}</StatusChip>
+                              )}
+                            </View>
+                            {u.college?.trim() && !(u.hide_college && !isSelf) && (
+                              <Text className='mt-1 block text-xs text-text-muted'>
+                                {t('members.collegeLabel')}
+                                {u.college}
+                              </Text>
+                            )}
+                            {u.email && !(u.hide_email && !isSelf) && (
+                              <Text className='mt-1 block text-xs text-text-muted'>
+                                {t('members.emailLabel')}
+                                {u.email}
+                              </Text>
+                            )}
+                            {u.join_date && !(u.hide_join_date && !isSelf) && (
+                              <Text className='mt-1 block text-xs text-text-muted'>
+                                {t('members.joinDateLabel')}
+                                {translateJoinDate(u.join_date, t)}
+                                {/* 在团标记（"-" 连接）：true=团员，false=团友；null 未填写则不追加 */}
+                                {u.is_in_orchestra == null
+                                  ? ''
+                                  : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagAlumni')}`}
+                              </Text>
+                            )}
+                          </View>
+                          <Text className='ml-2 text-xs text-text-muted'>›</Text>
                         </View>
                       )
                     })}
@@ -263,13 +272,6 @@ export default function Members() {
           <View style={{ height: `${8 * uiScale}px` }} />
         </View>
       </ScrollView>
-
-      <MemberDetailModal
-        open={!!selectedUser}
-        user={selectedUser}
-        viewerId={currentUser?.id ?? null}
-        onClose={() => setSelectedUser(null)}
-      />
     </View>
   )
 }

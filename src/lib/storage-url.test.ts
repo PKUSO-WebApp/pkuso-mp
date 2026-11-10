@@ -38,6 +38,14 @@ describe('storageUrlCandidates', () => {
     ])
   })
 
+  it('头像 URL（avatar_images + 缓存戳）也走反代优先', () => {
+    const url = `${DIRECT}/storage/v1/object/public/avatar_images/u1/avatar.jpg?t=123`
+    expect(storageUrlCandidates(url)).toEqual([
+      `${PROXY}/storage/v1/object/public/avatar_images/u1/avatar.jpg?t=123`,
+      url,
+    ])
+  })
+
   it('签名 URL 的 query 原样保留', () => {
     const urls = storageUrlCandidates(
       `${DIRECT}/storage/v1/object/sign/leave-attachments/u/a.jpg?token=abc.def`

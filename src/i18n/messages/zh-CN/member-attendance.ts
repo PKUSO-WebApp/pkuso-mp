@@ -1,5 +1,27 @@
 export const memberAttendance = {
   navTitle: '成员考勤',
+  // 0.6.2：详情页导航栏什么都不显示
+  navTitleBlank: '',
+  currentStatus: '当前状态：',
+  progress: {
+    title: '出勤占比',
+    present: '出勤 {n}%',
+    absent: '缺勤 {n}%',
+    excused: '请假 {n}%',
+    empty: '暂无应出勤记录',
+  },
+  calendar: {
+    weekdays: '日|一|二|三|四|五|六',
+    monthTitle: '{year}年{month}月',
+  },
+  day: {
+    title: '{date} · {n} 场排练',
+    empty: '当天没有排练',
+    pick: '点日历里带阴影的日期查看或修改考勤',
+  },
+  unsavedTitle: '有未提交的修改',
+  unsavedHint: '切换日期会丢弃当前未提交的修改。',
+  discardChanges: '丢弃',
   info: {
     sectionLeader: '声部长',
     principal: '首席',
@@ -24,8 +46,8 @@ export const memberAttendance = {
     saved: '已保存',
     saveFailed: '保存失败，请稍后重试',
   },
-  reasonLabel: '修改理由（可选）：',
-  reasonPlaceholder: '可留空',
+  reasonLabel: '修改理由：',
+  reasonPlaceholder: '修改理由（可选）',
   submit: '提交修改考勤申请',
   submitting: '提交中…',
   submitted: '已提交',
@@ -45,6 +67,8 @@ export const memberAttendance = {
     exempt: '无需出勤',
   },
   errors: {
+    exemptNotAllowed: '无需出勤不再允许通过修改申请设置',
+    exemptNotEditable: '无需出勤的排练不能修改考勤',
     pendingExists: '该成员这场排练已有待审批申请',
     attendanceMissing: '找不到该成员的考勤记录',
     notAllowed: '你无权修改这条考勤',
