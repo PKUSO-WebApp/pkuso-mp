@@ -299,9 +299,12 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
       // 仅需检查开始/结束两天的数据
       const relevant = getByDate(startDate).concat(getByDate(endDate))
 
-      // 人工预约冲突（rehearsal_id 为 null）
+      // 人工预约冲突（rehearsal_id 为 null）。
+      // 跳过影子行：正常的影子有 rehearsal_id；历史上外键曾是 ON DELETE SET NULL，
+      // 删除排练后会留下 author_id = NULL 的孤儿影子（rehearsal_id 也变成 NULL）。
+      // 这类行不是人工预约，不能让它和新建排练「自己」冲突。
       const scheduleConflict = relevant.find((s) => {
-        if (s.rehearsal_id) return false // 跳过排练影子行
+        if (s.rehearsal_id || !s.author_id) return false
         const sStart = s.start_time
         const sEnd = s.end_time || sStart
         return startDateTime < sEnd && endDateTime > sStart

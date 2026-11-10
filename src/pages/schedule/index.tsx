@@ -32,6 +32,7 @@ export default function Schedule() {
     loading,
     error,
     fetch,
+    fetchAll,
     getByDate,
     getAuthorName,
     ensureAuthorName,
@@ -91,13 +92,15 @@ export default function Schedule() {
     if (selectedDateRef.current < today) {
       setSelectedDate(today)
     }
-    void fetch(selectedDateRef.current, { silent: true })
+    // `fetch` 命中内存缓存时不会发请求；切回本页必须用 fetchAll 真正重拉，
+    // 否则在「排练详情」删掉排练（影子预约随 FK 级联删除）后，这里还留着旧影子。
+    void fetchAll({ silent: true })
     dataSyncBump()
   })
 
-  // 下拉刷新：静默重取当前日期预约
+  // 下拉刷新：静默全量重取（同样不能走缓存）
   usePullDownRefresh(() => {
-    void fetch(selectedDateRef.current, { silent: true })
+    void fetchAll({ silent: true })
     Taro.stopPullDownRefresh()
   })
 

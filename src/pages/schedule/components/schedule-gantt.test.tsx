@@ -6,8 +6,12 @@ import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/re
 import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import { getScheduleColorClass, parseTimeToHours, ScheduleGantt } from './schedule-gantt'
 
-const { taroMock } = vi.hoisted(() => ({
-  taroMock: { showModal: vi.fn(() => Promise.resolve({ confirm: true })) },
+const { taroMock, capsState } = vi.hoisted(() => ({
+  taroMock: {
+    showModal: vi.fn(() => Promise.resolve({ confirm: true })),
+    navigateTo: vi.fn(),
+  },
+  capsState: { rehearsal: false },
 }))
 
 vi.mock('@tarojs/components', () => {
@@ -19,6 +23,16 @@ vi.mock('@tarojs/components', () => {
 })
 
 vi.mock('@tarojs/taro', () => ({ default: taroMock }))
+
+vi.mock('@/hooks/useMyCapabilities', () => ({
+  useMyCapabilities: () => ({
+    capabilities: [],
+    loading: false,
+    refresh: vi.fn(),
+    hasCapability: (capability: string) =>
+      capability === 'rehearsal' ? capsState.rehearsal : false,
+  }),
+}))
 
 vi.mock('@/components/ui/Modal', () => ({
   Modal: ({ open, children }: any) => (open ? React.createElement('div', null, children) : null),
@@ -65,7 +79,10 @@ describe('schedule-gantt 纯函数', () => {
 })
 
 describe('ScheduleGantt 删除预约', () => {
-  beforeEach(() => resetTestLocale())
+  beforeEach(() => {
+    resetTestLocale()
+    capsState.rehearsal = false
+  })
 
   it('英文环境：删除入口显示英文', () => {
     setTestLocale('en')
@@ -103,6 +120,45 @@ describe('ScheduleGantt 删除预约', () => {
     await waitFor(() => expect(taroMock.showModal).toHaveBeenCalled())
     await waitFor(() => expect(remove).toHaveBeenCalledWith(1, '2026-01-01'))
     expect(screen.queryByText('删除预约')).toBeNull()
+  })
+
+  it('团长（rehearsal 能力）可删除他人的人工预约', () => {
+    capsState.rehearsal = true
+    const remove = vi.fn(async () => true)
+    render(
+      <ScheduleGantt
+        schedules={[makeSchedule({ author_id: 'u2' })]}
+        selectedDate='2026-01-01'
+        user={{ id: 'u1' }}
+        remove={remove}
+        getAuthorName={mockGetAuthorName}
+        ensureAuthorName={mockEnsureAuthorName}
+      />
+    )
+    fireEvent.click(screen.getByText('我的预约'))
+    expect(screen.getByText('删除预约')).toBeTruthy()
+  })
+
+  it('影子预约（rehearsal_id 非空）：团长看到「去删除排练」，不显示直接删除', () => {
+    capsState.rehearsal = true
+    const remove = vi.fn(async () => true)
+    render(
+      <ScheduleGantt
+        schedules={[makeSchedule({ author_id: null, rehearsal_id: 9 })]}
+        selectedDate='2026-01-01'
+        user={{ id: 'u1' }}
+        remove={remove}
+        getAuthorName={mockGetAuthorName}
+        ensureAuthorName={mockEnsureAuthorName}
+      />
+    )
+    fireEvent.click(screen.getByText('我的预约'))
+    expect(screen.getByText('去删除排练')).toBeTruthy()
+    expect(screen.queryByText('删除预约')).toBeNull()
+    fireEvent.click(screen.getByText('去删除排练'))
+    expect(taroMock.navigateTo).toHaveBeenCalledWith({
+      url: '/pages/president-rehearsal-detail/index?id=9',
+    })
   })
 
   it('非创建者不显示「删除预约」', () => {
