@@ -1,40 +1,37 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { useT } from '@/i18n'
 import { useRehearsals } from '@/hooks/useRehearsals'
-import {
-  usePresidentAttendanceExport,
-  type AttendanceExportFile,
-} from '@/hooks/usePresidentAttendanceExport'
+import { usePresidentAttendanceExport } from '@/hooks/usePresidentAttendanceExport'
 import { ListState } from '@/components/ui/ListState'
-import { AttendanceEditModal } from '@/components/president/AttendanceEditModal'
 import { formatRehearsalDateTimeLine, filterRehearsalsByDateRange } from '@/lib/attendance-export'
 import { getLocalDateString } from '@/lib/date-utils'
 import { tAppError } from '@/lib/appError'
 import type { RehearsalRow } from '@/types/database'
 
 type Props = {
-  /** attendance：点排练卡片可编辑 */
+  /** attendance：点排练卡片可进考勤编辑页 */
   canEdit: boolean
-  /** attendance_export：显示转发按钮 */
+  /** attendance_export：显示勾选与转发 */
   canExport: boolean
 }
 
 /**
  * 团长的「排练考勤」tab（替换团长的「我的声部」）。
  *
- * 布局对齐 web 的 admin/members「排练考勤」视图：
- * 日期区间筛选 → 导出区间全部 → 排练卡片（点开编辑 / 单场导出）。
- * 导出走「转发到微信」，文件在进入 tab / 改筛选后**提前备好**，
- * 点击时同步调 `shareFileMessage`（微信要求用户点击的同步栈，见 hook 注释）。
+ * 布局对齐 web 的 admin/members「排练考勤」视图：日期区间筛选 → 勾选排练 →
+ * 转发选中考勤；点排练卡片进入出勤名单页。
+ *
+ * 导出走「转发到微信」。微信要求 `shareFileMessage` 在点击的同步栈里调用，所以
+ * 选中的 xlsx 由 hook 提前写本地，点击只做同步分享。
  */
 export function PresidentRehearsalAttendance({ canEdit, canExport }: Props) {
   const { t } = useT()
   const { data, loading, error, fetch } = useRehearsals()
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [editing, setEditing] = useState<RehearsalRow | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [refreshKey, setRefreshKey] = useState(0)
   const firstShowRef = useRef(true)
 
@@ -52,39 +49,83 @@ export function PresidentRehearsalAttendance({ canEdit, canExport }: Props) {
     [data, startDate, endDate]
   )
 
-  const { prepared, prepare, shareFile } = usePresidentAttendanceExport({
+  // 日期筛选变化后，去掉不在当前列表里的选中项（不导出看不见的排练）
+  useEffect(() => {
+    const visible = new Set(filtered.map((rehearsal) => rehearsal.id))
+    setSelectedIds((prev) => {
+      let changed = false
+      const next = new Set<number>()
+      for (const id of prev) {
+        if (visible.has(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [filtered])
+
+  const selectedIdList = useMemo(() => [...selectedIds].sort((a, b) => a - b), [selectedIds])
+
+  const { state, prepare, shareSelected } = usePresidentAttendanceExport({
     enabled: canExport,
     startDate,
     endDate,
     rehearsals: filtered,
+    selectedIds: selectedIdList,
     refreshKey,
   })
 
   const today = getLocalDateString()
   const hasFilter = !!startDate || !!endDate
+  const allSelected =
+    filtered.length > 0 && filtered.every((rehearsal) => selectedIds.has(rehearsal.id))
+  const canShare = state.status === 'ready' && !!state.file && selectedIdList.length > 0
 
-  const showNoRecords = () => {
-    void Taro.showToast({ title: t('president.attendance.noRecords'), icon: 'none' })
+  const toggleSelected = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
-  const sharePrepared = (file: AttendanceExportFile | null | undefined) => {
-    if (!file) {
-      showNoRecords()
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(filtered.map((rehearsal) => rehearsal.id)))
+  }
+
+  const shareButtonLabel = () => {
+    if (state.status === 'error') return t('president.attendance.exportSelectedRetry')
+    if (state.status === 'preparing' || state.status === 'idle') {
+      return t('president.attendance.exportSelectedPreparing')
+    }
+    if (selectedIdList.length === 0) return t('president.attendance.selectRehearsalFirst')
+    if (!state.file) return t('president.attendance.noRecords')
+    return t('president.attendance.exportSelected', { count: selectedIdList.length })
+  }
+
+  const handleShare = () => {
+    if (state.status === 'error') {
+      // 准备失败时点一下重试（不是转发，不受手势约束）
+      void prepare()
       return
     }
-    // 必须同步调用，不能在前面 await
-    shareFile(file)
-  }
-
-  const exportAllReady = prepared.status === 'ready' && !!prepared.all
-
-  const exportAllLabel = () => {
-    if (prepared.status === 'preparing') return t('president.attendance.exportAllPreparing')
-    if (prepared.status === 'error') return t('president.attendance.exportAllRetry')
-    if (prepared.status === 'ready' && !prepared.all && filtered.length > 0) {
-      return t('president.attendance.noRecords')
+    if (state.status !== 'ready') return
+    const result = shareSelected()
+    if (result === 'empty') {
+      void Taro.showToast({
+        title: t('president.attendance.selectRehearsalFirst'),
+        icon: 'none',
+      })
+    } else if (result === 'noRecords') {
+      void Taro.showToast({ title: t('president.attendance.noRecords'), icon: 'none' })
+    } else if (result === 'preparing') {
+      void Taro.showToast({
+        title: t('president.attendance.exportSelectedPreparing'),
+        icon: 'none',
+      })
+    } else if (result === 'error') {
+      void Taro.showToast({ title: t('president.attendance.shareFailed'), icon: 'none' })
     }
-    return t('president.attendance.exportAll', { count: filtered.length })
   }
 
   const rehearsalTitle = (rehearsal: RehearsalRow) =>
@@ -144,27 +185,31 @@ export function PresidentRehearsalAttendance({ canEdit, canExport }: Props) {
       ) : null}
 
       {canExport ? (
-        <View
-          className={`mt-3 rounded-2xl px-4 py-3 text-center ${
-            exportAllReady ? 'bg-primary' : 'bg-muted'
-          }`}
-          onClick={() => {
-            if (prepared.status === 'error') {
-              // 准备失败时点一下重试（这不是转发，不需要手势约束）
-              void prepare()
-              return
-            }
-            if (prepared.status !== 'ready') return
-            sharePrepared(prepared.all)
-          }}
-        >
-          <Text
-            className={`text-sm font-medium ${
-              exportAllReady ? 'text-primary-foreground' : 'text-text-muted'
-            }`}
+        <View className='mt-3 flex items-center gap-2'>
+          <View
+            className='shrink-0 rounded-full border border-border bg-surface px-4 py-3'
+            onClick={toggleSelectAll}
           >
-            {exportAllLabel()}
-          </Text>
+            <Text className='text-xs font-medium text-text'>
+              {allSelected
+                ? t('president.attendance.deselectAll')
+                : t('president.attendance.selectAll')}
+            </Text>
+          </View>
+          <View
+            className={`flex-1 rounded-2xl px-4 py-3 text-center ${
+              canShare ? 'bg-primary' : 'bg-muted'
+            }`}
+            onClick={handleShare}
+          >
+            <Text
+              className={`text-sm font-medium ${
+                canShare ? 'text-primary-foreground' : 'text-text-muted'
+              }`}
+            >
+              {shareButtonLabel()}
+            </Text>
+          </View>
         </View>
       ) : null}
 
@@ -177,22 +222,28 @@ export function PresidentRehearsalAttendance({ canEdit, canExport }: Props) {
           onRetry={() => void fetch()}
         >
           {filtered.map((rehearsal) => {
-            const file = prepared.perRehearsal[rehearsal.id]
-            const exportLabel =
-              prepared.status === 'error'
-                ? t('president.attendance.retry')
-                : prepared.status === 'preparing' || prepared.status === 'idle'
-                  ? t('president.attendance.preparing')
-                  : file
-                    ? t('president.attendance.exportOne')
-                    : t('president.attendance.noRecords')
-            const canShare = prepared.status === 'ready' && !!file
+            const selected = selectedIds.has(rehearsal.id)
             return (
               <View key={rehearsal.id} className='mb-2 flex items-center gap-2'>
+                {canExport ? (
+                  <View
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                      selected
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border bg-surface'
+                    }`}
+                    onClick={() => toggleSelected(rehearsal.id)}
+                  >
+                    <Text className='text-[10px]'>{selected ? '✓' : ''}</Text>
+                  </View>
+                ) : null}
                 <View
                   className='min-w-0 flex-1 rounded-2xl border border-border bg-card px-3 py-2.5'
                   onClick={() => {
-                    if (canEdit) setEditing(rehearsal)
+                    if (!canEdit) return
+                    void Taro.navigateTo({
+                      url: `/pages/president-rehearsal-attendance/index?id=${rehearsal.id}`,
+                    })
                   }}
                 >
                   <Text className='block truncate text-sm font-medium text-text'>
@@ -205,42 +256,11 @@ export function PresidentRehearsalAttendance({ canEdit, canExport }: Props) {
                     📍 {rehearsal.location || '—'}
                   </Text>
                 </View>
-                {canExport ? (
-                  <View
-                    className={`shrink-0 rounded-full px-3 py-1.5 ${
-                      canShare ? 'bg-primary' : 'bg-muted'
-                    }`}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      if (prepared.status === 'error') {
-                        void prepare()
-                        return
-                      }
-                      if (prepared.status !== 'ready') return
-                      sharePrepared(file)
-                    }}
-                  >
-                    <Text
-                      className={`text-xs font-medium ${
-                        canShare ? 'text-primary-foreground' : 'text-text-muted'
-                      }`}
-                    >
-                      {exportLabel}
-                    </Text>
-                  </View>
-                ) : null}
               </View>
             )
           })}
         </ListState>
       </View>
-
-      <AttendanceEditModal
-        open={!!editing}
-        rehearsal={editing}
-        onClose={() => setEditing(null)}
-        onSaved={() => setRefreshKey((key) => key + 1)}
-      />
     </View>
   )
 }

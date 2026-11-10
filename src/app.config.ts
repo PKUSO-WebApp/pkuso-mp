@@ -42,6 +42,7 @@ export default defineAppConfig({
     'pages/president-rehearsals/index',
     'pages/president-rehearsal-detail/index',
     'pages/president-rehearsal-edit/index',
+    'pages/president-rehearsal-attendance/index',
     'pages/president-announcements/index',
     'pages/president-announcement-edit/index',
     'pages/president-approvals/index',

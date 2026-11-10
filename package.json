@@ -72,6 +72,7 @@
     "@tarojs/runtime": "4.2.1",
     "@tarojs/shared": "4.2.1",
     "@tarojs/taro": "4.2.1",
+    "fflate": "0.8.2",
     "pinyin-pro": "3.29.4",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
