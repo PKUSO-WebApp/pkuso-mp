@@ -2,9 +2,46 @@ import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import { Modal } from '@/components/ui/Modal'
 import { useT } from '@/i18n'
-import { ALL_SECTIONS, SECTION_GROUPS } from '@/constants/instruments'
+import { INSTRUMENT_ORDER, SECTION_GROUPS } from '@/constants/instruments'
 
-const UNIQUE_SECTIONS = [...new Set(ALL_SECTIONS)]
+/** 按乐团展示顺序（INSTRUMENT_ORDER）排列组内声部，而不是按常量的录入顺序 */
+function orderSections(members: readonly string[]): readonly string[] {
+  return INSTRUMENT_ORDER.filter((section) => (members as readonly string[]).includes(section))
+}
+
+const STRINGS = orderSections(SECTION_GROUPS.弦乐)
+const WOODWINDS = orderSections(SECTION_GROUPS.木管)
+const BRASS = orderSections(SECTION_GROUPS.铜管)
+
+type Group = {
+  key: string
+  label: string
+  members: readonly string[]
+  children: { key: string; label: string; members: readonly string[] }[]
+}
+
+/**
+ * 分排目标声部。层级与乐团编制一致：
+ * 管乐（木管 / 铜管）→ 具体声部；弦乐 → 具体声部。
+ * 只存具体声部名（组只是快捷方式），与 web 的 SectionSelect 一致。
+ */
+const SECTION_TREE: Group[] = [
+  {
+    key: 'winds',
+    label: '管乐',
+    members: [...WOODWINDS, ...BRASS],
+    children: [
+      { key: 'woodwinds', label: '木管', members: WOODWINDS },
+      { key: 'brass', label: '铜管', members: BRASS },
+    ],
+  },
+  {
+    key: 'strings',
+    label: '弦乐',
+    members: STRINGS,
+    children: [],
+  },
+]
 
 type Props = {
   value: string[]
@@ -12,10 +49,6 @@ type Props = {
   onChange: (value: string[]) => void
 }
 
-/**
- * 分排目标声部：声部组一键全选 + 单个声部切换。
- * 只存具体声部名（与 web 的 SectionSelect 一样，组只是快捷方式）。
- */
 export function SectionMultiPicker({ value, disabled = false, onChange }: Props) {
   const { t } = useT()
   const [open, setOpen] = useState(false)
@@ -40,6 +73,50 @@ export function SectionMultiPicker({ value, disabled = false, onChange }: Props)
     }
   }
 
+  const renderSections = (members: readonly string[]) => (
+    <View className='grid grid-cols-2 gap-2'>
+      {members.map((section) => {
+        const active = selected.has(section)
+        return (
+          <View
+            key={section}
+            className={`rounded-xl border px-3 py-2 ${
+              active
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-surface text-text'
+            }`}
+            onClick={() => toggleSection(section)}
+          >
+            <Text className='text-xs'>{section}</Text>
+          </View>
+        )
+      })}
+    </View>
+  )
+
+  const renderGroupHeader = (label: string, members: readonly string[], level: 'top' | 'sub') => {
+    const allSelected = members.every((section) => selected.has(section))
+    return (
+      <View
+        className={`flex items-center justify-between ${level === 'top' ? '' : 'py-1'}`}
+        onClick={() => toggleGroup(members)}
+      >
+        <Text
+          className={
+            level === 'top'
+              ? 'text-sm font-medium text-text'
+              : 'text-xs font-medium text-text-muted'
+          }
+        >
+          {label}
+        </Text>
+        <Text className={`text-xs ${allSelected ? 'text-primary' : 'text-text-muted'}`}>
+          {allSelected ? '✓' : t('president.rehearsal.allSections')}
+        </Text>
+      </View>
+    )
+  }
+
   return (
     <View>
       <View className='flex flex-wrap items-center gap-2'>
@@ -59,10 +136,11 @@ export function SectionMultiPicker({ value, disabled = false, onChange }: Props)
         <Button
           hoverClass='none'
           disabled={disabled}
-          className='m-0 w-auto rounded-full border border-border bg-surface px-3 py-1 text-xs leading-normal text-text disabled:opacity-50'
+          className='m-0 flex w-auto items-center rounded-full border border-border bg-surface px-3 py-1 text-text disabled:opacity-50'
           onClick={() => setOpen(true)}
         >
-          {t('president.rehearsal.chooseSections')} ▾
+          <Text className='text-xs leading-normal'>{t('president.rehearsal.chooseSections')}</Text>
+          <Text className='ml-1 text-sm leading-none text-text-muted'>▾</Text>
         </Button>
       </View>
 
@@ -76,40 +154,23 @@ export function SectionMultiPicker({ value, disabled = false, onChange }: Props)
           {t('president.rehearsal.selectedSections', { count: value.length })}
         </Text>
 
-        {Object.entries(SECTION_GROUPS).map(([groupName, members]) => {
-          const allSelected = members.every((section) => selected.has(section))
-          return (
-            <View
-              key={groupName}
-              className='mb-2 flex items-center justify-between rounded-xl border border-border bg-muted px-3 py-2'
-              onClick={() => toggleGroup(members)}
-            >
-              <Text className='text-sm text-text'>{groupName}</Text>
-              <Text className={`text-xs ${allSelected ? 'text-primary' : 'text-text-muted'}`}>
-                {allSelected ? '✓' : t('president.rehearsal.allSections')}
-              </Text>
-            </View>
-          )
-        })}
-
-        <View className='mt-3 grid grid-cols-2 gap-2'>
-          {UNIQUE_SECTIONS.map((section) => {
-            const active = selected.has(section)
-            return (
-              <View
-                key={section}
-                className={`rounded-xl border px-3 py-2 ${
-                  active
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border bg-surface text-text'
-                }`}
-                onClick={() => toggleSection(section)}
-              >
-                <Text className='text-xs'>{section}</Text>
+        {SECTION_TREE.map((group) => (
+          <View key={group.key} className='mb-2 rounded-xl border border-border bg-muted p-3'>
+            {renderGroupHeader(group.label, group.members, 'top')}
+            {group.children.length > 0 ? (
+              <View className='mt-2 border-l-2 border-border pl-3'>
+                {group.children.map((child) => (
+                  <View key={child.key} className='mb-2'>
+                    {renderGroupHeader(child.label, child.members, 'sub')}
+                    {renderSections(child.members)}
+                  </View>
+                ))}
               </View>
-            )
-          })}
-        </View>
+            ) : (
+              <View className='mt-2'>{renderSections(group.members)}</View>
+            )}
+          </View>
+        ))}
 
         <Button
           hoverClass='none'

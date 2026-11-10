@@ -120,7 +120,7 @@ export function RepertoireEditor({ pieces, options, disabled = false, onChange }
               ? t('president.rehearsal.noSheetMusic')
               : t('president.rehearsal.fromLibrary')}
           </Text>
-          <Text className='ml-2 shrink-0 text-xs text-text-muted'>▾</Text>
+          <Text className='ml-2 shrink-0 text-sm text-text-muted'>▾</Text>
         </View>
       </Picker>
 

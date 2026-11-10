@@ -98,7 +98,7 @@ export function DateTimePicker({
         >
           <View className='flex items-center justify-between gap-1'>
             <Text className='truncate text-xs text-text'>{date}</Text>
-            <Text className='shrink-0 text-xs text-text-muted'>▾</Text>
+            <Text className='shrink-0 text-sm text-text-muted'>▾</Text>
           </View>
         </Picker>
 
@@ -115,7 +115,7 @@ export function DateTimePicker({
           >
             <View className='flex items-center justify-between gap-1'>
               <Text className='truncate text-xs text-text'>{displayTime}</Text>
-              <Text className='shrink-0 text-xs text-text-muted'>▾</Text>
+              <Text className='shrink-0 text-sm text-text-muted'>▾</Text>
             </View>
           </Picker>
         ) : (
@@ -129,7 +129,7 @@ export function DateTimePicker({
           >
             <View className='flex items-center justify-between gap-1'>
               <Text className='truncate text-xs text-text'>{displayTime}</Text>
-              <Text className='shrink-0 text-xs text-text-muted'>▾</Text>
+              <Text className='shrink-0 text-sm text-text-muted'>▾</Text>
             </View>
           </Picker>
         )}
