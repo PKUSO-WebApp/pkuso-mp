@@ -4,6 +4,7 @@ export const members = {
   subtitle: 'View the latest orchestra roster',
   tabAll: 'All',
   tabMine: 'My Section',
+  tabRehearsalAttendance: 'Rehearsal attendance',
   emptyMySection: 'No members in my section',
   searchPlaceholder: 'Search name, section',
   emptyApproved: 'No approved members yet',
