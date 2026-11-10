@@ -211,7 +211,10 @@ export default function PresidentAnnouncementEditPage() {
         </View>
       </ScrollView>
 
-      <View className='flex gap-2 border-t border-border bg-surface px-4 pb-safe pt-3'>
+      <View
+        className='flex gap-2 border-t border-border bg-surface px-4 pt-3'
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+      >
         {isEdit && (
           <Button
             hoverClass='none'

@@ -1,7 +1,8 @@
 // 团长功能：我的页入口 + 排练管理 + 公告管理 + 三类审批
 export const president = {
   section: {
-    title: '团长',
+    title: '团长工作台',
+    approval: '审批',
     rehearsal: '管理排练',
     announcement: '管理公告',
     membershipApproval: '入团审批',
@@ -26,7 +27,6 @@ export const president = {
     end: '结束时间',
     location: '排练地点',
     chooseLocation: '选择地点',
-    radius: '签到半径',
     noLocations: '暂无可用地点',
     targetSections: '针对声部',
     chooseSections: '选择声部',

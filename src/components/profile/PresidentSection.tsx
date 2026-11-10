@@ -3,23 +3,13 @@ import Taro from '@tarojs/taro'
 import { useT } from '@/i18n'
 import { useMyCapabilities } from '@/hooks/useMyCapabilities'
 import { usePresidentPendingCounts } from '@/hooks/usePresidentPendingCounts'
+import { CountBadge } from '@/components/ui/CountBadge'
 
 type Row = {
   key: string
   label: string
   url: string
   badge?: number
-}
-
-function CountBadge({ count }: { count: number }) {
-  if (count <= 0) return null
-  return (
-    <View className='mr-2 rounded-full bg-danger px-1.5 py-0.5'>
-      <Text className='text-[10px] font-medium leading-none text-danger-foreground'>
-        {count > 99 ? '99+' : count}
-      </Text>
-    </View>
-  )
 }
 
 /**
@@ -50,28 +40,12 @@ export function PresidentSection() {
       url: '/pages/president-announcements/index',
     })
   }
-  if (hasCapability('membership_approval')) {
+  if (hasApproval) {
     rows.push({
-      key: 'membership',
-      label: t('president.section.membershipApproval'),
-      url: '/pages/president-approvals/index?type=membership',
-      badge: counts.membership,
-    })
-  }
-  if (hasCapability('leave_approval')) {
-    rows.push({
-      key: 'leave',
-      label: t('president.section.leaveApproval'),
-      url: '/pages/president-approvals/index?type=leave',
-      badge: counts.leave,
-    })
-  }
-  if (hasCapability('attendance_approval')) {
-    rows.push({
-      key: 'attendance',
-      label: t('president.section.attendanceApproval'),
-      url: '/pages/president-approvals/index?type=attendance',
-      badge: counts.attendance,
+      key: 'approval',
+      label: t('president.section.approval'),
+      url: '/pages/president-approvals/index',
+      badge: counts.membership + counts.leave + counts.attendance,
     })
   }
 
@@ -90,7 +64,7 @@ export function PresidentSection() {
             onClick={() => void Taro.navigateTo({ url: row.url })}
           >
             <Text className='min-w-0 flex-1 text-sm font-medium text-text'>{row.label}</Text>
-            <CountBadge count={row.badge ?? 0} />
+            <CountBadge count={row.badge ?? 0} className='mr-2' />
             <Text className='text-lg leading-none text-text-muted'>›</Text>
           </View>
         ))}
