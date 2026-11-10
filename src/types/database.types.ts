@@ -721,6 +721,45 @@ export type Database = {
         }
         Relationships: []
       }
+      rehearsal_locations: {
+        Row: {
+          active: boolean
+          address: string | null
+          created_at: string
+          id: string
+          lat: number
+          lng: number
+          name: string
+          radius_m: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          address?: string | null
+          created_at?: string
+          id?: string
+          lat: number
+          lng: number
+          name: string
+          radius_m?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          address?: string | null
+          created_at?: string
+          id?: string
+          lat?: number
+          lng?: number
+          name?: string
+          radius_m?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       rehearsal_repertoire: {
         Row: {
           content: string | null
@@ -2289,6 +2328,17 @@ export type Database = {
           name: string
           platform: string
           trusted: boolean
+        }[]
+      }
+      list_rehearsal_locations: {
+        Args: never
+        Returns: {
+          address: string
+          id: string
+          lat: number
+          lng: number
+          name: string
+          radius_m: number
         }[]
       }
       log_client_errors: { Args: { rows: Json }; Returns: undefined }
