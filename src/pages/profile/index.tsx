@@ -3,6 +3,7 @@ import { View, Text, ScrollView, Input } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import { StorageImage } from '@/components/ui/StorageImage'
 import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
+import { PresidentSection } from '@/components/profile/PresidentSection'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -455,6 +456,8 @@ export default function Profile() {
               </View>
             </View>
           )}
+
+          <PresidentSection />
 
           {/* 通知栏目：各信箱入口，右侧未读数字徽章（>0 时显示）；声部请假仅声部长/首席可见 */}
           <View className='mt-6'>

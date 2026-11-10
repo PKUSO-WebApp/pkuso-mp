@@ -28,6 +28,7 @@ import { scorePart } from './score-part'
 import { scoreReader } from './score-reader'
 import { memberAttendance } from './member-attendance'
 import { sectionLeave } from './section-leave'
+import { president } from './president'
 
 // 必须保持与 zh-CN 完全相同的结构（缺/多 key 都会编译报错）
 export const en: typeof zhCN = {
@@ -60,5 +61,6 @@ export const en: typeof zhCN = {
   scoreReader,
   memberAttendance,
   sectionLeave,
+  president,
 }
 export default en
