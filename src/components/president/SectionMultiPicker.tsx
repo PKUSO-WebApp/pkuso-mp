@@ -62,7 +62,7 @@ export function SectionMultiPicker({ value, disabled = false, onChange }: Props)
           className='m-0 w-auto rounded-full border border-border bg-surface px-3 py-1 text-xs leading-normal text-text disabled:opacity-50'
           onClick={() => setOpen(true)}
         >
-          {t('president.rehearsal.chooseSections')}
+          {t('president.rehearsal.chooseSections')} ▾
         </Button>
       </View>
 

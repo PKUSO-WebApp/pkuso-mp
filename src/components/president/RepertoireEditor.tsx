@@ -74,16 +74,9 @@ export function RepertoireEditor({ pieces, options, disabled = false, onChange }
             >
               <View className='flex items-start gap-2'>
                 <View className='min-w-0 flex-1'>
-                  <View className='flex items-center gap-2'>
-                    <Text className='min-w-0 flex-1 truncate text-sm text-text'>
-                      {formatPieceLabel({ title: piece.title, composer })}
-                    </Text>
-                    <Text className='shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-muted'>
-                      {piece.sheetMusicId
-                        ? t('president.rehearsal.hasScore')
-                        : t('president.rehearsal.noScore')}
-                    </Text>
-                  </View>
+                  <Text className='block truncate text-sm text-text'>
+                    {formatPieceLabel({ title: piece.title, composer })}
+                  </Text>
                   <View className='mt-1 rounded-lg border border-border bg-surface px-2 py-1'>
                     <Input
                       value={piece.content}
@@ -121,34 +114,37 @@ export function RepertoireEditor({ pieces, options, disabled = false, onChange }
         disabled={disabled || options.length === 0}
         onChange={(event) => addScore(Number(event.detail.value))}
       >
-        <View className='mt-2 rounded-xl border border-border bg-surface px-3 py-2'>
-          <Text className='text-xs text-text-muted'>
+        <View className='mt-2 flex h-[var(--size-control-h)] items-center rounded-xl border border-border bg-muted px-3'>
+          <Text className='min-w-0 flex-1 truncate text-sm text-text-muted'>
             {options.length === 0
               ? t('president.rehearsal.noSheetMusic')
               : t('president.rehearsal.fromLibrary')}
           </Text>
+          <Text className='ml-2 shrink-0 text-xs text-text-muted'>▾</Text>
         </View>
       </Picker>
 
       <View className='mt-2 flex gap-2'>
-        <View className='min-w-0 flex-1 rounded-xl border border-border bg-muted px-3'>
+        <View className='flex h-[var(--size-control-h)] min-w-0 flex-1 items-center overflow-hidden rounded-xl border border-border bg-muted px-3'>
           <Input
             value={freeTitle}
             disabled={disabled}
             placeholder={t('president.rehearsal.freeTitle')}
             placeholderStyle='color: var(--color-text-muted)'
-            className='h-[var(--size-control-h)] w-full bg-transparent text-xs text-text'
+            className='h-full w-full bg-transparent text-sm text-text'
             onInput={(event) => setFreeTitle(event.detail.value)}
           />
         </View>
-        <Button
-          hoverClass='none'
-          disabled={disabled || !freeTitle.trim()}
-          className='m-0 w-auto shrink-0 rounded-full border border-border bg-surface px-3 py-1.5 text-xs leading-normal text-text disabled:opacity-50'
-          onClick={addFree}
-        >
-          {t('president.rehearsal.add')}
-        </Button>
+        {freeTitle.trim().length > 0 && (
+          <Button
+            hoverClass='none'
+            disabled={disabled}
+            className='m-0 h-[var(--size-control-h)] w-auto shrink-0 rounded-xl bg-primary px-3 text-xs leading-normal text-primary-foreground disabled:opacity-50'
+            onClick={addFree}
+          >
+            {t('president.rehearsal.add')}
+          </Button>
+        )}
       </View>
     </View>
   )

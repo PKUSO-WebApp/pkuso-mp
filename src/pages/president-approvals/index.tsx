@@ -439,15 +439,18 @@ export default function PresidentApprovalsPage() {
   const tabs = [
     {
       key: 'membership' as const,
-      label: `${t('president.approval.tabMembership')}${counts.membership > 0 ? ` ${counts.membership}` : ''}`,
+      label: t('president.approval.tabMembership'),
+      badge: counts.membership,
     },
     {
       key: 'leave' as const,
-      label: `${t('president.approval.tabLeave')}${counts.leave > 0 ? ` ${counts.leave}` : ''}`,
+      label: t('president.approval.tabLeave'),
+      badge: counts.leave,
     },
     {
       key: 'attendance' as const,
-      label: `${t('president.approval.tabAttendance')}${counts.attendance > 0 ? ` ${counts.attendance}` : ''}`,
+      label: t('president.approval.tabAttendance'),
+      badge: counts.attendance,
     },
   ]
 
@@ -648,7 +651,10 @@ export default function PresidentApprovalsPage() {
       </ScrollView>
 
       {selected.size > 0 && (
-        <View className='flex gap-2 border-t border-border bg-surface px-4 pb-safe pt-3'>
+        <View
+          className='flex gap-2 border-t border-border bg-surface px-4 pt-3'
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+        >
           <Button
             hoverClass='none'
             disabled={acting}

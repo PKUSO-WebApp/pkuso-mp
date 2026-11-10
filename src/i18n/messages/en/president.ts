@@ -1,7 +1,8 @@
 // President area: profile entries, rehearsal management, announcements, approvals
 export const president = {
   section: {
-    title: 'President',
+    title: 'President workspace',
+    approval: 'Approvals',
     rehearsal: 'Manage rehearsals',
     announcement: 'Manage announcements',
     membershipApproval: 'Membership requests',
@@ -26,7 +27,6 @@ export const president = {
     end: 'End',
     location: 'Location',
     chooseLocation: 'Choose a location',
-    radius: 'Check-in radius',
     noLocations: 'No locations available',
     targetSections: 'Target sections',
     chooseSections: 'Choose sections',

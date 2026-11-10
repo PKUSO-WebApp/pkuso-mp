@@ -140,7 +140,10 @@ export default function PresidentRehearsalDetailPage() {
         </View>
       </ScrollView>
 
-      <View className='flex gap-2 border-t border-border bg-surface px-4 pb-safe pt-3'>
+      <View
+        className='flex gap-2 border-t border-border bg-surface px-4 pt-3'
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+      >
         <Button
           hoverClass='none'
           className='m-0 flex-1 rounded-xl border border-border bg-surface py-2 text-sm leading-normal text-text'

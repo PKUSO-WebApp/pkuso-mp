@@ -1,6 +1,7 @@
 import { View, Text } from '@tarojs/components'
+import { CountBadge } from './CountBadge'
 
-export type SegmentTab<T extends string> = { key: T; label: string }
+export type SegmentTab<T extends string> = { key: T; label: string; badge?: number }
 
 type Props<T extends string> = {
   tabs: SegmentTab<T>[]
@@ -20,9 +21,14 @@ export function SegmentTabs<T extends string>({ tabs, value, onChange }: Props<T
         const active = t.key === value
         return (
           <View key={t.key} className='flex-1 py-3 text-center' onClick={() => onChange(t.key)}>
-            <Text className={`text-sm ${active ? 'font-medium text-primary' : 'text-text-muted'}`}>
-              {t.label}
-            </Text>
+            <View className='flex items-center justify-center'>
+              <Text
+                className={`text-sm ${active ? 'font-medium text-primary' : 'text-text-muted'}`}
+              >
+                {t.label}
+              </Text>
+              <CountBadge count={t.badge ?? 0} compact className='ml-1' />
+            </View>
             {active && <View className='mx-auto mt-1 h-0.5 w-6 rounded bg-primary' />}
           </View>
         )

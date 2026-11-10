@@ -96,7 +96,10 @@ export function DateTimePicker({
           onChange={(e) => onDateChange(e.detail.value)}
           className='flex-[3] overflow-hidden rounded-xl border border-border bg-muted py-2 px-3'
         >
-          <Text className='text-xs text-text'>{date}</Text>
+          <View className='flex items-center justify-between gap-1'>
+            <Text className='truncate text-xs text-text'>{date}</Text>
+            <Text className='shrink-0 text-xs text-text-muted'>▾</Text>
+          </View>
         </Picker>
 
         {/* 时间选择器（占1份宽度） */}
@@ -110,7 +113,10 @@ export function DateTimePicker({
             onChange={(e) => onTimeChange(e.detail.value)}
             className='flex-[1] overflow-hidden rounded-xl border border-border bg-muted py-2 px-3'
           >
-            <Text className='text-xs text-text'>{displayTime}</Text>
+            <View className='flex items-center justify-between gap-1'>
+              <Text className='truncate text-xs text-text'>{displayTime}</Text>
+              <Text className='shrink-0 text-xs text-text-muted'>▾</Text>
+            </View>
           </Picker>
         ) : (
           <Picker
@@ -121,7 +127,10 @@ export function DateTimePicker({
             onChange={(e) => onTimeMultiChange?.(e.detail.value)}
             className='flex-[1] overflow-hidden rounded-xl border border-border bg-muted py-2 px-3'
           >
-            <Text className='text-xs text-text'>{displayTime}</Text>
+            <View className='flex items-center justify-between gap-1'>
+              <Text className='truncate text-xs text-text'>{displayTime}</Text>
+              <Text className='shrink-0 text-xs text-text-muted'>▾</Text>
+            </View>
           </Picker>
         )}
       </View>

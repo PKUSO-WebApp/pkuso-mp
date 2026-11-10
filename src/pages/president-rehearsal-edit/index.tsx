@@ -333,15 +333,11 @@ export default function PresidentRehearsalEditPage() {
                 if (item) setLocationId(item.id)
               }}
             >
-              <View className='rounded-xl border border-border bg-muted px-3 py-2'>
-                <Text className='text-sm text-text'>
+              <View className='flex h-[var(--size-control-h)] items-center rounded-xl border border-border bg-muted px-3'>
+                <Text className='min-w-0 flex-1 truncate text-sm text-text'>
                   {selectedLocation?.name ?? t('president.rehearsal.chooseLocation')}
                 </Text>
-                {selectedLocation && (
-                  <Text className='mt-0.5 block text-[10px] text-text-muted'>
-                    {t('president.rehearsal.radius')} {selectedLocation.radius_m}m
-                  </Text>
-                )}
+                <Text className='ml-2 shrink-0 text-xs text-text-muted'>▾</Text>
               </View>
             </Picker>
           </View>
@@ -365,7 +361,10 @@ export default function PresidentRehearsalEditPage() {
         </View>
       </ScrollView>
 
-      <View className='border-t border-border bg-surface px-4 pb-safe pt-3'>
+      <View
+        className='border-t border-border bg-surface px-4 pt-3'
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+      >
         <Button
           hoverClass='none'
           disabled={saving}
