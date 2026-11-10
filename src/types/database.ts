@@ -24,8 +24,7 @@ export type SheetMusicRow = PublicSchema['Tables']['sheet_music']['Row']
 export type SheetMusicPartRow = PublicSchema['Tables']['sheet_music_parts']['Row']
 export type SheetMusicFileRow = PublicSchema['Tables']['sheet_music_files']['Row']
 export type SharedScoreFileRow = PublicSchema['Views']['sheet_music_shared_score_files']['Row']
-export type SectionMemberPreferenceRow =
-  PublicSchema['Tables']['section_member_preferences']['Row']
+export type SectionMemberPreferenceRow = PublicSchema['Tables']['section_member_preferences']['Row']
 
 // ---- 枚举类型(从 database.types.ts Enums 派生) ----
 export type ProfileStatus = PublicSchema['Enums']['profileStatus']
@@ -42,6 +41,10 @@ export type PostRowWithAuthor = PostRow & {
 export type AttendanceRowWithUser = AttendanceRow & {
   profiles?: { full_name?: string | null; instrument?: string | null } | null
 }
+/** 团长考勤导出的 RPC 行（profiles 是 LEFT JOIN，运行时可能为 null） */
+export type PresidentAttendanceExportRow =
+  PublicSchema['Functions']['president_attendance_export']['Returns'][number]
+
 export type LeaveRequestWithDetails = LeaveRequestRow & {
   profiles?: { full_name?: string | null; instrument?: string | null } | null
   rehearsals?: {

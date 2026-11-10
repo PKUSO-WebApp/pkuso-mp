@@ -15,7 +15,7 @@ const member = {
   is_in_orchestra: true,
 }
 
-const { useProfilesMockState, fetchMock, myProfileState } = vi.hoisted(() => ({
+const { useProfilesMockState, fetchMock, myProfileState, capabilityState } = vi.hoisted(() => ({
   useProfilesMockState: {
     data: [] as unknown[],
     loading: false,
@@ -24,6 +24,8 @@ const { useProfilesMockState, fetchMock, myProfileState } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
   /** 当前账号的角色：逐用例可改（阻断分支要看它） */
   myProfileState: { role: 'member' as string | null },
+  /** 团长能力：逐用例可改 */
+  capabilityState: { attendance: false, attendanceExport: false },
 }))
 
 vi.mock('@tarojs/components', () => {
@@ -57,6 +59,28 @@ vi.mock('@/hooks/useMyProfile', () => ({
   // ⚠️ 返回**稳定引用**（每次渲染都是同一个对象，改 role = 改它）。返回新对象字面量会有
   // 「进了 effect 依赖就无限重渲染」的风险，那是本仓踩过的坑。
   useMyProfile: () => ({ profile: myProfileState }),
+}))
+vi.mock('@/hooks/useMyCapabilities', () => ({
+  useMyCapabilities: () => ({
+    capabilities: [],
+    loading: false,
+    refresh: vi.fn(),
+    hasCapability: (capability: string) =>
+      capability === 'attendance'
+        ? capabilityState.attendance
+        : capability === 'attendance_export'
+          ? capabilityState.attendanceExport
+          : false,
+  }),
+}))
+vi.mock('@/components/president/PresidentRehearsalAttendance', () => ({
+  PresidentRehearsalAttendance: ({
+    canEdit,
+    canExport,
+  }: {
+    canEdit: boolean
+    canExport: boolean
+  }) => React.createElement('span', null, `ATTENDANCE_PANEL:${canEdit}:${canExport}`),
 }))
 vi.mock('@/context/user-context', () => ({ useUser: () => ({ user: { id: 'me' } }) }))
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
@@ -106,6 +130,8 @@ beforeEach(() => {
   useProfilesMockState.loading = false
   useProfilesMockState.error = null
   myProfileState.role = 'member'
+  capabilityState.attendance = false
+  capabilityState.attendanceExport = false
   fetchMock.mockReset()
 })
 afterEach(() => {
@@ -151,6 +177,25 @@ describe('花名册页失败态与空态', () => {
     fireEvent.change(container.querySelector('input')!, { target: { value: 'zzz' } })
     expect(screen.getByText('未找到匹配的成员')).toBeTruthy()
     expect(screen.queryByText('暂无已通过成员')).toBeNull()
+  })
+})
+
+describe('团长排练考勤 tab', () => {
+  it('有 attendance 能力时把「我的声部」换成「排练考勤」并渲染可编辑面板', () => {
+    capabilityState.attendance = true
+    render(<Members />)
+
+    expect(screen.queryByText('我的声部')).toBeNull()
+    fireEvent.click(screen.getByText('排练考勤'))
+    expect(screen.getByText('ATTENDANCE_PANEL:true:false')).toBeTruthy()
+  })
+
+  it('只有 attendance_export 能力：tab 仍在，面板只读可导出', () => {
+    capabilityState.attendanceExport = true
+    render(<Members />)
+
+    fireEvent.click(screen.getByText('排练考勤'))
+    expect(screen.getByText('ATTENDANCE_PANEL:false:true')).toBeTruthy()
   })
 })
 

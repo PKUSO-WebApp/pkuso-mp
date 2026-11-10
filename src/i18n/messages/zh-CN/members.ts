@@ -4,6 +4,8 @@ export const members = {
   subtitle: '查看乐团最新花名册',
   tabAll: '全部',
   tabMine: '我的声部',
+  // 团长（attendance / attendance_export）的「我的声部」tab 改为排练考勤
+  tabRehearsalAttendance: '排练考勤',
   emptyMySection: '本声部暂无成员',
   searchPlaceholder: '搜索姓名，声部',
   emptyApproved: '暂无已通过成员',
