@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { View, Text, ScrollView, Image } from '@tarojs/components'
+import { View, Text, ScrollView } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import { supabase } from '@/lib/supabase'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
@@ -24,7 +24,7 @@ import { translateInstrument, matchInstrumentSection } from '@/lib/instrument-i1
 import { translateJoinDate } from '@/lib/join-date-i18n'
 import type { ProfileRow } from '@/types/database'
 import { StorageImage } from '@/components/ui/StorageImage'
-import defaultAvatar from '@/assets/icons/user-round.png'
+import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
 import './index.scss'
 
 export default function Members() {
@@ -218,11 +218,7 @@ export default function Members() {
                                 mode='aspectFill'
                               />
                             ) : (
-                              <Image
-                                src={defaultAvatar}
-                                className='h-full w-full'
-                                mode='aspectFit'
-                              />
+                              <DefaultAvatar />
                             )}
                           </View>
                           <View className='min-w-0 flex-1'>

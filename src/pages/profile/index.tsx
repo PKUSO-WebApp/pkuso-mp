@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, Input, Image } from '@tarojs/components'
+import { View, Text, ScrollView, Input } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import { StorageImage } from '@/components/ui/StorageImage'
+import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -26,7 +27,6 @@ import { dataSyncBump } from '@/lib/dataSync'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import { useCountdown } from '@/hooks/useCountdown'
 import { invokeFunction } from '@/lib/functions'
-import defaultAvatar from '@/assets/icons/user-round.png'
 
 import { SkeletonCircle, SkeletonText } from '@/components/ui/Skeleton'
 import { AppearanceModal } from './components/appearance-modal'
@@ -441,7 +441,7 @@ export default function Profile() {
                 {avatarUrl ? (
                   <StorageImage src={avatarUrl} className='h-full w-full' mode='aspectFill' />
                 ) : (
-                  <Image src={defaultAvatar} className='h-full w-full' mode='aspectFit' />
+                  <DefaultAvatar />
                 )}
               </View>
               <View className='min-w-0 flex-1'>

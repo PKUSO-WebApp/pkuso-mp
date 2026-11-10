@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
-import { View, Text, Image } from '@tarojs/components'
+import { View, Text } from '@tarojs/components'
 import { useT } from '@/i18n'
 import { StorageImage } from '@/components/ui/StorageImage'
+import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
 import { translateInstrument } from '@/lib/instrument-i18n'
 import { translateJoinDate } from '@/lib/join-date-i18n'
-import defaultAvatar from '@/assets/icons/user-round.png'
 import type { ProfileRow } from '@/types/database'
 
 /**
@@ -42,7 +42,7 @@ export function ProfileInfoView({
           {profile.avatar_url ? (
             <StorageImage src={profile.avatar_url} className='h-full w-full' mode='aspectFill' />
           ) : (
-            <Image src={defaultAvatar} className='h-full w-full' mode='aspectFit' />
+            <DefaultAvatar />
           )}
         </View>
       </View>

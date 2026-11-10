@@ -6,6 +6,7 @@ import { useThemeClass } from '@/context/theme-context'
 import { useT, useNavTitle } from '@/i18n'
 import { PageLoading } from '@/components/ui/PageLoading'
 import { StorageImage } from '@/components/ui/StorageImage'
+import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useEditDraft } from '@/hooks/useEditDraft'
 import { isValidPhoneNumber } from '@/lib/validation'
@@ -20,7 +21,6 @@ import eyeDarkIcon from '@/assets/icons/eye-dark.png'
 import eyeOffDarkIcon from '@/assets/icons/eye-off-dark.png'
 import pencilIcon from '@/assets/icons/pencil-line.png'
 import pencilDarkIcon from '@/assets/icons/pencil-line-dark.png'
-import defaultAvatar from '@/assets/icons/user-round.png'
 import { invokeFunction } from '@/lib/functions'
 import './index.scss'
 
@@ -370,9 +370,7 @@ export default function ProfileInfoPage() {
                     mode='aspectFill'
                   />
                 ) : (
-                  <View className='flex h-full w-full items-center justify-center'>
-                    <Image src={defaultAvatar} className='h-full w-full' mode='aspectFit' />
-                  </View>
+                  <DefaultAvatar />
                 )}
               </Button>
               <Button
@@ -392,7 +390,7 @@ export default function ProfileInfoPage() {
               {avatarUrl ? (
                 <Image src={avatarUrl} className='h-full w-full rounded-full' mode='aspectFill' />
               ) : (
-                <Image src={defaultAvatar} className='h-full w-full' mode='aspectFit' />
+                <DefaultAvatar />
               )}
             </View>
           )}
