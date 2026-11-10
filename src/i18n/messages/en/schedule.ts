@@ -70,6 +70,9 @@ export const schedule = {
   toastAdded: 'Booking added',
   submitting: 'Adding…',
   deleteReservation: 'Delete Booking',
+  openRehearsalDelete: 'Delete rehearsal',
+  rehearsalShadowHint:
+    'This is a rehearsal schedule; deleting the rehearsal also removes this booking.',
   deleting: 'Deleting…',
   deleteConfirm: 'Are you sure you want to delete the booking "{title}"?',
   detailTitle: 'Booking Details',

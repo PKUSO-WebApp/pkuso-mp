@@ -73,6 +73,8 @@ export const schedule = {
   toastAdded: '预约已添加',
   submitting: '添加中…',
   deleteReservation: '删除预约',
+  openRehearsalDelete: '去删除排练',
+  rehearsalShadowHint: '这条是排练日程；删除排练时会一并移除该预约。',
   deleting: '删除中…',
   deleteConfirm: '确定要删除预约「{title}」吗？',
   detailTitle: '预约详情',

@@ -4,14 +4,15 @@ import Taro from '@tarojs/taro'
 import { Modal } from '@/components/ui/Modal'
 import { parseLocalISO, formatTime } from '@/lib/date-utils'
 import { useT } from '@/i18n'
+import { useMyCapabilities } from '@/hooks/useMyCapabilities'
 import type { ScheduleRow } from '@/types/database'
 
 type Props = {
   schedules: ScheduleRow[]
   selectedDate: string
-  /** 当前用户（用于判定是否为预约创建者，仅创建者可删除） */
+  /** 当前用户（用于判定是否为预约创建者；创建者/团长可删除人工预约） */
   user?: { id: string | undefined } | null
-  /** 删除预约（仅创建者本人可删除自己添加的预约） */
+  /** 删除人工预约（影子预约不走这里，由排练详情页删除排练） */
   remove: (id: number, date?: string) => Promise<boolean>
   /** 甘特图高度（px）：短屏保底 480，长屏按可用空间撑满；默认 480 */
   height?: number
@@ -59,18 +60,23 @@ export function ScheduleGantt({
   ensureAuthorName,
 }: Props) {
   const { t } = useT()
+  const { hasCapability } = useMyCapabilities()
+  const canManageRehearsals = hasCapability('rehearsal')
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleRow | null>(null)
   const [displayAuthorName, setDisplayAuthorName] = useState<string | null>(null)
   const [loadingAuthor, setLoadingAuthor] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  // 当前用户是否为该预约的创建者（仅创建者可删除，Issue #142 移植）
+  // 当前用户是否为该预约的创建者（Issue #142 移植）
   const isAuthor = selectedSchedule?.author_id === user?.id
+  const isRehearsalSchedule = !!selectedSchedule?.rehearsal_id
+  // 影子预约不能直接删（删了排练还在）：团长从详情弹窗跳去排练详情页删排练
+  const canDelete = !isRehearsalSchedule && (isAuthor || canManageRehearsals)
 
   // 删除预约：先确认，再调用 remove，成功后关闭弹窗；失败保留弹窗并提示
   const handleDelete = async () => {
-    if (!selectedSchedule) return
+    if (!selectedSchedule || selectedSchedule.rehearsal_id) return
     const res = await Taro.showModal({
       title: t('schedule.deleteReservation'),
       content: t('schedule.deleteConfirm', {
@@ -312,22 +318,45 @@ export function ScheduleGantt({
                 </Text>
               </View>
             )}
-            {/* 仅创建者可删除自己添加的预约（Issue #142 移植） */}
-            {isAuthor && (
+            {isRehearsalSchedule ? (
+              // 影子预约：删除入口引导到排练详情页（那里有「删除排练」，FK 会级联删影子）
+              canManageRehearsals && selectedSchedule.rehearsal_id ? (
+                <View className='mt-3 border-t border-border pt-2'>
+                  <Text className='mb-2 block text-xs text-text-muted'>
+                    {t('schedule.rehearsalShadowHint')}
+                  </Text>
+                  <View
+                    className='rounded-lg bg-primary py-2 text-center'
+                    onClick={() =>
+                      void Taro.navigateTo({
+                        url: `/pages/president-rehearsal-detail/index?id=${selectedSchedule.rehearsal_id}`,
+                      })
+                    }
+                  >
+                    <Text className='text-sm font-medium text-primary-foreground'>
+                      {t('schedule.openRehearsalDelete')}
+                    </Text>
+                  </View>
+                </View>
+              ) : null
+            ) : canDelete ? (
+              // 人工预约：作者本人或团长（rehearsal 能力）可删除
               <View className='mt-3 border-t border-border pt-2'>
                 <View
-                  className={`rounded-lg bg-danger py-2 text-center text-sm font-medium text-white ${
+                  className={`rounded-lg bg-danger py-2 text-center ${
                     deleting ? 'opacity-50' : ''
                   }`}
                   onClick={deleting ? undefined : () => void handleDelete()}
                 >
-                  {deleting ? t('schedule.deleting') : t('schedule.deleteReservation')}
+                  <Text className='text-sm font-medium text-danger-foreground'>
+                    {deleting ? t('schedule.deleting') : t('schedule.deleteReservation')}
+                  </Text>
                 </View>
                 {deleteError && (
                   <Text className='mt-2 block text-center text-sm text-danger'>{deleteError}</Text>
                 )}
               </View>
-            )}
+            ) : null}
           </View>
         )}
       </Modal>

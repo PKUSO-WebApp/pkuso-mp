@@ -270,6 +270,7 @@ describe('useSchedule', () => {
             {
               id: 1,
               rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
+              author_id: 'user-1',
               start_time: '2024-01-01T14:30:00',
               end_time: '2024-01-01T15:30:00',
             },
@@ -286,6 +287,34 @@ describe('useSchedule', () => {
       })
 
       expect(conflictResult).toBe('该时间段已有其他预约')
+    })
+
+    it('历史孤儿影子预约（author_id 与 rehearsal_id 都为 null）不误报冲突', async () => {
+      const c = mockClient([
+        { data: [], error: null }, // 初始 fetchAll
+        {
+          data: [
+            {
+              id: 1,
+              rehearsal_id: null,
+              author_id: null,
+              title: '排练',
+              start_time: '2024-01-01T14:30:00',
+              end_time: '2024-01-01T15:30:00',
+            },
+          ],
+          error: null,
+        }, // checkConflict 的 fetchAll：外键 SET NULL 留下的孤儿影子
+        { data: [], error: null }, // rehearsals query
+      ])
+      const { result } = renderHook(() => useSchedule(c as never))
+      await waitFor(() => expect(result.current.loading).toBe(false))
+
+      const conflictResult = await act(async () => {
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
+      })
+
+      expect(conflictResult).toBeNull()
     })
 
     it('与已有排练时间冲突（RPC 检测）', async () => {
@@ -439,6 +468,7 @@ describe('useSchedule', () => {
             {
               id: 1,
               rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
+              author_id: 'user-1',
               start_time: '2024-01-01 14:30:00',
               end_time: '2024-01-01 15:30:00',
             },
@@ -465,12 +495,14 @@ describe('useSchedule', () => {
             {
               id: 1,
               rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
+              author_id: 'user-1',
               start_time: '${TEST_TODAY}T13:00:00',
               end_time: '${TEST_TODAY}T14:00:00',
             },
           ],
           error: null,
-        }, // fetchAll
+        }, // fetchAll（带 author_id → 会补查 profiles_roster）
+        { data: [], error: null }, // profiles_roster
         { data: [], error: null }, // rehearsals query
       ])
       const { result } = renderHook(() => useSchedule(c as never))
@@ -491,12 +523,14 @@ describe('useSchedule', () => {
             {
               id: 1,
               rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
+              author_id: 'user-1',
               start_time: '${TEST_TODAY}T15:00:00',
               end_time: '${TEST_TODAY}T16:00:00',
             },
           ],
           error: null,
-        }, // fetchAll
+        }, // fetchAll（带 author_id → 会补查 profiles_roster）
+        { data: [], error: null }, // profiles_roster
         { data: [], error: null }, // rehearsals query
       ])
       const { result } = renderHook(() => useSchedule(c as never))
