@@ -1,8 +1,9 @@
 ﻿// @vitest-environment jsdom
 
 import React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import ProfileInfoPage from './index'
 
 const { taroMock, updateProfileMock } = vi.hoisted(() => ({
@@ -82,6 +83,7 @@ vi.mock('@/assets/icons/eye-dark.png', () => ({ default: 'eye-dark.png' }))
 vi.mock('@/assets/icons/eye-off-dark.png', () => ({ default: 'eye-off-dark.png' }))
 vi.mock('@/assets/icons/pencil-line.png', () => ({ default: 'pencil-line.png' }))
 vi.mock('@/assets/icons/pencil-line-dark.png', () => ({ default: 'pencil-line-dark.png' }))
+vi.mock('@/assets/icons/user-round.png', () => ({ default: 'user-round.png' }))
 vi.mock('@/components/ui/ImageCropper', () => ({
   ImageCropper: ({ children }: any) =>
     React.createElement('div', { 'data-testid': 'image-cropper' }, children),
@@ -102,33 +104,23 @@ vi.mock('@/lib/supabase', () => ({
 }))
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 describe('ProfileInfoPage', () => {
+  beforeEach(() => resetTestLocale())
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+  })
+
+  it('英文环境：查看态标签与隐藏说明显示英文', () => {
+    setTestLocale('en')
+    render(<ProfileInfoPage />)
+    expect(screen.getByText('The following info can be edited and hidden')).toBeTruthy()
+    expect(screen.getByText('Full Name')).toBeTruthy()
+    expect(screen.getByText('Membership')).toBeTruthy()
+    expect(screen.getByText('Active')).toBeTruthy()
   })
 
   it('渲染乐器、学院与分隔线说明', () => {
@@ -136,8 +128,9 @@ describe('ProfileInfoPage', () => {
     expect(screen.getByText('长笛')).toBeTruthy()
     expect(screen.getByText('元培学院')).toBeTruthy()
     expect(screen.getByText('以下信息可编辑隐藏')).toBeTruthy()
-    // 查看态不显示头像编辑图标
-    expect(document.querySelectorAll('img').length).toBe(0)
+    // 查看态：没有头像上传文件，显示默认头像；不显示「编辑头像」的铅笔角标
+    expect(document.querySelectorAll('img').length).toBe(1)
+    expect(document.querySelector('img')?.getAttribute('src')).toBe('user-round.png')
   })
 
   it('点击「编辑」进入编辑态，点击「保存」写入 profiles', async () => {
@@ -154,9 +147,11 @@ describe('ProfileInfoPage', () => {
   it('编辑态点击眼图标切换隐藏状态并随保存写入', async () => {
     const { container } = render(<ProfileInfoPage />)
     fireEvent.click(screen.getByText('编辑'))
-    const imgs = container.querySelectorAll('img')
-    // imgs[0] 是头像编辑图标，imgs[1-3] 依次为：绑定邮箱 / 联系方式 / 学院眼图标
-    fireEvent.click(imgs[1])
+    // 按 src 找眼睛图标：第一个是「绑定邮箱」的隐藏开关
+    // （头像与铅笔角标也是 img，按顺序取会随布局变化而错位）
+    const eye = container.querySelectorAll('img[src="eye.png"]')[0]
+    expect(eye).toBeTruthy()
+    fireEvent.click(eye!)
     fireEvent.click(screen.getByText('保存'))
     await waitFor(() => expect(updateProfileMock).toHaveBeenCalled())
     const payload = updateProfileMock.mock.calls[0][1]

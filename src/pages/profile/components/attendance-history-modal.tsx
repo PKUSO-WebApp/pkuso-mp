@@ -5,6 +5,7 @@ import { useT } from '@/i18n'
 import type { TFn } from '@/i18n/core'
 import { Modal } from '@/components/ui/Modal'
 import { formatRehearsalRange } from '@/lib/date-utils'
+import { DATA_SYNC_INTERVAL_MS } from '@/lib/dataSync'
 import { isAbsentPlaceholder, getUnsignedLabel } from '@/lib/attendance-utils'
 import { STATUS_TEXT_COLOR } from '@/lib/attendance-status'
 import { summarizeAttendance, type AttendanceSummaryKey } from '@/lib/attendance-summary'
@@ -61,9 +62,12 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
   const seqRef = useRef(0)
 
   const fetchHistory = useCallback(
-    async (start: string, end: string) => {
-      setLoading(true)
-      setQueryFailed(false)
+    async (start: string, end: string, opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true
+      if (!silent) {
+        setLoading(true)
+        setQueryFailed(false)
+      }
       const seq = ++seqRef.current
       const { rows: data, error } = await fetchMyHistory(userId, {
         startDate: start,
@@ -71,12 +75,16 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
       })
       // 仅最新一次查询的响应生效（用户可能已快速切换区间）
       if (seq !== seqRef.current) return
-      setLoading(false)
+      if (!silent) setLoading(false)
       if (error) {
-        setQueryFailed(true)
-        setRows([])
+        // 静默刷新失败时保留当前列表，不把弹窗突然变成失败态
+        if (!silent) {
+          setQueryFailed(true)
+          setRows([])
+        }
         return
       }
+      setQueryFailed(false)
       setRows(data)
     },
     [fetchMyHistory, userId]
@@ -85,6 +93,15 @@ export function AttendanceHistoryModal({ userId, onClose }: Props) {
   useEffect(() => {
     void fetchHistory('', '')
   }, [fetchHistory])
+
+  // 弹窗开着时每 30s 静默刷新：web 改完考勤后，成员不关弹窗也能看到新状态。
+  useEffect(() => {
+    const timer = setInterval(
+      () => void fetchHistory(startDate, endDate, { silent: true }),
+      DATA_SYNC_INTERVAL_MS
+    )
+    return () => clearInterval(timer)
+  }, [fetchHistory, startDate, endDate])
 
   /** 开始日期变更：起 > 止 时仅提示不查询（保留上次结果，不清空已选），否则按新区间查询 */
   const handleStartChange = (v: string) => {

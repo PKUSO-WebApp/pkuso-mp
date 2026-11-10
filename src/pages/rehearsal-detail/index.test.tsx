@@ -3,6 +3,7 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import RehearsalDetail from './index'
 
 /**
@@ -91,8 +92,10 @@ vi.mock('@tarojs/taro', () => ({
     openSetting: vi.fn(),
   },
   useDidShow: vi.fn(),
+  useDidHide: vi.fn(),
   useShareAppMessage: vi.fn(),
 }))
+vi.mock('@/lib/dataSync', () => ({ DATA_SYNC_INTERVAL_MS: 30_000 }))
 
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 vi.mock('@/context/user-context', () => ({
@@ -134,31 +137,12 @@ vi.mock('@/constants/instruments', () => ({
   INSTRUMENT_ORDER: [],
 }))
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 beforeEach(() => {
+  resetTestLocale()
   state.ready = true
   state.user = { id: 'u1' }
   state.restoreFailed = false
@@ -185,6 +169,16 @@ describe('排练详情页', () => {
     const returnTo = decodeURIComponent(url.split('returnTo=')[1])
     expect(returnTo).toContain('pages/rehearsal-detail/index')
     expect(returnTo).toContain('id=7')
+  })
+
+  it('英文环境：地点标签与请假入口显示英文', async () => {
+    setTestLocale('en')
+    render(<RehearsalDetail />)
+
+    await waitFor(() => expect(screen.getByText('新太阳排练厅')).toBeTruthy())
+    expect(screen.getByText('Location')).toBeTruthy()
+    expect(screen.getByText(/Request Leave/)).toBeTruthy()
+    expect(screen.queryByText('排练地点')).toBeNull()
   })
 
   it('已登录：渲染排练时间/地点/曲目，并给出请假入口', async () => {
@@ -232,7 +226,7 @@ describe('排练详情页', () => {
     setRoute({ id: '7' }, '/auth-pending')
     render(<RehearsalDetail />)
 
-    expect(screen.getByText(/加载中/)).toBeTruthy()
+    expect(document.querySelector('.ui-spinner')).toBeTruthy()
     expect(screen.queryByText('排练不存在')).toBeNull()
     expect(mocks.maybeSingle).not.toHaveBeenCalled()
   })

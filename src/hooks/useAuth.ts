@@ -3,7 +3,33 @@ import { useUser, type User } from '@/context/user-context'
 import { supabase as defaultClient } from '@/lib/supabase'
 import { clearLegacySessionToken, markIntentionalSignOut } from '@/lib/device-session'
 import { logDiag } from '@/lib/session-diag'
+import { GUEST_ANNO_OWNER } from '@/lib/annotation'
+import { clearAnnotationStorageFor } from '@/lib/annotation-migration'
+import { flushAllAnnotationsForOwner } from '@/lib/annotation-sync-runner'
 import type { Session } from '@supabase/supabase-js'
+
+/** 登出前的最后同步最多等这么久；超时就按「没同步完」处理（本地键保留） */
+const SIGN_OUT_FLUSH_TIMEOUT_MS = 3000
+
+/**
+ * D16 / C1：登出前尽力把批注欠账推上去。
+ * **必须在 signOut 之前调用**（令牌一撤，RLS 会挡掉所有请求）。
+ * 返回 false = 没确认推完 ⇒ 保留本地键（键已按账号隔离，不泄漏）。
+ */
+async function flushAnnotationsBeforeSignOut(owner: string): Promise<boolean> {
+  // guest 没有云端账号可推；本地 guest 目录可以直接清
+  if (owner === GUEST_ANNO_OWNER) return true
+  try {
+    return await Promise.race([
+      flushAllAnnotationsForOwner(owner),
+      new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(false), SIGN_OUT_FLUSH_TIMEOUT_MS)
+      ),
+    ])
+  } catch {
+    return false
+  }
+}
 
 // 与 SDK AuthError 结构兼容的最小错误类型（message 必填，code/status 可选）
 export type AuthErrorLike = { message: string; code?: string; status?: number }
@@ -41,6 +67,9 @@ export function useAuth(client: typeof defaultClient = defaultClient): UseAuthRe
   )
 
   const signOut = useCallback(async (): Promise<void> => {
+    const owner = user?.id ?? GUEST_ANNO_OWNER
+    // ⚠️ 先同步、再登出：令牌撤销后 RLS 会把所有请求挡掉
+    const flushed = await flushAnnotationsBeforeSignOut(owner)
     // 标记为主动登出，避免 onAuthStateChange 的 SIGNED_OUT 被误判为「被踢下线」
     markIntentionalSignOut()
     logDiag('sign_out_intentional')
@@ -51,8 +80,12 @@ export function useAuth(client: typeof defaultClient = defaultClient): UseAuthRe
     clearLegacySessionToken()
     if (authError) {
       setError(authError.message)
+    } else if (flushed) {
+      // 确认推完才删本地：没推完就删等于丢用户没同步的笔迹
+      clearAnnotationStorageFor(owner)
+      clearAnnotationStorageFor(GUEST_ANNO_OWNER)
     }
-  }, [client])
+  }, [client, user?.id])
 
   return {
     session,

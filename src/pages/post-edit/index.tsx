@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, Input, Textarea, Image, ScrollView } from '@tarojs/components'
+import { View, Text, Input, Textarea, ScrollView } from '@tarojs/components'
 import Taro from '@tarojs/taro'
+import { StorageImage } from '@/components/ui/StorageImage'
+import { newIdempotencyKey } from '@/lib/storage-upload'
 import { usePosts } from '@/hooks/usePosts'
 import { usePageRestore } from '@/hooks/usePageRestore'
 import { useEditDraft } from '@/hooks/useEditDraft'
@@ -26,6 +28,7 @@ type PostEditDraft = {
   imageFile: UploadFileLike | null
   imagePreview: string | null
   removeImage: boolean
+  uploadKey: string
 }
 
 /**
@@ -57,8 +60,10 @@ export default function PostEditPage() {
     imageFile: null,
     imagePreview: null,
     removeImage: false,
+    uploadKey: '',
   })
   const initialDraft = editDraft.hasDraft() ? editDraft.get() : null
+  const [uploadKey] = useState(() => initialDraft?.uploadKey || newIdempotencyKey())
 
   const [post, setPost] = useState<PostRowWithAuthor | null>(null)
   const [loading, setLoading] = useState(true)
@@ -92,6 +97,7 @@ export default function PostEditPage() {
       imageFile,
       imagePreview,
       removeImage,
+      uploadKey,
       ...patch,
     })
   }
@@ -188,6 +194,7 @@ export default function PostEditPage() {
         missing_sections: type === 'ensemble' ? missingSections : '',
         contact_info: contactInfo,
         imageFile: removeImage ? null : (imageFile ?? undefined),
+        uploadKey,
       })
       if (!res.ok) {
         setError(res.error)
@@ -339,7 +346,7 @@ export default function PostEditPage() {
           </Text>
           {previewSrc ? (
             <View className='relative'>
-              <Image
+              <StorageImage
                 src={previewSrc}
                 mode='widthFix'
                 className='w-full rounded-lg border border-border'

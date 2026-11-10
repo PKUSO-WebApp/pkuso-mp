@@ -12,6 +12,7 @@ export const leaveRequests = {
   labelType: 'Rehearsal type: ',
   labelReason: 'Reason: ',
   labelReviewReason: 'Review note: ',
+  attendanceNoticesTitle: 'Attendance notices',
   status: {
     pending: 'Pending',
     approved: 'Approved',

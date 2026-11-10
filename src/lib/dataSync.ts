@@ -25,7 +25,9 @@ export function emitSync(entity: SyncEntity) {
   listeners[entity].forEach((h) => h())
 }
 
-const BASE_INTERVAL = 30_000
+/** 心跳间隔。页面级轮询（如声部请假）复用它，避免两个「30 秒」各写各的。 */
+export const DATA_SYNC_INTERVAL_MS = 30_000
+const BASE_INTERVAL = DATA_SYNC_INTERVAL_MS
 const JITTER_MAX = 10_000
 
 type Versions = {

@@ -4,6 +4,7 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { EntryProfile } from '@/lib/profile-gate'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import SetupPage from './index'
 
 // @tarojs/components mock：Input 需把 DOM input 事件桥接成 Taro 的 { detail: { value } }
@@ -100,31 +101,12 @@ const checkAgreement = () => {
 }
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 describe('SetupPage', () => {
   beforeEach(() => {
+    resetTestLocale()
     userCtx.user = { id: 'u1' }
     userCtx.ready = true
     profileCtx.profile = null
@@ -144,6 +126,15 @@ describe('SetupPage', () => {
 
   afterEach(() => {
     cleanup()
+  })
+
+  it('英文环境：占位符、协议与按钮显示英文', () => {
+    setTestLocale('en')
+    render(<SetupPage />)
+    expect(screen.getByPlaceholderText('Enter your real name')).toBeTruthy()
+    expect(screen.getByText('I have read and agree to')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Submit' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy()
   })
 
   it('姓名与邮箱均必填：缺姓名提示且不提交', async () => {

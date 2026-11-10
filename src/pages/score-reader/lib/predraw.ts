@@ -128,6 +128,42 @@ export function spareLayer(
   return best ?? active
 }
 
+/** 被判「画不出东西」的画布冷却到什么时候（时间戳；0/缺省 = 正常） */
+export type BadLayerUntil = Partial<Record<Layer, number>>
+
+/**
+ * 现在还能用的画布（不在冷却期内）。
+ *
+ * 用来避开「刚产生过空白帧」的那一块：`paintPageImage` 一上来就重设位图尺寸，
+ * 一旦某块画布进入画不出东西的状态，继续往它上面画只会再得到一张白帧。
+ * 冷却到期后自动恢复可用；全都在冷却期时调用方会退回全部（总得挑一块画）。
+ */
+export function usableLayers(
+  all: readonly Layer[],
+  badUntil: BadLayerUntil,
+  now: number
+): Layer[] {
+  return all.filter((l) => (badUntil[l] ?? 0) <= now)
+}
+
+/**
+ * 前台渲染选块：先排除冷却中的画布，全在冷却期才退回全部。
+ *
+ * 取舍仍由 `spareLayer` 决定（远的先弃、同远时弃上一页保下一页），这里只负责
+ * 「别把这一页再画进刚变白的那块」。
+ */
+export function pickRenderLayer(
+  all: readonly Layer[],
+  active: Layer,
+  metas: LayerMetas,
+  currentPage: number,
+  badUntil: BadLayerUntil,
+  now: number
+): Layer {
+  const usable = usableLayers(all, badUntil, now)
+  return spareLayer(usable.length > 0 ? usable : all, active, metas, currentPage)
+}
+
 /**
  * 「采纳（adopt）失败」时该不该把这一页**交回常规渲染路径**；null = 不用管。
  *

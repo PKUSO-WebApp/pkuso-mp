@@ -4,12 +4,17 @@ import { useT } from '@/i18n'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { docHasInk, loadAnnoDoc } from '@/lib/annotation'
 import { ensureSavedPdf, userDataRoot, type FsLike } from '@/lib/pdf-save'
-import { AnnotatedPdfError, composeAnnotatedPdf } from '@/lib/annotated-pdf'
+import { AnnotatedPdfError, composeAnnotatedPdf, composeSharedPdf } from '@/lib/annotated-pdf'
 import { syncAnnotationFile } from '@/lib/annotation-sync-runner'
 import { handOffPdf, handoffKindsFor, type HandoffKind } from '@/lib/pdf-handoff'
+import { supabase } from '@/lib/supabase'
+import { fetchSheetMusicFile } from '@/hooks/useSheetMusic'
+import { getStorageObjectSize } from '@/lib/storage-upload'
 
 export type PdfHandoffMeta = {
   fileId: string
+  /** 0.6.1 共享副本：PDF 原件仍来自 fileId（源文件），批注层按 shareId 取。 */
+  shareId?: string
   /** **惰性取**本地 PDF 的下载源：阅读器里它在 `load()` 之后才有值（存在 ref 里，不是 state），
    *  渲染期读会拿到空串。所以传函数，别传值。 */
   url: () => string
@@ -22,6 +27,26 @@ export type PdfHandoffMeta = {
    * 退回单次下载，属预期。
    */
   expectedBytes?: number
+  /**
+   * 是否允许「带批注」出口。缺省允许；共享谱在 P6d 起也允许，
+   * 但烧进去的是**共享层**的笔迹（见 `composeKind`）。
+   */
+  allowAnnotations?: boolean
+  /**
+   * 带批注时调哪个合成函数：`personal`（本人批注）或 `shared`（共享层，P6d）。
+   * 两者产物路径不同，缓存键也按它区分（见 reqKeyOf）。
+   */
+  composeKind?: 'personal' | 'shared'
+  /**
+   * 这一册有没有可导出的笔迹。缺省读**个人本地批注**；共享谱阅读器传自己的内存态
+   * （共享层不在本机 storage 里）。
+   */
+  hasInk?: () => boolean
+  /**
+   * 合成前先把哪一层同步到服务端。缺省个人 `syncAnnotationFile`；
+   * 共享谱传 `flushNow()`，否则会把没落盘的共享编辑漏掉。
+   */
+  beforeCompose?: () => void | Promise<void>
 }
 
 /**
@@ -41,9 +66,17 @@ export type PdfHandoffMeta = {
  * 一次「准备」请求的键。**选择也在里面**：带批注与不带批注是两个不同的文件，
  * 而 `ready` 与 `pick` 比的就是它（见 readyId 的注释）。
  */
-const reqKeyOf = (fileId: string, anno: boolean) => `${fileId}#${anno ? 'anno' : 'orig'}`
+const reqKeyOf = (
+  fileId: string,
+  anno: boolean,
+  kind: 'personal' | 'shared' = 'personal',
+  shareId?: string
+) =>
+  `${fileId}#${shareId ? `${shareId}#` : ''}${
+    anno ? (kind === 'shared' ? 'shared-anno' : 'anno') : 'orig'
+  }`
 
-export function usePdfHandoff() {
+export function usePdfHandoff(owner: string) {
   const { t } = useT()
   /**
    * 当前这一份的元数据：**在 `open()` 时定**，不是构造时传。
@@ -90,6 +123,13 @@ export function usePdfHandoff() {
    * 两者都要与当前选择一致才算「就绪」：拨了开关还拿旧那份交给用户，就是无声地给错文件。
    */
   const pdfRef = useRef<{ reqKey: string; fileId: string; path: string; name: string } | null>(null)
+  /**
+   * 当前选择对应的**下载源 URL**（复制下载链接用）。
+   *
+   * 和本地文件分开记：复制链接不需要等本地下载完成，原件 URL 在打开面板时就已知；
+   * 带批注的签名 URL 要等云端合成回来。`reqKey` 保证复制的就是面板上那一版。
+   */
+  const linkRef = useRef<{ reqKey: string; url: string } | null>(null)
   /** 在飞的那次准备的键（`<id>#orig|anno`）：同一种请求不重复做 */
   const inFlightRef = useRef<string | null>(null)
   /**
@@ -101,7 +141,7 @@ export function usePdfHandoff() {
    */
   const seqRef = useRef(0)
 
-  const ready = !!meta && readyId === reqKeyOf(meta.fileId, withAnno)
+  const ready = !!meta && readyId === reqKeyOf(meta.fileId, withAnno, meta.composeKind, meta.shareId)
 
   // `platform` 一并进上报：面板里出现哪几项完全由它决定（PC 才多「保存到电脑」），
   // 而「为什么这台设备上少一项 / 多一项」这类问题只能靠它判读——`getDeviceInfo().platform`
@@ -125,8 +165,15 @@ export function usePdfHandoff() {
   const prepare = async (m: PdfHandoffMeta, anno: boolean) => {
     const id = m.fileId
     if (!id) return
-    const key = anno ? `${id}#anno` : id
-    const reqKey = reqKeyOf(id, anno)
+    // 带批注的本地记账键要区分个人/共享：同一个 fileId 的两份产物内容不同，
+    // 共用一个键会把上一份交给用户。共享副本再按 shareId 隔离一层。
+    const docId = m.shareId ? `${id}#share-${m.shareId}` : id
+    const key = anno
+      ? m.composeKind === 'shared'
+        ? `${docId}#shared-anno`
+        : `${docId}#anno`
+      : docId
+    const reqKey = reqKeyOf(id, anno, m.composeKind, m.shareId)
     if (pdfRef.current?.reqKey === reqKey) {
       setReadyId(reqKey)
       return
@@ -144,14 +191,34 @@ export function usePdfHandoff() {
     try {
       let url = m.url()
       let fileName = m.fileName
+      // C6：旧分享/旧谱务行没有 `file_size` 时，从库或 Storage 元数据补一次。
+      // 没有它 `ensureSavedPdf` 只能单次直连下载（大文件必挂）；补到就继续走分片。
+      if ((!expectedBytes || expectedBytes <= 0) && !anno) {
+        const file = await fetchSheetMusicFile(id)
+        if (file?.file_size && file.file_size > 0) {
+          expectedBytes = file.file_size
+        } else if (file?.storage_path) {
+          const size = await getStorageObjectSize(supabase, 'sheet-music', file.storage_path)
+          if (size && size > 0) expectedBytes = size
+        }
+      }
       if (anno) {
         // ⚠️ **先同步再把批注烧进去**（用户 2026-10-10 实测提出）：合成函数读的是**服务端**
         // 那份批注，而本地刚画的还没推上去的话，产出的 PDF 就缺最新几笔——用户拿到的是
         // 「看起来对、其实少东西」的文件。这一步会带一次拉取 + 可能的推送。
-        await syncAnnotationFile(id)
+        // 共享谱传 beforeCompose：它要把共享层的挂起写入 flush 掉（个人 sync 与它无关）。
+        await (m.beforeCompose ? m.beforeCompose() : syncAnnotationFile(id))
         tSync = Date.now() - t0
         // 云端合成：这一步要走网络，所以「正在准备文件…」会停得比平时久
-        const composed = await composeAnnotatedPdf(id)
+        // 无 shareId 时保持原来的单参调用（旧测试/旧缓存的调用形状不变）
+        const composed =
+          m.composeKind === 'shared'
+            ? m.shareId
+              ? await composeSharedPdf(id, undefined, undefined, m.shareId)
+              : await composeSharedPdf(id)
+            : m.shareId
+              ? await composeAnnotatedPdf(id, undefined, undefined, m.shareId)
+              : await composeAnnotatedPdf(id)
         tCompose = Date.now() - t0 - tSync
         url = composed.url
         // 签名 URL 的**长度只有服务端知道**（本地没有库里的 file_size 可比），
@@ -166,6 +233,10 @@ export function usePdfHandoff() {
         void Taro.showToast({ title: t('common.saveTo.notReady'), icon: 'none' })
         return
       }
+      // 链接在下载之前就记下：复制链接不该被本地下载/磁盘状态拖住。
+      // 带批注的签名 URL 只有到这里（云端合成之后）才有值。
+      if (seq !== seqRef.current) return
+      linkRef.current = { reqKey, url }
       const res = await ensureSavedPdf(
         {
           fileId: key,
@@ -197,17 +268,32 @@ export function usePdfHandoff() {
         }
       )
       if (seq !== seqRef.current) return // 用户已经改主意了：这一次的结果作废
+      const totalMs = Date.now() - t0
       if (anno) {
         reportClientError({
           event: 'score_reader_annotated_prepare',
           level: 'warn',
-          message: `带批注准备 ${Date.now() - t0}ms（同步 ${tSync} / 合成 ${tCompose}）`,
+          message: `带批注准备 ${totalMs}ms（同步 ${tSync} / 合成 ${tCompose}）`,
           detail: {
             fileId: id,
-            totalMs: Date.now() - t0,
+            totalMs,
             syncMs: tSync,
             composeMs: tCompose,
-            fetchMs: Date.now() - t0 - tSync - tCompose,
+            fetchMs: totalMs - tSync - tCompose,
+            bytes: expectedBytes ?? 0,
+            platform,
+          },
+        })
+      } else if (totalMs > 5000) {
+        // 原件的准备耗时之前没有记录，导致「10s 超时该不该降」只能凭印象。
+        // 只报超过 5s 的：正常 2-5s 不该刷日志；拿到 p50/p90 后再决定。
+        reportClientError({
+          event: 'score_reader_pdf_prepare_slow',
+          level: 'warn',
+          message: `原件准备 ${totalMs}ms`,
+          detail: {
+            fileId: id,
+            totalMs,
             bytes: expectedBytes ?? 0,
             platform,
           },
@@ -245,10 +331,20 @@ export function usePdfHandoff() {
     if (busy) return
     // 有没有笔迹在这一刻定：没有就把开关压回「否」（它同时也是「固定为否」的落点 ——
     // 面板上那个开关会被禁用，这里再压一次值，两道闸）
-    const has = docHasInk(loadAnnoDoc(m.fileId))
+    const allow = m.allowAnnotations !== false
+    // 共享谱的笔迹不在本机个人目录里，由阅读器传 hasInk 读它的内存态
+    const has = allow && (m.hasInk ? m.hasInk() : docHasInk(loadAnnoDoc(owner, m.fileId)))
     setHasAnno(has)
     const anno = has && withAnno
     if (anno !== withAnno) setWithAnno(anno)
+    // 原件 URL 在打开这一刻就有：先记下，复制链接不必等 prepare 的下载/合成
+    const originalUrl = m.url()
+    if (originalUrl) {
+      linkRef.current = {
+        reqKey: reqKeyOf(m.fileId, false, m.composeKind, m.shareId),
+        url: originalUrl,
+      }
+    }
     setMeta(m)
     setSheetOn(true)
     void prepare(m, anno)
@@ -281,7 +377,14 @@ export function usePdfHandoff() {
     const pdf = pdfRef.current
     // 最后一道闸：交付出去的东西必须就是此刻那一次准备的结果（面板上的按钮在未就绪时
     // 本来就不可点，这条防的是「点下去的那一拍状态还没更新」）
-    if (!pdf || !meta || pdf.reqKey !== reqKeyOf(meta.fileId, withAnno) || busy) return
+    if (
+      !pdf ||
+      !meta ||
+      pdf.reqKey !== reqKeyOf(meta.fileId, withAnno, meta.composeKind, meta.shareId) ||
+      busy
+    ) {
+      return
+    }
     setSheetOn(false)
     setBusy(true)
     void handOffPdf(kind, { path: pdf.path, name: pdf.name })
@@ -300,6 +403,70 @@ export function usePdfHandoff() {
       .finally(() => setBusy(false))
   }
 
+  /** 当前选择对应的下载链接是否已经拿到（原件打开即得；带批注要等云端合成） */
+  const copyable =
+    !!meta &&
+    !!linkRef.current &&
+    linkRef.current.reqKey === reqKeyOf(meta.fileId, withAnno, meta.composeKind, meta.shareId)
+
+  /**
+   * 复制当前选择的**下载源链接**，并告诉用户怎么在浏览器里打开。
+   *
+   * 这是唯一真正的「浏览器下载」路径：小程序没有写系统下载目录的 API，
+   * 收藏/转发/用其他应用打开之外，复制链接到 Safari/Chrome 是唯一能落到系统下载目录的。
+   * 带批注的是 1 小时签名 URL，所以提示里要说明有效期。
+   */
+  const copyLink = () => {
+    const link = linkRef.current
+    if (
+      !meta ||
+      !link ||
+      link.reqKey !== reqKeyOf(meta.fileId, withAnno, meta.composeKind, meta.shareId)
+    ) {
+      void Taro.showToast({ title: t('common.saveTo.copyNotReady'), icon: 'none' })
+      return
+    }
+    const fileId = meta.fileId
+    setSheetOn(false)
+    void Taro.setClipboardData({ data: link.url })
+      .then(() => {
+        const base =
+          platform === 'ios'
+            ? t('common.saveTo.copyHintIos')
+            : platform === 'android'
+              ? t('common.saveTo.copyHintAndroid')
+              : platform === 'windows' || platform === 'mac'
+                ? t('common.saveTo.copyHintPc')
+                : t('common.saveTo.copyHintGeneric')
+        const content = withAnno
+          ? `${base}\n${t('common.saveTo.copyHintExpiry')}`
+          : base
+        return Taro.showModal({
+          title: t('common.saveTo.copyDoneTitle'),
+          content,
+          showCancel: false,
+        })
+      })
+      .catch((err) => {
+        const msg = describeError(err)
+        // 控制台也留一行：这类失败以前只进 client_error_logs，排查时只看控制台会以为「没报错」
+        console.error('[pkuso] 复制下载链接失败', msg)
+        reportClientError({
+          event: 'score_reader_copy_link_failed',
+          message: msg,
+          detail: { fileId, platform, anno: withAnno },
+        })
+        // `setClipboardData` 属于隐私接口：未在「用户隐私保护指引」里声明剪切板时，
+        // 微信直接回 `api scope is not declared in the privacy agreement`。
+        // 这是小程序后台配置问题，不是用户操作失败——给一句能让人去改配置的话。
+        const privacy = /privacy agreement|scope is not declared/i.test(msg)
+        void Taro.showToast({
+          title: t(privacy ? 'common.saveTo.copyFailedPrivacy' : 'common.saveTo.copyFailed'),
+          icon: 'none',
+        })
+      })
+  }
+
   return {
     sheetOn,
     ready,
@@ -315,5 +482,7 @@ export function usePdfHandoff() {
     open,
     close,
     pick,
+    copyable,
+    copyLink,
   }
 }

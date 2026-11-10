@@ -1,49 +1,68 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import Taro, { useDidShow, useRouter, useShareAppMessage, useUnload } from '@tarojs/taro'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Taro, {
+  useDidHide,
+  useDidShow,
+  useRouter,
+  useShareAppMessage,
+  useUnload,
+} from '@tarojs/taro'
 import { View, Canvas, Text } from '@tarojs/components'
 import type { ITouchEvent } from '@tarojs/components'
 import { supabase } from '@/lib/supabase'
 import { displayPdfName } from '@/lib/pdf-save'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass, useThemeContext } from '@/context/theme-context'
+import { useUser } from '@/context/user-context'
 import { AnnotationBar } from '@/components/score/AnnotationBar'
 import { AnnotationConflictSheet } from '@/components/score/AnnotationConflictSheet'
 import { AnnotationHistorySheet } from '@/components/score/AnnotationHistorySheet'
+import { SharedConflictSheet } from '@/components/score/SharedConflictSheet'
+import { SharedMergeSheet } from '@/components/score/SharedMergeSheet'
+import {
+  ScoreCompareView,
+  type CompareSide,
+  type CompareSubmitResult,
+} from '@/components/score/ScoreCompareView'
 import { ReaderToolbar, type ReaderPanel } from '@/components/score/ReaderToolbar'
 import { ReaderTutorial } from '@/components/score/ReaderTutorial'
 import { SaveToSheet } from '@/components/score/SaveToSheet'
 import { usePdfHandoff } from '@/hooks/usePdfHandoff'
 // 顶栏图标（Lucide 系列，72×72 PNG；暗色用 -dark 变体）
 import {
+  GUEST_ANNO_OWNER,
   HIGHLIGHTER_ALPHA,
   HIGHLIGHTER_WIDTHS,
   PEN_COLORS,
   PEN_WIDTHS,
-  loadAnnoDoc,
-  saveAnnoDoc,
+  docHasInk,
   type AnnoDoc,
   type AnnoStroke,
   type AnnoTool,
 } from '@/lib/annotation'
-import { markAnnoPending } from '@/lib/annotation-sync'
 import {
   groupHistoryBatches,
   listAnnotationHistory,
   type HistoryBatch,
   type HistoryPage,
+  type HistorySource,
 } from '@/lib/annotation-history'
-import {
-  flushAnnotationSync,
-  loadConflictPages,
-  scheduleAnnotationSync,
-  setAnnotationAdoptListener,
-  setAnnotationConflictListener,
-  syncAnnotationFile,
-} from '@/lib/annotation-sync-runner'
+import { mergeStrokes } from '@/lib/annotation-sync'
+import { loadConflictPages, syncAnnotationFile } from '@/lib/annotation-sync-runner'
+import { shareDocKey } from '@/lib/annotation-doc'
 import { describeError, reportClientError } from '@/lib/error-report'
 import { pageImageUrls } from '@/lib/score-page-image'
 import type { SheetMusicFileRow } from '@/types/database'
 // 页面内部模块：留在分包目录内，保证被打进分包 chunk（见 lib/types.ts 顶部注释）
+import { createAnnotationBackend, type ReaderAnnotationBackend } from './lib/annotation-backend'
+import {
+  createSharedAnnotationBackend,
+  SHARE_OWNER_CONFIG,
+  type SharedAnnotationBackend,
+  type SharedAnnotationConflict,
+  type SharedSaveState,
+} from './lib/shared-annotation-backend'
+import { loadMergePages, type MergeDirection } from './lib/shared-merge'
+import { pullShareLayer, resolveSharePullConflict } from './lib/share-pull'
 import type { CanvasCtx, CanvasNode, Drag, Job, Layer, Pan, Pinch, Stage } from './lib/types'
 import { frameInk, rasterDpr, sampleEdgeColors } from './lib/raster'
 import { bytesToMB, createBitmapLedger } from './lib/raster-budget'
@@ -58,6 +77,7 @@ import {
   ZONE_SPLITS_UD,
   Z_PAGE_BADGE,
   SAFE_BOTTOM,
+  Z_SHEET,
   Z_STATUS,
   Z_TOOLBAR,
 } from './lib/layout'
@@ -116,10 +136,11 @@ import {
   frameForPage,
   missingNeighbor,
   neighborFrames,
+  pickRenderLayer,
   predrawFallback,
   predrawGo,
-  spareLayer,
   spareLayerOffscreen,
+  usableLayers,
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
   type LayerMetas,
@@ -157,6 +178,22 @@ const RENDER_RETRY_MS = 140
  * 而这两条的修法完全不同。loadMs 是纯取图时间，renderMs 是画进画布的时间，两者分开记。
  */
 const SLOW_LOAD_REPORT_MS = 2000
+/**
+ * 被判「画不出东西」的画布冷却多久：这段时间内前台渲染优先换一块。
+ *
+ * 只冷却、不销毁：一块画布未必永久坏掉（例如内存告警当时的瞬时状态），到期后
+ * 重新给它机会；`usableLayers` 的判据就是「到期时间 <= now」。
+ */
+const BAD_LAYER_TTL_MS = 30_000
+/**
+ * 同一页最多主动补画几次。
+ *
+ * 防的是「页本来就是纯白」或「三块画布都坏了」把渲染变成无限循环——那会比白页更难查。
+ * 两次足够覆盖一次瞬时坏帧 + 一次换块重试；仍白就落到错误条，让用户手动重试。
+ */
+const BLANK_FRAME_RETRIES = 2
+/** 有墨校验的来源（只用于诊断字段，别拿来控制业务） */
+type FrameInkSource = 'render' | 'promote' | 'predraw' | 'memory-warning'
 /** 备用帧停靠位置：移出视口即可（overflow:hidden 会裁掉），它仍是正常在绘制的画布 */
 const OFFSCREEN = '-99999px'
 
@@ -225,6 +262,17 @@ export default function ScoreReader() {
   useNavTitle('scoreReader.navTitle')
   const router = useRouter()
   const fileId = router.params.file_id ? decodeURIComponent(router.params.file_id) : ''
+  /** 0.6.1 共享副本：`file_id` 仍是**源文件**（页图/PDF/缓存）；批注层按 `share_id` 取 */
+  const shareId = router.params.share_id ? decodeURIComponent(router.params.share_id) : ''
+  const shareCopyMode = router.params.kind === 'share' && !!shareId
+  /** 旧共享谱（0.6.0，挂在原文件上的共享层）；参数名避开布局用的 mode */
+  const legacySharedMode = router.params.kind === 'shared'
+  /**
+   * 批注归属（D16）：登录账号的 id，未登录为 guest。
+   * 会话恢复完成前**不知道**该读谁的目录 ⇒ 批注区先按只读对待。
+   */
+  const { user, ready: userReady } = useUser()
+  const annoOwner = user?.id ?? GUEST_ANNO_OWNER
   // 列表页（pages/score-part）带过来的元数据：省掉一次走反代到境外库的查询
   //（实测 ~600ms）。缺了就回退查库——分享链接等旧入口不受影响。
   const presetStoragePath = router.params.sp ? decodeURIComponent(router.params.sp) : ''
@@ -267,6 +315,12 @@ export default function ScoreReader() {
       presetTitle ? `title=${encodeURIComponent(presetTitle)}` : '',
       presetSection ? `sec=${encodeURIComponent(presetSection)}` : '',
       presetBytes ? `sz=${presetBytes}` : '',
+      // 共享谱/共享副本转出去仍要落到对应模式：否则接收方看不到共享批注
+      legacySharedMode
+        ? 'kind=shared'
+        : shareCopyMode
+          ? `kind=share&share_id=${encodeURIComponent(shareId)}`
+          : '',
     ]
       .filter(Boolean)
       .join('&')}`,
@@ -384,6 +438,62 @@ export default function ScoreReader() {
   const [hlWidth, setHlWidth] = useState<number>(HIGHLIGHTER_WIDTHS[1])
   const [annos, setAnnos] = useState<AnnoDoc>({})
   /**
+   * 批注是否只读。加载完成前一律 true（D16：会话未恢复时不知道读谁的目录；
+   * shared 还要等写权限与远端版本）。load 完成后落回 backend.readOnly —— personal 为 false。
+   */
+  const [annotationReadOnly, setAnnotationReadOnly] = useState(true)
+  const [sharedSaveState, setSharedSaveState] = useState<SharedSaveState>('saved')
+  const [sharedConflicts, setSharedConflicts] = useState<SharedAnnotationConflict[]>([])
+  /** 正在预览哪一页的共享冲突；null = 只看列表 */
+  const [sharedConflictPage, setSharedConflictPage] = useState<number | null>(null)
+  /**
+   * 0.6.1 共享副本：能否写共享层（owner 且仍满足 A2）。null = 还没查完，等它决定后端。
+   * 撤职后变 false ⇒ 本人也降级成「其他人」：编辑只写个人层。
+   */
+  const [shareCanPush, setShareCanPush] = useState<boolean | null>(shareCopyMode ? null : false)
+  /** 普通个人谱：当前用户对这份文件有没有共享写权（A2）；决定「保存到…」里出不出现「共享批注」 */
+  const [canShareAnnotations, setCanShareAnnotations] = useState(false)
+  const [shareBusy, setShareBusy] = useState(false)
+  /** 0.6.1 共享副本的个人层：拉共享层时判出的真分叉（只写个人层的三选一） */
+  const [sharePullConflicts, setSharePullConflicts] = useState<SharedAnnotationConflict[]>([])
+  const [sharePullConflictPage, setSharePullConflictPage] = useState<number | null>(null)
+  /**
+   * 共享层模式 = 旧共享谱 或 本次共享副本的 owner。
+   * 其他人的共享副本走个人后端 + 打开时拉共享层合并（shareCopyPersonalMode）。
+   */
+  const sharedMode = legacySharedMode || (shareCopyMode && shareCanPush === true)
+  const shareCopyPersonalMode = shareCopyMode && shareCanPush === false
+  /**
+   * 批注后端的文档键：
+   *   · 普通文件 / 旧共享谱：fileId；
+   *   · 共享副本 owner：shareId（共享层表的主键）；
+   *   · 其他人的共享副本：`share:<shareId>`（个人层，本地/个人云都按它隔离）。
+   */
+  const annoDocId = shareCopyMode
+    ? shareCanPush === true
+      ? shareId
+      : shareDocKey(shareId)
+    : fileId
+  /**
+   * 历史/冲突页用的是**带前缀**的文档键：共享副本无论 owner 还是其他人，
+   * 历史表都按 share 表选（见 annotation-history 的 historyTarget）；
+   * 而 owner 的批注后端用的是裸 shareId。两者别混。
+   */
+  const historyDocKey = shareCopyMode ? shareDocKey(shareId) : annoDocId
+  /** P6c：合并批注面板（方向 + 需要选择的页） */
+  const [mergeOn, setMergeOn] = useState(false)
+  const [mergeDirection, setMergeDirection] = useState<MergeDirection>('to-personal')
+  const [mergePages, setMergePages] = useState<number[]>([])
+  const [mergeLoading, setMergeLoading] = useState(false)
+  const [mergeError, setMergeError] = useState<string | null>(null)
+  const [mergeReason, setMergeReason] = useState<
+    'no-user' | 'sync-failed' | 'personal-conflicts' | 'not-allowed' | 'load-failed' | null
+  >(null)
+  /** 合并页请求序号：快速切方向时只认最后一次 */
+  const mergeSeqRef = useRef(0)
+  /** 刚从合并页返回时记下方向：to-shared 回来要重载共享批注（内存里的版本已经旧了） */
+  const mergeVisitedRef = useRef<MergeDirection | null>(null)
+  /**
    * 批注的同步镜像：**读-改-写**的调用点一律读它，不读 state。
    *
    * 云同步会从 React 之外把整份文档写进本地（别处改了同一册，落回本地时经
@@ -391,6 +501,8 @@ export default function ScoreReader() {
    * 去 spread 再存，就把刚落地的内容覆盖回去了。渲染照旧读 state——要的就是重渲染。
    */
   const annosRef = useRef<AnnoDoc>({})
+  /** 当前文件的批注源（P6a）：useUnload 等渲染期外的回调经它取最新实例 */
+  const annotationBackendRef = useRef<ReaderAnnotationBackend | null>(null)
   /**
    * 批注冲突：这一册有哪些页是「两边都改过、还没解决」的，以及列表要不要开着。
    * 来源只有一处——落盘的冲突记录（见 refreshConflicts）。**不阻塞任何事**：
@@ -400,8 +512,16 @@ export default function ScoreReader() {
   const [conflictOn, setConflictOn] = useState(false)
   /** 「恢复云端历史」面板（分享子菜单里的入口）：批次列表 + 该批的页 */
   const [historyOn, setHistoryOn] = useState(false)
+  const [historySource, setHistorySource] = useState<HistorySource>('personal')
   const [historyBatches, setHistoryBatches] = useState<HistoryBatch[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  /** 共享历史页的预览（当前 vs 历史）；与共享冲突预览分开，语义不同 */
+  const [sharedHistoryPreview, setSharedHistoryPreview] = useState<{
+    page: number
+    history: AnnoStroke[]
+    current: AnnoStroke[]
+    currentVersion: string
+  } | null>(null)
   /**
    * 当前工具：画笔 / 荧光笔 / 橡皮擦（橡皮擦按**整条**删除，见 eraseAtPoints + eraseStrokesAt）。
    * 三选一而不是两个布尔——「笔和擦同时开着」这种状态本来就不该存在。
@@ -425,6 +545,24 @@ export default function ScoreReader() {
   const inflightRef = useRef<Job | null>(null)
   /** 排队中的下一件（连点只保留最新一件） */
   const queuedRef = useRef<Job | null>(null)
+  /**
+   * 本页的 Taro 页面实例。所有选择器查询都必须绑定它：画布 id（`#reader-canvas-a/b/c`）
+   * 在每个阅读器页实例里都一样，不绑定页面上下文时，**旧页面卸载后的在飞任务会查到
+   * 新页面同 id 的画布**，把上一册的内容画到新册上（#113：读圆号1看到圆号2）。
+   */
+  const pageInstanceRef = useRef<ReturnType<typeof Taro.getCurrentInstance>['page']>(null)
+  useEffect(() => {
+    pageInstanceRef.current = Taro.getCurrentInstance().page ?? null
+  }, [])
+  /** 页面是否还活着。unload 后任何异步绘制不得再落笔。 */
+  const aliveRef = useRef(true)
+  /** 渲染世代：换册 / unload 时 +1，旧任务在每个 await 之后据此放弃。 */
+  const renderEpochRef = useRef(0)
+  /** 选择器查询统一入口：页面实例还没挂上时退回全局查询（只可能是首帧本页）。 */
+  const createPageSelectorQuery = useCallback(() => {
+    const query = Taro.createSelectorQuery()
+    return pageInstanceRef.current ? query.in(pageInstanceRef.current) : query
+  }, [])
   const runJobRef = useRef<(job: Job) => void>(() => {})
   const pageRef = useRef(1)
   const zoomRef = useRef(1)
@@ -446,7 +584,12 @@ export default function ScoreReader() {
   const queryCanvasNode = useCallback(
     (id: string): Promise<{ node: unknown; left: number; top: number }> =>
       new Promise((resolve, reject) => {
-        Taro.createSelectorQuery()
+        // 页面已经卸载：不再发查询，免得旧任务的回调落到新页面上
+        if (!aliveRef.current) {
+          reject(new Error('page unloaded'))
+          return
+        }
+        createPageSelectorQuery()
           .select(id)
           .fields({ node: true, size: true, rect: true })
           .exec((res) => {
@@ -460,7 +603,7 @@ export default function ScoreReader() {
             } else reject(new Error(t('scoreReader.notFound')))
           })
       }),
-    [t]
+    [createPageSelectorQuery, t]
   )
 
   /**
@@ -533,6 +676,7 @@ export default function ScoreReader() {
     if (liveCtxRef.current && liveNodeRef.current) return liveCtxRef.current
     try {
       const { node } = await queryCanvasNode(LIVE_SEL)
+      if (!aliveRef.current) return null
       const n = node as CanvasNode
       liveNodeRef.current = n
       liveCtxRef.current = n.getContext('2d')
@@ -707,8 +851,6 @@ export default function ScoreReader() {
   /** 上下模式的滚动方向（1 = 往下滚）与上一次滚动位置：见「补渲染视口里的页」effect */
   const udDirRef = useRef<1 | -1>(1)
   const lastScrollRef = useRef(0)
-  /** 批注写盘失败已上报过（每册每次会话一次）：存储满会一直失败，别刷表 */
-  const annoSaveFailRef = useRef(false)
   /** 渲染队列排空的心跳（见 runJob 的 finally）：让「补渲染」有机会重看一眼视口 */
   const [idleTick, setIdleTick] = useState(0)
   /** 补渲染上一次请求的页 + 时刻：同一页 5 秒内不重复排（失败时别变成无限重试） */
@@ -801,6 +943,12 @@ export default function ScoreReader() {
 
   // 退出页面即停泵、停动画、停预绘制——后台抓取/计时器不该在页面销毁后继续
   useUnload(() => {
+    // 页面已经卸载：所有在飞/排队的渲染任务从此不得再落笔，也不得再排下一件。
+    // 只靠「画布 id 相同」时，旧任务会查到**新页面**的同名画布（#113）；这里先断掉
+    // 任务本身，再配合 `queryCanvasNode` 的页面作用域双保险。
+    aliveRef.current = false
+    renderEpochRef.current += 1
+    queuedRef.current = null
     // 页面**被销毁**（返回 / 重定向）时才走到这儿。这一条是给「横滑触发了返回手势之后
     // 绘画内容消失」那个问题做判据的：用户 2026-10-16 说这条**非常可疑**。
     // 与 `score_reader_stroke_cancelled` 对账就能把两种解释分开：
@@ -823,7 +971,7 @@ export default function ScoreReader() {
     })
     // 触发点 ②：把挂着的那次停笔防抖立刻发掉（最后一班车）。拿不到结果是有意的——
     // 页面正在卸载，请求发不发得出去都无所谓，欠账有联网恢复那条路兜
-    if (fileId) flushAnnotationSync(fileId)
+    if (annoDocId) annotationBackendRef.current?.flush?.(annoDocId)
     prefetchPumpRef.current?.stop()
     // 离开页面前把这一册的本地记账落盘（这一册下次进册才可能整册命中）
     flushAlbumFiles.current()
@@ -852,7 +1000,182 @@ export default function ScoreReader() {
   const renderLayerRef = useRef<Layer | null>(null)
   /** 指向 requestRender（doRender 的延迟探针要用，避免循环依赖） */
   const requestRef = useRef<(job: Job) => void>(() => {})
+  /** 被判「画不出东西」的画布冷却截止时刻（见 BAD_LAYER_TTL_MS） */
+  const badLayerUntilRef = useRef<Partial<Record<Layer, number>>>({})
+  /** 空白帧 / 有墨探测失败只报一次（键见 handleFrameInk；去重只为少刷表，不改变处理） */
+  const blankFrameReportedRef = useRef<Set<string>>(new Set())
+  /** 同一页的空白补画次数（见 BLANK_FRAME_RETRIES） */
+  const blankRetryRef = useRef<Map<number, number>>(new Map())
+  /** 最近一次内存告警时刻（诊断字段 afterMemoryWarning / memoryWarnAgoMs 用） */
+  const memoryWarnAtRef = useRef(0)
+  /**
+   * 指向「缓存帧换帧后的异步有墨校验」。
+   *
+   * `promoteFrame` 是刻意保持同步的 0ms 路径（见那里的注释），不能为了验帧加一次
+   * `queryCanvasNode` 往返；用 ref 在换帧**之后**再补一次检查。
+   */
+  const verifyPromotedRef = useRef<(f: PredrawFrame) => void>(() => {})
   const timingRef = useRef<Record<string, number | string | boolean>>({})
+
+  /** 把一块画布标成「画不出东西」，后续渲染优先避开它（冷却见 BAD_LAYER_TTL_MS） */
+  const markLayerBad = useCallback((layer: Layer) => {
+    badLayerUntilRef.current[layer] = Date.now() + BAD_LAYER_TTL_MS
+  }, [])
+
+  /**
+   * 有墨校验的统一出口：预绘制、前台渲染、缓存帧换帧、内存告警后共用。
+   *
+   * 返回 true = 这一帧可以当成有效帧继续上屏；false = 纯白帧，调用方必须放弃这一帧。
+   * - `ink > 0`：正常，顺手清掉这一块的「坏画布」标记；
+   * - `ink === -1`：探测本身失败，**不参与判定**（按未知放行），但留一条证；
+   * - `ink === 0`：空白帧。撤掉这一块的摆位/帧记账（否则白色会被当成「已渲染」，
+   *   既不转圈也不会再重画），标成坏画布，并在当前页上补排一次渲染。
+   *
+   * ⚠️ 只在**预绘制建帧时**验一次是不够的：帧可能先在备用块里放一段时间，等用户
+   * 回拉时才上屏；这段时间里画布位图可能被系统回收（内存告警那条尤其明显）。
+   * `promoteFrame` 本身又是 0ms 路径，不能在里面同步查询画布 ⇒ 换帧后再异步验。
+   */
+  const handleFrameInk = useCallback(
+    (
+      args: {
+        page: number
+        layer: Layer
+        source: FrameInkSource
+        ink: number
+        zoom: number
+        ageMs?: number
+      },
+      opts?: { retry?: boolean }
+    ): boolean => {
+      const { page: target, layer, source, ink, zoom: frameZoom } = args
+      const warnAgo = memoryWarnAtRef.current > 0 ? Date.now() - memoryWarnAtRef.current : -1
+      if (ink > 0) {
+        badLayerUntilRef.current[layer] = 0
+        blankRetryRef.current.delete(target)
+        return true
+      }
+      if (ink === -1) {
+        // 探测失败不是「白」：保持与从前一致的放行，只留证。每类来源每次会话只报一条。
+        const key = `probe:${fileId}:${source}`
+        if (!blankFrameReportedRef.current.has(key)) {
+          blankFrameReportedRef.current.add(key)
+          reportClientError({
+            event: 'score_reader_frame_probe_failed',
+            level: 'warn',
+            message: `有墨探测失败（${source}）page ${target}`,
+            detail: {
+              fileId,
+              page: target,
+              layer,
+              source,
+              ink,
+              zoom: frameZoom,
+              afterMemoryWarning: warnAgo >= 0 && warnAgo < 60_000,
+              memoryWarnAgoMs: warnAgo,
+            },
+          })
+        }
+        return true
+      }
+      // ink === 0：纯白帧。先留证（同册同页同块同来源只报一次）
+      const key = `blank:${fileId}:${source}:${target}:${layer}`
+      if (!blankFrameReportedRef.current.has(key)) {
+        blankFrameReportedRef.current.add(key)
+        reportClientError({
+          event: 'score_reader_blank_frame',
+          level: 'warn',
+          message: `空白帧（${source}）page ${target}`,
+          detail: {
+            fileId,
+            page: target,
+            layer,
+            source,
+            ink,
+            zoom: frameZoom,
+            afterMemoryWarning: warnAgo >= 0 && warnAgo < 60_000,
+            memoryWarnAgoMs: warnAgo,
+            ...(args.ageMs !== undefined ? { ageMs: args.ageMs } : {}),
+          },
+        })
+      }
+      markLayerBad(layer)
+      // 这一块不能再冒充「显示着某一页」：它写进去的像素是白的。清掉摆位后，
+      // pending 判据会把这一页算回「待渲染」，至少显示加载圈而不是一片白。
+      layerMetaRef.current[layer] = null
+      layerSlotRef.current = { ...layerSlotRef.current, [layer]: null }
+      setLayerSlot((prev) => (prev[layer] === null ? prev : { ...prev, [layer]: null }))
+      const retry = opts?.retry ?? true
+      if (!retry || pageRef.current !== target) return false
+      const used = blankRetryRef.current.get(target) ?? 0
+      if (used >= BLANK_FRAME_RETRIES) {
+        // 同一页补画两次还白：不再无限重试，交给错误条的「重试」（整册重载）
+        setStage('error')
+        setMessage(t('scoreReader.blankFrame'))
+        return false
+      }
+      blankRetryRef.current.set(target, used + 1)
+      // 放到下一拍：调用方（runJob）还要在 finally 里清 inflightRef，提前 request 会被
+      // 当成「同一件」吞掉。渲染队列是单槽的，这一拍不会和别的前台请求抢着写画布。
+      setTimeout(() => {
+        if (!aliveRef.current || pageRef.current !== target) return
+        requestRef.current({ page: target, zoom: zoomRef.current })
+      }, 0)
+      return false
+    },
+    [fileId, markLayerBad, t]
+  )
+
+  /**
+   * 缓存帧换帧后异步验一次：帧可能在备用块里放了一段时间，画布位图已被系统回收。
+   * 只验「这一块此刻真的还是当前页」的帧；用户已经翻走/换块的，不归这次检查管。
+   */
+  const verifyPromotedFrame = useCallback(
+    (f: PredrawFrame) => {
+      void queryCanvasNode(CANVAS_SEL[f.layer])
+        .then(({ node }) => {
+          if (!aliveRef.current) return
+          if (activeLayerRef.current !== f.layer || pageRef.current !== f.page) return
+          handleFrameInk({
+            page: f.page,
+            layer: f.layer,
+            source: 'promote',
+            ink: frameInk(node as CanvasNode),
+            zoom: f.zoom,
+            ageMs: Date.now() - f.at,
+          })
+        })
+        .catch(() => {
+          // 页面已卸载 / 查询失败：不改变任何行为（下一次渲染会自己验）
+        })
+    },
+    [handleFrameInk, queryCanvasNode]
+  )
+  // 同步写 ref：promoteFrame 可能在首个 effect 之前就被调用，默认 no-op 也安全，
+  // 但同步赋值能让第一次换帧就进入校验。
+  verifyPromotedRef.current = verifyPromotedFrame
+
+  /** 内存告警后验一遍三块已上屏的画布：系统可能刚回收了位图 */
+  const verifyDisplayedFrames = useCallback(() => {
+    const slots = { ...layerSlotRef.current }
+    for (const layer of ALL_LAYERS) {
+      const displayed = slots[layer]
+      if (displayed === null) continue
+      void queryCanvasNode(CANVAS_SEL[layer])
+        .then(({ node }) => {
+          if (!aliveRef.current || layerSlotRef.current[layer] !== displayed) return
+          handleFrameInk({
+            page: displayed,
+            layer,
+            source: 'memory-warning',
+            ink: frameInk(node as CanvasNode),
+            zoom: zoomRef.current,
+          })
+        })
+        .catch(() => {
+          // 页面已卸载 / 查询失败：不改变任何行为
+        })
+    }
+  }, [handleFrameInk, queryCanvasNode])
 
   /**
    * 状态提示：首帧真正落地之前**只有一个词**「加载中…」。
@@ -903,7 +1226,7 @@ export default function ScoreReader() {
    */
   const conflictShownRef = useRef('')
   const refreshConflicts = useCallback(async () => {
-    const pages = await loadConflictPages(fileId)
+    const pages = await loadConflictPages(annoDocId)
     setConflictPages(pages)
     if (pages.length === 0) {
       setConflictOn(false)
@@ -914,34 +1237,237 @@ export default function ScoreReader() {
     if (key === conflictShownRef.current) return
     conflictShownRef.current = key
     setConflictOn(true)
-  }, [fileId])
+  }, [annoDocId])
+
+  /**
+   * 打开合并面板 / 换方向：算「哪些页需要选择」。
+   *
+   * 依赖链在 `loadMergePages` 里：先对一次个人层账、检查个人冲突（共享→个人）
+   * 或写权（个人→共享），再取两侧内容算差异页。这里只管把结果映射成文案。
+   */
+  const loadMergeFor = useCallback(
+    async (direction: MergeDirection) => {
+      const seq = ++mergeSeqRef.current
+      setMergeDirection(direction)
+      setMergeLoading(true)
+      setMergeError(null)
+      setMergeReason(null)
+      try {
+        const res = await loadMergePages(annoDocId, direction)
+        if (seq !== mergeSeqRef.current) return
+        if (res.ok) {
+          setMergePages(res.pages)
+          return
+        }
+        setMergePages([])
+        setMergeReason(res.reason)
+        setMergeError(
+          res.reason === 'no-user'
+            ? t('scoreReader.merge.noUser')
+            : res.reason === 'sync-failed'
+              ? t('scoreReader.merge.syncFailed')
+              : res.reason === 'personal-conflicts'
+                ? t('scoreReader.merge.personalConflicts')
+                : res.reason === 'not-allowed'
+                  ? t('scoreReader.merge.notAllowed')
+                  : t('scoreReader.merge.loadFailedList')
+        )
+      } catch {
+        if (seq !== mergeSeqRef.current) return
+        setMergePages([])
+        setMergeReason('load-failed')
+        setMergeError(t('scoreReader.merge.loadFailedList'))
+      } finally {
+        if (seq === mergeSeqRef.current) setMergeLoading(false)
+      }
+    },
+    [annoDocId, t]
+  )
+
+  // 0.6.1 共享副本：先问服务端「我还能不能写共享层」，再决定用哪个后端。
+  // owner 且仍满足 A2 ⇒ 共享后端（自动 push）；否则降级成个人后端（只写个人层）。
+  // 查询失败按「不能写」处理：宁可退回个人层，也不要误写共享层。
+  useEffect(() => {
+    if (!shareCopyMode) return
+    if (!userReady) return
+    let cancelled = false
+    setShareCanPush(null)
+    void (async () => {
+      const { data, error } = await (supabase.rpc as any)('can_push_shared_annotation', {
+        p_share_id: shareId,
+      })
+      if (cancelled) return
+      if (error) {
+        console.error('[score-reader] can_push_shared_annotation 失败', error.message)
+        setShareCanPush(false)
+      } else {
+        setShareCanPush(!!data)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [shareCopyMode, shareId, userReady])
+
+  // 普通个人谱：查一次 A2（本乐器首席/本作用域声部长），决定「共享批注」入口出不出。
+  useEffect(() => {
+    if (shareCopyMode || legacySharedMode || !userReady || !fileId) {
+      setCanShareAnnotations(false)
+      return
+    }
+    if ((presetSection ?? '').trim() === '总谱') {
+      setCanShareAnnotations(false)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const { data, error } = await supabase.rpc('can_edit_shared_annotation', {
+        p_file_id: fileId,
+      })
+      if (!cancelled) setCanShareAnnotations(!error && !!data)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [fileId, legacySharedMode, presetSection, shareCopyMode, userReady])
+
+  const annotationBackend = useMemo(() => {
+    const backend = sharedMode
+      ? createSharedAnnotationBackend(
+          {
+            onSaveState: (state) => setSharedSaveState(state),
+            onConflict: (conflicts) => setSharedConflicts(conflicts),
+          },
+          annoOwner,
+          // 共享副本 owner 用 share 表；旧共享谱用默认的 file 表（0.6.0 兼容）
+          shareCopyMode ? SHARE_OWNER_CONFIG : undefined
+        )
+      : createAnnotationBackend(
+          'personal',
+          {
+            onAdopt: (doc) => {
+              annosRef.current = doc
+              setAnnos(doc)
+            },
+            onConflict: () => {
+              void refreshConflicts()
+            },
+            onSynced: () => {
+              void refreshConflicts()
+            },
+          },
+          annoOwner
+        )
+    annotationBackendRef.current = backend
+    return backend
+  }, [annoOwner, refreshConflicts, sharedMode, shareCopyMode])
+
+  // 个人批注专属 UI（历史、冲突列表、同步状态）只在 personal 模式出现；
+  // 共享谱走自己的保存状态徽标与冲突面板。
+  const personalAnnotation = annotationBackend.kind === 'personal'
 
   // 进入文件时载入本地批注，然后**先拉后推**地对一次账（触发点 ③）。
   // 这一次同时是「上次进程被杀、那一册的欠账没推上去」的兜底：欠账由指纹推导，不靠内存。
   useEffect(() => {
     if (!fileId) return
-    const local = loadAnnoDoc(fileId)
-    annosRef.current = local
-    setAnnos(local)
-    // 全量扫描（④⑤）可能在我们开着的时候把这一册的内容落回本地——那条路要走同一个镜像，
-    // 否则画面停在旧内容上。这也是唯一需要「告诉阅读器」的通路：本册自己的同步拿得到返回值，
-    // 但别处的扫描拿不到。
-    setAnnotationAdoptListener((id, doc) => {
-      if (id !== fileId) return
+    // 会话恢复完成前不读：D16 要把批注读到**当前账号**的目录里；
+    // shared 的远程查询也要等登录态就绪（否则 RLS 会把它们当匿名返回空集）。
+    if (!userReady) return
+    // 共享副本先等「能不能写共享层」查完，否则后端类型会在个人/共享之间跳一次
+    if (shareCopyMode && shareCanPush === null) return
+    let cancelled = false
+    // 加载完成前不许画：personal 的 owner 可能还没确定，shared 的权限/版本也还没回来
+    setAnnotationReadOnly(true)
+    // 换册时上一册的共享冲突/保存状态不跟过来
+    setSharedConflicts([])
+    setSharePullConflicts([])
+    setSharePullConflictPage(null)
+    setSharedSaveState('saved')
+    void (async () => {
+      const doc = await annotationBackend.load(annoDocId)
+      if (cancelled) return
+      // readOnly 要在 load 之后取：shared 的权限与远端版本都是这时才有的
+      setAnnotationReadOnly(annotationBackend.readOnly)
       annosRef.current = doc
       setAnnos(doc)
-    })
-    // 冲突：册内（本册的同步、别处的扫描）发现冲突时提示；进册这一次对完账也提示一次
-    setAnnotationConflictListener((id) => {
-      if (id !== fileId) return
-      void refreshConflicts()
-    })
-    void syncAnnotationFile(fileId).then(() => refreshConflicts())
+      // 先等个人云对账落地（personal backend 的 onOpen 会返回这次同步）
+      await annotationBackend.onOpen?.(annoDocId)
+      if (cancelled) return
+      // 0.6.1：其他人的共享副本 —— 默认 pull owner 的最新共享层，与个人层三方合并。
+      // 只在**个人层**里合并；冲突交给 sharePullConflicts（三选一）。
+      if (shareCopyPersonalMode) {
+        try {
+          const pulled = await pullShareLayer({
+            owner: annoOwner,
+            shareId,
+            docKey: annoDocId,
+          })
+          if (cancelled) return
+          if (pulled.adopted.length > 0) {
+            annosRef.current = pulled.doc
+            setAnnos(pulled.doc)
+          }
+          setSharePullConflicts(pulled.conflicts)
+        } catch (err) {
+          // 拉共享层失败不挡阅读：个人层照常可用，提示一次
+          console.error('[score-reader] 拉取共享批注失败', err)
+          void Taro.showToast({ title: t('scoreReader.sharePull.failed'), icon: 'none' })
+        }
+      }
+    })()
     return () => {
-      setAnnotationAdoptListener(null)
-      setAnnotationConflictListener(null)
+      cancelled = true
+      annotationBackend.onClose?.()
     }
-  }, [fileId, refreshConflicts])
+  }, [
+    annotationBackend,
+    annoDocId,
+    annoOwner,
+    fileId,
+    shareCanPush,
+    shareCopyMode,
+    shareCopyPersonalMode,
+    shareId,
+    t,
+    userReady,
+  ])
+
+  /**
+   * 从「个人 → 共享」合并页回来时重载共享批注（P6c）。
+   * 合并写的是共享表，阅读器内存里的 strokes / version 已经旧了；
+   * 不重载就会拿着旧版本继续画，下一次 CAS 必然撞冲突。
+   */
+  const reloadSharedAnnotations = useCallback(async () => {
+    if (!sharedMode || !annoDocId) return
+    const doc = await annotationBackend.load(annoDocId)
+    setAnnotationReadOnly(annotationBackend.readOnly)
+    // 重载同时也把共享冲突快照清掉：合并刚写完，旧冲突面板不能再挂着
+    setSharedConflicts([])
+    annosRef.current = doc
+    setAnnos(doc)
+  }, [annoDocId, annotationBackend, sharedMode])
+
+  // 冲突在别处被解决 / 列表刷新后，预览页所指向的页可能已不存在：自动退回列表
+  useEffect(() => {
+    if (sharedConflictPage != null && !sharedConflicts.some((c) => c.page === sharedConflictPage)) {
+      setSharedConflictPage(null)
+    }
+  }, [sharedConflicts, sharedConflictPage])
+
+  /**
+   * 共享谱同步失败：不再常驻徽标（验收反馈），只在第一次转入 error 时给一条 toast。
+   * 下一次落笔会自动重试；不重复弹，避免每一笔都打断。
+   */
+  const sharedErrorShownRef = useRef(false)
+  useEffect(() => {
+    if (sharedSaveState !== 'error') {
+      sharedErrorShownRef.current = false
+      return
+    }
+    if (sharedErrorShownRef.current) return
+    sharedErrorShownRef.current = true
+    void Taro.showToast({ title: t('score.sharedSyncFailed'), icon: 'none' })
+  }, [sharedSaveState, t])
 
   // 首次教程：等**首帧出来**再展示（一进页面就盖住加载过程，用户看不到自己在等什么），
   // 此时菜单保持默认隐藏，教程讲的正是「点中间唤出菜单」
@@ -987,8 +1513,9 @@ export default function ScoreReader() {
    * 那会让 `barH` 永远不更新，内缩与命中区一起失效。
    */
   const measureStage = useCallback(() => {
+    if (!aliveRef.current) return
     type Rect = { left?: number; top?: number; width?: number; height?: number } | null
-    Taro.createSelectorQuery()
+    createPageSelectorQuery()
       .select('#reader-stage')
       .boundingClientRect()
       .select('#reader-bottombar')
@@ -1007,7 +1534,7 @@ export default function ScoreReader() {
           setBarH((prev) => (prev.top === 0 && prev.bottom === bottom ? prev : { top: 0, bottom }))
         }
       })
-  }, [])
+  }, [createPageSelectorQuery])
 
   // 转屏 / 分屏后重量（也顺带让预绘制的 containerW 失效，见 lib/predraw.ts）
   useEffect(() => {
@@ -1029,7 +1556,11 @@ export default function ScoreReader() {
   const probeCanvasSize = useCallback(
     (id: string): Promise<{ width: number; height: number } | null> =>
       new Promise((resolve) => {
-        Taro.createSelectorQuery()
+        if (!aliveRef.current) {
+          resolve(null)
+          return
+        }
+        createPageSelectorQuery()
           .select(id)
           .fields({ size: true })
           .exec((res) => {
@@ -1041,7 +1572,7 @@ export default function ScoreReader() {
             )
           })
       }),
-    []
+    [createPageSelectorQuery]
   )
 
   /**
@@ -1078,9 +1609,20 @@ export default function ScoreReader() {
   const doRender = useCallback(
     async (job: Job) => {
       if (containerW <= 0 || pageCount <= 0) return
+      if (!aliveRef.current) return
+      const epoch = renderEpochRef.current
+      const stale = () => !aliveRef.current || epoch !== renderEpochRef.current
       const target = clamp(job.page, 1, pageCount)
-      // 写哪块：不是显示中的那块，且是「最该被写掉」的那块（远的先弃、同远时弃上一页保下一页）
-      const layer = spareLayer(ALL_LAYERS, activeLayerRef.current, layerMetaRef.current, target)
+      // 写哪块：不是显示中的那块，且是「最该被写掉」的那块（远的先弃、同远时弃上一页保下一页）；
+      // 同时避开刚产生过空白帧的画布（见 BAD_LAYER_TTL_MS / pickRenderLayer）
+      const layer = pickRenderLayer(
+        ALL_LAYERS,
+        activeLayerRef.current,
+        layerMetaRef.current,
+        target,
+        badLayerUntilRef.current,
+        Date.now()
+      )
       renderLayerRef.current = layer
       // 铁律：马上要写这块位图了（paintPageImage 一上来就重设 canvas 尺寸 = 清屏），
       // 这块画布的记账必须当场作废——留着它就是**直接上错页**，比白页更坏
@@ -1090,6 +1632,7 @@ export default function ScoreReader() {
       if (firstPaint) setStage('rendering')
       const tStep = Date.now()
       const { node } = await queryCanvasNode(CANVAS_SEL[layer])
+      if (stale()) return
       const nodeMs = Date.now() - tStep
 
       let pageImg: LoadedPageImage
@@ -1110,7 +1653,10 @@ export default function ScoreReader() {
           { deps: { key: pageFileKey(target) } }
         )
         loadMs = Date.now() - tLoad
+        if (stale()) return
       } catch (err) {
+        // 页面已卸载 / 已换册：不要上报成「页图加载失败」，也不要再往画布写
+        if (stale()) return
         // 这条路径的失败原本**只在屏幕上可见**（图片层 onerror 不带状态码，唯一的原因
         // 文案也只有这里能拿到）——真机出现「页图加载失败」时事后完全无法定性，补上这条。
         const e = err as PageImageError
@@ -1173,6 +1719,7 @@ export default function ScoreReader() {
           height: h,
         })
         sizeWaitMs = Date.now() - tWait
+        if (stale()) return
       }
       // 目标块可能还在滑（上一次翻页的动画没走完）：等它停靠再动它。串行队列的下一件
       // 必然写「刚退役的那一块」，而清屏（paintPageImage 重设尺寸）落在滑行半路
@@ -1181,6 +1728,7 @@ export default function ScoreReader() {
       while (pageTurn && pageTurn.frame()?.layer === layer) {
         await pageTurn.settle(layer)
       }
+      if (stale()) return
       const tRender = Date.now()
       // 整页 JPEG → canvas（小程序原生解码）——「打开快」的来源就是这一步
       paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
@@ -1191,6 +1739,18 @@ export default function ScoreReader() {
         (node as CanvasNode).height
       )
       const renderMs = Date.now() - tRender
+      // 有墨校验：图片模式没有「渲染失败」的返回值，`paintPageImage` 里 drawImage 静默失败
+      // 就是整帧纯白。预绘制那条路建帧时验过一次，前台这条从来没有；而帧从画完到上屏
+      // 之间画布位图可能被系统回收（内存告警是已知触发点）。纯白帧不能记账、不能上屏。
+      let ink = frameInk(node as CanvasNode)
+      if (ink === 0) {
+        // 就地重画一次：页图还在内存里，成本只有几毫秒；个别时序问题会因此恢复
+        paintPageImage(node as CanvasNode, pageImg.img, Math.round(w * dpr), Math.round(h * dpr))
+        ink = frameInk(node as CanvasNode)
+      }
+      if (!handleFrameInk({ page: target, layer, source: 'render', ink, zoom: job.zoom })) {
+        return
+      }
       // 慢帧留证（每页每次会话一条）：loadMs 与 renderMs 分开记，本地命中与否也记
       if (loadMs > SLOW_LOAD_REPORT_MS && !slowReportedRef.current.has(target)) {
         slowReportedRef.current.add(target)
@@ -1304,7 +1864,15 @@ export default function ScoreReader() {
       // 换帧落地，趁空闲把「下一页」备进备用块（见 schedulePredraw）
       schedulePredrawRef.current()
     },
-    [containerW, fileId, pageCount, pageFileKey, probeCanvasSize, queryCanvasNode]
+    [
+      containerW,
+      fileId,
+      handleFrameInk,
+      pageCount,
+      pageFileKey,
+      probeCanvasSize,
+      queryCanvasNode,
+    ]
   )
 
   /**
@@ -1350,6 +1918,8 @@ export default function ScoreReader() {
     })
     setStage('ready')
     schedulePredrawRef.current()
+    // 换帧不阻塞（0ms 路径）；像素校验在下一拍异步做，见 verifyPromotedRef 的注释
+    verifyPromotedRef.current(f)
     return true
   }, [])
 
@@ -1362,14 +1932,17 @@ export default function ScoreReader() {
    */
   const doPredraw = useCallback(
     async (job: Job, ctl: BgCtl) => {
+      if (!aliveRef.current) return
       const t0 = Date.now()
       const target = clamp(job.page, 1, pageCount)
       // ⚠️ 后台写帧**只准写视野外的那块**（UD 里三块都可见，写视野内的块 = 当着用户的面
       // 换掉他正看着的内容 —— 真机 2026-10-09「内容跳来跳去/显出别的页」的成因之一）。
       // 返回 null = 没有可写的块（剩下的都在视野里）⇒ 这一次预绘制直接作罢，什么都不做：
       // 宁可这一页晚点备好，也不搅动正在读的页面。见 lib/predraw.ts 的 spareLayerOffscreen。
+      // 先避开刚产生过空白帧的画布；全在冷却期才退回全部（总得挑一块画）
+      const usable = usableLayers(ALL_LAYERS, badLayerUntilRef.current, Date.now())
       const layer = spareLayerOffscreen(
-        ALL_LAYERS,
+        usable.length > 0 ? usable : ALL_LAYERS,
         activeLayerRef.current,
         layerMetaRef.current,
         target,
@@ -1378,12 +1951,19 @@ export default function ScoreReader() {
       )
       if (layer === null) return
       const epoch = predrawEpochRef.current
-      const stale = () => ctl.cancelled || epoch !== predrawEpochRef.current
+      const renderEpoch = renderEpochRef.current
+      const stale = () =>
+        !aliveRef.current ||
+        renderEpoch !== renderEpochRef.current ||
+        ctl.cancelled ||
+        epoch !== predrawEpochRef.current
       /**
        * 采纳失败（取图失败 / 白帧 / 被失效打断）时的兜底：把这一页交回常规路径。
        * 判据在 lib/predraw.ts 的 predrawFallback 里（**刻意不看 cancelled**，见那里的注释）。
        */
       const fallback = () => {
+        // 页面已经卸载 / 已换册：不要再把旧册任务排回队列
+        if (!aliveRef.current || renderEpoch !== renderEpochRef.current) return
         const job2 = predrawFallback({
           adopt: ctl.adopt,
           target,
@@ -1433,7 +2013,13 @@ export default function ScoreReader() {
         // 有墨校验：帧从画完到上屏之间隔着不确定时间（位图可能被系统回收），而图片模式
         // 没有自愈路径 —— 只丢弃、不重试（误丢的代价只是这一页走常规渲染 ~50ms）
         const ink = frameInk(node as CanvasNode)
-        if (ink === 0) {
+        const ok = handleFrameInk(
+          { page: target, layer, source: 'predraw', ink, zoom: job.zoom },
+          // 用户已经翻到这一页时由 fallback 交回常规路径；否则由校验自己补排一次，
+          // 避免两条路同时排队（单槽队列会变成两页互相挤掉）
+          { retry: !ctl.adopt }
+        )
+        if (!ok) {
           // eslint-disable-next-line no-console
           console.warn('[score-reader] predraw dropped: blank frame', { page: target })
           return fallback()
@@ -1477,7 +2063,7 @@ export default function ScoreReader() {
         return fallback()
       }
     },
-    [pageCount, promoteFrame, queryCanvasNode, pageFileKey]
+    [handleFrameInk, pageCount, promoteFrame, queryCanvasNode, pageFileKey]
   )
 
   /**
@@ -1539,6 +2125,8 @@ export default function ScoreReader() {
   // 后台预绘制（job.bg）也走这里：它借的是同一个「同一时刻只有一件在动画布」的不变量。
   const runJob = useCallback(
     (job: Job) => {
+      if (!aliveRef.current) return
+      const epoch = renderEpochRef.current
       void (async () => {
         inflightRef.current = job
         let ctl: BgCtl | null = null
@@ -1554,13 +2142,20 @@ export default function ScoreReader() {
           if (job.bg && ctl) await doPredraw(job, ctl)
           else await doRender(job)
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          setStage('error')
-          setMessage(msg)
+          // 页面已卸载 / 已换册：这个任务不能改用户界面（它可能属于上一册）
+          if (aliveRef.current && epoch === renderEpochRef.current) {
+            const msg = err instanceof Error ? err.message : String(err)
+            setStage('error')
+            setMessage(msg)
+          }
         } finally {
           inflightRef.current = null
           renderLayerRef.current = null
           if (bgRef.current === ctl) bgRef.current = null
+          // 只按「页面是否还活着」丢弃队列；**不要**按 epoch 丢。换册时 load 已经把
+          // 旧队列清空，此后排进来的都是新册的任务——epoch 不符就 return 会把新册的
+          // 渲染永远卡在 queuedRef 里。
+          if (!aliveRef.current) return
           const next = queuedRef.current
           queuedRef.current = null
           if (next) runJobRef.current(next)
@@ -1640,6 +2235,12 @@ export default function ScoreReader() {
     invalidatePredraw('zoom')
   }, [zoom, invalidatePredraw])
 
+  // 切后台 / 离开本页：把挂着的批注发出去。shared 的 600ms 防抖里可能还压着最后一笔，
+  // 而微信随时可能杀进程；personal 这一下与 useUnload 的最后一班车同义，重复调用无害。
+  useDidHide(() => {
+    if (annoDocId) annotationBackendRef.current?.flush?.(annoDocId)
+  })
+
   // 回到前台：画布位图在前后台切换后是否还在没有实测证据，作废一次的代价只是
   // 「回前台后的第一次翻页走常规路径」，比上错页/上白页便宜得多
   useDidShow(() => {
@@ -1648,8 +2249,24 @@ export default function ScoreReader() {
     // 摆位记账不再被清（见 invalidatePredraw）⇒ 回前台那一瞬画面不会先变空白
     if (docTick > 0) requestRef.current({ page: pageRef.current, zoom: zoomRef.current })
     // 从冲突解决页回来（或从后台回来）：按落盘的记录重算一次——解决掉的那几页要消失，
-    // 全解决了就把列表收起来。同一次会话里刚提示过的页不会被重新弹出来
-    if (fileId) void refreshConflicts()
+    // 全解决了就把列表收起来。同一次会话里刚提示过的页不会被重新弹出来。
+    // ⚠️ 只在 personal 模式刷：shared 模式不需要个人冲突列表，误弹会盖住共享谱
+    if (personalAnnotation && fileId) void refreshConflicts()
+    // 从合并页回来：to-shared 写的是共享表，内存里的笔迹/版本已旧，必须重载
+    const visited = mergeVisitedRef.current
+    if (visited) {
+      mergeVisitedRef.current = null
+      if (visited === 'to-shared') void reloadSharedAnnotations()
+    }
+    // 合并面板还开着：刷新「需要选择的页」（刚处理掉的那页会消失）
+    if (mergeOn && fileId) void loadMergeFor(mergeDirection)
+    // shared 模式下打开的是**个人**冲突列表（合并前置）：从冲突页回来也要摘掉已解决的页
+    if (sharedMode && conflictOn && fileId) {
+      void loadConflictPages(annoDocId).then((pages) => {
+        setConflictPages(pages)
+        if (pages.length === 0) setConflictOn(false)
+      })
+    }
   })
 
   /** 让画面追上当前 page/zoom */
@@ -1772,6 +2389,7 @@ export default function ScoreReader() {
       base: AnnoStroke[],
       live: LiveInk | null
     ): void => {
+      if (!aliveRef.current) return
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return
       const dpr = rasterDpr(w, h)
@@ -1800,6 +2418,7 @@ export default function ScoreReader() {
    */
   const paintLiveLayer = useCallback(
     (live: LiveInk | null) => {
+      if (!aliveRef.current) return
       const node = liveNodeRef.current
       const ctx = liveCtxRef.current
       if (!node || !ctx) return
@@ -1868,6 +2487,7 @@ export default function ScoreReader() {
 
   const paintLane = useCallback(
     async (l: Layer, pageNo: number): Promise<void> => {
+      if (!aliveRef.current) return
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return
       // **缓存命中就同步画完**（见 overlayCtxRef）：这条决定「抬笔 → 落定」之间有没有空窗，
@@ -1886,6 +2506,7 @@ export default function ScoreReader() {
       }
       try {
         const { node } = await queryCanvasNode(CANVAS_OVERLAY_SEL[l])
+        if (!aliveRef.current) return
         // **用中学**：画布刚挂上时那次预取可能扑空（渲染层还没建出节点）⇒ 这里查到就写回缓存，
         // 保证最多让一笔付一次查询。写的是**节点身份**，与页号守卫无关，故放在守卫之前。
         {
@@ -1937,6 +2558,7 @@ export default function ScoreReader() {
    */
   const appendStrokeToLane = useCallback(
     async (layer: Layer, pageNo: number, stroke: AnnoStroke, gen: number): Promise<boolean> => {
+      if (!aliveRef.current) return false
       const { w, h } = viewSizeRef.current
       if (!(w > 0) || !(h > 0)) return false
       // 节点**优先取缓存**（同步）—— 见 `overlayCtxRef`：这一条决定「抬笔 → 落定」之间有没有
@@ -1945,6 +2567,7 @@ export default function ScoreReader() {
       if (!overlay) {
         try {
           const n = (await queryCanvasNode(CANVAS_OVERLAY_SEL[layer])).node as CanvasNode
+          if (!aliveRef.current) return false
           overlay = n
           // 用中学：查到就写回缓存（见 `paintLane` 里同一条）
           overlayCtxRef.current[layer] = { node: n, ctx: n.getContext('2d') }
@@ -2099,6 +2722,8 @@ export default function ScoreReader() {
 
   useEffect(() => {
     const onWarn = (res?: { level?: number }) => {
+      // 记下时刻：之后产生的空白帧要能和这次告警对账（afterMemoryWarning / memoryWarnAgoMs）
+      memoryWarnAtRef.current = Date.now()
       prefetchPumpRef.current?.stop()
       invalidatePredraw('memory-warning')
       // 账本快照：**这是唯一能拿到「告警那一刻账上有多少」的机会**（#91 的第一步正是
@@ -2118,10 +2743,13 @@ export default function ScoreReader() {
           bitmaps: bitmapLedgerRef.current.detail(ids),
         },
       })
+      // 系统可能刚回收了画布位图：**只校验、不主动清屏**。没白就什么都不做；
+      // 白了才撤掉那一块的摆位记账并补画（见 handleFrameInk）。
+      verifyDisplayedFrames()
     }
     Taro.onMemoryWarning?.(onWarn)
     return () => Taro.offMemoryWarning?.(onWarn)
-  }, [invalidatePredraw, bitmapIdsNow, fileId])
+  }, [invalidatePredraw, bitmapIdsNow, fileId, verifyDisplayedFrames])
 
   /**
    * 批注层的更新入口：**先问「变了什么」，再决定做多少**（判据是纯函数 `inkUpdateFor`）。
@@ -2194,42 +2822,19 @@ export default function ScoreReader() {
     (next: AnnoDoc) => {
       annosRef.current = next
       setAnnos(next)
-      // 本地一改就两件事：记「可能有欠账」（离线改了 3 册然后被强杀，别的册只有靠它才会被扫到），
-      // 以及起一次停笔防抖（连续画十几笔只在停下时推一次，见 annotation-sync-runner）
-      if (fileId) {
-        markAnnoPending()
-        scheduleAnnotationSync(fileId)
-      }
-      // 写不进去（存储满 / 单键超限）以前是**完全静默**的：画面照旧、退出重进才发现丢了，
-      // 线上一条线索都没有（评审抓出）。每册每次会话只报一次——存储满会一直失败。
-      if (fileId) {
-        // 这一下是**同步阻塞主线程**的（compactDoc 整册序列化 + setStorageSync），真机手感
-        // 的关键就在它身上。超阈值记一条：下一轮要动「存储那条路」时靠数据说话，别猜
-        //（2026-10-15 平板笔验收：「点一下要等数百毫秒」）
-        const saveStart = Date.now()
-        const saved = saveAnnoDoc(fileId, next)
-        const saveCost = Date.now() - saveStart
-        if (saveCost > 80) {
-          reportClientError({
-            event: 'score_reader_annotation_save_slow',
-            message: 'saveAnnoDoc 阻塞超阈值',
-            detail: { fileId, ms: saveCost, pages: Object.keys(next).length },
-          })
-        }
-        if (!saved && !annoSaveFailRef.current) {
-          annoSaveFailRef.current = true
-          reportClientError({
-            event: 'score_reader_annotation_save_failed',
-            message: 'setStorageSync 失败（存储满/超限？）',
-            detail: { fileId, pages: Object.keys(next).length },
-          })
-        }
-      }
+      // 存储、欠账标记、停笔防抖、失败上报都收在 backend 里（P6a）；
+      // personal 是同步写盘，仍保持原来的手感与事件名。
+      if (annoDocId) annotationBackend.persist(annoDocId, next)
     },
-    [fileId]
+    [annoDocId, annotationBackend]
   )
 
   const load = useCallback(async () => {
+    if (!aliveRef.current) return
+    // 换册 / 重试：让上一册还在飞或在排队的渲染任务作废。只停泵不够——前台 doRender
+    // 可能正卡在取图/等布局上，它醒来后不能再往新册的画布上写旧册的页图。
+    renderEpochRef.current += 1
+    queuedRef.current = null
     let finalUrl = ''
     let imagePageTotal = 0
     // 上一册的本地记账先落盘（换册 = 这一册的账到此为止；不落就整册白下）
@@ -2389,11 +2994,12 @@ export default function ScoreReader() {
     t,
   ])
 
-  // 自动加载：带 file_id 进入时
+  // 自动加载：带 file_id 进入时；同一页面实例的 fileId / 分享参数变化也要重载
+  //（分享卡片复用、回前台参数被重置时 route.params 会变，旧实现空依赖会一直用旧册）。
   useEffect(() => {
     if (fileId) void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [fileId, presetStoragePath, presetPageCount])
 
   const clampPage = (n: number) => clamp(Math.round(n), 1, Math.max(pageCount, 1))
 
@@ -2723,6 +3329,7 @@ export default function ScoreReader() {
   // 起笔：rect 必须当次现取（工具条显隐会挪动画布），取到之前不落笔——
   // 拿旧 rect 算出的首点会连出一条「从按钮到落笔处」的飞线
   const beginStroke = (touch: { clientX: number; clientY: number; identifier?: number }) => {
+    if (annotationReadOnly) return
     // ⚠️ **左沿那条带里不起笔**（宽度见 `EDGE_NO_DRAW_PX`）：那里的触摸会被微信自己的边缘返回
     // 手势抢走（断流 → 成批补送 → `touch-cancel`），画出来也是半截 ⇒ 干脆不开始。
     //
@@ -2947,6 +3554,7 @@ export default function ScoreReader() {
    * 等待期间到达的触点攒进 erasePendingRef，rect 到手后连同起点一并补擦。
    */
   const beginErase = (touch: { clientX: number; clientY: number }) => {
+    if (annotationReadOnly) return
     cancelStroke('begin-erase')
     const lane = laneUnderPoint(touch.clientY)
     if (!lane) return
@@ -3135,6 +3743,8 @@ export default function ScoreReader() {
     const touch = e.touches[0]
     if (!touch) return
     if (penOn) {
+      // shared 模式下无写权的人只读（P6b）；personal 恒 false，行为不变
+      if (annotationReadOnly) return
       if (tool === 'eraser') beginErase(touch)
       else beginStroke(touch)
       return
@@ -3367,6 +3977,7 @@ export default function ScoreReader() {
 
   /** 撤销**一步操作**（画一笔 / 擦掉若干笔都算一步）——不是「删掉最后一笔」 */
   const handleUndo = () => {
+    if (annotationReadOnly) return
     const op = historyRef.current.pop()
     setUndoDepth(historyRef.current.length)
     if (!op) return
@@ -3381,6 +3992,7 @@ export default function ScoreReader() {
    *    的 clearPage），否则「本页」在 UD 里是歧义的：写/擦按**手指位置**定页，清空按顶边页。
    */
   const handleClear = () => {
+    if (annotationReadOnly) return
     const key = String(page)
     const before = annosRef.current[key] ?? []
     if (before.length === 0) return // 没笔迹就没有可撤销的一步
@@ -3405,6 +4017,11 @@ export default function ScoreReader() {
   }
 
   const togglePen = () => {
+    // 只挡「进批注」：已经进来的人必须还能出去（否则只读一旦生效就被困在批注栏里）
+    if (!penOn && annotationReadOnly) {
+      void Taro.showToast({ title: t('score.sharedReadOnly'), icon: 'none' })
+      return
+    }
     cancelStroke('toggle-pen')
     dragRef.current = null
     multiTouchRef.current = false
@@ -3421,17 +4038,157 @@ export default function ScoreReader() {
    *
    * `url` 传**取值函数**而不是值：`fileUrlRef` 是 ref，渲染期读会拿到空串。
    */
-  const handoff = usePdfHandoff()
+  const handoff = usePdfHandoff(annoOwner)
+
+  /**
+   * 共享谱 CAS 冲突：在预览页三选一之后提交。
+   * 写回共享表 / 采纳远端都由 backend 负责（它同时维护 baseDoc 与版本号）。
+   *
+   * 失败时区分「远端又变了」（raced，重载预览）与网络/服务失败（message）：
+   * backend 在 CAS 冲突时会更新 getConflict 的版本，借此判断。
+   */
+  const submitSharedConflict = async (
+    target: number,
+    side: CompareSide,
+    previewRemoteVersion: string | null
+  ): Promise<CompareSubmitResult> => {
+    if (!sharedMode || annotationBackend.kind !== 'shared') {
+      return { ok: false, message: t('scoreReader.conflict.failed') }
+    }
+    // 联合类型下 TS 认不出「shared 变体一定有 resolveConflict」，这里按键收窄
+    const shared = annotationBackend as SharedAnnotationBackend
+    const next = await shared.resolveConflict(target, side)
+    if (!next) {
+      const after = shared.getConflict(target)
+      if (after && after.remoteVersion !== (previewRemoteVersion ?? '')) {
+        return { ok: false, raced: true }
+      }
+      return { ok: false, message: t('scoreReader.merge.failed') }
+    }
+    annosRef.current = { ...annosRef.current, [String(target)]: next }
+    setAnnos(annosRef.current)
+    return { ok: true }
+  }
+
+  /**
+   * 0.6.1 共享副本（其他人的个人层）：冲突三选一。
+   * 与 `submitSharedConflict` 的区别是**只写个人层**——这里没有写共享层的权限。
+   */
+  const submitSharePullConflict = async (
+    target: number,
+    side: CompareSide,
+    _previewRemoteVersion: string | null
+  ): Promise<CompareSubmitResult> => {
+    const conflict = sharePullConflicts.find((c) => c.page === target)
+    if (!conflict) return { ok: false, message: t('scoreReader.conflict.failed') }
+    const result = await resolveSharePullConflict({
+      owner: annoOwner,
+      shareId,
+      docKey: annoDocId,
+      conflict,
+      choice: side,
+    })
+    if (!result.ok) {
+      if (result.raced) {
+        // 共享层在预览之后又变了：重新拉一次，刷新冲突快照，让用户按新版本再选
+        try {
+          const pulled = await pullShareLayer({
+            owner: annoOwner,
+            shareId,
+            docKey: annoDocId,
+          })
+          if (pulled.adopted.length > 0) {
+            annosRef.current = pulled.doc
+            setAnnos(pulled.doc)
+          }
+          setSharePullConflicts(pulled.conflicts)
+          setSharePullConflictPage(null)
+        } catch {
+          // 刷新失败就保持旧快照；用户关掉重开也会重试
+        }
+        return { ok: false, raced: true }
+      }
+      return { ok: false, message: t('scoreReader.conflict.failed') }
+    }
+    if (result.strokes) {
+      annosRef.current = { ...annosRef.current, [String(target)]: result.strokes }
+      setAnnos(annosRef.current)
+    }
+    setSharePullConflicts((prev) => prev.filter((c) => c.page !== target))
+    return { ok: true }
+  }
+
+  /** 打开合并面板（入口在「保存到…」里）；只读时不允许从「我的 → 共享」开始 */
+  const openMerge = () => {
+    handoff.close()
+    const dir =
+      mergeDirection === 'to-shared' && annotationReadOnly ? 'to-personal' : mergeDirection
+    setMergeOn(true)
+    void loadMergeFor(dir)
+  }
+
+  /**
+   * 进某一页的合并预览。
+   *
+   * ⚠️ `to-shared` 前必须等共享层的挂起写入发完：合并页读的是共享表的**当前**内容，
+   * 还有没落盘的编辑时进去，会拿着旧内容做选择，回来再撞一次 CAS。
+   */
+  const pickMergePage = async (target: number) => {
+    if (mergeDirection === 'to-shared') {
+      if (!sharedMode || annotationBackend.kind !== 'shared') return
+      const ok = await (annotationBackend as SharedAnnotationBackend).flushNow()
+      if (!ok) {
+        void Taro.showToast({ title: t('scoreReader.merge.syncFailed'), icon: 'none' })
+        return
+      }
+    }
+    const q = [
+      `file_id=${encodeURIComponent(annoDocId)}`,
+      `page=${target}`,
+      `direction=${mergeDirection}`,
+      `u=${encodeURIComponent(fileUrlRef.current)}`,
+      presetFileName ? `fn=${encodeURIComponent(presetFileName)}` : '',
+    ]
+      .filter(Boolean)
+      .join('&')
+    mergeVisitedRef.current = mergeDirection
+    void Taro.navigateTo({ url: `/pages/score-reader/merge/index?${q}` })
+  }
+
+  /** 合并被个人冲突挡住时：关掉合并面板，打开冲突列表 */
+  const resolvePersonalConflicts = () => {
+    setMergeOn(false)
+    void (async () => {
+      const pages = await loadConflictPages(annoDocId)
+      setConflictPages(pages)
+      if (pages.length > 0) setConflictOn(true)
+    })()
+  }
 
   /**
    * 「恢复云端历史」（分享子菜单里的入口）：先拉这一册的归档**元数据**并按覆盖批次聚好，
    * 再开面板 —— 内容等用户点进某一批才拉（整册连内容能到几 MB，见 lib/annotation-history.ts）。
    */
   const openHistory = () => {
+    if (!personalAnnotation) return
     handoff.close()
+    setHistorySource('personal')
     setHistoryOn(true)
     setHistoryLoading(true)
-    void listAnnotationHistory(fileId).then((rows) => {
+    void listAnnotationHistory(historyDocKey).then((rows) => {
+      setHistoryBatches(groupHistoryBatches(rows))
+      setHistoryLoading(false)
+    })
+  }
+
+  /** 共享谱历史（P6b 的 🟡 UI；P6d 后补上）——与个人历史是两张表 */
+  const openSharedHistory = () => {
+    if (!sharedMode) return
+    handoff.close()
+    setHistorySource('shared')
+    setHistoryOn(true)
+    setHistoryLoading(true)
+    void listAnnotationHistory(historyDocKey, 'shared').then((rows) => {
       setHistoryBatches(groupHistoryBatches(rows))
       setHistoryLoading(false)
     })
@@ -3446,7 +4203,7 @@ export default function ScoreReader() {
   const pickHistoryPage = (p: HistoryPage) => {
     setHistoryOn(false)
     const q = [
-      `file_id=${encodeURIComponent(fileId)}`,
+      `file_id=${encodeURIComponent(historyDocKey)}`,
       `page=${p.entry.page}`,
       `u=${encodeURIComponent(fileUrlRef.current)}`,
       presetFileName ? `fn=${encodeURIComponent(presetFileName)}` : '',
@@ -3462,6 +4219,41 @@ export default function ScoreReader() {
       })
     })
   }
+  /** 共享历史：把选中的历史版本拿来与当前共享页对照；恢复时以当前共享版本做 CAS */
+  const pickSharedHistoryPage = (p: HistoryPage) => {
+    setHistoryOn(false)
+    const shared = annotationBackend as SharedAnnotationBackend
+    setSharedHistoryPreview({
+      page: p.entry.page,
+      history: p.strokes,
+      current: annosRef.current[String(p.entry.page)] ?? [],
+      currentVersion: shared.getVersion(p.entry.page) ?? '',
+    })
+  }
+
+  const submitSharedHistory = async (
+    side: CompareSide,
+    preview: NonNullable<typeof sharedHistoryPreview>
+  ): Promise<CompareSubmitResult> => {
+    if (side === 'local') return { ok: true }
+    const target =
+      side === 'merge' ? mergeStrokes(preview.current, preview.history) : preview.history
+    const shared = annotationBackend as SharedAnnotationBackend
+    const result = await shared.restorePage(preview.page, target)
+    if (result.ok) {
+      const next = result.strokes ?? target
+      annosRef.current = { ...annosRef.current, [String(preview.page)]: next }
+      setAnnos(annosRef.current)
+      return { ok: true }
+    }
+    if (result.raced) {
+      // restorePage 已把冲突交给冲突面板；关掉本预览，让逐页冲突预览接管
+      setSharedHistoryPreview(null)
+      return { ok: false, message: t('scoreReader.conflict.raced') }
+    }
+    return { ok: false, message: t('scoreReader.merge.failed') }
+  }
+
   /** 顶栏那个按钮要开的是**这一册**（元数据在 open 时给，见 usePdfHandoff 的注释） */
   const openHandoff = () => {
     // 「保存到…」也是底栏五个之一 ⇒ 开它就收掉另外两个（同 openPanel 的互斥理由）
@@ -3469,12 +4261,105 @@ export default function ScoreReader() {
     setPenOn(false)
     handoff.open({
       fileId,
+      // 0.6.1 共享副本：PDF 原件仍是 fileId；批注层按 shareId 取（Edge Function 支持）
+      shareId: shareCopyMode ? shareId : undefined,
       url: () => fileUrlRef.current,
       title: presetTitle,
       section: presetSection,
       fileName: presetFileName,
       expectedBytes: presetBytes,
+      // 共享层（旧共享谱 / 共享副本 owner）：烧进去的是共享层笔迹，合成走 compose-shared-pdf；
+      // 合成前要把共享层的挂起写入 flush 掉，否则会漏掉刚画的几笔。
+      ...(sharedMode
+        ? {
+            composeKind: 'shared' as const,
+            hasInk: () => docHasInk(annosRef.current),
+            beforeCompose: async () => {
+              const ok = await (annotationBackend as SharedAnnotationBackend).flushNow()
+              if (!ok) throw new Error(t('scoreReader.merge.syncFailed'))
+            },
+          }
+        : shareCopyPersonalMode
+          ? {
+              // 其他人的共享副本：烧的是**个人层**（已包含拉下来的共享层），
+              // 合成前先把个人层同步到服务端；hasInk 读内存态，不能按源文件查本地。
+              hasInk: () => docHasInk(annosRef.current),
+              beforeCompose: async () => {
+                await syncAnnotationFile(annoDocId)
+              },
+            }
+          : {}),
     })
+  }
+
+  /**
+   * 0.6.1：从原谱「共享批注」。
+   *
+   * 首次 = 创建副本 + hard push；再次 = 更新同一副本 + hard push。
+   * 更新会**整份覆盖**共享层（包括直接在副本上做的修改），所以先弹确认。
+   * 服务端还会再校验一次 A2/总谱/有无笔迹（见 create_shared_annotation_share）。
+   */
+  const shareAnnotations = async () => {
+    if (!canShareAnnotations || shareBusy || !user?.id) return
+    setShareBusy(true)
+    handoff.close()
+    try {
+      // 已存在自己的副本 ⇒ 这次是 hard push：先确认会覆盖副本上的直接修改。
+      // 查不到不能默认「不存在」——查询失败时宁可让用户重试，也不要跳过确认直接覆盖。
+      const { data: existing, error: existingError } = await (
+        supabase as unknown as { from: (t: string) => any }
+      )
+        .from('sheet_music_annotation_share_files')
+        .select('share_id')
+        .eq('source_file_id', fileId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+      if (existingError) {
+        void Taro.showToast({ title: t('scoreReader.share.failed'), icon: 'none' })
+        return
+      }
+      if (existing) {
+        const modal = await Taro.showModal({
+          title: t('scoreReader.share.hardPushTitle'),
+          content: t('scoreReader.share.hardPushHint'),
+          confirmText: t('scoreReader.share.hardPushConfirm'),
+        })
+        if (!modal.confirm) return
+      }
+      const { data, error } = await (supabase.rpc as any)(
+        'create_shared_annotation_share',
+        { p_source_file_id: fileId }
+      )
+      if (error) {
+        const msg = String(error.message ?? '')
+        if (msg.includes('no_annotations')) {
+          void Taro.showToast({ title: t('scoreReader.share.noAnnotations'), icon: 'none' })
+        } else if (msg.includes('source_not_shareable')) {
+          void Taro.showToast({ title: t('scoreReader.share.notShareable'), icon: 'none' })
+        } else if (msg.includes('not_allowed')) {
+          void Taro.showToast({ title: t('scoreReader.share.notAllowed'), icon: 'none' })
+        } else {
+          void Taro.showToast({ title: t('scoreReader.share.failed'), icon: 'none' })
+        }
+        return
+      }
+      const row = (Array.isArray(data) ? data[0] : data) as
+        | { share_id?: string; display_name?: string; created?: boolean }
+        | null
+      void Taro.showToast({
+        title: t(row?.created ? 'scoreReader.share.created' : 'scoreReader.share.updated'),
+        icon: 'success',
+      })
+    } catch (err) {
+      reportClientError({
+        event: 'score_reader_share_annotations_failed',
+        message: describeError(err),
+        detail: { fileId },
+      })
+      void Taro.showToast({ title: t('scoreReader.share.failed'), icon: 'none' })
+    } finally {
+      setShareBusy(false)
+    }
   }
 
   /**
@@ -3486,7 +4371,7 @@ export default function ScoreReader() {
    */
   const openConflictPage = (target: number) => {
     const q = [
-      `file_id=${encodeURIComponent(fileId)}`,
+      `file_id=${encodeURIComponent(annoDocId)}`,
       `page=${target}`,
       `u=${encodeURIComponent(fileUrlRef.current)}`,
       presetFileName ? `fn=${encodeURIComponent(presetFileName)}` : '',
@@ -3546,6 +4431,14 @@ export default function ScoreReader() {
   // 「画布尺寸有没有值」：图片模式下 `setViewSize` 发生在绘制**之前**，按尺寸判会让
   // 提示在画面出来之前就消失（真机反馈：第一次「进度走完但没渲染出来」、第二次
   // 干脆不显示 —— 同一个成因）
+  const activeSharedConflict =
+    sharedConflictPage != null
+      ? (sharedConflicts.find((c) => c.page === sharedConflictPage) ?? null)
+      : null
+  const activeSharePullConflict =
+    sharePullConflictPage != null
+      ? (sharePullConflicts.find((c) => c.page === sharePullConflictPage) ?? null)
+      : null
   const showStatusRow = stage !== 'ready' && stage !== 'error'
   const boxW = viewSize.w || containerW || 0
   const boxH = viewSize.h || 0
@@ -3908,6 +4801,96 @@ export default function ScoreReader() {
             onClose={() => setConflictOn(false)}
           />
         ) : null}
+        {/* 共享谱冲突：不可关闭（关掉只会让状态更含糊），所以教程期间也不弹，等它关掉 */}
+        {sharedMode && sharedConflicts.length > 0 && !tutorialOn ? (
+          <SharedConflictSheet conflicts={sharedConflicts} onPick={setSharedConflictPage} />
+        ) : null}
+        {/* 共享冲突的预览页：与个人冲突页共用 ScoreCompareView；作为全屏浮层压在列表上，
+            关掉后回到列表，不会丢掉 backend 内存里的冲突内容。 */}
+        {sharedMode && activeSharedConflict ? (
+          <View className='fixed left-0 right-0 top-0 bottom-0' style={{ zIndex: Z_SHEET + 1 }}>
+            <ScoreCompareView
+              fileId={fileId}
+              page={activeSharedConflict.page}
+              presetUrl={fileUrlRef.current}
+              presetName={presetFileName}
+              hint={t('scoreReader.conflict.why')}
+              pageLabel={t('scoreReader.conflict.pageButton', {
+                page: activeSharedConflict.page,
+              })}
+              labels={{
+                local: t('scoreReader.conflict.localVersion'),
+                remote: t('scoreReader.conflict.remoteVersion'),
+                merge: t('scoreReader.conflict.mergeVersion'),
+              }}
+              submitLabel={t('scoreReader.conflict.useCurrent')}
+              defaultSide='local'
+              racedText={t('scoreReader.conflict.raced')}
+              failedText={t('scoreReader.conflict.failed')}
+              loadData={async () => {
+                // ⚠️ 读 backend 的内存冲突，不读 React state：CAS 落空时 backend 已同步
+                // 更新了快照，而 setSharedConflicts 要等下一次渲染才可见；读 state 会在
+                // raced 重载时拿到旧远端，让用户对着没见过的版本做选择。
+                const shared = annotationBackend as SharedAnnotationBackend
+                const c = shared.getConflict(activeSharedConflict.page)
+                if (!c) throw new Error(t('scoreReader.conflict.failed'))
+                return { local: c.local, remote: c.remote, remoteVersion: c.remoteVersion }
+              }}
+              submit={(side, data) =>
+                submitSharedConflict(activeSharedConflict.page, side, data.remoteVersion)
+              }
+              onSuccess={() => setSharedConflictPage(null)}
+              onCancel={() => setSharedConflictPage(null)}
+            />
+          </View>
+        ) : null}
+        {/* 0.6.1 共享副本（其他人的个人层）：打开时拉下来的共享层与个人层真分叉。
+            不可关闭（与共享冲突同款），教程期间也不弹。 */}
+        {shareCopyPersonalMode && sharePullConflicts.length > 0 && !tutorialOn ? (
+          <SharedConflictSheet
+            conflicts={sharePullConflicts}
+            onPick={setSharePullConflictPage}
+          />
+        ) : null}
+        {shareCopyPersonalMode && activeSharePullConflict ? (
+          <View className='fixed left-0 right-0 top-0 bottom-0' style={{ zIndex: Z_SHEET + 1 }}>
+            <ScoreCompareView
+              fileId={fileId}
+              page={activeSharePullConflict.page}
+              presetUrl={fileUrlRef.current}
+              presetName={presetFileName}
+              hint={t('scoreReader.sharePull.conflictHint')}
+              pageLabel={t('scoreReader.conflict.pageButton', {
+                page: activeSharePullConflict.page,
+              })}
+              labels={{
+                local: t('scoreReader.sharePull.local'),
+                remote: t('scoreReader.sharePull.remote'),
+                merge: t('scoreReader.sharePull.merge'),
+              }}
+              submitLabel={t('scoreReader.sharePull.useCurrent')}
+              defaultSide='local'
+              racedText={t('scoreReader.conflict.raced')}
+              failedText={t('scoreReader.conflict.failed')}
+              loadData={async () => {
+                const c = sharePullConflicts.find(
+                  (x) => x.page === activeSharePullConflict.page
+                )
+                if (!c) throw new Error(t('scoreReader.conflict.failed'))
+                return { local: c.local, remote: c.remote, remoteVersion: c.remoteVersion }
+              }}
+              submit={(side, data) =>
+                submitSharePullConflict(
+                  activeSharePullConflict.page,
+                  side,
+                  data.remoteVersion
+                )
+              }
+              onSuccess={() => setSharePullConflictPage(null)}
+              onCancel={() => setSharePullConflictPage(null)}
+            />
+          </View>
+        ) : null}
         {handoff.sheetOn ? (
           <SaveToSheet
             kinds={handoff.kinds}
@@ -3919,19 +4902,85 @@ export default function ScoreReader() {
             preparing={handoff.preparing}
             onAnno={handoff.toggleAnno}
             onPick={handoff.pick}
-            onHistory={openHistory}
+            // 复制链接：唯一能落到系统下载目录的路径（不依赖本地 PDF）
+            onCopyLink={handoff.copyLink}
+            copyable={handoff.copyable}
+            // 云端历史：个人与共享是两张表，各自一个入口
+            onHistory={personalAnnotation ? openHistory : undefined}
+            onSharedHistory={sharedMode ? openSharedHistory : undefined}
+            // 0.6.1：原谱上的「共享批注」（创建/更新自己的副本）。
+            // 只对 A2 且这一册有笔迹显示；共享副本自己不再有这个入口。
+            onShareAnnotations={
+              !shareCopyMode &&
+              !legacySharedMode &&
+              canShareAnnotations &&
+              !shareBusy &&
+              docHasInk(annosRef.current)
+                ? () => void shareAnnotations()
+                : undefined
+            }
+            // 旧共享谱才有「合并批注…」（P6c）；共享副本是自动 pull + 冲突三选一
+            onMergeShared={legacySharedMode ? openMerge : undefined}
             onClose={handoff.close}
           />
         ) : null}
-        {/* 「恢复云端历史」：与分享面板同一个 z（Z_SHEET），靠 DOM 顺序压在它上面 */}
-        {historyOn ? (
+        {mergeOn ? (
+          <SharedMergeSheet
+            direction={mergeDirection}
+            canEditShared={!annotationReadOnly}
+            pages={mergePages}
+            loading={mergeLoading}
+            error={mergeError}
+            onDirection={(d) => void loadMergeFor(d)}
+            onPick={(target) => void pickMergePage(target)}
+            onResolvePersonalConflicts={
+              mergeReason === 'personal-conflicts' ? resolvePersonalConflicts : undefined
+            }
+            onClose={() => setMergeOn(false)}
+          />
+        ) : null}
+        {/* 「恢复历史」：个人/共享两张表；与分享面板同一个 z（Z_SHEET） */}
+        {(personalAnnotation || sharedMode) && historyOn ? (
           <AnnotationHistorySheet
-            fileId={fileId}
+            fileId={historyDocKey}
+            source={historySource}
             batches={historyBatches}
             loading={historyLoading}
-            onPick={pickHistoryPage}
+            onPick={historySource === 'shared' ? pickSharedHistoryPage : pickHistoryPage}
             onClose={() => setHistoryOn(false)}
           />
+        ) : null}
+        {/* 共享历史预览：当前版本 vs 历史版本；恢复走 CAS，冲突则交给上面的冲突面板 */}
+        {sharedMode && sharedHistoryPreview ? (
+          <View className='fixed left-0 right-0 top-0 bottom-0' style={{ zIndex: Z_SHEET + 1 }}>
+            <ScoreCompareView
+              fileId={fileId}
+              page={sharedHistoryPreview.page}
+              presetUrl={fileUrlRef.current}
+              presetName={presetFileName}
+              hint={t('scoreReader.sharedHistory.hint')}
+              pageLabel={t('scoreReader.conflict.pageButton', {
+                page: sharedHistoryPreview.page,
+              })}
+              labels={{
+                local: t('scoreReader.sharedHistory.current'),
+                remote: t('scoreReader.sharedHistory.historyVersion'),
+                merge: t('scoreReader.conflict.mergeVersion'),
+              }}
+              submitLabel={t('scoreReader.sharedHistory.useCurrent')}
+              defaultSide='remote'
+              racedText={t('scoreReader.conflict.raced')}
+              failedText={t('scoreReader.conflict.failed')}
+              loadData={async () => ({
+                local: sharedHistoryPreview.current,
+                remote: sharedHistoryPreview.history,
+                remoteVersion: sharedHistoryPreview.currentVersion,
+              })}
+              submit={(side) => submitSharedHistory(side, sharedHistoryPreview)}
+              onSuccess={() => setSharedHistoryPreview(null)}
+              onCancel={() => setSharedHistoryPreview(null)}
+            />
+          </View>
         ) : null}
       </View>
     </View>

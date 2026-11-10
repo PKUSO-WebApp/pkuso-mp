@@ -5,10 +5,12 @@ import {
   frameForPage,
   missingNeighbor,
   neighborFrames,
+  pickRenderLayer,
   predrawFallback,
   predrawGo,
   spareLayer,
   spareLayerOffscreen,
+  usableLayers,
   NEIGHBOR_MAX_ZOOM,
   PREDRAW_IDLE_MS,
   PREDRAW_WAIT_MS,
@@ -96,6 +98,23 @@ describe('spareLayer（该写哪块）', () => {
       c: frame({ layer: 'c', page: 6 }), // 下一页
     })
     expect(spareLayer(all, 'a', m, 5)).toBe('b')
+  })
+})
+
+describe('usableLayers / pickRenderLayer（空白帧后避开坏画布）', () => {
+  const all: Layer[] = ['a', 'b', 'c']
+
+  it('只排除冷却中的那块；到期后恢复可用', () => {
+    const bad = { a: 2000, b: 500 }
+    expect(usableLayers(all, bad, 1000)).toEqual(['b', 'c'])
+    expect(usableLayers(all, bad, 2000)).toEqual(['a', 'b', 'c'])
+    expect(usableLayers(all, bad, 2001)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('选块时优先避开冷却中的；全在冷却才退回全部', () => {
+    expect(pickRenderLayer(all, 'a', metas(), 5, { b: 9999 }, 1000)).toBe('c')
+    // 全部冷却：退回 spareLayer 的原始取舍（不写 active a，所以是 b）
+    expect(pickRenderLayer(all, 'a', metas(), 5, { a: 9999, b: 9999, c: 9999 }, 1000)).toBe('b')
   })
 })
 

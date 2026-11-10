@@ -1,8 +1,9 @@
 ﻿// @vitest-environment jsdom
 
 import React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import Profile from './index'
 
 const { taroMock, updateProfileMock, notif, pickerProps } = vi.hoisted(() => ({
@@ -44,6 +45,7 @@ vi.mock('@tarojs/components', () => {
     Button: create('button'),
     Picker,
     Input,
+    Image: create('img'),
     ScrollView: create('div'),
   }
 })
@@ -62,6 +64,7 @@ vi.mock('@/context/user-context', () => ({
 }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ signOut: vi.fn() }) }))
 vi.mock('@/lib/profile-gate', () => ({ isSyntheticEmail: () => false }))
+vi.mock('@/assets/icons/user-round.png', () => ({ default: 'user-round.png' }))
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     auth: { getUser: vi.fn(() => Promise.resolve({ data: { user: { email: 'a@b.com' } } })) },
@@ -91,7 +94,7 @@ vi.mock('@/hooks/useProfiles', () => ({
 }))
 vi.mock('@/hooks/useNotifications', () => ({
   useNotifications: () => ({
-    unreadCounts: { attendance: 1, activity: 1, system: 1 },
+    unreadCounts: { attendance: 1, activity: 1, system: 1, section_leave: 0 },
     totalUnread: notif.totalUnread,
     refresh: vi.fn(),
     fetchByCategory: vi.fn(),
@@ -120,37 +123,26 @@ vi.mock('@/lib/validation', () => ({ isValidEmail: () => true, isValidPhoneNumbe
 vi.mock('@/pages/profile/components/appearance-modal', () => ({ AppearanceModal: () => null }))
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock({
     loaders: {
       'zh-CN': () => Promise.resolve({ default: {} as Record<string, unknown> }),
       en: () => Promise.resolve({ default: {} as Record<string, unknown> }),
     },
-  }
+  })
 })
 describe('我的页', () => {
+  beforeEach(() => resetTestLocale())
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+  })
+
+  it('英文环境：个人信息入口显示英文', () => {
+    setTestLocale('en')
+    render(<Profile />)
+    expect(screen.getByText('Profile Info')).toBeTruthy()
+    expect(screen.queryByText('个人信息')).toBeNull()
   })
 
   it('挂载后正常渲染（「我的」红点同步已迁移至全局 NotificationBadgeSync）', () => {

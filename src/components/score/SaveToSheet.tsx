@@ -29,7 +29,12 @@ export function SaveToSheet({
   preparing,
   onAnno,
   onPick,
+  onCopyLink,
+  copyable,
   onHistory,
+  onSharedHistory,
+  onMergeShared,
+  onShareAnnotations,
   onClose,
 }: {
   kinds: HandoffKind[]
@@ -48,10 +53,29 @@ export function SaveToSheet({
   onAnno: (v: boolean) => void
   onPick: (kind: HandoffKind) => void
   /**
+   * 「复制下载链接」：唯一真正的浏览器下载路径（小程序写不了系统下载目录）。
+   * 它不依赖本地 PDF 是否备好，所以**不受 `canPick` 影响**。
+   */
+  onCopyLink?: () => void
+  /** 当前选择对应的下载链接是否已拿到（原件打开即得；带批注要等云端合成） */
+  copyable?: boolean
+  /**
    * 「恢复云端历史」那一行。**只有阅读器给**（声部页那份 PDF 面板只负责把文件送出去，
    * 没有"当前在哪一页、本地有哪些笔迹"这些上下文）⇒ 不给就整行不渲染。
    */
   onHistory?: () => void
+  /** 「恢复共享历史」：只有共享谱阅读器给（与个人历史是两张表） */
+  onSharedHistory?: () => void
+  /**
+   * 「合并批注…」：**只有共享谱阅读器给**（P6c）。个人谱没有共享层可合并，
+   * 给了入口也只会让人点进一个空面板。
+   */
+  onMergeShared?: () => void
+  /**
+   * 0.6.1「共享批注」：只有本人对这份原谱有 A2 且这一册有笔迹时才给。
+   * 它不是文件出口，所以**不受 `ready` 影响**（走的是 RPC，不依赖本地 PDF）。
+   */
+  onShareAnnotations?: () => void
   onClose: () => void
 }) {
   const { t } = useT()
@@ -89,6 +113,12 @@ export function SaveToSheet({
             </Text>
           </View>
         ) : null}
+        {/* 0.6.1：把这一册的批注共享成一份新谱（创建/更新自己的副本） */}
+        {onShareAnnotations ? (
+          <View className='border-b border-border px-4 py-4' onClick={onShareAnnotations}>
+            <Text className='text-sm text-text'>{t('scoreReader.share.entry')}</Text>
+          </View>
+        ) : null}
         {kinds.map((kind) => (
           <View
             key={kind}
@@ -100,12 +130,38 @@ export function SaveToSheet({
             </Text>
           </View>
         ))}
+        {/* 复制下载链接：不依赖本地 PDF，只等链接本身（带批注要等云端合成） */}
+        {onCopyLink ? (
+          <View
+            className={`border-b border-border px-4 py-4 ${copyable ? 'bg-surface' : 'bg-muted'}`}
+            onClick={onCopyLink}
+          >
+            <Text className={`text-sm ${copyable ? 'text-text' : 'text-text-subtle'}`}>
+              {copyable
+                ? t('common.saveTo.copyLink')
+                : preparing
+                  ? t('common.saveTo.copyPreparing')
+                  : t('common.saveTo.copyNotReady')}
+            </Text>
+          </View>
+        ) : null}
         {/* 「恢复云端历史」：拿到被覆盖掉的那几版，进冲突解决页挑一版（或与本地的合并）。
             它**不受 `canPick` 影响** —— 那一位管的是"本地 PDF 备好了没"，而这条走的是
             云端历史 + 冲突页，跟那份 PDF 文件没关系 */}
         {onHistory ? (
           <View className='border-b border-border px-4 py-4' onClick={onHistory}>
             <Text className='text-sm text-text'>{t('scoreReader.history.entry')}</Text>
+          </View>
+        ) : null}
+        {onSharedHistory ? (
+          <View className='border-b border-border px-4 py-4' onClick={onSharedHistory}>
+            <Text className='text-sm text-text'>{t('scoreReader.sharedHistory.entry')}</Text>
+          </View>
+        ) : null}
+        {/* 共享谱：把共享笔迹并进个人层，或把个人笔迹推到共享层（P6c） */}
+        {onMergeShared ? (
+          <View className='border-b border-border px-4 py-4' onClick={onMergeShared}>
+            <Text className='text-sm text-text'>{t('scoreReader.merge.entry')}</Text>
           </View>
         ) : null}
         <View className='px-4 py-4' onClick={onClose}>

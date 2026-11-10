@@ -9,9 +9,13 @@ vi.mock('@/lib/supabase', () => ({
   supabase: {},
 }))
 
-// uploadAttachment 现需经 getFileSystemManager 读出字节后上传；mock 返回占位字节
+// uploadAttachment 现需经 getFileSystemManager 读出字节，再用 Taro.request 发原始字节
+const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }))
 vi.mock('@tarojs/taro', () => ({
   default: {
+    getStorageSync: () => '',
+    setStorageSync: () => {},
+    request: requestMock,
     getFileSystemManager: () => ({
       readFile: (opts: { success: (res: { data: ArrayBuffer }) => void }) => {
         opts.success({ data: new ArrayBuffer(8) })
@@ -86,6 +90,7 @@ const updateOk = { data: [{ id: 'lr-1' }], error: null }
 describe('useLeaveRequests', () => {
   afterEach(() => {
     cleanup()
+    requestMock.mockReset()
   })
 
   it('fetchMine 加载我的申请（含排练 join）', async () => {
@@ -462,6 +467,9 @@ describe('useLeaveRequests', () => {
 
   it('uploadAttachment 上传到私有桶并返回 storage 路径（无公开 URL）', async () => {
     const c = mockClient([fetchOk, { error: null }])
+    requestMock.mockImplementation((opts: any) =>
+      opts.success({ statusCode: 200, data: '{}' })
+    )
     const { result } = renderHook(() => useLeaveRequests(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
@@ -470,22 +478,33 @@ describe('useLeaveRequests', () => {
       result.current.uploadAttachment({ tempFilePath: 'wxfile://tmp/a.jpg', name: 'a.jpg' }, 'u1')
     )
     expect(r).toHaveProperty('url')
-    expect((r as { url: string }).url).toMatch(/^u1\/\d+-a\.jpg$/)
+    expect((r as { url: string }).url).toMatch(
+      /^u1\/[0-9a-f]{16}-[a-z0-9-]+-a\.jpg$/
+    )
+    expect(requestMock.mock.calls[0][0].url).toContain('/object/leave-attachments/u1/')
   })
 
   it('uploadAttachment 无 name 时从 tempFilePath 取文件名（保留扩展名）', async () => {
     const c = mockClient([fetchOk, { error: null }])
+    requestMock.mockImplementation((opts: any) =>
+      opts.success({ statusCode: 200, data: '{}' })
+    )
     const { result } = renderHook(() => useLeaveRequests(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     const r = await act(() =>
       result.current.uploadAttachment({ tempFilePath: 'wxfile://tmp/photo.pdf' }, 'u1')
     )
-    expect((r as { url: string }).url).toMatch(/^u1\/\d+-photo\.pdf$/)
+    expect((r as { url: string }).url).toMatch(
+      /^u1\/[0-9a-f]{16}-[a-z0-9-]+-photo\.pdf$/
+    )
   })
 
   it('uploadAttachment 消毒含中文/空格的文件名（Storage InvalidKey）', async () => {
     const c = mockClient([fetchOk, { error: null }])
+    requestMock.mockImplementation((opts: any) =>
+      opts.success({ statusCode: 200, data: '{}' })
+    )
     const { result } = renderHook(() => useLeaveRequests(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
@@ -497,14 +516,18 @@ describe('useLeaveRequests', () => {
     )
     expect(r).toHaveProperty('url')
     // 消毒后 storage key 为纯 ASCII，不含中文/空格，且保留扩展名
-    expect(c.uploads[0]).toMatchObject({ bucket: 'leave-attachments' })
-    expect(c.uploads[0].path).not.toMatch(/[一-龥\s]/)
-    expect(c.uploads[0].path).toMatch(/^[A-Za-z0-9._/-]+$/)
-    expect(c.uploads[0].path).toContain('.pdf')
+    const url = String(requestMock.mock.calls[0][0].url)
+    const path = decodeURIComponent(url.split('/object/leave-attachments/')[1] ?? '')
+    expect(path).not.toMatch(/[一-龥\s]/)
+    expect(path).toMatch(/^[A-Za-z0-9._/-]+$/)
+    expect(path).toContain('.pdf')
   })
 
   it('uploadAttachment 上传失败返回 error', async () => {
-    const c = mockClient([fetchOk, { error: { message: '存储拒绝' } }])
+    const c = mockClient([fetchOk])
+    requestMock.mockImplementation((opts: any) =>
+      opts.success({ statusCode: 400, data: '{"message":"存储拒绝"}' })
+    )
     const { result } = renderHook(() => useLeaveRequests(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
 

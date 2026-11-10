@@ -3,6 +3,7 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import NotificationSystemPage from './index'
 
 const rows = [
@@ -83,32 +84,13 @@ vi.mock('@/components/ui/SegmentTabs', () => ({
 vi.mock('@/lib/date-utils', () => ({ formatDateTimeInChina: () => '2026-01-01' }))
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 describe('系统通知页', () => {
   beforeEach(() => {
+    resetTestLocale()
     fetchMock.mockImplementation((category?: string) =>
       Promise.resolve({ rows: category === 'activity' ? activityRows : rows, error: null })
     )
@@ -119,6 +101,21 @@ describe('系统通知页', () => {
     fetchMock.mockImplementation((category?: string) =>
       Promise.resolve({ rows: category === 'activity' ? activityRows : rows, error: null })
     )
+  })
+
+  it('英文环境：tab 标签与加载失败态显示英文', async () => {
+    setTestLocale('en')
+    render(<NotificationSystemPage />)
+    expect(await screen.findByText('维护通知')).toBeTruthy()
+    expect(screen.getByText(/Unread \(\d+\)/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Read'))
+    expect(screen.getByText('已读通知')).toBeTruthy()
+
+    cleanup()
+    fetchMock.mockImplementation(() => Promise.resolve({ rows: [], error: 'loadFailed' as const }))
+    render(<NotificationSystemPage />)
+    expect(await screen.findByText('Failed to load, please retry')).toBeTruthy()
+    expect(screen.getByText('Retry')).toBeTruthy()
   })
 
   it('进入页面即把未读标为已读，未读 tab 按快照仍显示', async () => {

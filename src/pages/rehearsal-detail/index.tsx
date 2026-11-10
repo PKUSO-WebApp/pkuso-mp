@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
-import Taro, { useDidShow, useShareAppMessage } from '@tarojs/taro'
+import Taro, { useDidHide, useDidShow, useShareAppMessage } from '@tarojs/taro'
 import { useAttendance, type SignInResultRow } from '@/hooks/useAttendance'
 import { useLeaveRequests } from '@/hooks/useLeaveRequests'
 import { usePageRestore } from '@/hooks/usePageRestore'
@@ -14,11 +14,13 @@ import { buildReturnTo, redirectToLogin } from '@/lib/login-redirect'
 import { logDiag } from '@/lib/session-diag'
 import { FieldRow } from '@/components/ui/FieldRow'
 import { ListState } from '@/components/ui/ListState'
+import { PageLoading } from '@/components/ui/PageLoading'
 import type { RehearsalRow } from '@/types/database'
 import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { getSectionGroupLabel } from '@/constants/instruments'
 import { normalizeTargets } from '@/lib/rehearsal-utils'
+import { DATA_SYNC_INTERVAL_MS } from '@/lib/dataSync'
 import './index.scss'
 
 const mapSignInError = (
@@ -63,6 +65,7 @@ export default function RehearsalDetail() {
   })
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [restoring, setRestoring] = useState(false)
+  const [pageActive, setPageActive] = useState(true)
   const { t, locale } = useT()
   useNavTitle('activityDetail.navTitle')
 
@@ -110,10 +113,23 @@ export default function RehearsalDetail() {
   // 从子页面（如请假申请）返回时本页未被卸载，需主动重取，
   // 否则刚提交的请假申请不会即时反映（覆盖签到按钮不出现）。
   useDidShow(() => {
+    setPageActive(true)
     if (!user?.id) return
     if (id) void fetchMyAttendances(user.id, [id])
     void fetchMine()
   })
+  useDidHide(() => setPageActive(false))
+
+  // 页面可见时每 30s 静默重取本人考勤：web 管理员改考勤、或考勤修改申请审批通过后，
+  // 成员停在本页也能看到新状态。fetchMyAttendances 不会清空已有行，签到按钮不闪。
+  useEffect(() => {
+    if (!pageActive || !user?.id || !id) return
+    const timer = setInterval(() => {
+      void fetchMyAttendances(user.id, [id])
+      void fetchMine()
+    }, DATA_SYNC_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [pageActive, user?.id, id, fetchMyAttendances, fetchMine])
 
   // 分享：标题 = "排练通知-{类型/声部}"，路径 = 当前页面
   useShareAppMessage(() => {
@@ -237,13 +253,7 @@ export default function RehearsalDetail() {
     status === 'auth-pending' || status === 'auth-required' || status === 'loading' || restoring
 
   if (pagePending) {
-    return (
-      <View className={`${darkClass} flex h-full w-full flex-col overflow-hidden bg-page-bg`}>
-        <View className='flex flex-1 items-center justify-center'>
-          <Text className='text-xs text-text-muted'>{t('common.actions.loading')}</Text>
-        </View>
-      </View>
-    )
+    return <PageLoading darkClass={darkClass} size='xs' />
   }
 
   // 查询失败 / 会话恢复失败：与「不存在」严格分开，给重试入口。

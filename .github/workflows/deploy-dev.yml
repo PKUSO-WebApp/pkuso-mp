@@ -21,7 +21,17 @@ on:
   # 实测：2026-10-11 的 #64（72039c0）就这么丢了一次，dev 包停在上一版。
   # 用途就一个：出了这种情况不用再伪造一个提交，直接
   #   gh workflow run deploy-dev.yml --ref dev
+  #
+  # 也可以手动出「伪 prod」包：用生产库构建当前 ref，上传到 robot 3。用于还没发版、
+  # 但必须在生产数据上验收的修复（例如阅读器空白帧）；它不碰 robot 1/2，也不回写版本。
+  #   gh workflow run deploy-dev.yml --ref dev -f target=pseudo-prod
   workflow_dispatch:
+    inputs:
+      target:
+        description: '构建环境'
+        type: choice
+        options: [dev, pseudo-prod]
+        default: dev
 
 jobs:
   verify:
@@ -87,25 +97,43 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Write .env.development
+        if: ${{ github.event.inputs.target != 'pseudo-prod' }}
         run: |
           echo "TARO_APP_SUPABASE_URL=${{ secrets.DEV_SUPABASE_URL }}" > .env.development
           echo "TARO_APP_SUPABASE_ANON_KEY=${{ secrets.DEV_SUPABASE_ANON_KEY }}" >> .env.development
           # 境内反代入口（可选）：secret 没配就是空值 ⇒ 单入口，行为与从前一致
           echo "TARO_APP_SUPABASE_PROXY_URL=${{ secrets.DEV_SUPABASE_PROXY_URL }}" >> .env.development
 
+      # 伪 prod：与 deploy-prod.yml 同一个生产环境，只换上传槽位（robot 3），
+      # 不触发版本回写 / tag。闸门已经用开发库的 .env.production 验过一次构建，
+      # 这里再按生产环境出最终包。
+      - name: Write .env.production (pseudo-prod)
+        if: ${{ github.event.inputs.target == 'pseudo-prod' }}
+        run: |
+          echo "TARO_APP_SUPABASE_URL=${{ secrets.PROD_SUPABASE_URL }}" > .env.production
+          echo "TARO_APP_SUPABASE_ANON_KEY=${{ secrets.PROD_SUPABASE_ANON_KEY }}" >> .env.production
+          echo "TARO_APP_SUPABASE_PROXY_URL=${{ secrets.PROD_SUPABASE_PROXY_URL }}" >> .env.production
+
       - name: Set dev version
         run: DEV_VERSION_NUM=${{ github.run_number }} pnpm version:dev
 
       - name: Build for WeChat
-        run: NODE_ENV=development pnpm build:weapp
+        run: |
+          if [ "${{ github.event.inputs.target }}" = "pseudo-prod" ]; then
+            NODE_ENV=production pnpm build:weapp
+          else
+            NODE_ENV=development pnpm build:weapp
+          fi
 
       - name: Upload to WeChat Dev
         env:
           WX_APPID: ${{ secrets.WX_APPID }}
           WX_PRIVATE_KEY: ${{ secrets.WX_PRIVATE_KEY }}
-          # robot 1 固定给开发版；正式版用 robot 2（见 deploy-prod.yml）。
-          # 微信把每个 robot 当作开发版列表里的独立上传位置，不同 robot 互不覆盖。
-          WX_UPLOAD_ROBOT: 1
+          # robot 1 固定给开发版；robot 2 给正式版（见 deploy-prod.yml）；
+          # robot 3 给「伪 prod」验收包。微信把每个 robot 当作开发版列表里的独立
+          # 上传位置，不同 robot 互不覆盖。
+          WX_UPLOAD_ROBOT: ${{ github.event.inputs.target == 'pseudo-prod' && '3' || '1' }}
+          WX_UPLOAD_DESC: ${{ github.event.inputs.target == 'pseudo-prod' && '伪prod（生产库）· 只用于真机验收' || '' }}
         run: |
           mkdir -p key
           echo "$WX_PRIVATE_KEY" > key/private.key

@@ -14,6 +14,8 @@ export const profileInfo = {
   contactLabel: 'Contact',
   phonePlaceholder: '11-digit phone number',
   collegeLabel: 'College',
+  birthdayLabel: 'Birthday',
+  birthdayPlaceholder: 'Select birthday',
   collegePlaceholder: 'Your college',
   profileLoading: 'Profile is loading, please wait',
   phoneInvalid: 'Invalid phone number (11 digits, starting with 1)',

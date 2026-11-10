@@ -18,6 +18,11 @@ export async function moderateAndUploadPostImage(
     title: string
     content: string
     imageFile?: UploadFileLike | null
+    /**
+     * 同一份表单内稳定（见 storage-upload 的 newIdempotencyKey）。传了它，用户重试
+     * 或 proxy/direct 换腿都会复用同一路径；没传时退化为本次调用内稳定的 key。
+     */
+    uploadKey?: string
     currentSections?: string | null
     missingSections?: string | null
     contactInfo?: string | null
@@ -51,7 +56,10 @@ export async function moderateAndUploadPostImage(
   const { uploadLocalFile, guessContentType } = await import('@/lib/uploadLocalFile')
   const rawName = input.imageFile.name || input.imageFile.tempFilePath.split('/').pop() || 'image'
   const safeName = rawName.replace(/[^A-Za-z0-9._-]/g, '-') || 'image'
-  const path = `${input.uid}/${Date.now()}-${safeName}`
+  // 不传 key 的旧调用方（测试/兼容）用一次调用内稳定的 key；正常路径由页面草稿传入
+  const uploadKey =
+    input.uploadKey || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  const path = `${input.uid}/${uploadKey}-${safeName}`
   const up = await uploadLocalFile(
     client,
     'community-images',
@@ -59,14 +67,17 @@ export async function moderateAndUploadPostImage(
     input.imageFile.tempFilePath,
     guessContentType(safeName),
     false,
-    t
+    t,
+    { idempotent: true }
   )
   if (up.error)
     return {
       ok: false,
       error: t('community.postErrors.imageUploadFailed', { error: up.error.message }),
     }
-  const imageUrl = client.storage.from('community-images').getPublicUrl(path).data.publicUrl
+  const imageUrl = client.storage
+    .from('community-images')
+    .getPublicUrl((up.data as { path: string }).path).data.publicUrl
 
   const imgRes = await invokeFunction(client, 'wechat-content-check', {
     body: { kind: 'image', imageUrl },

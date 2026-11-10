@@ -12,7 +12,8 @@ import type { AttendanceRow } from '@/types/database'
 import { useThemeClass } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { useUser } from '@/context/user-context'
-import Taro from '@tarojs/taro'
+import Taro, { useDidHide, useDidShow } from '@tarojs/taro'
+import { DATA_SYNC_INTERVAL_MS } from '@/lib/dataSync'
 import './index.scss'
 
 const ATTENDANCE_SUMMARY_ITEMS: AttendanceSummaryKey[] = ['present', 'excused', 'absent', 'exempt']
@@ -47,24 +48,36 @@ export default function AttendancePage() {
   const [rows, setRows] = useState<AttendanceHistoryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [queryFailed, setQueryFailed] = useState(false)
+  const [pageActive, setPageActive] = useState(true)
   const seqRef = useRef(0)
+  const firstShowRef = useRef(true)
+  // useDidShow 的回调可能保留注册时的闭包：日期走 ref，读到的才是当前筛选区间
+  const dateRef = useRef({ start: '', end: '' })
+  dateRef.current = { start: startDate, end: endDate }
 
   const fetchHistory = useCallback(
-    async (start: string, end: string) => {
-      setLoading(true)
-      setQueryFailed(false)
+    async (start: string, end: string, opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true
+      if (!silent) {
+        setLoading(true)
+        setQueryFailed(false)
+      }
       const seq = ++seqRef.current
       const { rows: data, error } = await fetchMyHistory(userId, {
         startDate: start,
         endDate: end,
       })
       if (seq !== seqRef.current) return
-      setLoading(false)
+      if (!silent) setLoading(false)
       if (error) {
-        setQueryFailed(true)
-        setRows([])
+        // 静默刷新失败时保留当前列表：用户没有主动操作，不该突然清空
+        if (!silent) {
+          setQueryFailed(true)
+          setRows([])
+        }
         return
       }
+      setQueryFailed(false)
       setRows(data)
     },
     [fetchMyHistory, userId]
@@ -73,6 +86,28 @@ export default function AttendancePage() {
   useEffect(() => {
     void fetchHistory('', '')
   }, [fetchHistory])
+
+  // 从排练详情等子页面返回时重拉；首帧由上面的 effect 负责，这里只处理「再次显示」。
+  useDidShow(() => {
+    setPageActive(true)
+    if (firstShowRef.current) {
+      firstShowRef.current = false
+      return
+    }
+    void fetchHistory(dateRef.current.start, dateRef.current.end, { silent: true })
+  })
+  useDidHide(() => setPageActive(false))
+
+  // 页面可见时每 30s 静默刷新：web 管理员改考勤、或考勤修改申请被审批通过后，
+  // 成员停在本页也能看到新状态（不需要杀进程/重装）。与声部请假页同一个心跳间隔。
+  useEffect(() => {
+    if (!pageActive) return
+    const timer = setInterval(
+      () => void fetchHistory(startDate, endDate, { silent: true }),
+      DATA_SYNC_INTERVAL_MS
+    )
+    return () => clearInterval(timer)
+  }, [pageActive, fetchHistory, startDate, endDate])
 
   const handleStartChange = (v: string) => {
     setStartDate(v)

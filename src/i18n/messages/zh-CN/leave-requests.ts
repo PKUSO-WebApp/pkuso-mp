@@ -12,6 +12,7 @@ export const leaveRequests = {
   labelType: '排练类型：',
   labelReason: '请假理由：',
   labelReviewReason: '审批理由：',
+  attendanceNoticesTitle: '考勤通知',
   status: {
     pending: '待审批',
     approved: '已通过',
