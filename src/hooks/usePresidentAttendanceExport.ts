@@ -2,27 +2,30 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Taro from '@tarojs/taro'
 import { supabase } from '@/lib/supabase'
 import { useT } from '@/i18n'
+import { buildWorkbookFileName } from '@/lib/attendance-export'
 import {
-  buildAllAttendanceCsv,
-  buildAllExportFileName,
-  buildSingleAttendanceCsv,
-  buildSingleExportFileName,
-  groupExportRowsByRehearsal,
-  type AttendanceCsvLabels,
-} from '@/lib/attendance-export'
+  buildAttendanceSheets,
+  buildAttendanceXlsx,
+  type AttendanceXlsxLabels,
+} from '@/lib/attendance-xlsx'
 import { localDateKey } from '@/lib/attendance-calendar'
-import type { PresidentAttendanceExportRow, RehearsalRow } from '@/types/database'
+import type { PresidentAttendanceExportRow } from '@/types/database'
 
-export type AttendanceExportFile = { path: string; name: string }
-
-export type PreparedAttendanceExports = {
-  status: 'idle' | 'preparing' | 'ready' | 'error'
-  /** null = 这场没有考勤记录，按钮显示「暂无记录」 */
-  perRehearsal: Record<number, AttendanceExportFile | null>
-  all: AttendanceExportFile | null
+export type AttendanceExportFile = {
+  path: string
+  name: string
+  /** 这份文件对应的选中集合（排序后 join），分享前必须与当前选择一致 */
+  key: string
 }
 
-const IDLE: PreparedAttendanceExports = { status: 'idle', perRehearsal: {}, all: null }
+export type AttendanceExportState = {
+  status: 'idle' | 'preparing' | 'ready' | 'error'
+  file: AttendanceExportFile | null
+}
+
+export type ShareSelectedResult = 'shared' | 'preparing' | 'empty' | 'noRecords' | 'error'
+
+const IDLE: AttendanceExportState = { status: 'idle', file: null }
 
 /** `wx.env.USER_DATA_PATH`：Taro 的类型里没有它，按仓内既有做法从全局取 */
 function userDataRoot(): string | null {
@@ -37,24 +40,26 @@ function userDataRoot(): string | null {
 type FsLike = {
   writeFile(o: {
     filePath: string
-    data: string
-    encoding?: string
+    data: ArrayBuffer
     success?: () => void
     fail?: (e: { errMsg?: string }) => void
   }): void
 }
 
-function writeTextFile(path: string, data: string): Promise<void> {
+function writeBinaryFile(path: string, data: Uint8Array): Promise<void> {
   return new Promise((resolve, reject) => {
     const fs = Taro.getFileSystemManager?.() as unknown as FsLike | undefined
     if (!fs) {
       reject(new Error('FileSystemManager 不可用'))
       return
     }
+    const buffer = data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength
+    ) as ArrayBuffer
     fs.writeFile({
       filePath: path,
-      data,
-      encoding: 'utf8',
+      data: buffer,
       success: () => resolve(),
       fail: (e) => reject(new Error(e?.errMsg ?? 'writeFile failed')),
     })
@@ -66,55 +71,65 @@ type Params = {
   startDate: string
   endDate: string
   /** 已按日期筛选、按开始时间倒序的排练 */
-  rehearsals: RehearsalRow[]
-  /** 编辑考勤后 +1，重新生成表格 */
+  rehearsals: RehearsalLike[]
+  /** 当前选中的排练 id；空数组 = 没有可转发的文件 */
+  selectedIds: readonly number[]
+  /** 编辑考勤后 +1，重新拉取导出数据 */
   refreshKey: number
 }
 
+type RehearsalLike = {
+  id: number
+  start_time?: string | null
+  repertoire?: string | null
+  title?: string | null
+}
+
 /**
- * 团长排练考勤的导出准备。
+ * 团长排练考勤的导出准备（只导出**选中**的排练）。
  *
  * ⚠️ 微信的 `shareFileMessage` **必须在用户点击的同步调用栈里发起**（见
  * `lib/pdf-handoff.ts` 的说明与真机报错）。所以不能「点按钮 → await 取数据 → 生成 →
- * 转发」：那样手势上下文早没了。这里改成**提前把每个排练的 CSV 写到本地**，
- * 按钮点击只做一件事：拿已经就绪的 path 调 `shareFileMessage`（零 await）。
+ * 转发」：那样手势上下文早没了。
  *
- * 准备在以下时机重跑：进入 tab、改日期筛选、编辑考勤后（refreshKey）。
+ * 分两段：
+ * 1. `prepare` 只在进入 tab / 改日期 / 编辑后拉一次原始行，缓存在 ref；
+ * 2. 选中的排练变化时，**纯本地**生成 xlsx 并写一份稳定路径的文件。勾选一个排练到点击转发
+ *    之间通常已完成（毫秒级），点击只做同步的 `shareFileMessage`。
  */
 export function usePresidentAttendanceExport({
   enabled,
   startDate,
   endDate,
   rehearsals,
+  selectedIds,
   refreshKey,
 }: Params) {
   const { t } = useT()
-  const [prepared, setPrepared] = useState<PreparedAttendanceExports>(IDLE)
+  const [state, setState] = useState<AttendanceExportState>(IDLE)
+  const stateRef = useRef(state)
+  stateRef.current = state
+
+  const rowsRef = useRef<PresidentAttendanceExportRow[]>([])
+  const dataVersionRef = useRef(0)
+  const dataReadyRef = useRef(false)
+  const [dataVersion, setDataVersion] = useState(0)
+  const dataGenRef = useRef(0)
+  const writeGenRef = useRef(0)
+  const writeChainRef = useRef<Promise<void>>(Promise.resolve())
   const rehearsalsRef = useRef(rehearsals)
   rehearsalsRef.current = rehearsals
-  const genRef = useRef(0)
-  /** 串行化写文件：稳定路径 + 后一轮一定覆盖前一轮，旧轮次在队列里发现 gen 变了就跳过 */
-  const writeChainRef = useRef<Promise<void>>(Promise.resolve())
+  const selectedIdsRef = useRef(selectedIds)
+  selectedIdsRef.current = selectedIds
+  const selectedKey = selectedIds.join(',')
 
-  const queueWrite = useCallback((path: string, content: string, gen: number) => {
-    const run = writeChainRef.current
-      .catch(() => {})
-      .then(async () => {
-        if (gen !== genRef.current) return
-        await writeTextFile(path, content)
-      })
-    writeChainRef.current = run
-    return run
-  }, [])
-
-  const labels = useCallback((): AttendanceCsvLabels => {
+  const labels = useCallback((): AttendanceXlsxLabels => {
     return {
-      name: t('president.attendance.csv.name'),
-      email: t('president.attendance.csv.email'),
-      status: t('president.attendance.csv.status'),
-      inOrchestra: t('president.attendance.csv.inOrchestra'),
-      signInTime: t('president.attendance.csv.signInTime'),
-      rehearsal: t('president.attendance.csv.rehearsal'),
+      name: t('president.attendance.columns.name'),
+      email: t('president.attendance.columns.email'),
+      status: t('president.attendance.columns.status'),
+      inOrchestra: t('president.attendance.columns.inOrchestra'),
+      signInTime: t('president.attendance.columns.signInTime'),
       statusLabels: {
         present: t('memberAttendance.status.present'),
         late: t('memberAttendance.status.late'),
@@ -122,135 +137,176 @@ export function usePresidentAttendanceExport({
         excused: t('memberAttendance.status.excused'),
         exempt: t('memberAttendance.status.exempt'),
       },
-      inOrchestraValue: t('president.attendance.csv.inOrchestraValue'),
-      notInOrchestraValue: t('president.attendance.csv.notInOrchestraValue'),
-      unknown: t('president.attendance.csv.unknown'),
+      inOrchestraValue: t('president.attendance.columns.inOrchestraValue'),
+      notInOrchestraValue: t('president.attendance.columns.notInOrchestraValue'),
+      unknown: t('president.attendance.columns.unknown'),
     }
   }, [t])
 
+  const queueWrite = useCallback((path: string, content: Uint8Array, gen: number) => {
+    const run = writeChainRef.current
+      .catch(() => {})
+      .then(async () => {
+        if (gen !== writeGenRef.current) return
+        await writeBinaryFile(path, content)
+      })
+    writeChainRef.current = run
+    return run
+  }, [])
+
+  /** 拉取当前日期区间的原始考勤行（不生成文件） */
   const prepare = useCallback(async () => {
+    // 作废可能在途的选中文件写入，别让旧文件在新一轮准备中把状态改回 ready
+    writeGenRef.current += 1
     if (!enabled) {
-      genRef.current += 1
-      setPrepared(IDLE)
+      dataGenRef.current += 1
+      dataReadyRef.current = false
+      rowsRef.current = []
+      setState(IDLE)
       return
     }
-    const gen = ++genRef.current
-    setPrepared({ status: 'preparing', perRehearsal: {}, all: null })
+    const gen = ++dataGenRef.current
+    dataReadyRef.current = false
+    setState({ status: 'preparing', file: null })
 
     try {
-      const list = rehearsalsRef.current
-      if (list.length === 0) {
-        setPrepared({ status: 'ready', perRehearsal: {}, all: null })
+      // 列表还没加载 / 为空：不必发一次全量导出查询
+      if (rehearsalsRef.current.length === 0) {
+        rowsRef.current = []
+        dataReadyRef.current = true
+        dataVersionRef.current += 1
+        setDataVersion(dataVersionRef.current)
+        setState({ status: 'ready', file: null })
         return
       }
-
+      // 没有手选日期时，用当前列表的第一场 / 最后一场作为范围（而不是把「不限」当成
+      // 无界查询）。这样导出的就是「第一场排练到最后一场排练」的出勤。
+      const listDates = rehearsalsRef.current
+        .map((rehearsal) => localDateKey(rehearsal.start_time ?? null))
+        .filter((date): date is string => !!date)
+        .sort()
       const { data, error } = await supabase.rpc('president_attendance_export', {
-        p_start_date: startDate || undefined,
-        p_end_date: endDate || undefined,
+        p_start_date: startDate || listDates[0] || undefined,
+        p_end_date: endDate || listDates[listDates.length - 1] || undefined,
       })
-      if (gen !== genRef.current) return
+      if (gen !== dataGenRef.current) return
       if (error) throw new Error(error.message)
 
-      const rows = (data ?? []) as PresidentAttendanceExportRow[]
-      const root = userDataRoot()
-      if (!root) throw new Error('USER_DATA_PATH 不可用')
-
-      const byRehearsal = groupExportRowsByRehearsal(rows)
-      const csvLabels = labels()
-      const perRehearsal: Record<number, AttendanceExportFile | null> = {}
-
-      for (const rehearsal of list) {
-        const rowsForRehearsal = byRehearsal.get(rehearsal.id) ?? []
-        if (rowsForRehearsal.length === 0) {
-          perRehearsal[rehearsal.id] = null
-          continue
-        }
-        // 稳定路径：后台每 30 秒刷新时覆盖同一个文件，不在用户目录里堆历史版本
-        const path = `${root}/pkuso-attendance-r${rehearsal.id}.csv`
-        await queueWrite(path, buildSingleAttendanceCsv(rowsForRehearsal, csvLabels), gen)
-        if (gen !== genRef.current) return
-        perRehearsal[rehearsal.id] = {
-          path,
-          name: buildSingleExportFileName({
-            prefix: t('president.attendance.filePrefix'),
-            title:
-              rehearsal.repertoire || rehearsal.title || t('president.attendance.unnamedRehearsal'),
-            date: localDateKey(rehearsal.start_time),
-          }),
-        }
+      rowsRef.current = (data ?? []) as PresidentAttendanceExportRow[]
+      dataReadyRef.current = true
+      dataVersionRef.current += 1
+      setDataVersion(dataVersionRef.current)
+      // 有选中项时由下面的选择 effect 生成文件并置 ready；没有选中项直接 ready（file=null）
+      if (selectedIdsRef.current.length === 0) {
+        setState({ status: 'ready', file: null })
       }
-
-      const ids = new Set(list.map((rehearsal) => rehearsal.id))
-      const allRows = rows.filter((row) => ids.has(row.rehearsal_id))
-      let all: AttendanceExportFile | null = null
-      if (allRows.length > 0) {
-        const path = `${root}/pkuso-attendance-all.csv`
-        await queueWrite(path, buildAllAttendanceCsv(allRows, csvLabels), gen)
-        if (gen !== genRef.current) return
-        all = {
-          path,
-          name: buildAllExportFileName({
-            prefix: t('president.attendance.filePrefix'),
-            startDate,
-            endDate,
-            allLabel: t('president.attendance.unlimited'),
-          }),
-        }
-      }
-
-      if (gen !== genRef.current) return
-      setPrepared({ status: 'ready', perRehearsal, all })
     } catch (err) {
-      if (gen !== genRef.current) return
+      if (gen !== dataGenRef.current) return
       console.error('[PresidentAttendanceExport] 准备考勤表失败', err)
-      setPrepared({ status: 'error', perRehearsal: {}, all: null })
+      dataReadyRef.current = false
+      setState({ status: 'error', file: null })
     }
-  }, [enabled, endDate, labels, queueWrite, startDate, t])
+  }, [enabled, endDate, startDate])
 
-  // 不只比对 id：拉回新数据后曲目 / 时间可能变了，文件名与表格内容都得重做
-  const listKey = rehearsals
-    .map(
-      (rehearsal) =>
-        `${rehearsal.id}:${rehearsal.start_time ?? ''}:${rehearsal.repertoire ?? ''}:${rehearsal.title ?? ''}`
+  // 选中集合变化 / 原始数据刷新 → 本地生成 xlsx 并写文件（不联网）
+  useEffect(() => {
+    if (!enabled || !dataReadyRef.current) return
+    const ids = selectedIdsRef.current
+    if (ids.length === 0) {
+      writeGenRef.current += 1
+      setState({ status: 'ready', file: null })
+      return
+    }
+
+    const idSet = new Set(ids)
+    const rows = rowsRef.current.filter((row) => idSet.has(row.rehearsal_id))
+    const key = [...ids].sort((a, b) => a - b).join(',')
+    if (rows.length === 0) {
+      writeGenRef.current += 1
+      setState({ status: 'ready', file: null })
+      return
+    }
+
+    const gen = ++writeGenRef.current
+    setState({ status: 'preparing', file: null })
+    const root = userDataRoot()
+    if (!root) {
+      setState({ status: 'error', file: null })
+      return
+    }
+    const selectedRehearsals = rehearsalsRef.current
+      .filter((rehearsal) => idSet.has(rehearsal.id))
+      .map((rehearsal) => ({
+        id: rehearsal.id,
+        start_time: rehearsal.start_time ?? null,
+        repertoire: rehearsal.repertoire ?? null,
+        title: rehearsal.title ?? null,
+      }))
+    const sheets = buildAttendanceSheets(
+      rows,
+      selectedRehearsals,
+      t('president.attendance.unnamedRehearsal')
     )
-    .join('|')
+    const content = buildAttendanceXlsx(sheets, labels())
+    // 文件名用**选中排练**的第一场 / 最后一场日期，而不是筛选框里的「不限」
+    const selectedDates = selectedRehearsals
+      .map((rehearsal) => localDateKey(rehearsal.start_time ?? null))
+      .filter((date): date is string => !!date)
+      .sort()
+    const name = buildWorkbookFileName({
+      prefix: t('president.attendance.filePrefix'),
+      startDate: selectedDates[0] || startDate,
+      endDate: selectedDates[selectedDates.length - 1] || endDate,
+      allLabel: t('president.attendance.unlimited'),
+    })
+    // 稳定路径：反复勾选覆盖同一份文件，不在用户目录里堆历史版本
+    const path = `${root}/pkuso-attendance-selected.xlsx`
+    void queueWrite(path, content, gen)
+      .then(() => {
+        if (gen !== writeGenRef.current) return
+        setState({ status: 'ready', file: { path, name, key } })
+      })
+      .catch((err) => {
+        if (gen !== writeGenRef.current) return
+        console.error('[PresidentAttendanceExport] 写考勤 xlsx 失败', err)
+        setState({ status: 'error', file: null })
+      })
+  }, [enabled, dataVersion, selectedKey, labels, queueWrite, startDate, endDate, t])
 
+  // 进入 tab / 改筛选 / 编辑考勤后重新拉原始行
+  const filterKey = `${startDate}|${endDate}|${refreshKey}|${rehearsals
+    .map((rehearsal) => `${rehearsal.id}:${rehearsal.start_time ?? ''}`)
+    .join(',')}`
   useEffect(() => {
     void prepare()
     return () => {
-      // 依赖变化 / 卸载：作废还在路上的准备，别让旧结果覆盖新一轮
-      genRef.current += 1
+      dataGenRef.current += 1
     }
-  }, [prepare, listKey, refreshKey])
+  }, [prepare, filterKey])
 
-  /**
-   * 把已备好的文件转发到微信。**同步调用 API**，调用方不得在点击回调里先 await。
-   * 这是 `shareFileMessage` 的硬约束（用户点击的同步栈），不是风格问题。
-   */
-  const shareFile = useCallback(
-    (file: AttendanceExportFile | null | undefined) => {
-      if (!file) return
-      if (typeof Taro.shareFileMessage !== 'function') {
-        void Taro.showToast({
-          title: t('president.attendance.shareUnsupported'),
-          icon: 'none',
-        })
-        return
-      }
-      try {
-        Promise.resolve(Taro.shareFileMessage({ filePath: file.path, fileName: file.name })).catch(
-          (err: unknown) => {
-            const msg = String((err as { errMsg?: string })?.errMsg ?? err)
-            if (/cancel/i.test(msg)) return
-            void Taro.showToast({ title: t('president.attendance.shareFailed'), icon: 'none' })
-          }
-        )
-      } catch {
+  const shareSelected = useCallback((): ShareSelectedResult => {
+    if (!enabled) return 'empty'
+    if (selectedIdsRef.current.length === 0) return 'empty'
+    const current = stateRef.current
+    if (current.status === 'error') return 'error'
+    if (current.status !== 'ready') return 'preparing'
+    if (!current.file) return 'noRecords'
+    const currentKey = [...selectedIdsRef.current].sort((a, b) => a - b).join(',')
+    if (current.file.key !== currentKey) return 'preparing'
+    if (typeof Taro.shareFileMessage !== 'function') return 'error'
+    try {
+      Promise.resolve(
+        Taro.shareFileMessage({ filePath: current.file.path, fileName: current.file.name })
+      ).catch((err: unknown) => {
+        const msg = String((err as { errMsg?: string })?.errMsg ?? err)
+        if (/cancel/i.test(msg)) return
         void Taro.showToast({ title: t('president.attendance.shareFailed'), icon: 'none' })
-      }
-    },
-    [t]
-  )
+      })
+      return 'shared'
+    } catch {
+      return 'error'
+    }
+  }, [enabled, t])
 
-  return { prepared, prepare, shareFile }
+  return { state, prepare, shareSelected }
 }
