@@ -210,7 +210,7 @@ export default function Members() {
                             })
                           }}
                         >
-                          <View className='mr-3 h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted'>
+                          <View className='mr-3 h-10 w-10 shrink-0 overflow-hidden rounded-full'>
                             {u.avatar_url ? (
                               <StorageImage
                                 src={u.avatar_url}
@@ -260,7 +260,6 @@ export default function Members() {
                               </Text>
                             )}
                           </View>
-                          <Text className='ml-2 text-xs text-text-muted'>›</Text>
                         </View>
                       )
                     })}

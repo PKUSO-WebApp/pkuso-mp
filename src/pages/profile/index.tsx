@@ -437,7 +437,7 @@ export default function Profile() {
             </View>
           ) : (
             <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
-              <View className='flex w-[var(--size-avatar)] h-[var(--size-avatar)] shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted'>
+              <View className='flex w-[var(--size-avatar)] h-[var(--size-avatar)] shrink-0 items-center justify-center overflow-hidden rounded-full'>
                 {avatarUrl ? (
                   <StorageImage src={avatarUrl} className='h-full w-full' mode='aspectFill' />
                 ) : (

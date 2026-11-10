@@ -38,7 +38,7 @@ export function ProfileInfoView({
   return (
     <View className={className}>
       <View className='flex flex-col items-center py-6'>
-        <View className='h-20 w-20 overflow-hidden rounded-full bg-muted'>
+        <View className='h-20 w-20 overflow-hidden rounded-full'>
           {profile.avatar_url ? (
             <StorageImage src={profile.avatar_url} className='h-full w-full' mode='aspectFill' />
           ) : (

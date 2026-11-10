@@ -361,7 +361,7 @@ export default function ProfileInfoPage() {
               <Button
                 openType='chooseAvatar'
                 onChooseAvatar={handleWechatAvatar}
-                className='h-20 w-20 rounded-full overflow-hidden bg-muted p-0 m-0 leading-normal min-h-0'
+                className='h-20 w-20 rounded-full overflow-hidden bg-transparent border-none p-0 m-0 leading-normal min-h-0'
               >
                 {avatarUrl ? (
                   <StorageImage
@@ -388,7 +388,7 @@ export default function ProfileInfoPage() {
               </Button>
             </>
           ) : (
-            <View className='h-20 w-20 rounded-full overflow-hidden bg-muted'>
+            <View className='h-20 w-20 rounded-full overflow-hidden'>
               {avatarUrl ? (
                 <Image src={avatarUrl} className='h-full w-full rounded-full' mode='aspectFill' />
               ) : (
