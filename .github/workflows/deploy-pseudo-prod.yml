@@ -1,0 +1,57 @@
+name: Deploy Pseudo-Prod to WeChat
+
+# 手动触发：用**生产库**构建当前 ref 的代码，上传到开发版列表的 robot 3。
+#
+# 用途：真机验收「还没发版、但必须在生产数据上复现」的修复（例如阅读器空白帧）。
+# 它不碰 robot 1（dev）和 robot 2（prod），也不回写版本号、不推 tag —— 只是一份
+# 连生产库的临时验收包。
+on:
+  workflow_dispatch:
+
+jobs:
+  pseudo-prod:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 与 deploy-prod.yml 同一个生产环境；闸门最后的 build:weapp 会读这份文件，
+      # 所以 `pnpm gate:ci` 产出的就是伪 prod 包，不需要再构建一次。
+      - name: Write .env.production
+        run: |
+          echo "TARO_APP_SUPABASE_URL=${{ secrets.PROD_SUPABASE_URL }}" > .env.production
+          echo "TARO_APP_SUPABASE_ANON_KEY=${{ secrets.PROD_SUPABASE_ANON_KEY }}" >> .env.production
+          echo "TARO_APP_SUPABASE_PROXY_URL=${{ secrets.PROD_SUPABASE_PROXY_URL }}" >> .env.production
+
+      # 版本号只在本 job 内有效（不回写仓库）；加 dev 后缀，避免和正式版号混淆。
+      - name: Set pseudo-prod version
+        run: DEV_VERSION_NUM=${{ github.run_number }} pnpm version:dev
+
+      - name: 闸门（定义在 scripts/gate.mjs）
+        run: pnpm gate:ci
+
+      - name: Upload to WeChat (robot 3)
+        env:
+          WX_APPID: ${{ secrets.WX_APPID }}
+          WX_PRIVATE_KEY: ${{ secrets.WX_PRIVATE_KEY }}
+          # robot 1 = dev、robot 2 = prod；robot 3 专给「生产库验收包」，互不覆盖。
+          WX_UPLOAD_ROBOT: 3
+          WX_UPLOAD_DESC: 伪prod（生产库）· 只用于真机验收
+        run: |
+          mkdir -p key
+          echo "$WX_PRIVATE_KEY" > key/private.key
+          node scripts/upload.js
