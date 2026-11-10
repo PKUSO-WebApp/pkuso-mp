@@ -1,6 +1,7 @@
 export const scoreReader = {
   navTitle: '阅读器',
   loadFailed: '加载失败：{error}',
+  compareBack: '返回',
   notFound: '文件不存在或已被删除',
   pageOf: '{page} / {total} 页',
   pageJump: '跳页',
@@ -13,6 +14,8 @@ export const scoreReader = {
   // 首帧落地之前**只有这一个**状态词（原来的下载中/解析中/渲染中三档已合并）：
   // 用户反馈「加载中转完还显示渲染中」像是卡住了，而这三档对用户没有可操作的信息
   loading: '加载中…',
+  /** 页图画上了画布却一整张纯白（有墨校验判定空白帧、补画仍失败时） */
+  blankFrame: '这一页没有画出来，请重试',
   ready: '就绪',
   idle: '未加载',
   annotation: '批注',
@@ -77,6 +80,15 @@ export const scoreReader = {
     batchEmpty: '这一批里没有带笔迹的页',
     pageRow: '第 {page} 页 · {n} 笔',
   },
+  sharedHistory: {
+    entry: '恢复共享历史',
+    title: '恢复共享历史',
+    empty: '暂无共享历史',
+    hint: '选择要恢复的历史版本；当前版本会留在共享历史里。',
+    current: '当前版本',
+    historyVersion: '历史版本',
+    useCurrent: '恢复这一版',
+  },
   conflict: {
     title: '有 {count} 页批注冲突',
     // ⚠️ 别写「随时能切回」：两份都进了服务端历史（覆盖时归档）。
@@ -100,5 +112,53 @@ export const scoreReader = {
     raced: '云端刚又变了，请重新看一眼再选。',
     failed: '没成功，请检查网络后重试。',
     loadFailed: '读不到这一页的内容',
+  },
+  merge: {
+    navTitle: '合并批注',
+    title: '合并批注',
+    entry: '合并批注…',
+    directionToPersonal: '共享 → 我的',
+    directionToShared: '我的 → 共享',
+    hintToPersonal: '把共享谱的笔迹合并到我的批注。选择每一页保留哪一版。',
+    hintToShared: '把我的批注合并到共享谱（写入共享表，被覆盖的版本留在云端历史里）。',
+    mine: '我的',
+    shared: '共享',
+    merge: '合并',
+    useCurrent: '应用这一版',
+    pageButton: '第 {page} 页',
+    count: '本册有 {n} 页需要选择',
+    loading: '正在准备合并…',
+    empty: '没有需要合并的页',
+    raced: '共享谱或我的批注刚又变了，请重新看一眼再选。',
+    failed: '没成功，请检查网络后重试。',
+    loadFailed: '读不到这一页的内容',
+    noUser: '请先登录再合并批注。',
+    notAllowed: '你没有编辑这份共享谱的权限。',
+    syncFailed: '个人批注同步失败，请稍后重试。',
+    personalConflicts: '先解决个人批注冲突，再合并共享谱。',
+    resolvePersonalConflicts: '去解决个人批注冲突',
+    loadFailedList: '读不到需要合并的页，请重试。',
+  },
+  // 0.6.1：从原谱「共享批注」创建/更新自己的共享副本
+  share: {
+    entry: '共享批注…',
+    hardPushTitle: '更新共享批注',
+    hardPushHint: '将用你在原谱上的批注覆盖共享副本（包括直接在副本上做的修改）。继续？',
+    hardPushConfirm: '覆盖',
+    created: '已创建共享副本',
+    updated: '已更新共享副本',
+    noAnnotations: '这份谱还没有批注',
+    notShareable: '总谱不参与共享',
+    notAllowed: '你没有共享批注的权限',
+    failed: '共享批注失败，请稍后重试',
+  },
+  // 0.6.1：其他人打开共享副本时，拉共享层与个人层合并
+  sharePull: {
+    failed: '拉取共享批注失败，可稍后重试',
+    conflictHint: '共享批注与你的批注都有更新；选择每一页保留哪一版（只影响你的个人批注）。',
+    local: '我的批注',
+    remote: '共享批注',
+    merge: '合并',
+    useCurrent: '使用这一版',
   },
 }

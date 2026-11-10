@@ -22,6 +22,13 @@ import { isRetryableAuthError } from '@/lib/auth-errors'
 import { logDiag, setSessionStatusProvider, startSessionDiag } from '@/lib/session-diag'
 import { __resetRehearsalsCache } from '@/hooks/useRehearsals'
 import { setLoggedIn } from '@/lib/authStore'
+import {
+  clearAnnotationStorageFor,
+  migrateAnnotationStorage,
+  readLastAnnoOwner,
+  writeLastAnnoOwner,
+} from '@/lib/annotation-migration'
+import { isAnnoPending } from '@/lib/annotation-sync'
 
 // 会话恢复超时阈值：弱网/挂起时不再无限等待（SDK 默认等待较长），超时降级为「未登录 + 恢复失败」
 const RESTORE_TIMEOUT_MS = 10000
@@ -172,6 +179,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const applySession = useCallback(
     (next: Session | null) => {
       if (next) {
+        // D16：批注按账号隔离。**先迁移再 setSession** —— 页面拿到 user 就会去读批注，
+        // 迁移必须在那之前完成。换账号时，上一个账号若已无欠账就清掉它的本地目录；
+        // 有欠账则保留（清了就丢，键已按账号隔离，不会泄漏给当前账号）。
+        const uid = next.user.id
+        const prev = readLastAnnoOwner()
+        if (prev && prev !== uid && !isAnnoPending(prev)) clearAnnotationStorageFor(prev)
+        migrateAnnotationStorage(uid)
+        writeLastAnnoOwner(uid)
         // 新会话建立：清掉上一次「被拒绝」的卡死标记。否则 forcedOfflineRef 永不复位，
         // 心跳会一直报 forcedOffline=true、checkNow 早退不再校验，登录后也恢复不了。
         forcedOfflineRef.current = false

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { Button, Text, View } from '@tarojs/components'
+import { Spinner } from '@/components/ui/Spinner'
 import Taro from '@tarojs/taro'
 import { useThemeClass } from '@/context/theme-context'
 import { useUser } from '@/context/user-context'
@@ -61,7 +62,7 @@ export function ApprovalGuard({ expected }: ApprovalGuardProps) {
   if (!ready || !user) {
     return (
       <View className={`${darkClass} flex h-full items-center justify-center bg-page-bg`}>
-        <Text className='text-sm text-text-muted'>{t('common.approval.loading')}</Text>
+        <Spinner />
       </View>
     )
   }

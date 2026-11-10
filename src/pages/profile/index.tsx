@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { View, Text, ScrollView, Image, Input } from '@tarojs/components'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { View, Text, ScrollView, Input } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
+import { StorageImage } from '@/components/ui/StorageImage'
+import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -68,6 +70,16 @@ export default function Profile() {
 
   const [isLangOpen, setIsLangOpen] = useState(false)
 
+  // 通知栏目的未读徽章（>0 时显示，>99 折叠）；三个信箱与声部请假共用
+  const unreadBadge = (count: number) =>
+    count > 0 ? (
+      <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5'>
+        <Text className='text-xs font-medium leading-none text-danger-foreground'>
+          {count > 99 ? '99+' : count}
+        </Text>
+      </View>
+    ) : null
+
   // 资料：头像卡 / 邮箱展示 / 换绑邮箱同步
   const {
     data: profileData,
@@ -84,14 +96,6 @@ export default function Profile() {
   // （wechat_<openid>@placeholder.local），资料补全写入的真实邮箱在 profiles.email；
   // 邮箱注册用户两者一致（换绑邮箱确认后由同步 effect 对齐），无感知差异
   const email = myProfile?.email ?? user?.email ?? '—'
-  // 中文名：仅取首字；非中文：取前 2 字，兜底 1 字
-  const isChineseName = fullName !== '—' && /[\u4e00-\u9fff]/.test(fullName)
-  const initials =
-    fullName !== '—'
-      ? isChineseName
-        ? fullName.slice(0, 1)
-        : fullName.slice(0, 2) || fullName.slice(0, 1) || '--'
-      : '--'
   const avatarUrl = myProfile?.avatar_url ?? null
 
   // 显示用邮箱：若为合成占位邮箱，显示「未填写」
@@ -137,12 +141,27 @@ export default function Profile() {
     void refreshNotifications()
   }, [refreshNotifications])
 
+  // 「声部请假」入口：只有声部长/首席（及团长）可见。
+  // 判据走后端 my_managed_sections（含声部组展开与 capability），不在本地拼角色规则。
+  const [managedSections, setManagedSections] = useState<string[]>([])
+  const loadManagedSections = useCallback(async () => {
+    const { data, error } = await supabase.rpc('my_managed_sections')
+    if (error) return
+    setManagedSections((data as string[] | null) ?? [])
+  }, [])
+
+  // 入口显隐优先用**已缓存**的 profile flags：切回「我的」时入口随头像卡一起出现，
+  // 不必等 my_managed_sections 的 RPC 回来（否则会晚一拍）。capability（团长）仍走 RPC。
+  const hasManagedScope =
+    !!myProfile?.is_section_leader || !!myProfile?.is_principal || managedSections.length > 0
+
   // A：每次切回「我的」tab 重新拉未读数，并重置全局轮询计时器
   // 资料静默刷新：已有数据时不翻 loading，避免卡片闪烁
   useDidShow(() => {
     void refreshNotifications()
     dataSyncBump()
     void refetchProfiles({ silent: true })
+    void loadManagedSections()
   })
 
   // 下拉刷新：重取资料与未读数
@@ -418,11 +437,11 @@ export default function Profile() {
             </View>
           ) : (
             <View className='flex items-center gap-3 rounded-2xl border border-border bg-card p-4'>
-              <View className='flex w-[var(--size-avatar)] h-[var(--size-avatar)] shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary'>
+              <View className='flex w-[var(--size-avatar)] h-[var(--size-avatar)] shrink-0 items-center justify-center overflow-hidden rounded-full'>
                 {avatarUrl ? (
-                  <Image src={avatarUrl} className='h-full w-full' mode='aspectFill' />
+                  <StorageImage src={avatarUrl} className='h-full w-full' mode='aspectFill' />
                 ) : (
-                  <Text className='text-base font-medium text-primary-foreground'>{initials}</Text>
+                  <DefaultAvatar />
                 )}
               </View>
               <View className='min-w-0 flex-1'>
@@ -437,7 +456,7 @@ export default function Profile() {
             </View>
           )}
 
-          {/* 通知栏目：三个信箱按钮，右侧未读数字徽章（>0 时显示） */}
+          {/* 通知栏目：各信箱入口，右侧未读数字徽章（>0 时显示）；声部请假仅声部长/首席可见 */}
           <View className='mt-6'>
             <Text className='text-xs font-medium text-text-muted'>
               {t('profile.sections.notifications')}
@@ -448,7 +467,9 @@ export default function Profile() {
                 return (
                   <View
                     key={category}
-                    className={`px-4 py-3 ${category !== 'system' ? 'border-b border-border' : ''}`}
+                    className={`px-4 py-3 ${
+                      category !== 'system' || hasManagedScope ? 'border-b border-border' : ''
+                    }`}
                     onClick={() => {
                       // 「考勤与请假」改用全屏请假详情页（结构化卡片 + 状态筛选），
                       // 活动 / 系统通知改用独立信箱页，均不再弹通用通知 Modal
@@ -461,17 +482,25 @@ export default function Profile() {
                   >
                     <View className='flex items-center'>
                       <Text className='text-sm font-medium text-text'>{label}</Text>
-                      {count > 0 && (
-                        <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5'>
-                          <Text className='text-xs font-medium leading-none text-danger-foreground'>
-                            {count > 99 ? '99+' : count}
-                          </Text>
-                        </View>
-                      )}
+                      {unreadBadge(count)}
                     </View>
                   </View>
                 )
               })}
+              {/* 声部请假：声部长/首席查看本声部成员的请假记录（可按排练筛选、含取消） */}
+              {hasManagedScope && (
+                <View
+                  className='px-4 py-3'
+                  onClick={() => void Taro.navigateTo({ url: '/pages/section-leave/index' })}
+                >
+                  <View className='flex items-center'>
+                    <Text className='text-sm font-medium text-text'>
+                      {t('profile.notifications.sectionLeave')}
+                    </Text>
+                    {unreadBadge(unreadCounts.section_leave)}
+                  </View>
+                </View>
+              )}
             </View>
           </View>
 

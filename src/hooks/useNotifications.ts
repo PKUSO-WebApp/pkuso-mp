@@ -4,8 +4,13 @@ import { dataSyncBump, emitSync, subscribeSync } from '@/lib/dataSync'
 import { APP_ERROR, type AppErrorCode } from '@/lib/appError'
 import type { NotificationCategory, NotificationRow } from '@/types/database'
 
-/** 三个信箱分类（profile 页按钮共用） */
-export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['attendance', 'activity', 'system']
+/** 信箱分类（profile 页按钮共用）；section_leave 是声部长/首席的声部请假信箱 */
+export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
+  'attendance',
+  'activity',
+  'system',
+  'section_leave',
+]
 
 /** 各分类未读数（读取时全 0，与 RLS 下无通知等价） */
 export type UnreadCounts = Record<NotificationCategory, number>
@@ -29,6 +34,7 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
     attendance: 0,
     activity: 0,
     system: 0,
+    section_leave: 0,
   })
   const [loading, setLoading] = useState(true)
   // 未读数查询失败面（P2-6/P2-7）：失败产出稳定错误码，不再静默或透传 DB 原文
@@ -58,7 +64,7 @@ export function useNotifications(client: typeof defaultClient = defaultClient) {
         return
       }
       if (mountedRef.current) setError(null)
-      const counts: UnreadCounts = { attendance: 0, activity: 0, system: 0 }
+      const counts: UnreadCounts = { attendance: 0, activity: 0, system: 0, section_leave: 0 }
       for (const row of rows) {
         if (row.category in counts) counts[row.category] += 1
       }

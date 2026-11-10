@@ -19,7 +19,22 @@ export type AnnoStroke = {
 /** 一个文件的全部批注：page(字符串页码) → 笔迹数组 */
 export type AnnoDoc = Record<string, AnnoStroke[]>
 
-export const annoStorageKey = (fileId: string) => `score-annotation:${fileId}`
+/**
+ * 批注按**账号**分目录（D16）：同一台设备换账号后，上一账号的笔迹既读不到也写不进。
+ *
+ * `owner` 是 auth user id；未登录时用 `guest`（分享链接直接进阅读器仍可画）。
+ * 升级前的老键（`score-annotation:<fileId>`，没有 owner）只由
+ * `annotation-migration` 读取一次并迁到当前账号名下，然后删除。
+ */
+export const GUEST_ANNO_OWNER = 'guest'
+
+export const annoStoragePrefix = (owner: string) => `score-annotation-v2:${owner}:`
+
+export const annoStorageKey = (owner: string, fileId: string) =>
+  `${annoStoragePrefix(owner)}${fileId}`
+
+/** D16 之前的键：仅迁移用，不要再写入 */
+export const legacyAnnoStorageKey = (fileId: string) => `score-annotation:${fileId}`
 
 /** 坐标保留 4 位小数（0.0001≈0.04px@390px 宽页，亚像素精度） */
 const round4 = (n: number): number => Math.round(n * 10000) / 10000
@@ -117,9 +132,9 @@ export function widthsFor(tool: AnnoTool): readonly number[] {
   return tool === 'highlighter' ? HIGHLIGHTER_WIDTHS : PEN_WIDTHS
 }
 
-export function loadAnnoDoc(fileId: string): AnnoDoc {
+export function loadAnnoDoc(owner: string, fileId: string): AnnoDoc {
   try {
-    const raw = Taro.getStorageSync(annoStorageKey(fileId))
+    const raw = Taro.getStorageSync(annoStorageKey(owner, fileId))
     if (!raw) return {}
     const parsed = JSON.parse(raw) as AnnoDoc
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
@@ -137,9 +152,9 @@ export function loadAnnoDoc(fileId: string): AnnoDoc {
  * 上报交给调用方（阅读器）：这里不 import 上报模块——那会把这个纯存储模块拽上
  * `error-report → supabase`（缺 env 时**导入即抛**，测试直接加载不了）。
  */
-export function saveAnnoDoc(fileId: string, doc: AnnoDoc): boolean {
+export function saveAnnoDoc(owner: string, fileId: string, doc: AnnoDoc): boolean {
   try {
-    Taro.setStorageSync(annoStorageKey(fileId), JSON.stringify(compactDoc(doc)))
+    Taro.setStorageSync(annoStorageKey(owner, fileId), JSON.stringify(compactDoc(doc)))
     return true
   } catch {
     // 存储满/失败不阻断绘制，仅放弃持久化——由调用方决定怎么让人看见

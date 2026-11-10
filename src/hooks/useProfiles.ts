@@ -58,6 +58,8 @@ export type ProfileUpdatePayload = Partial<
     | 'hide_join_date'
     | 'hide_college'
     | 'is_section_leader'
+    | 'birthday'
+    | 'hide_birthday'
   >
 >
 

@@ -19,6 +19,7 @@ import {
 } from './annotation-sync'
 import {
   __resetAnnotationSyncState,
+  flushAllAnnotationsForOwner,
   flushAnnotationSync,
   loadConflictPage,
   loadConflictPages,
@@ -230,7 +231,7 @@ const seedRemote = (page: number, strokes: AnnoStroke[], version = `r${page}`, f
   return version
 }
 const setted = (fileId: string, doc: AnnoDoc) => {
-  saveAnnoDoc(fileId, doc)
+  saveAnnoDoc('u1', fileId, doc)
 }
 /** 基线 = 「上次同步成功时这一页长这样」（带服务端版本） */
 const seedBase = (fileId: string, entries: Record<string, BaseEntry>) => {
@@ -311,7 +312,7 @@ describe('syncAnnotationFile：先拉后推（CAS）', () => {
     const result = await syncAnnotationFile('f1')
 
     expect(result).toEqual({ status: 'ok', pushed: 0, adopted: 1, conflicts: 0 })
-    expect(loadAnnoDoc('f1')['1']).toEqual(theirs)
+    expect(loadAnnoDoc('u1', 'f1')['1']).toEqual(theirs)
     expect(seen).toHaveLength(1)
     expect(seen[0]['1']).toEqual(theirs)
     expect(state.pushCalls).toEqual([])
@@ -336,7 +337,7 @@ describe('syncAnnotationFile：先拉后推（CAS）', () => {
     expect(result.conflicts).toBe(1)
     expect(result.pushed).toBe(0)
     expect(state.pushCalls).toEqual([]) // 冲突页一个字节都不写
-    expect(loadAnnoDoc('f1')['1']).toEqual(mine) // 本地原样
+    expect(loadAnnoDoc('u1', 'f1')['1']).toEqual(mine) // 本地原样
     expect(state.rows[0].strokes).toEqual(theirs) // 远端原样
     expect(loadConflicts('f1', 'u1')).toEqual([1])
     expect(noticed).toEqual([[1]])
@@ -369,7 +370,7 @@ describe('syncAnnotationFile：先拉后推（CAS）', () => {
     const result = await syncAnnotationFile('f1')
 
     expect(result).toEqual({ status: 'ok', pushed: 0, adopted: 1, conflicts: 0 })
-    expect(loadAnnoDoc('f1')['1']).toEqual(packed(theirs))
+    expect(loadAnnoDoc('u1', 'f1')['1']).toEqual(packed(theirs))
     expect(loadConflicts('f1', 'u1')).toEqual([])
     expect(state.pushCalls).toEqual([])
   })
@@ -433,7 +434,7 @@ describe('syncAnnotationFile：先拉后推（CAS）', () => {
 
     expect(result).toEqual({ status: 'ok', pushed: 0, adopted: 1, conflicts: 0 })
     expect(loadConflicts('f1', 'u1')).toEqual([])
-    expect(loadAnnoDoc('f1')['1']).toEqual(packed([...mine, stroke(0.9)]))
+    expect(loadAnnoDoc('u1', 'f1')['1']).toEqual(packed([...mine, stroke(0.9)]))
     expect(loadSyncBase('f1', 'u1')['1']).toEqual({
       fp: pageFingerprint([...mine, stroke(0.9)]),
       version: 'v2',
@@ -449,15 +450,15 @@ describe('syncAnnotationFile：先拉后推（CAS）', () => {
     // 拉取还没返回时用户在第 2 页画了一笔（persist 已落盘）
     const drawn = stroke(0.4)
     state.onFetch = () => {
-      saveAnnoDoc('f1', docWith({ '1': mine, '2': [drawn] }))
+      saveAnnoDoc('u1', 'f1', docWith({ '1': mine, '2': [drawn] }))
     }
 
     const result = await syncAnnotationFile('f1')
 
     expect(result.adopted).toBe(1)
-    expect(loadAnnoDoc('f1')['1']).toEqual(packed(theirs)) // 该收的收了
+    expect(loadAnnoDoc('u1', 'f1')['1']).toEqual(packed(theirs)) // 该收的收了
     // 旧实现拿同步开始时的快照整份写回 ⇒ 这一页连同这一笔一起消失（真机就是「画着画着笔迹没了」）
-    expect(loadAnnoDoc('f1')['2']).toEqual(packed([drawn]))
+    expect(loadAnnoDoc('u1', 'f1')['2']).toEqual(packed([drawn]))
   })
 
   it('⚠️ 要收下的那一页在拉取期间被改过 ⇒ 这一次**不收它**（判定过期了，留给下一次对账）', async () => {
@@ -468,14 +469,14 @@ describe('syncAnnotationFile：先拉后推（CAS）', () => {
     seedBase('f1', { '1': baseOf(mine, 'v1') })
     seedRemote(1, theirs, 'v2')
     state.onFetch = () => {
-      saveAnnoDoc('f1', docWith({ '1': [...mine, drawn] }))
+      saveAnnoDoc('u1', 'f1', docWith({ '1': [...mine, drawn] }))
     }
 
     const result = await syncAnnotationFile('f1')
 
     expect(result.adopted).toBe(0)
     // 用户刚画的那一笔必须还在；远端那一版等下一次对账（那时三方都变了 ⇒ 交用户选）
-    expect(loadAnnoDoc('f1')['1']).toEqual(packed([...mine, drawn]))
+    expect(loadAnnoDoc('u1', 'f1')['1']).toEqual(packed([...mine, drawn]))
     expect(loadSyncBase('f1', 'u1')['1']).toEqual(baseOf(mine, 'v1'))
   })
 
@@ -612,23 +613,48 @@ describe('syncAllAnnotationFiles', () => {
     setted('f1', docWith({ '1': [stroke(0.1)] }))
     setted('f2', docWith({ '1': [stroke(0.2)] }))
     setted('f3', docWith({ '2': [stroke(0.3)] }))
-    markAnnoPending()
+    markAnnoPending('u1')
 
     await syncAllAnnotationFiles()
 
     expect(state.pushCalls).toHaveLength(3)
-    expect(isAnnoPending()).toBe(false)
+    expect(isAnnoPending('u1')).toBe(false)
   })
 
   it('有一册失败 ⇒ **不清**全局标记（宁可多扫一次，不能漏掉真欠账）', async () => {
     setted('f1', docWith({ '1': [stroke(0.1)] }))
     setted('f2', docWith({ '1': [stroke(0.2)] }))
     state.failPushFor = new Set([1])
-    markAnnoPending()
+    markAnnoPending('u1')
 
     await syncAllAnnotationFiles()
 
-    expect(isAnnoPending()).toBe(true)
+    expect(isAnnoPending('u1')).toBe(true)
+  })
+})
+
+describe('flushAllAnnotationsForOwner（登出前最后一班车，D16/C1）', () => {
+  it('把该账号所有有批注的册推上去，并清欠账标记', async () => {
+    setted('f1', docWith({ '1': [stroke(0.1)] }))
+    setted('f2', docWith({ '1': [stroke(0.2)] }))
+    markAnnoPending('u1')
+
+    await expect(flushAllAnnotationsForOwner('u1')).resolves.toBe(true)
+    expect(state.pushCalls).toHaveLength(2)
+    expect(isAnnoPending('u1')).toBe(false)
+  })
+
+  it('当前会话不是这个账号 ⇒ false（不能拿别人的令牌推）', async () => {
+    setted('f1', docWith({ '1': [stroke(0.1)] }))
+    state.userId = 'u2'
+    await expect(flushAllAnnotationsForOwner('u1')).resolves.toBe(false)
+    expect(state.pushCalls).toHaveLength(0)
+  })
+
+  it('有一册失败 ⇒ false（调用方保留本地键）', async () => {
+    setted('f1', docWith({ '1': [stroke(0.1)] }))
+    state.failPushFor = new Set([1])
+    await expect(flushAllAnnotationsForOwner('u1')).resolves.toBe(false)
   })
 })
 
@@ -694,7 +720,7 @@ describe('loadConflictPage / resolveAnnotationConflict', () => {
     expect(result).toEqual({ ok: true })
     expect(state.archiveCalls).toHaveLength(1)
     expect(state.archiveCalls[0].p_strokes).toEqual(mine) // 保住的是**本地**那份
-    expect(loadAnnoDoc('f1')['1']).toEqual(theirs)
+    expect(loadAnnoDoc('u1', 'f1')['1']).toEqual(theirs)
     expect(loadSyncBase('f1', 'u1')['1']).toEqual({ fp: pageFingerprint(theirs), version: 'v2' })
     expect(loadConflicts('f1', 'u1')).toEqual([])
   })
@@ -711,7 +737,7 @@ describe('loadConflictPage / resolveAnnotationConflict', () => {
     })
 
     expect(result).toEqual({ ok: false, reason: 'failed' })
-    expect(loadAnnoDoc('f1')['1']).toEqual(mine)
+    expect(loadAnnoDoc('u1', 'f1')['1']).toEqual(mine)
     expect(loadConflicts('f1', 'u1')).toEqual([1])
   })
 
@@ -738,7 +764,7 @@ describe('loadConflictPage / resolveAnnotationConflict', () => {
 
     expect(state.pushCalls).toEqual([])
     expect(state.archiveCalls).toEqual([])
-    expect(loadAnnoDoc('f1')['1']).toEqual(mine)
+    expect(loadAnnoDoc('u1', 'f1')['1']).toEqual(mine)
     expect(loadConflicts('f1', 'u1')).toEqual([1])
   })
 
@@ -824,7 +850,7 @@ describe('loadConflictPage / resolveAnnotationConflict', () => {
     // 扫描跑的是**解决之后**的真实对账（不是被跳过、也不是拿着旧内容算的计划）
     expect(scanResult.status).toBe('ok')
     expect(state.selectCalls).toBeGreaterThan(1)
-    expect(loadAnnoDoc('f1')['1']).toEqual(packed(theirs))
+    expect(loadAnnoDoc('u1', 'f1')['1']).toEqual(packed(theirs))
     // 关键：刚解决掉的那一页没有被写回冲突记录
     expect(loadConflicts('f1', 'u1')).toEqual([])
   })

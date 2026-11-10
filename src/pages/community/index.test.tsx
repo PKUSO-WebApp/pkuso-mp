@@ -1,10 +1,11 @@
 ﻿// @vitest-environment jsdom
 
 import React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import Taro from '@tarojs/taro'
 import type { PostRowWithAuthor } from '@/types/database'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import Community from './index'
 
 vi.mock('@tarojs/components', () => {
@@ -70,32 +71,23 @@ vi.mock('@/components/staff-blocked-page', () => ({
 }))
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 describe('Community 公告页（只读）', () => {
+  beforeEach(() => resetTestLocale())
   afterEach(() => {
     cleanup()
+  })
+
+  it('英文环境：发布按钮与分类标签显示英文', () => {
+    setTestLocale('en')
+    render(<Community />)
+    expect(screen.getByText('Post')).toBeTruthy()
+    expect(screen.getByText('Ensemble')).toBeTruthy()
+    fireEvent.click(screen.getByText('Activity'))
+    expect(screen.getByText('团建B')).toBeTruthy()
+    expect(screen.queryByText('重奏A')).toBeNull()
   })
 
   it('默认显示重奏，切换分类正确过滤', () => {

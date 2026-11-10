@@ -1,6 +1,7 @@
 export const scoreReader = {
   navTitle: 'Reader',
   loadFailed: 'Failed to load: {error}',
+  compareBack: 'Back',
   notFound: 'File not found or removed',
   pageOf: '{page} / {total}',
   pageJump: 'Go',
@@ -10,6 +11,7 @@ export const scoreReader = {
   retry: 'Retry',
   noImages: 'No page images for this score yet',
   loading: 'Loading…',
+  blankFrame: 'This page failed to render. Please retry.',
   ready: 'Ready',
   idle: 'Not loaded',
   annotation: 'Ink',
@@ -49,6 +51,15 @@ export const scoreReader = {
     batchEmpty: 'No annotated pages in this batch',
     pageRow: 'Page {page} · {n} strokes',
   },
+  sharedHistory: {
+    entry: 'Restore shared history',
+    title: 'Restore shared history',
+    empty: 'No shared history yet',
+    hint: 'Choose a history version to restore; the current version stays in shared history.',
+    current: 'Current',
+    historyVersion: 'History',
+    useCurrent: 'Restore this version',
+  },
   conflict: {
     title: '{count} page(s) with conflicting ink',
     intro:
@@ -64,5 +75,56 @@ export const scoreReader = {
     raced: 'The cloud version changed again — please take another look.',
     failed: 'Failed. Check your connection and try again.',
     loadFailed: 'Could not load this page',
+  },
+  merge: {
+    navTitle: 'Merge ink',
+    title: 'Merge ink',
+    entry: 'Merge ink…',
+    directionToPersonal: 'Shared → mine',
+    directionToShared: 'Mine → shared',
+    hintToPersonal:
+      'Merge the shared ink into your own annotations. Choose a version for each page.',
+    hintToShared:
+      'Merge your annotations into the shared score (writes the shared table; replaced versions stay in cloud history).',
+    mine: 'Mine',
+    shared: 'Shared',
+    merge: 'Merge',
+    useCurrent: 'Apply this version',
+    pageButton: 'Page {page}',
+    count: '{n} page(s) need a choice',
+    loading: 'Preparing merge…',
+    empty: 'Nothing to merge',
+    raced: 'The shared score or your annotations changed again — please take another look.',
+    failed: 'Failed. Check your connection and try again.',
+    loadFailed: 'Could not load this page',
+    noUser: 'Please log in before merging annotations.',
+    notAllowed: 'You do not have permission to edit this shared score.',
+    syncFailed: 'Your annotations failed to sync. Try again later.',
+    personalConflicts:
+      'Resolve your personal annotation conflicts before merging the shared score.',
+    resolvePersonalConflicts: 'Resolve personal conflicts',
+    loadFailedList: 'Could not load the pages to merge. Try again.',
+  },
+  share: {
+    entry: 'Share annotations…',
+    hardPushTitle: 'Update shared annotations',
+    hardPushHint:
+      'This replaces the shared copy with your annotations on the original score, including changes made directly on the shared copy. Continue?',
+    hardPushConfirm: 'OK',
+    created: 'Shared copy created',
+    updated: 'Shared copy updated',
+    noAnnotations: 'This score has no annotations yet',
+    notShareable: 'Full scores cannot be shared',
+    notAllowed: 'You do not have permission to share annotations',
+    failed: 'Failed to share annotations. Try again later.',
+  },
+  sharePull: {
+    failed: 'Could not load shared annotations. Try again later.',
+    conflictHint:
+      'Both the shared annotations and yours have changed. Choose which version to keep for each page (your personal copy only).',
+    local: 'My annotations',
+    remote: 'Shared annotations',
+    merge: 'Merge',
+    useCurrent: 'Use this version',
   },
 }

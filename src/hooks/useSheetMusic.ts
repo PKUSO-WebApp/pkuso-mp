@@ -58,6 +58,16 @@ export function useSheetMusic() {
   return { items, loading, error, fetch }
 }
 
+/**
+ * 单查一份文件。共享谱入口用：`useSheetMusic` 只取前 200 首，视图里又没有
+ * `storage_path` / `file_size`，在列表里找不到时靠这一下补齐阅读器要的参数。
+ */
+export async function fetchSheetMusicFile(fileId: string): Promise<SheetMusicFileRow | null> {
+  const res = await supabase.from('sheet_music_files').select('*').eq('id', fileId).maybeSingle()
+  if (res.error) return null
+  return (res.data as SheetMusicFileRow | null) ?? null
+}
+
 /** 曲目详情 hook（声部 + 文件，按 id 单查） */
 export function useSheetMusicDetail(id: string) {
   const [item, setItem] = useState<SheetMusicWithParts | null>(null)

@@ -25,6 +25,7 @@ export const profile = {
     attendance: 'Attendance & Leave',
     activity: 'Activity',
     system: 'System',
+    sectionLeave: 'Section Leave',
   },
   card: {
     instrument: 'Section {instrument}',

@@ -3,6 +3,7 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import Members from './index'
 
 const member = {
@@ -30,8 +31,14 @@ vi.mock('@tarojs/components', () => {
     const { hoverClass, catchMove, ...rest } = props
     return React.createElement(tag, rest)
   }
-  return { View: create('div'), Text: create('span'), ScrollView: create('div') }
+  return {
+    View: create('div'),
+    Text: create('span'),
+    ScrollView: create('div'),
+    Image: create('img'),
+  }
 })
+vi.mock('@/assets/icons/user-round.png', () => ({ default: 'user-round.png' }))
 vi.mock('@tarojs/taro', () => ({
   default: { stopPullDownRefresh: vi.fn() },
   // 首页那次/切回 tab 那次都用它触发 fetch——此处置空，让 fetch 的调用次数只由「重试」决定
@@ -62,7 +69,10 @@ vi.mock('@/components/staff-blocked-page', () => ({
 vi.mock('@/components/ui/StatusChip', () => ({
   StatusChip: ({ children }: any) => React.createElement('span', null, children),
 }))
-vi.mock('./components/member-detail-modal', () => ({ MemberDetailModal: () => null }))
+// 页面现在会调 my_managed_sections；这里不关心结果，只为避免初始化真实客户端
+vi.mock('@/lib/supabase', () => ({
+  supabase: { rpc: vi.fn(async () => ({ data: [], error: null })) },
+}))
 vi.mock('@/components/ui/FormFields', () => ({
   TextField: ({ value, onInput, placeholder }: any) =>
     React.createElement('input', {
@@ -78,23 +88,8 @@ vi.mock('@/lib/instrument-i18n', () => ({
 vi.mock('@/lib/join-date-i18n', () => ({ translateJoinDate: (d: string) => d }))
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  const t = (k: string, p?: Record<string, unknown>) => get(k, p)
-  const ctx = { t, locale: 'zh-CN', setLocale: () => {} }
-  return { useT: () => ctx, useNavTitle: vi.fn() }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 const rosterRows = [
@@ -106,6 +101,7 @@ const rosterRows = [
 ]
 
 beforeEach(() => {
+  resetTestLocale()
   useProfilesMockState.data = []
   useProfilesMockState.loading = false
   useProfilesMockState.error = null
@@ -127,6 +123,19 @@ describe('花名册页失败态与空态', () => {
     fireEvent.click(screen.getByText('重试'))
     // 断言的是「真的又拉了一次」，不只是按钮被点过
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('英文环境：搜索占位符与两种空态显示英文', () => {
+    setTestLocale('en')
+    render(<Members />)
+    expect(screen.getByPlaceholderText('Search name, section')).toBeTruthy()
+    expect(screen.getByText('No approved members yet')).toBeTruthy()
+
+    cleanup()
+    useProfilesMockState.data = [member]
+    const { container } = render(<Members />)
+    fireEvent.change(container.querySelector('input')!, { target: { value: 'zzz' } })
+    expect(screen.getByText('No matching members found')).toBeTruthy()
   })
 
   it('两种空态各说各话：花名册为空 vs 搜不到匹配', () => {

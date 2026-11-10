@@ -16,6 +16,8 @@ export type CreatePostInput = {
   missing_sections?: string
   contact_info?: string
   imageFile?: UploadFileLike | null
+  /** 本次表单的幂等键（见 storage-upload）；同一份草稿的重试必须复用 */
+  uploadKey?: string
 }
 
 export type CreatePostResult = { ok: true } | { ok: false; error: string }
@@ -32,6 +34,7 @@ export type EditPostInput = {
   missing_sections?: string
   contact_info?: string
   imageFile?: UploadFileLike | null
+  uploadKey?: string
 }
 
 /**
@@ -170,6 +173,7 @@ export function usePosts(
             title,
             content,
             imageFile: input.imageFile,
+            uploadKey: input.uploadKey,
             currentSections,
             missingSections,
             contactInfo,
@@ -310,6 +314,7 @@ export function usePosts(
             title,
             content,
             imageFile: input.imageFile,
+            uploadKey: input.uploadKey,
             currentSections,
             missingSections,
             contactInfo,

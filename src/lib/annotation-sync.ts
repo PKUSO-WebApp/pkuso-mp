@@ -1,5 +1,5 @@
 import Taro from '@tarojs/taro'
-import { compactStroke, type AnnoDoc, type AnnoStroke } from './annotation'
+import { annoStoragePrefix, compactStroke, type AnnoDoc, type AnnoStroke } from './annotation'
 
 /**
  * 批注上云的**纯逻辑**：内容指纹、三方差分、以及三种记账（基线 / 欠账标记 / 冲突记录）的读写。
@@ -43,7 +43,9 @@ export type RemotePage = {
   updatedAt: number
 }
 
-export const annoSyncKey = (fileId: string) => `score-annotation-sync:${fileId}`
+/** 与批注正文同一套账号隔离（D16）：owner = auth user id，未登录为 `guest` */
+export const annoSyncPrefix = (owner: string) => `score-annotation-sync-v2:${owner}:`
+export const annoSyncKey = (owner: string, fileId: string) => `${annoSyncPrefix(owner)}${fileId}`
 
 /**
  * 冲突记录：这一册有哪些页处在「两边都改过、还没解决」的状态。
@@ -53,16 +55,18 @@ export const annoSyncKey = (fileId: string) => `score-annotation-sync:${fileId}`
  * 它也是**可推导的**：每次同步都会按当前的三方差分重算一遍，所以记录永远会被刷新，
  * 不存在「用户已经在别处解决了、这里还挂着」的死记录。
  */
-export const annoConflictKey = (fileId: string) => `score-annotation-conflict:${fileId}`
+export const annoConflictPrefix = (owner: string) => `score-annotation-conflict-v2:${owner}:`
+export const annoConflictKey = (owner: string, fileId: string) =>
+  `${annoConflictPrefix(owner)}${fileId}`
 
-/** 全局「可能有欠账」标记：真时下次联网要把**所有**有批注的册对一遍账 */
-export const ANNO_PENDING_KEY = 'score-annotation-pending'
+/** 「可能有欠账」标记：真时下次联网要把**这个账号下所有**有批注的册对一遍账 */
+export const ANNO_PENDING_KEY = (owner: string) => `score-annotation-pending-v2:${owner}`
 
-/**
- * 列册用的前缀。注意它与 annoSyncKey / annoConflictKey 都不冲突——那两个后面跟的是 `-`
- * 而不是 `:`，所以不会以 `score-annotation:` 开头。
- */
-const ANNO_KEY_PREFIX = 'score-annotation:'
+/** 列册用的前缀（按账号隔离） */
+const annoDocPrefix = annoStoragePrefix
+
+// ---- D16 之前的旧键：只给 annotation-migration 用 ----
+export const LEGACY_ANNO_PENDING_KEY = 'score-annotation-pending'
 
 const FNV_OFFSET = 2166136261
 const FNV_PRIME = 16777619
@@ -348,7 +352,7 @@ function normalizeBase(raw: unknown): SyncBase | null {
 
 export function loadSyncBase(fileId: string, userId: string): SyncBase {
   try {
-    const raw = Taro.getStorageSync(annoSyncKey(fileId))
+    const raw = Taro.getStorageSync(annoSyncKey(userId, fileId))
     if (!raw) return {}
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
@@ -364,7 +368,7 @@ export function loadSyncBase(fileId: string, userId: string): SyncBase {
 export function saveSyncBase(fileId: string, userId: string, base: SyncBase): boolean {
   try {
     const record: SyncRecord = { userId, base }
-    Taro.setStorageSync(annoSyncKey(fileId), JSON.stringify(record))
+    Taro.setStorageSync(annoSyncKey(userId, fileId), JSON.stringify(record))
     return true
   } catch {
     return false
@@ -374,7 +378,7 @@ export function saveSyncBase(fileId: string, userId: string, base: SyncBase): bo
 /** 读这一册未解决的冲突页（**按账号隔离**，理由同基线）。坏数据一律当没有 */
 export function loadConflicts(fileId: string, userId: string): number[] {
   try {
-    const raw = Taro.getStorageSync(annoConflictKey(fileId))
+    const raw = Taro.getStorageSync(annoConflictKey(userId, fileId))
     if (!raw) return []
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
@@ -398,8 +402,12 @@ export function saveConflicts(fileId: string, userId: string, pages: number[]): 
     const unique = [...new Set(pages.filter((p) => Number.isInteger(p) && p >= 1))].sort(
       (x, y) => x - y
     )
-    if (unique.length === 0) Taro.removeStorageSync(annoConflictKey(fileId))
-    else Taro.setStorageSync(annoConflictKey(fileId), JSON.stringify({ userId, pages: unique }))
+    if (unique.length === 0) Taro.removeStorageSync(annoConflictKey(userId, fileId))
+    else
+      Taro.setStorageSync(
+        annoConflictKey(userId, fileId),
+        JSON.stringify({ userId, pages: unique })
+      )
   } catch {
     // 记不下只是下次少提示一次；冲突本身还在（判定完全由内容推导），不会因此丢东西
   }
@@ -415,39 +423,40 @@ export function clearConflictPage(fileId: string, userId: string, page: number):
  * 记「可能有欠账」。**本地每次改动都要调**——它是「离线改了 3 册然后被强杀」能被补上的
  * 唯一线索：进册只会对账当前那一册，别的册要等一次全量扫描。
  */
-export function markAnnoPending(): void {
+export function markAnnoPending(owner: string): void {
   try {
-    Taro.setStorageSync(ANNO_PENDING_KEY, true)
+    Taro.setStorageSync(ANNO_PENDING_KEY(owner), true)
   } catch {
     // 存储不可用：欠账仍可由「本地指纹 ≠ 基线」推导出来，只是少了「主动扫全部」这一层
   }
 }
 
-export function isAnnoPending(): boolean {
+export function isAnnoPending(owner: string): boolean {
   try {
-    return Taro.getStorageSync(ANNO_PENDING_KEY) === true
+    return Taro.getStorageSync(ANNO_PENDING_KEY(owner)) === true
   } catch {
     return false
   }
 }
 
-export function clearAnnoPending(): void {
+export function clearAnnoPending(owner: string): void {
   try {
-    Taro.removeStorageSync(ANNO_PENDING_KEY)
+    Taro.removeStorageSync(ANNO_PENDING_KEY(owner))
   } catch {
     /* 清不掉就下次再扫一遍，无害 */
   }
 }
 
-/** 列出本机所有有批注的册（直接数 Storage 的键，不另建一份会漂移的索引） */
-export function listAnnotatedFileIds(): string[] {
+/** 列出**这个账号**所有有批注的册（直接数 Storage 的键，不另建一份会漂移的索引） */
+export function listAnnotatedFileIds(owner: string): string[] {
   try {
     const info = Taro.getStorageInfoSync()
     const keys = Array.isArray(info?.keys) ? info.keys : []
+    const prefix = annoDocPrefix(owner)
     const out: string[] = []
     for (const key of keys) {
-      if (typeof key === 'string' && key.startsWith(ANNO_KEY_PREFIX)) {
-        const fileId = key.slice(ANNO_KEY_PREFIX.length)
+      if (typeof key === 'string' && key.startsWith(prefix)) {
+        const fileId = key.slice(prefix.length)
         if (fileId) out.push(fileId)
       }
     }

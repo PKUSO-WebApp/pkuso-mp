@@ -15,7 +15,7 @@ import { myPartOf } from '@/lib/sheet-music-mine'
 import { isOrchestraMember } from '@/lib/role-gate'
 import './index.scss'
 
-type TabKey = 'all' | 'mine'
+type TabKey = 'mine' | 'all'
 
 export default function Score() {
   const { t } = useT()
@@ -25,7 +25,7 @@ export default function Score() {
   const uiScale = useUiScaleFactor()
   const { user } = useUser()
   const { profile: myProfile, loading: myProfileLoading } = useMyProfile()
-  const [tab, setTab] = useState<TabKey>('all')
+  const [tab, setTab] = useState<TabKey>('mine')
   const { items, loading, error, fetch } = useSheetMusic()
 
   /**
@@ -36,12 +36,12 @@ export default function Score() {
   const mySection = (myProfile?.instrument ?? '').trim()
 
   const tabs: { key: TabKey; label: string }[] = [
-    { key: 'all', label: t('score.tabs.all') },
     { key: 'mine', label: t('score.tabs.mine') },
+    { key: 'all', label: t('score.tabs.all') },
   ]
 
   const visible = useMemo(
-    () => (tab === 'all' ? items : items.filter((s) => myPartOf(s.parts, mySection))),
+    () => (tab === 'mine' ? items.filter((s) => myPartOf(s.parts, mySection)) : items),
     [tab, items, mySection]
   )
 
@@ -98,7 +98,7 @@ export default function Score() {
       <ScrollView scrollY className='flex-1 min-h-0'>
         <View className='px-4 pb-3 pt-3'>
           <ListState
-            // 「分发给我的」还得等 profile（我的声部就在里面）：没到手之前**不能**把
+            // 「我的」还得等 profile（我的声部就在里面）：没到手之前**不能**把
             // 「还不知道」显示成「你的声部暂无乐谱」——那是句陈述。ListState 只在
             // 「loading && 内容为空」时显示加载中，所以这里把它一并抬起来即可。
             loading={loading || (tab === 'mine' && myProfileLoading)}
@@ -122,8 +122,7 @@ export default function Score() {
                   {tab === 'mine' ? (
                     // 这一栏列的是**我的**谱子，所以数量按我那份算：「整曲有多少声部 / 多少文件」
                     // 在这里没有意义（谁在这栏里看到的都是同一份曲子）。
-                    // 「我的声部：xxx」徽标已去掉（用户 2026-10-11）：这栏的判定逻辑后面要改，
-                    // 现在把一个具体声部名钉在卡片上会与将来不符。
+                    // 共享副本不计入这里（0.6.1 产品规则：只在「全部」里出现）。
                     <View className='mt-2 flex flex-row items-center'>
                       <Text className='text-xs text-text-muted'>
                         {t('score.filesCount', { n: mine?.files.length ?? 0 })}

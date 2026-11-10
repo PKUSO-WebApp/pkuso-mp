@@ -364,10 +364,11 @@ export function useLeaveRequests(
     [client, fetchMine, t]
   )
 
-  /** 上传附件到私有桶（路径沿用 <user_id>/<时间戳>-<文件名> 模式），返回 storage 路径。
-   * 入参为小程序文件（Taro.chooseMedia 返回的 { tempFilePath, size } 或其子集）。 */
+  /** 上传附件到私有桶（路径 <user_id>/<表单 key>-<内容指纹>-<文件名>），返回 storage 路径。
+   * 入参为小程序文件（Taro.chooseMedia 返回的 { tempFilePath, size } 或其子集）。
+   * `uploadKey` 由请假页草稿持有：同一份表单重试/代理换腿复用同一路径；换图由指纹区分。 */
   const uploadAttachment = useCallback(
-    async (file: UploadFileLike, userId: string) => {
+    async (file: UploadFileLike, userId: string, uploadKey?: string) => {
       if (savingRef.current) return { error: t('leaveRequests.errors.duplicateSubmit') }
       savingRef.current = true
       // 文件名消毒：含中文/空格的文件名作 storage key 会被 Supabase Storage 拒绝
@@ -375,7 +376,10 @@ export function useLeaveRequests(
       // 小程序文件无 name 字段时退化为从 tempFilePath 取末段文件名（保留扩展名）
       const rawName = file.name || file.tempFilePath.split('/').pop() || 'image'
       const safeName = rawName.replace(/[^A-Za-z0-9._-]/g, '-') || 'image'
-      const path = `${userId}/${Date.now()}-${safeName}`
+      const key =
+        uploadKey ||
+        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+      const path = `${userId}/${key}-${safeName}`
       try {
         const up = await uploadLocalFile(
           client,
@@ -384,7 +388,8 @@ export function useLeaveRequests(
           file.tempFilePath,
           guessContentType(safeName),
           false,
-          t
+          t,
+          { idempotent: true }
         )
         if (up.error) return { error: up.error.message }
         return { url: (up.data as { path: string }).path }

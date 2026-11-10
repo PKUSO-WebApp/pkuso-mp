@@ -19,6 +19,8 @@ export default defineAppConfig({
     'pages/community/index',
     'pages/schedule/index',
     'pages/members/index',
+    'pages/member-attendance/index',
+    'pages/section-leave/index',
     'pages/profile/index',
     'pages/profile-info/index',
     'pages/devices/index',
@@ -45,7 +47,7 @@ export default defineAppConfig({
   subpackages: [
     {
       root: 'pages/score-reader',
-      pages: ['index', 'conflict/index'],
+      pages: ['index', 'conflict/index', 'merge/index'],
       name: 'scoreReader',
     },
   ],

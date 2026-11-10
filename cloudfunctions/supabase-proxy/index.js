@@ -705,10 +705,30 @@ function asHttpJson(obj) {
   }
 }
 
+/**
+ * 是否是 Supabase Storage 的对象路径（public / sign / authenticated / list / 上传删除都在
+ * `/storage/v1/object/` 下）。
+ *
+ * 为什么要单独认它：Storage 的对象 URL 是**直接交给客户端**的（`<Image src>`、
+ * `Taro.downloadFile`、`createSignedUrl` 的签名地址），而微信**不允许**在这些 API 的
+ * header 里设置 `Referer`。所以它们不可能通过下面的 Referer 门；这不是「绕过安全」——
+ * 对象读写的真正边界是 Supabase 的 RLS 与桶策略，Referer 门只是挡扫描器的。
+ *
+ * 只认 `/storage/v1/object` 本身或它下面的路径，避免 `/storage/v1/objectevil` 这类前缀混淆。
+ * `/storage/v1/bucket` 等管理端点不放行。
+ */
+function isStorageObjectPath(event) {
+  const rawPath = String((event && (event.path || event.rawPath)) || '')
+  const pathOnly = stripBasePath(rawPath.split('?')[0])
+  return pathOnly === '/storage/v1/object' || pathOnly.indexOf('/storage/v1/object/') === 0
+}
+
 function refererAllowed(event) {
   if (!MP_APPID) return true
   const ref = String((event.headers && (event.headers.referer || event.headers.Referer)) || '')
-  return ref.indexOf('https://servicewechat.com/' + MP_APPID + '/') === 0
+  if (ref.indexOf('https://servicewechat.com/' + MP_APPID + '/') === 0) return true
+  // 见 isStorageObjectPath：原生图片层 / downloadFile 设不了 Referer，storage 只能靠 RLS 守。
+  return isStorageObjectPath(event)
 }
 
 exports.main = async (event, context) => {
@@ -757,4 +777,12 @@ exports.main = async (event, context) => {
  * 只有直接断言它的输出才拦得住，而云上没有别的入口能看到重建结果。
  * 导出它不影响云函数运行（多余的导出没人读）。
  */
-exports.__internals = { toPathAndQuery, isRetryable, isGatewayHeader, isProbablyText, stripBasePath }
+exports.__internals = {
+  toPathAndQuery,
+  isRetryable,
+  isGatewayHeader,
+  isProbablyText,
+  stripBasePath,
+  isStorageObjectPath,
+  refererAllowed,
+}

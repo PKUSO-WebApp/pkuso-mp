@@ -23,6 +23,11 @@ import { describe, it, expect, beforeAll, vi } from 'vitest'
 const PATHS_FROM_CONFIG: string[] = []
 let appConfig: { pages?: string[]; tabBar?: { list?: { pagePath: string }[] } }
 let TAB_PAGE_PATHS: readonly string[] = []
+let selectedTabIndex: (route: string | null | undefined) => number
+let resolveTabRoute: (
+  pagesRoute: string | null | undefined,
+  routerPath: string | null | undefined
+) => string
 let LIST: ReadonlyArray<{
   pagePath: string
   key: string
@@ -41,7 +46,10 @@ beforeAll(async () => {
   // CustomTabBar 会拉起 @tarojs/runtime + i18n，是整条链上最重的一次模块转换（实测 ~2.7s）。
   // 放进第一条用例，它的 5s 测试预算在满量跑（并发 worker 抢资源）时会被踩穿
   // ——实测 5015ms / 5112ms 两次超时，而单跑该文件必过。
-  TAB_PAGE_PATHS = (await import('../tabBarConfig')).TAB_PAGE_PATHS
+  const tabBarConfig = await import('../tabBarConfig')
+  TAB_PAGE_PATHS = tabBarConfig.TAB_PAGE_PATHS
+  selectedTabIndex = tabBarConfig.selectedTabIndex
+  resolveTabRoute = tabBarConfig.resolveTabRoute
   LIST = (await import('@/components/CustomTabBar')).LIST
 })
 
@@ -78,5 +86,23 @@ describe('三份 tab 清单必须一致', () => {
       expect(t.selectedIcon, `${t.pagePath} 缺选中图标`).toBeTruthy()
       expect(t.selectedIconDark, `${t.pagePath} 缺暗色选中图标`).toBeTruthy()
     }
+  })
+
+  it('路由换算接受带/不带前导斜杠，非 tab 页返回 -1', () => {
+    expect(selectedTabIndex('pages/schedule/index')).toBe(2)
+    expect(selectedTabIndex('/pages/schedule/index')).toBe(2)
+    expect(selectedTabIndex('pages/post-detail/index')).toBe(-1)
+    expect(selectedTabIndex('')).toBe(-1)
+  })
+
+  it('页面栈优先于 router.path：路由滞后时不会把选中态写回上一个 tab', () => {
+    // 页面栈已经是 schedule，router 还是 score（custom-tab-bar 实测的旧值）
+    expect(selectedTabIndex(resolveTabRoute('pages/schedule/index', '/pages/score/index'))).toBe(2)
+    // 栈还没就绪时才用 router
+    expect(selectedTabIndex(resolveTabRoute(undefined, '/pages/schedule/index'))).toBe(2)
+    // 当前页不是 tab 页时不要拿旧 router 去点亮某个 tab
+    expect(
+      selectedTabIndex(resolveTabRoute('pages/post-detail/index', '/pages/score/index'))
+    ).toBe(-1)
   })
 })

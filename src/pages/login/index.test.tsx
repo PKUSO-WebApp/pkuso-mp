@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { UserContextValue } from '@/context/user-context'
 import { ThemeProvider } from '@/context/theme-context'
+import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import LoginPage from './index'
 
 // @tarojs/components mock
@@ -142,32 +143,13 @@ const renderPage = () =>
   )
 
 vi.mock('@/i18n', async () => {
-  const mod = await import('@/i18n/messages/zh-CN')
-  const dict = mod.zhCN as Record<string, unknown>
-  const get = (k: string, p?: Record<string, unknown>): string => {
-    const val = k
-      .split('.')
-      .reduce<unknown>(
-        (o, key) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[key] : undefined),
-        dict
-      )
-    let s = typeof val === 'string' ? val : k
-    if (p)
-      s = s.replace(/\{(\w+)\}/g, (_, key) => (p[key] !== undefined ? String(p[key]) : `{${key}}`))
-    return s
-  }
-  return {
-    useT: () => ({
-      t: (k: string, p?: Record<string, unknown>) => get(k, p),
-      locale: 'zh-CN',
-      setLocale: vi.fn(),
-    }),
-    useNavTitle: vi.fn(),
-  }
+  const { createI18nMock } = await import('@/test-utils/i18n-mock')
+  return createI18nMock()
 })
 
 describe('LoginPage', () => {
   beforeEach(() => {
+    resetTestLocale()
     ctx.ready = true
     ctx.user = null
     ctx.session = null
@@ -218,6 +200,15 @@ describe('LoginPage', () => {
     cleanup()
   })
 
+  it('英文环境：微信登录、登录按钮与切换入口显示英文', () => {
+    setTestLocale('en')
+    renderPage()
+    expect(screen.getByRole('button', { name: 'WeChat Login' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Sign In' })).toBeTruthy()
+    expect(screen.getByText('Sign in with Password')).toBeTruthy()
+    expect(screen.queryByText('微信授权登录')).toBeNull()
+  })
+
   it('渲染微信登录按钮和邮箱表单', () => {
     renderPage()
     expect(screen.getByRole('button', { name: '微信授权登录' })).toBeTruthy()
@@ -255,10 +246,11 @@ describe('LoginPage', () => {
     expect(screen.queryByText('获取验证码')).toBeNull()
   })
 
-  it('会话恢复完成前显示加载占位', () => {
+  it('会话恢复完成前显示加载占位（转圈）', () => {
     ctx.ready = false
     renderPage()
-    expect(screen.getByText(/加载中/)).toBeTruthy()
+    // 0.6.2 起整页加载统一为转圈，不再用「加载中」文字
+    expect(document.querySelector('.ui-spinner')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '微信授权登录' })).toBeNull()
   })
 
