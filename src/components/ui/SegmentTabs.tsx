@@ -27,7 +27,7 @@ export function SegmentTabs<T extends string>({ tabs, value, onChange }: Props<T
               >
                 {t.label}
               </Text>
-              <CountBadge count={t.badge ?? 0} compact className='ml-1' />
+              <CountBadge count={t.badge ?? 0} className='ml-1' />
             </View>
             {active && <View className='mx-auto mt-1 h-0.5 w-6 rounded bg-primary' />}
           </View>

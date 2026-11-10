@@ -337,7 +337,7 @@ export default function PresidentRehearsalEditPage() {
                 <Text className='min-w-0 flex-1 truncate text-sm text-text'>
                   {selectedLocation?.name ?? t('president.rehearsal.chooseLocation')}
                 </Text>
-                <Text className='ml-2 shrink-0 text-xs text-text-muted'>▾</Text>
+                <Text className='ml-2 shrink-0 text-sm text-text-muted'>▾</Text>
               </View>
             </Picker>
           </View>

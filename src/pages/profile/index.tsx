@@ -74,7 +74,7 @@ export default function Profile() {
   // 通知栏目的未读徽章（>0 时显示，>99 折叠）；三个信箱与声部请假共用
   const unreadBadge = (count: number) =>
     count > 0 ? (
-      <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5'>
+      <View className='ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1.5'>
         <Text className='text-xs font-medium leading-none text-danger-foreground'>
           {count > 99 ? '99+' : count}
         </Text>
