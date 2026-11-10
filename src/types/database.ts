@@ -11,6 +11,7 @@ type PublicSchema = Database['public']
 // ---- 表行类型 ----
 export type ProfileRow = PublicSchema['Tables']['profiles']['Row']
 export type RehearsalRow = PublicSchema['Tables']['rehearsals']['Row']
+export type RehearsalRepertoireRow = PublicSchema['Tables']['rehearsal_repertoire']['Row']
 export type AttendanceRow = PublicSchema['Tables']['attendances']['Row']
 export type AnnouncementRow = PublicSchema['Tables']['announcements']['Row']
 export type PostRow = PublicSchema['Tables']['posts']['Row']
