@@ -39,6 +39,13 @@ export default defineAppConfig({
     'pages/score/index',
     'pages/score-detail/index',
     'pages/score-part/index',
+    'pages/president-rehearsals/index',
+    'pages/president-rehearsal-detail/index',
+    'pages/president-rehearsal-edit/index',
+    'pages/president-rehearsal-attendance/index',
+    'pages/president-announcements/index',
+    'pages/president-announcement-edit/index',
+    'pages/president-approvals/index',
   ],
   // 独立分包：阅读器单独成包（只被 pages/score-reader 自己引用）。
   // 这里**曾经**装着 pdf.js 运行时（wechat-miniprogram-pdf，1.61MB，当年是为了不把

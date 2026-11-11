@@ -256,15 +256,21 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
   )
 
   const remove = useCallback(
-    async (id: number, _date?: string) => {
+    async (id: number, _date?: string, reason?: string) => {
       if (savingRef.current) return false
       savingRef.current = true
       setSaving(true)
       try {
-        const { error: dbError } = await client.from('schedules').delete().eq('id', id)
-        if (dbError) {
+        // 走 RPC 而不是直接 DELETE：非作者删除需要原因并通知作者，
+        // 影子预约也会被服务端拦下（is_rehearsal）。
+        const { data: rpcData, error: dbError } = await client.rpc('delete_schedule_booking', {
+          p_schedule_id: id,
+          p_reason: reason || undefined,
+        })
+        const result = rpcData as { ok?: boolean; code?: string } | null
+        if (dbError || !result?.ok) {
           if (mountedRef.current) {
-            console.error('[useSchedule] 写操作失败', dbError)
+            console.error('[useSchedule] 删除失败', dbError ?? result?.code)
             setError(APP_ERROR.saveFailed)
           }
           return false
@@ -299,9 +305,12 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
       // 仅需检查开始/结束两天的数据
       const relevant = getByDate(startDate).concat(getByDate(endDate))
 
-      // 人工预约冲突（rehearsal_id 为 null）
+      // 人工预约冲突（rehearsal_id 为 null）。
+      // 跳过影子行：正常的影子有 rehearsal_id；历史上外键曾是 ON DELETE SET NULL，
+      // 删除排练后会留下 author_id = NULL 的孤儿影子（rehearsal_id 也变成 NULL）。
+      // 这类行不是人工预约，不能让它和新建排练「自己」冲突。
       const scheduleConflict = relevant.find((s) => {
-        if (s.rehearsal_id) return false // 跳过排练影子行
+        if (s.rehearsal_id || !s.author_id) return false
         const sStart = s.start_time
         const sEnd = s.end_time || sStart
         return startDateTime < sEnd && endDateTime > sStart

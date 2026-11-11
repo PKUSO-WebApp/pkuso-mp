@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import { supabase } from '@/lib/supabase'
@@ -11,6 +11,8 @@ import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { tabBarReserveCss } from '@/lib/ui-scale'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useMyProfile } from '@/hooks/useMyProfile'
+import { useMyCapabilities } from '@/hooks/useMyCapabilities'
+import { PresidentRehearsalAttendance } from '@/components/president/PresidentRehearsalAttendance'
 import { StaffBlockedPage } from '@/components/staff-blocked-page'
 import { isOrchestraMember } from '@/lib/role-gate'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
@@ -33,6 +35,12 @@ export default function Members() {
   const placeholderStyle = usePlaceholderStyle()
   const { user: currentUser } = useUser()
   const { profile: myProfile } = useMyProfile()
+  const { hasCapability } = useMyCapabilities()
+  // 团长：attendance / attendance_export 任一能力都会把「我的声部」换成「排练考勤」
+  const isAttendanceManager = hasCapability('attendance') || hasCapability('attendance_export')
+  // 给 useDidShow 里那个不随渲染重建的回调用：能力缓存可能在 RPC 回来后才更新
+  const attendanceManagerRef = useRef(isAttendanceManager)
+  attendanceManagerRef.current = isAttendanceManager
   const {
     data: allProfiles,
     loading: rosterLoading,
@@ -58,15 +66,20 @@ export default function Members() {
     if (error) return
     const list = (data as string[] | null) ?? []
     setManagedSections(list)
-    // 权限被撤销后（如交接声部长）别再停在空白的「我的声部」上
-    if (list.length === 0) setTab('all')
+    // 权限被撤销后（如交接声部长）别再停在空白的「我的声部」上。
+    // 团长（attendance / attendance_export）的 tab 不依赖声部长作用域，不能因为
+    // my_managed_sections 为空（例如只有 attendance_export）就被踢回「全部」。
+    if (list.length === 0 && !attendanceManagerRef.current) setTab('all')
   }, [])
 
   // 入口显隐优先用**已缓存**的 profile flags：声部长/首席的「我的声部」tab 随头像卡
   // 一起出现，不必等 my_managed_sections 的 RPC 回来（否则会晚一拍）。
   // capability（团长）仍以 RPC 结果为准。与 profile 页同一条判据。
   const hasManagedScope =
-    !!myProfile?.is_section_leader || !!myProfile?.is_principal || managedSections.length > 0
+    isAttendanceManager ||
+    !!myProfile?.is_section_leader ||
+    !!myProfile?.is_principal ||
+    managedSections.length > 0
 
   // 切回本 tab 时重新拉取花名册（Taro tab 页常驻内存不卸载，仅靠挂载时一次
   // 拉取会导致「改完资料回来仍是旧数据」；回到本页静默刷新，旧数据仍展示不闪加载）
@@ -152,120 +165,142 @@ export default function Members() {
         <SegmentTabs<'all' | 'mine'>
           tabs={[
             { key: 'all', label: t('members.tabAll') },
-            { key: 'mine', label: t('members.tabMine') },
+            {
+              key: 'mine',
+              label: isAttendanceManager
+                ? t('members.tabRehearsalAttendance')
+                : t('members.tabMine'),
+            },
           ]}
           value={tab}
           onChange={setTab}
         />
       )}
       <ScrollView scrollY className='flex-1 min-h-0'>
-        {/* 底部留白：底边栏固定覆盖在页面底部（高 50px + 安全区），
-            花名册成员多时 ScrollView 末行会被底边栏遮挡、无法滚到底，故内容底部补足留白 */}
-        <View className='px-4'>
-          <TextField
-            boxClass='mt-3 mb-4 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'
-            placeholder={t('members.searchPlaceholder')}
-            value={searchQuery}
-            onInput={(e) => setSearchQuery(e.detail.value)}
-            placeholderStyle={placeholderStyle}
+        {tab === 'mine' && isAttendanceManager ? (
+          <PresidentRehearsalAttendance
+            canEdit={hasCapability('attendance')}
+            canExport={hasCapability('attendance_export')}
           />
+        ) : (
+          /* 底部留白：底边栏固定覆盖在页面底部（高 50px + 安全区），
+            花名册成员多时 ScrollView 末行会被底边栏遮挡、无法滚到底，故内容底部补足留白 */
+          <View className='px-4'>
+            <TextField
+              boxClass='mt-3 mb-4 w-full overflow-hidden rounded-xl border border-border bg-muted px-3'
+              placeholder={t('members.searchPlaceholder')}
+              value={searchQuery}
+              onInput={(e) => setSearchQuery(e.detail.value)}
+              placeholderStyle={placeholderStyle}
+            />
 
-          {/* 两种空态（花名册本身为空 / 搜索无匹配）各自取词，故 emptyText 分情况；
+            {/* 两种空态（花名册本身为空 / 搜索无匹配）各自取词，故 emptyText 分情况；
               loading 沿用「仅内容为空才显示」——切回本 tab 是静默刷新，不该闪加载 */}
-          <ListState
-            loading={rosterLoading}
-            isEmpty={grouped.length === 0}
-            error={tAppError(t, rosterError)}
-            emptyText={
-              tab === 'mine'
-                ? searchQuery.trim()
-                  ? t('members.emptyMatch')
-                  : t('members.emptyMySection')
-                : rosterRows.length === 0
-                  ? t('members.emptyApproved')
-                  : t('members.emptyMatch')
-            }
-            onRetry={() => void fetch()}
-          >
-            <View>
-              {grouped.map(({ group, users }) => (
-                <View key={group} className='mb-5'>
-                  <Text className='mb-2 block text-xs font-medium uppercase tracking-wide text-text-muted'>
-                    {translateInstrument(group, t)}
-                  </Text>
-                  <View>
-                    {users.map((u) => {
-                      // 查看自己时隐私开关不生效，显示原值；查看他人按对方开关掩码
-                      const isSelf = u.id === currentUser?.id
-                      return (
-                        <View
-                          key={u.id}
-                          className='mb-2 flex flex-row items-start rounded-xl border border-border bg-card px-3 py-2'
-                          onClick={() => {
-                            // 0.6.2：任何入口点任何人的卡片都进同一个详情页；
-                            // 是否有考勤管理权由详情页按后端 RPC 决定，不再按 tab 区分。
-                            const sec = encodeURIComponent((u.instrument ?? '').trim())
-                            void Taro.navigateTo({
-                              url: `/pages/member-attendance/index?userId=${u.id}&sec=${sec}`,
-                            })
-                          }}
-                        >
-                          <View className='mr-3 h-10 w-10 shrink-0 overflow-hidden rounded-full'>
-                            {u.avatar_url ? (
-                              <StorageImage
-                                src={u.avatar_url}
-                                className='h-full w-full'
-                                mode='aspectFill'
-                              />
-                            ) : (
-                              <DefaultAvatar />
-                            )}
-                          </View>
-                          <View className='min-w-0 flex-1'>
-                            <View className='flex flex-wrap items-center gap-1.5'>
-                              <Text className='text-base font-normal text-text'>
-                                {u.full_name ?? '—'}
-                              </Text>
-                              {u.is_section_leader && (
-                                <StatusChip tone='warning'>{t('members.sectionLeader')}</StatusChip>
-                              )}
-                              {u.is_principal && (
-                                <StatusChip tone='success'>{t('members.principal')}</StatusChip>
+            <ListState
+              loading={rosterLoading}
+              isEmpty={grouped.length === 0}
+              error={tAppError(t, rosterError)}
+              emptyText={
+                tab === 'mine'
+                  ? searchQuery.trim()
+                    ? t('members.emptyMatch')
+                    : t('members.emptyMySection')
+                  : rosterRows.length === 0
+                    ? t('members.emptyApproved')
+                    : t('members.emptyMatch')
+              }
+              onRetry={() => void fetch()}
+            >
+              <View>
+                {grouped.map(({ group, users }) => (
+                  <View key={group} className='mb-5'>
+                    <Text className='mb-2 block text-xs font-medium uppercase tracking-wide text-text-muted'>
+                      {translateInstrument(group, t)}
+                    </Text>
+                    <View>
+                      {users.map((u) => {
+                        // 查看自己时隐私开关不生效，显示原值；查看他人按对方开关掩码
+                        const isSelf = u.id === currentUser?.id
+                        return (
+                          <View
+                            key={u.id}
+                            className='mb-2 flex flex-row items-start rounded-xl border border-border bg-card px-3 py-2'
+                            onClick={() => {
+                              // 0.6.2：任何入口点任何人的卡片都进同一个详情页；
+                              // 是否有考勤管理权由详情页按后端 RPC 决定，不再按 tab 区分。
+                              const sec = encodeURIComponent((u.instrument ?? '').trim())
+                              void Taro.navigateTo({
+                                url: `/pages/member-attendance/index?userId=${u.id}&sec=${sec}`,
+                              })
+                            }}
+                          >
+                            <View className='mr-3 h-10 w-10 shrink-0 overflow-hidden rounded-full'>
+                              {u.avatar_url ? (
+                                <StorageImage
+                                  src={u.avatar_url}
+                                  className='h-full w-full'
+                                  mode='aspectFill'
+                                />
+                              ) : (
+                                <DefaultAvatar />
                               )}
                             </View>
-                            {u.college?.trim() && !(u.hide_college && !isSelf) && (
-                              <Text className='mt-1 block text-xs text-text-muted'>
-                                {t('members.collegeLabel')}
-                                {u.college}
-                              </Text>
-                            )}
-                            {u.email && !(u.hide_email && !isSelf) && (
-                              <Text className='mt-1 block text-xs text-text-muted'>
-                                {t('members.emailLabel')}
-                                {u.email}
-                              </Text>
-                            )}
-                            {u.join_date && !(u.hide_join_date && !isSelf) && (
-                              <Text className='mt-1 block text-xs text-text-muted'>
-                                {t('members.joinDateLabel')}
-                                {translateJoinDate(u.join_date, t)}
-                                {/* 在团标记（"-" 连接）：true=团员，false=团友；null 未填写则不追加 */}
-                                {u.is_in_orchestra == null
-                                  ? ''
-                                  : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagAlumni')}`}
-                              </Text>
-                            )}
+                            <View className='min-w-0 flex-1'>
+                              <View className='flex flex-wrap items-center gap-1.5'>
+                                <Text className='text-base font-normal text-text'>
+                                  {u.full_name ?? '—'}
+                                </Text>
+                                {u.leadership_position === 'president' && (
+                                  <StatusChip tone='info'>{t('members.president')}</StatusChip>
+                                )}
+                                {u.leadership_position === 'vice_president' && (
+                                  <StatusChip tone='success'>
+                                    {t('members.vicePresident')}
+                                  </StatusChip>
+                                )}
+                                {u.is_section_leader && (
+                                  <StatusChip tone='warning'>
+                                    {t('members.sectionLeader')}
+                                  </StatusChip>
+                                )}
+                                {u.is_principal && (
+                                  <StatusChip tone='success'>{t('members.principal')}</StatusChip>
+                                )}
+                              </View>
+                              {u.college?.trim() && !(u.hide_college && !isSelf) && (
+                                <Text className='mt-1 block text-xs text-text-muted'>
+                                  {t('members.collegeLabel')}
+                                  {u.college}
+                                </Text>
+                              )}
+                              {u.email && !(u.hide_email && !isSelf) && (
+                                <Text className='mt-1 block text-xs text-text-muted'>
+                                  {t('members.emailLabel')}
+                                  {u.email}
+                                </Text>
+                              )}
+                              {u.join_date && !(u.hide_join_date && !isSelf) && (
+                                <Text className='mt-1 block text-xs text-text-muted'>
+                                  {t('members.joinDateLabel')}
+                                  {translateJoinDate(u.join_date, t)}
+                                  {/* 在团标记（"-" 连接）：true=团员，false=团友；null 未填写则不追加 */}
+                                  {u.is_in_orchestra == null
+                                    ? ''
+                                    : `-${u.is_in_orchestra ? t('members.tagMember') : t('members.tagAlumni')}`}
+                                </Text>
+                              )}
+                            </View>
                           </View>
-                        </View>
-                      )
-                    })}
+                        )
+                      })}
+                    </View>
                   </View>
-                </View>
-              ))}
-            </View>
-          </ListState>
-          <View style={{ height: `${8 * uiScale}px` }} />
-        </View>
+                ))}
+              </View>
+            </ListState>
+            <View style={{ height: `${8 * uiScale}px` }} />
+          </View>
+        )}
       </ScrollView>
     </View>
   )
