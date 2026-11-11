@@ -23,6 +23,14 @@ export type AttendanceRowLike = {
 export const ATTENDANCE_EDIT_OPTIONS = ['present', 'absent', 'excused'] as const
 export type AttendanceEditStatus = (typeof ATTENDANCE_EDIT_OPTIONS)[number]
 
+/**
+ * 团长直改的可选状态：全部 attendanceStatus。
+ * 与声部长/首席不同——团长可以覆盖系统计算的 exempt，也可以改存量 late
+ * （用户 2026-11-11：「团长应当什么都能改」）。
+ */
+export const ATTENDANCE_ALL_STATUSES = ['present', 'late', 'absent', 'excused', 'exempt'] as const
+export type AttendanceAllStatus = (typeof ATTENDANCE_ALL_STATUSES)[number]
+
 /** 状态 → StatusChip 色板；late 保留给存量数据展示 */
 export const ATTENDANCE_TONE: Record<AttendanceStatus, StatusTone> = {
   present: 'success',
@@ -56,14 +64,7 @@ function parseLocalDateTime(value: string): Date | null {
   const year = Number(m[1])
   const month = Number(m[2]) - 1
   const day = Number(m[3])
-  const d = new Date(
-    year,
-    month,
-    day,
-    Number(m[4] ?? 0),
-    Number(m[5] ?? 0),
-    Number(m[6] ?? 0)
-  )
+  const d = new Date(year, month, day, Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0))
   // 显式校验：Date 会把 2026-02-30 静默翻滚到 3 月
   if (d.getFullYear() !== year || d.getMonth() !== month || d.getDate() !== day) return null
   return d
@@ -147,10 +148,7 @@ export type AttendanceStats = {
 }
 
 /** 出勤/缺席/请假占比（排除 exempt 与未来；null 状态按缺席） */
-export function computeAttendanceStats(
-  rows: AttendanceRowLike[],
-  now: number
-): AttendanceStats {
+export function computeAttendanceStats(rows: AttendanceRowLike[], now: number): AttendanceStats {
   let present = 0
   let absent = 0
   let excused = 0

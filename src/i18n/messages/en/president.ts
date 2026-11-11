@@ -152,7 +152,6 @@ export const president = {
     noMatch: 'No matching members',
     emptyAttendance: 'No attendance records',
     peopleCount: '{count} members',
-    exemptLocked: 'Exempt — not editable',
     modify: 'Change',
     cancelEdit: 'Undo',
     changed: '{count} changed',

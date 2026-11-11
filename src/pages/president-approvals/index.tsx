@@ -212,7 +212,8 @@ export default function PresidentApprovalsPage() {
   const isSelectable = useCallback(
     (row: MembershipRow | LeaveRow | AttendanceRequestRow): boolean => {
       if (tab === 'membership') return !isSelf(row)
-      if (tab === 'leave') return (row as LeaveRow).status === 'pending' && !isSelf(row)
+      // 请假同样允许团长审批自己的申请（后端 president_decide_leave_request 已放开）
+      if (tab === 'leave') return (row as LeaveRow).status === 'pending'
       // 考勤修改允许团长审批自己提出的申请（后端 president_decide_attendance_change_request
       // 已放开自审）；请假 / 入团仍排除自己。
       return (row as AttendanceRequestRow).status === 'pending'
@@ -228,8 +229,7 @@ export default function PresidentApprovalsPage() {
   const counts = useMemo(
     () => ({
       membership: rows.membership.filter((row) => row.user_id !== currentUserId).length,
-      leave: rows.leave.filter((row) => row.status === 'pending' && row.user_id !== currentUserId)
-        .length,
+      leave: rows.leave.filter((row) => row.status === 'pending').length,
       attendance: rows.attendance.filter((row) => row.status === 'pending').length,
     }),
     [currentUserId, rows]

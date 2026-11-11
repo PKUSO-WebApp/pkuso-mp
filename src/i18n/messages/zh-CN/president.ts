@@ -151,7 +151,6 @@ export const president = {
     noMatch: '未找到匹配的成员',
     emptyAttendance: '暂无考勤记录',
     peopleCount: '共 {count} 人',
-    exemptLocked: '无需出勤不可修改',
     modify: '修改',
     cancelEdit: '撤销',
     changed: '已修改 {count} 条',
