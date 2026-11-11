@@ -1,18 +1,20 @@
 import { useState } from 'react'
-import { View, Text } from '@tarojs/components'
+import { View, Text, Textarea } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { Modal } from '@/components/ui/Modal'
 import { parseLocalISO, formatTime } from '@/lib/date-utils'
 import { useT } from '@/i18n'
+import { useMyCapabilities } from '@/hooks/useMyCapabilities'
+import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import type { ScheduleRow } from '@/types/database'
 
 type Props = {
   schedules: ScheduleRow[]
   selectedDate: string
-  /** 当前用户（用于判定是否为预约创建者，仅创建者可删除） */
+  /** 当前用户（用于判定是否为预约创建者；创建者/团长可删除人工预约） */
   user?: { id: string | undefined } | null
-  /** 删除预约（仅创建者本人可删除自己添加的预约） */
-  remove: (id: number, date?: string) => Promise<boolean>
+  /** 删除人工预约（影子预约不走这里，由排练详情页删除排练） */
+  remove: (id: number, date?: string, reason?: string) => Promise<boolean>
   /** 甘特图高度（px）：短屏保底 480，长屏按可用空间撑满；默认 480 */
   height?: number
   /** 同步读取作者名缓存（命中即时返回，未命中返回 null） */
@@ -59,18 +61,45 @@ export function ScheduleGantt({
   ensureAuthorName,
 }: Props) {
   const { t } = useT()
+  const placeholderStyle = usePlaceholderStyle()
+  const { hasCapability } = useMyCapabilities()
+  const canManageRehearsals = hasCapability('rehearsal')
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleRow | null>(null)
   const [displayAuthorName, setDisplayAuthorName] = useState<string | null>(null)
   const [loadingAuthor, setLoadingAuthor] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  /** 团长删别人的预约：先填原因（会发给作者） */
+  const [deleteReasonOpen, setDeleteReasonOpen] = useState(false)
+  const [deleteReason, setDeleteReason] = useState('')
 
-  // 当前用户是否为该预约的创建者（仅创建者可删除，Issue #142 移植）
+  // 当前用户是否为该预约的创建者（Issue #142 移植）
   const isAuthor = selectedSchedule?.author_id === user?.id
+  const isRehearsalSchedule = !!selectedSchedule?.rehearsal_id
+  // 影子预约不能直接删（删了排练还在）：团长从详情弹窗跳去排练详情页删排练
+  const canDelete = !isRehearsalSchedule && (isAuthor || canManageRehearsals)
+  // 团长删别人的预约要先填原因；删自己的不需要
+  const deletingOthers = !!selectedSchedule?.author_id && !isAuthor
 
-  // 删除预约：先确认，再调用 remove，成功后关闭弹窗；失败保留弹窗并提示
+  // 真正删除（reason 仅用于「团长删别人的预约」）
+  const performDelete = async (reason?: string) => {
+    if (!selectedSchedule || selectedSchedule.rehearsal_id) return
+    setDeleting(true)
+    setDeleteError(null)
+    const success = reason
+      ? await remove(selectedSchedule.id, selectedDate, reason)
+      : await remove(selectedSchedule.id, selectedDate)
+    setDeleting(false)
+    if (success) {
+      handleCloseModal()
+    } else {
+      setDeleteError(t('schedule.errors.deleteFailed'))
+    }
+  }
+
+  // 作者删自己的 / 无作者的孤儿：普通确认，无需原因
   const handleDelete = async () => {
-    if (!selectedSchedule) return
+    if (!selectedSchedule || selectedSchedule.rehearsal_id) return
     const res = await Taro.showModal({
       title: t('schedule.deleteReservation'),
       content: t('schedule.deleteConfirm', {
@@ -78,15 +107,15 @@ export function ScheduleGantt({
       }),
     })
     if (!res.confirm) return
-    setDeleting(true)
+    await performDelete()
+  }
+
+  // 团长删别人的预约：先填原因（后端会发给作者）
+  const handleDeleteOthers = () => {
+    if (!selectedSchedule || selectedSchedule.rehearsal_id) return
+    setDeleteReason('')
     setDeleteError(null)
-    const success = await remove(selectedSchedule.id, selectedDate)
-    setDeleting(false)
-    if (success) {
-      handleCloseModal()
-    } else {
-      setDeleteError(t('schedule.errors.deleteFailed'))
-    }
+    setDeleteReasonOpen(true)
   }
 
   // 计算每个预约的位置和高度（百分比定位，容器高度 480px 对应 24 小时）
@@ -195,6 +224,9 @@ export function ScheduleGantt({
   const handleCloseModal = () => {
     setSelectedSchedule(null)
     setDisplayAuthorName(null)
+    setDeleteReasonOpen(false)
+    setDeleteReason('')
+    setDeleteError(null)
   }
 
   return (
@@ -312,24 +344,106 @@ export function ScheduleGantt({
                 </Text>
               </View>
             )}
-            {/* 仅创建者可删除自己添加的预约（Issue #142 移植） */}
-            {isAuthor && (
+            {isRehearsalSchedule ? (
+              // 影子预约：删除入口引导到排练详情页（那里有「删除排练」，FK 会级联删影子）
+              canManageRehearsals && selectedSchedule.rehearsal_id ? (
+                <View className='mt-3 border-t border-border pt-2'>
+                  <Text className='mb-2 block text-xs text-text-muted'>
+                    {t('schedule.rehearsalShadowHint')}
+                  </Text>
+                  <View
+                    className='rounded-lg bg-primary py-2 text-center'
+                    onClick={() =>
+                      void Taro.navigateTo({
+                        url: `/pages/president-rehearsal-detail/index?id=${selectedSchedule.rehearsal_id}`,
+                      })
+                    }
+                  >
+                    <Text className='text-sm font-medium text-primary-foreground'>
+                      {t('schedule.openRehearsalDelete')}
+                    </Text>
+                  </View>
+                </View>
+              ) : null
+            ) : canDelete ? (
+              // 人工预约：作者本人或团长（rehearsal 能力）可删除
               <View className='mt-3 border-t border-border pt-2'>
                 <View
-                  className={`rounded-lg bg-danger py-2 text-center text-sm font-medium text-white ${
+                  className={`rounded-lg bg-danger py-2 text-center ${
                     deleting ? 'opacity-50' : ''
                   }`}
-                  onClick={deleting ? undefined : () => void handleDelete()}
+                  onClick={
+                    deleting
+                      ? undefined
+                      : deletingOthers
+                        ? handleDeleteOthers
+                        : () => void handleDelete()
+                  }
                 >
-                  {deleting ? t('schedule.deleting') : t('schedule.deleteReservation')}
+                  <Text className='text-sm font-medium text-danger-foreground'>
+                    {deleting ? t('schedule.deleting') : t('schedule.deleteReservation')}
+                  </Text>
                 </View>
                 {deleteError && (
                   <Text className='mt-2 block text-center text-sm text-danger'>{deleteError}</Text>
                 )}
               </View>
-            )}
+            ) : null}
           </View>
         )}
+      </Modal>
+
+      {/* 团长删别人的预约：原因会随系统通知发给作者 */}
+      <Modal
+        open={deleteReasonOpen}
+        onClose={() => !deleting && setDeleteReasonOpen(false)}
+        title={t('schedule.deleteReasonTitle')}
+        position='center'
+        closeOnOverlay={!deleting}
+      >
+        <Text className='block text-sm text-text-muted'>
+          {t('schedule.deleteReasonPrompt', {
+            title: selectedSchedule?.title || t('schedule.unnamed'),
+          })}
+        </Text>
+        <View className='mt-3 w-full overflow-hidden rounded-xl border border-border bg-muted px-3 py-2'>
+          <Textarea
+            value={deleteReason}
+            className='h-20 w-full bg-transparent text-sm text-text'
+            placeholder={t('schedule.deleteReasonPlaceholder')}
+            placeholderStyle={placeholderStyle}
+            maxlength={200}
+            onInput={(event) => setDeleteReason(event.detail.value)}
+          />
+        </View>
+        {deleteError && <Text className='mt-2 block text-sm text-danger'>{deleteError}</Text>}
+        <View className='mt-4 flex gap-2'>
+          <View
+            className='flex-1 rounded-xl border border-border bg-surface py-2 text-center'
+            onClick={() => {
+              if (!deleting) setDeleteReasonOpen(false)
+            }}
+          >
+            <Text className='text-sm text-text'>{t('common.actions.cancel')}</Text>
+          </View>
+          <View
+            className={`flex-1 rounded-xl py-2 text-center ${
+              deleteReason.trim() && !deleting ? 'bg-danger' : 'bg-muted'
+            }`}
+            onClick={() => {
+              if (!deleteReason.trim() || deleting) return
+              void performDelete(deleteReason.trim())
+            }}
+          >
+            <Text
+              className={`text-sm font-medium ${
+                deleteReason.trim() && !deleting ? 'text-danger-foreground' : 'text-text-muted'
+              }`}
+            >
+              {deleting ? t('schedule.deleting') : t('schedule.deleteReservation')}
+            </Text>
+          </View>
+        </View>
       </Modal>
     </>
   )

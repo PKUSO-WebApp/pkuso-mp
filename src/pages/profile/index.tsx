@@ -3,6 +3,7 @@ import { View, Text, ScrollView, Input } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import { StorageImage } from '@/components/ui/StorageImage'
 import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
+import { PresidentSection } from '@/components/profile/PresidentSection'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useThemeClass } from '@/context/theme-context'
@@ -73,7 +74,7 @@ export default function Profile() {
   // 通知栏目的未读徽章（>0 时显示，>99 折叠）；三个信箱与声部请假共用
   const unreadBadge = (count: number) =>
     count > 0 ? (
-      <View className='ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5'>
+      <View className='ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1.5'>
         <Text className='text-xs font-medium leading-none text-danger-foreground'>
           {count > 99 ? '99+' : count}
         </Text>
@@ -455,6 +456,8 @@ export default function Profile() {
               </View>
             </View>
           )}
+
+          <PresidentSection />
 
           {/* 通知栏目：各信箱入口，右侧未读数字徽章（>0 时显示）；声部请假仅声部长/首席可见 */}
           <View className='mt-6'>

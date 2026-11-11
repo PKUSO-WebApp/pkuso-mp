@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { usePageRestore } from '@/hooks/usePageRestore'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useMemberPreference } from '@/hooks/useMemberPreference'
+import { useMyCapabilities } from '@/hooks/useMyCapabilities'
 import { StatusChip } from '@/components/ui/StatusChip'
 import { PageLoading } from '@/components/ui/PageLoading'
 import { Spinner } from '@/components/ui/Spinner'
@@ -13,6 +14,7 @@ import { AttendanceCalendar } from '@/components/attendance/AttendanceCalendar'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { defaultSubPartNumbers, mergeSubPartOptions, resolveSubPartPolicy } from '@/lib/sub-parts'
 import {
+  ATTENDANCE_ALL_STATUSES,
   ATTENDANCE_EDIT_OPTIONS,
   ATTENDANCE_TONE,
   addMonths,
@@ -110,6 +112,14 @@ export default function MemberAttendancePage() {
   }, [user?.id, userId])
   const canPrefHint = canManage === true
 
+  /**
+   * 团长（attendance 能力）在本页是**直接修改**：同样的界面、同样的状态选择，
+   * 但保存时调 `president_update_attendance`，不产生修改申请，也没有理由输入框。
+   * 声部长/首席仍走 create/update_attendance_change_request。
+   */
+  const { hasCapability, loading: capsLoading } = useMyCapabilities()
+  const directMode = canManage === true && hasCapability('attendance')
+
   /** 默认分声部（P7'）：缓存优先、后台核对；见 useMemberPreference 的注释 */
   const {
     data: subPartData,
@@ -138,8 +148,7 @@ export default function MemberAttendancePage() {
     t('memberAttendance.subPart.unset'),
     ...subPartOptions.map((n) => t('memberAttendance.subPart.value', { n })),
   ]
-  const subPartPickerValue =
-    subPart == null ? 0 : Math.max(0, subPartOptions.indexOf(subPart) + 1)
+  const subPartPickerValue = subPart == null ? 0 : Math.max(0, subPartOptions.indexOf(subPart) + 1)
   /**
    * 显隐：弦乐没有分声部概念 → 整块不显示（已有历史值仍显示，好让用户清掉）；
    * 数据未到但按缓存 flags 判断可能有写权 → 先占位（加载态），别让卡片晚一拍才出现。
@@ -190,70 +199,84 @@ export default function MemberAttendancePage() {
         ? t('sectionLeave.type.full')
         : t('sectionLeave.type.rehearsal')
 
-  const load = useCallback(async (opts?: { silent?: boolean }) => {
-    const silent = opts?.silent === true
-    if (!userId) {
-      if (!silent) {
-        setLoading(false)
-        setFailed(true)
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true
+      if (!userId) {
+        if (!silent) {
+          setLoading(false)
+          setFailed(true)
+        }
+        return
       }
-      return
-    }
-    if (!silent) {
-      setLoading(true)
-      setFailed(false)
-    }
-    const [attendanceRes, pendingRes] = await Promise.all([
-      supabase
-        .from('attendances')
-        .select(
-          'id, status, rehearsal_id, rehearsals(id, type, target_section, start_time, end_time, location, repertoire)'
+      if (!silent) {
+        setLoading(true)
+        setFailed(false)
+      }
+      const [attendanceRes, pendingRes] = await Promise.all([
+        supabase
+          .from('attendances')
+          .select(
+            'id, status, rehearsal_id, rehearsals(id, type, target_section, start_time, end_time, location, repertoire)'
+          )
+          .eq('user_id', userId),
+        // 团长直改模式不看待审批申请：申请可能来自成员，和「直接修改」不是同一条路径
+        directMode
+          ? Promise.resolve({
+              data: [] as {
+                id: string
+                rehearsal_id: number
+                to_status: AttendanceStatus
+                reason: string | null
+              }[],
+              error: null,
+            })
+          : supabase
+              .from('attendance_change_requests')
+              .select('id, rehearsal_id, to_status, reason, status')
+              .eq('target_user_id', userId)
+              .eq('status', 'pending'),
+      ])
+
+      if (attendanceRes.error || pendingRes.error) {
+        // 静默刷新失败时保留当前列表：管理员改考勤不该让正在看的页面突然变成失败态
+        if (!silent) {
+          setLoading(false)
+          setFailed(true)
+        }
+        return
+      }
+
+      const list = ((attendanceRes.data as unknown as AttendanceWithRehearsal[]) ?? [])
+        .slice()
+        .sort((a, b) =>
+          (b.rehearsals?.start_time ?? '').localeCompare(a.rehearsals?.start_time ?? '')
         )
-        .eq('user_id', userId),
-      supabase
-        .from('attendance_change_requests')
-        .select('id, rehearsal_id, to_status, reason, status')
-        .eq('target_user_id', userId)
-        .eq('status', 'pending'),
-    ])
 
-    if (attendanceRes.error || pendingRes.error) {
-      // 静默刷新失败时保留当前列表：管理员改考勤不该让正在看的页面突然变成失败态
-      if (!silent) {
-        setLoading(false)
-        setFailed(true)
+      const pendingMap = new Map<number, PendingRequest>()
+      for (const p of (pendingRes.data as {
+        id: string
+        rehearsal_id: number
+        to_status: AttendanceStatus
+        reason: string | null
+      }[]) ?? []) {
+        pendingMap.set(p.rehearsal_id, { id: p.id, to_status: p.to_status, reason: p.reason })
       }
-      return
-    }
 
-    const list = ((attendanceRes.data as unknown as AttendanceWithRehearsal[]) ?? [])
-      .slice()
-      .sort((a, b) =>
-        (b.rehearsals?.start_time ?? '').localeCompare(a.rehearsals?.start_time ?? '')
+      setRows(list)
+      setPending(pendingMap)
+      setEdits(Object.fromEntries(list.map((r) => [r.rehearsal_id, r.status ?? 'absent'])))
+      setReasons(
+        Object.fromEntries(
+          list.map((r) => [r.rehearsal_id, pendingMap.get(r.rehearsal_id)?.reason ?? ''])
+        )
       )
-
-    const pendingMap = new Map<number, PendingRequest>()
-    for (const p of (pendingRes.data as {
-      id: string
-      rehearsal_id: number
-      to_status: AttendanceStatus
-      reason: string | null
-    }[]) ?? []) {
-      pendingMap.set(p.rehearsal_id, { id: p.id, to_status: p.to_status, reason: p.reason })
-    }
-
-    setRows(list)
-    setPending(pendingMap)
-    setEdits(Object.fromEntries(list.map((r) => [r.rehearsal_id, r.status ?? 'absent'])))
-    setReasons(
-      Object.fromEntries(
-        list.map((r) => [r.rehearsal_id, pendingMap.get(r.rehearsal_id)?.reason ?? ''])
-      )
-    )
-    setModifying(new Set())
-    setFailed(false)
-    if (!silent) setLoading(false)
-  }, [userId])
+      setModifying(new Set())
+      setFailed(false)
+      if (!silent) setLoading(false)
+    },
+    [directMode, userId]
+  )
 
   useEffect(() => {
     if (!userId) {
@@ -262,13 +285,13 @@ export default function MemberAttendancePage() {
       return
     }
     void fetchProfile()
-    if (canManage === true) {
+    if (canManage === true && !capsLoading) {
       void load()
-    } else {
+    } else if (canManage === false) {
       // 没有考勤管理权：详情页只展示个人信息，不跑考勤查询
       setLoading(false)
     }
-  }, [canManage, fetchProfile, load, userId])
+  }, [canManage, capsLoading, fetchProfile, load, userId])
 
   /** 真正需要提交的行：普通行比当前考勤；pending 行只在编辑态且状态/理由变了 */
   const changedRows = useMemo(
@@ -276,6 +299,8 @@ export default function MemberAttendancePage() {
       rows.filter((row) => {
         const p = pending.get(row.rehearsal_id)
         const selected = edits[row.rehearsal_id] ?? row.status ?? 'absent'
+        // 团长直改：只看「选中值 vs 当前值」，不存在待审批语义
+        if (directMode) return selected !== (row.status ?? 'absent')
         if (p) {
           if (!modifying.has(row.rehearsal_id)) return false
           const reasonChanged = (reasons[row.rehearsal_id] ?? '').trim() !== (p.reason ?? '').trim()
@@ -283,7 +308,7 @@ export default function MemberAttendancePage() {
         }
         return selected !== (row.status ?? 'absent')
       }),
-    [edits, modifying, pending, reasons, rows]
+    [directMode, edits, modifying, pending, reasons, rows]
   )
 
   // ---- 0.6.2 日历 + 占比 ----
@@ -292,13 +317,14 @@ export default function MemberAttendancePage() {
     let latest: string | null = null
     const now = Date.now()
     for (const row of rows) {
-      // 默认落到最近一个**可修改**的日期；未来 / exempt 与「无排练」同处理
-      if (!isEditableAttendanceRow(row, now)) continue
+      // 声部长/首席：默认落到最近一个**可修改**的日期（未来 / exempt 跳过）；
+      // 团长直改：全部日期都可改，不筛。
+      if (!directMode && !isEditableAttendanceRow(row, now)) continue
       const key = localDateKey(row.rehearsals?.start_time ?? null)
       if (key && (!latest || key > latest)) latest = key
     }
     return latest
-  }, [rows])
+  }, [directMode, rows])
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = new Date()
@@ -320,15 +346,12 @@ export default function MemberAttendancePage() {
   const stats = useMemo(() => computeAttendanceStats(rows, Date.now()), [rows])
   const percent = (n: number, total: number): number =>
     total > 0 ? Math.round((n / total) * 100) : 0
-  const selectedRows = useMemo(
-    () =>
-      selectedDate
-        ? (byDate.get(selectedDate) ?? []).filter((row) =>
-            isEditableAttendanceRow(row, Date.now())
-          )
-        : [],
-    [byDate, selectedDate]
-  )
+  const selectedRows = useMemo(() => {
+    if (!selectedDate) return []
+    const dayRows = byDate.get(selectedDate) ?? []
+    // 团长直改：exempt / 未来也能改；声部长/首席保持原可编辑判据
+    return directMode ? dayRows : dayRows.filter((row) => isEditableAttendanceRow(row, Date.now()))
+  }, [byDate, directMode, selectedDate])
   /** 提交只针对**当前展开的那一天**（产品 2026-11-10 定） */
   const selectedDayChangedRows = useMemo(
     () =>
@@ -435,8 +458,7 @@ export default function MemberAttendancePage() {
       return t('memberAttendance.errors.attendanceMissing')
     if (message.includes('exempt_not_editable'))
       return t('memberAttendance.errors.exemptNotEditable')
-    if (message.includes('exempt_not_allowed'))
-      return t('memberAttendance.errors.exemptNotAllowed')
+    if (message.includes('exempt_not_allowed')) return t('memberAttendance.errors.exemptNotAllowed')
     if (message.includes('not_allowed') || message.includes('not_request_owner'))
       return t('memberAttendance.errors.notAllowed')
     if (message.includes('request_not_pending') || message.includes('request_not_found'))
@@ -444,10 +466,66 @@ export default function MemberAttendancePage() {
     return t('memberAttendance.errors.generic')
   }
 
+  const mapDirectError = (code: string): string => {
+    if (code.includes('exempt_not_editable')) {
+      return t('memberAttendance.errors.exemptNotEditable')
+    }
+    if (code.includes('member_not_found') || code.includes('attendance_missing')) {
+      return t('memberAttendance.errors.attendanceMissing')
+    }
+    return t('memberAttendance.errors.generic')
+  }
+
   const handleSubmit = async () => {
     if (selectedDayChangedRows.length === 0 || submittingRef.current) return
     submittingRef.current = true
     setSubmitting(true)
+
+    // 团长：逐条直改，不产生申请、不填理由
+    if (directMode) {
+      let directOk = 0
+      const failedIds = new Set<number>()
+      const failedEdits: Record<number, AttendanceStatus> = {}
+      let firstCode = ''
+      try {
+        for (const row of selectedDayChangedRows) {
+          const status = edits[row.rehearsal_id]
+          const { data, error } = await supabase.rpc('president_update_attendance', {
+            p_rehearsal_id: row.rehearsal_id,
+            p_user_id: userId,
+            p_status: status,
+          })
+          const result = data as { ok?: boolean; code?: string } | null
+          if (error || !result?.ok) {
+            failedIds.add(row.rehearsal_id)
+            failedEdits[row.rehearsal_id] = status
+            firstCode = error?.message ?? result?.code ?? ''
+          } else {
+            directOk += 1
+          }
+        }
+      } finally {
+        submittingRef.current = false
+        setSubmitting(false)
+      }
+      if (directOk > 0) await load()
+      // 成功行由 load 刷新成库值；失败行保留用户的选择，方便直接重试
+      if (failedIds.size > 0) setEdits(failedEdits)
+      if (failedIds.size > 0) {
+        void Taro.showModal({
+          title: t('memberAttendance.directSaveResult', {
+            ok: directOk,
+            failed: failedIds.size,
+          }),
+          content: mapDirectError(firstCode),
+          showCancel: false,
+        })
+      } else {
+        void Taro.showToast({ title: t('memberAttendance.directSaved'), icon: 'success' })
+      }
+      return
+    }
+
     let ok = 0
     let failedCount = 0
     let firstError = ''
@@ -540,6 +618,12 @@ export default function MemberAttendancePage() {
 
   const memberInfoPending = profileLoading && !member
   const memberInfoFailed = !!profileError && !member
+  // 等 canManage 与团长能力都就绪再决定「申请」还是「直改」，避免先闪一下申请界面
+  const attendanceAccessPending = canManage === null || (canManage === true && capsLoading)
+  const submitLabel = directMode ? t('memberAttendance.directSave') : t('memberAttendance.submit')
+  const submittingLabel = directMode
+    ? t('memberAttendance.directSaving')
+    : t('memberAttendance.submitting')
 
   // 0.6.2：资料没回来之前只显示**一个**加载态（转圈），别把下面各区块的占位一起叠出来
   if (memberInfoPending) {
@@ -563,292 +647,309 @@ export default function MemberAttendancePage() {
           {member ? <ProfileInfoView profile={member} viewerId={user?.id ?? null} /> : null}
 
           {/* 没有考勤管理权：只展示个人信息（详情页对所有成员开放） */}
-          {canManage === null ? (
+          {attendanceAccessPending ? (
             <View className='mt-3 flex justify-center rounded-xl border border-border bg-card p-6'>
               <Spinner size='sm' />
             </View>
           ) : null}
 
-          {canManage === true ? (
+          {canManage === true && !capsLoading ? (
             <>
-
-          {/* 默认分声部：有写权才显示；弦乐整块不出（已有历史值例外，便于清除）；
+              {/* 默认分声部：有写权才显示；弦乐整块不出（已有历史值例外，便于清除）；
               打击乐等暂未定义范围，只给「未设置」 */}
-          {showSubPartCard ? (
-            <View className='mt-3 rounded-xl border border-border bg-card p-4'>
-              <View className='flex flex-row items-center justify-between'>
-                <Text className='text-sm font-medium text-text'>
-                  {t('memberAttendance.subPart.title')}
-                </Text>
-                {savingSubPart ? (
-                  <Text className='text-xs text-text-muted'>
-                    {t('memberAttendance.subPart.saving')}
-                  </Text>
-                ) : null}
-              </View>
-              <Text className='mt-1 block text-xs leading-relaxed text-text-muted'>
-                {t('memberAttendance.subPart.hint')}
-              </Text>
-              {subPartData ? (
-                <>
-                  {subPartPolicy === 'unset-only' ? (
-                    <Text className='mt-1 block text-xs text-text-subtle'>
-                      {t('memberAttendance.subPart.noRange')}
+              {showSubPartCard ? (
+                <View className='mt-3 rounded-xl border border-border bg-card p-4'>
+                  <View className='flex flex-row items-center justify-between'>
+                    <Text className='text-sm font-medium text-text'>
+                      {t('memberAttendance.subPart.title')}
                     </Text>
-                  ) : null}
-                  <Picker
-                    mode='selector'
-                    disabled={subPartOptions.length === 0}
-                    range={subPartLabels}
-                    value={subPartPickerValue}
-                    onChange={(e) => void changeSubPart(Number(e.detail.value))}
-                  >
-                    <View className='mt-3 flex flex-row items-center justify-between rounded-xl border border-border bg-muted px-3 py-2'>
-                      <Text className='text-sm text-text'>{subPartLabels[subPartPickerValue]}</Text>
-                      <Text className='text-lg text-text-muted'>›</Text>
-                    </View>
-                  </Picker>
-                </>
-              ) : (
-                // 条件还没回来：用无文字的骨架占位，避免再叠一条「加载中」
-                <View className='mt-3'>
-                  <View className='h-10 w-full rounded-xl bg-muted' />
-                </View>
-              )}
-            </View>
-          ) : null}
-
-          {!loading && !failed ? (
-            <>
-          {/* 出勤占比：排除 exempt 与未来；late 归入出勤（0.6.2） */}
-          <View className='mt-3 rounded-xl border border-border bg-card p-4'>
-            <Text className='text-sm font-medium text-text'>
-              {t('memberAttendance.progress.title')}
-            </Text>
-            {stats.total > 0 ? (
-              <>
-                <View className='mt-2 flex h-3 w-full flex-row overflow-hidden rounded-full bg-muted'>
-                  {stats.present > 0 ? (
-                    <View
-                      className='h-full bg-success'
-                      style={{ width: `${(stats.present / stats.total) * 100}%` }}
-                    />
-                  ) : null}
-                  {stats.absent > 0 ? (
-                    <View
-                      className='h-full bg-danger'
-                      style={{ width: `${(stats.absent / stats.total) * 100}%` }}
-                    />
-                  ) : null}
-                  {stats.excused > 0 ? (
-                    <View
-                      className='h-full bg-info'
-                      style={{ width: `${(stats.excused / stats.total) * 100}%` }}
-                    />
-                  ) : null}
-                </View>
-                <View className='mt-2 flex flex-row flex-wrap gap-x-3 gap-y-1'>
-                  <Text className='text-xs text-success'>
-                    {t('memberAttendance.progress.present', {
-                      n: percent(stats.present, stats.total),
-                    })}
-                  </Text>
-                  <Text className='text-xs text-danger'>
-                    {t('memberAttendance.progress.absent', {
-                      n: percent(stats.absent, stats.total),
-                    })}
-                  </Text>
-                  <Text className='text-xs text-info'>
-                    {t('memberAttendance.progress.excused', {
-                      n: percent(stats.excused, stats.total),
-                    })}
-                  </Text>
-                </View>
-              </>
-            ) : (
-              <Text className='mt-2 block text-xs text-text-muted'>
-                {t('memberAttendance.progress.empty')}
-              </Text>
-            )}
-          </View>
-
-          <View className='mt-3'>
-            <AttendanceCalendar
-              year={calendarMonth.year}
-              month={calendarMonth.month}
-              byDate={byDate}
-              selectedDate={selectedDate}
-              onSelect={selectDate}
-              onMonthChange={changeMonth}
-              now={Date.now()}
-            />
-          </View>
-            </>
-          ) : null}
-
-          {/* 当天排练：点日历里有排练的日期后显示 */}
-          {loading ? (
-            <View className='mt-3 flex justify-center rounded-xl border border-border bg-card p-6'>
-              <Spinner size='sm' />
-            </View>
-          ) : failed ? (
-            <View className='mt-3 rounded-xl border border-border bg-card p-4'>
-              <Text className='text-sm text-danger'>{t('memberAttendance.loadFailed')}</Text>
-              <View className='mt-2' onClick={() => void load()}>
-                <Text className='text-xs text-primary'>{t('memberAttendance.retry')}</Text>
-              </View>
-            </View>
-          ) : selectedDate ? (
-            <View id='member-attendance-day' className='mt-3'>
-              <Text className='mb-2 block text-sm font-medium text-text'>
-                {t('memberAttendance.day.title', {
-                  date: selectedDate,
-                  n: selectedRows.length,
-                })}
-              </Text>
-              {selectedRows.length === 0 ? (
-                <Text className='block rounded-xl border border-border bg-card p-4 text-sm text-text-muted'>
-                  {t('memberAttendance.day.empty')}
-                </Text>
-              ) : (
-                selectedRows.map((row) => {
-              const rehearsal = row.rehearsals
-              const typeText = rehearsalTypeLabel(rehearsal?.type ?? null)
-              const timeText = rehearsal?.start_time
-                ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
-                : t('sectionLeave.timeUnset')
-              const p = pending.get(row.rehearsal_id)
-              const isModifying = modifying.has(row.rehearsal_id)
-              const selected = edits[row.rehearsal_id] ?? row.status ?? 'absent'
-              const original = row.status ?? 'absent'
-              const showEditor = !p || isModifying
-              // 0.6.2：textarea 始终显示（即使还没改状态）
-              const showReason = showEditor
-              return (
-                <View
-                  key={row.rehearsal_id}
-                  className='mb-3 rounded-xl border border-border bg-card p-4'
-                >
-                  <Text className='block text-base font-semibold text-primary'>{timeText}</Text>
-                  <View className='mt-1 flex flex-wrap items-center gap-1.5'>
-                    <Text className='text-xs text-text-muted'>{typeText}</Text>
-                    {rehearsal?.repertoire && (
-                      <Text className='text-xs text-text-muted'>· {rehearsal.repertoire}</Text>
-                    )}
-                    {p && <StatusChip tone='warning'>{t('memberAttendance.pending')}</StatusChip>}
+                    {savingSubPart ? (
+                      <Text className='text-xs text-text-muted'>
+                        {t('memberAttendance.subPart.saving')}
+                      </Text>
+                    ) : null}
                   </View>
-                  <View className='mt-1 flex flex-wrap items-center gap-1.5'>
-                    <Text className='text-xs text-text-muted'>
-                      {t('memberAttendance.currentStatus')}
-                    </Text>
-                    <StatusChip tone={ATTENDANCE_TONE[original]}>
-                      {statusLabels[original]}
-                    </StatusChip>
-                  </View>
-
-                  {p && !isModifying ? (
+                  <Text className='mt-1 block text-xs leading-relaxed text-text-muted'>
+                    {t('memberAttendance.subPart.hint')}
+                  </Text>
+                  {subPartData ? (
                     <>
-                      <View className='mt-2 flex flex-wrap items-center gap-1.5'>
-                        <Text className='text-xs text-text-muted'>
-                          {t('memberAttendance.requestedStatus')}
-                        </Text>
-                        <StatusChip tone={ATTENDANCE_TONE[p.to_status]}>
-                          {statusLabels[p.to_status]}
-                        </StatusChip>
-                      </View>
-                      {p.reason ? (
-                        <Text className='mt-1 block text-xs text-text-muted'>
-                          {t('memberAttendance.reasonLabel')}
-                          {p.reason}
+                      {subPartPolicy === 'unset-only' ? (
+                        <Text className='mt-1 block text-xs text-text-subtle'>
+                          {t('memberAttendance.subPart.noRange')}
                         </Text>
                       ) : null}
-                      <View className='mt-3 flex flex-row gap-2'>
-                        <View
-                          className='flex-1 rounded-full border border-border bg-card px-3 py-2 text-center'
-                          onClick={() => confirmCancel(p.id)}
-                        >
-                          <Text className='text-xs text-danger'>
-                            {t('memberAttendance.cancelRequest')}
+                      <Picker
+                        mode='selector'
+                        disabled={subPartOptions.length === 0}
+                        range={subPartLabels}
+                        value={subPartPickerValue}
+                        onChange={(e) => void changeSubPart(Number(e.detail.value))}
+                      >
+                        <View className='mt-3 flex flex-row items-center justify-between rounded-xl border border-border bg-muted px-3 py-2'>
+                          <Text className='text-sm text-text'>
+                            {subPartLabels[subPartPickerValue]}
                           </Text>
+                          <Text className='text-lg text-text-muted'>›</Text>
                         </View>
-                        <View
-                          className='flex-1 rounded-full border border-border bg-card px-3 py-2 text-center'
-                          onClick={() => startModify(row.rehearsal_id, p)}
-                        >
-                          <Text className='text-xs text-text'>
-                            {t('memberAttendance.modifyRequest')}
-                          </Text>
-                        </View>
-                      </View>
+                      </Picker>
                     </>
                   ) : (
-                    <>
-                      <View className='mt-2 flex flex-wrap gap-1.5'>
-                        {ATTENDANCE_EDIT_OPTIONS.map((status) => {
-                          const active = selected === status
-                          return (
-                            <View
-                              key={status}
-                              className={`rounded-full border-2 ${
-                                active ? 'border-primary' : 'border-transparent'
-                              }`}
-                              onClick={() =>
-                                setEdits((prev) => ({
-                                  ...prev,
-                                  [row.rehearsal_id]: status,
-                                }))
-                              }
-                            >
-                              <StatusChip tone={ATTENDANCE_TONE[status]}>
-                                {statusLabels[status]}
-                              </StatusChip>
-                            </View>
-                          )
-                        })}
-                      </View>
-
-                      {showReason ? (
-                        <View className='mt-2'>
-                          <View className='w-full overflow-hidden rounded-xl border border-border bg-muted px-3 py-2'>
-                            <Textarea
-                              className='h-16 w-full bg-transparent text-sm text-text'
-                              value={reasons[row.rehearsal_id] ?? ''}
-                              onInput={(e) =>
-                                setReasons((prev) => ({
-                                  ...prev,
-                                  [row.rehearsal_id]: e.detail.value,
-                                }))
-                              }
-                              placeholder={t('memberAttendance.reasonPlaceholder')}
-                              placeholderStyle={placeholderStyle}
-                              maxlength={200}
-                            />
-                          </View>
-                        </View>
-                      ) : null}
-
-                      {p && isModifying ? (
-                        <View
-                          className='mt-2 flex flex-row justify-end'
-                          onClick={() => stopModify(row, p)}
-                        >
-                          <Text className='text-xs text-text-muted'>
-                            {t('memberAttendance.cancelEdit')}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </>
+                    // 条件还没回来：用无文字的骨架占位，避免再叠一条「加载中」
+                    <View className='mt-3'>
+                      <View className='h-10 w-full rounded-xl bg-muted' />
+                    </View>
                   )}
                 </View>
-              )
-                })
+              ) : null}
+
+              {!loading && !failed ? (
+                <>
+                  {/* 出勤占比：排除 exempt 与未来；late 归入出勤（0.6.2） */}
+                  <View className='mt-3 rounded-xl border border-border bg-card p-4'>
+                    <Text className='text-sm font-medium text-text'>
+                      {t('memberAttendance.progress.title')}
+                    </Text>
+                    {stats.total > 0 ? (
+                      <>
+                        <View className='mt-2 flex h-3 w-full flex-row overflow-hidden rounded-full bg-muted'>
+                          {stats.present > 0 ? (
+                            <View
+                              className='h-full bg-success'
+                              style={{ width: `${(stats.present / stats.total) * 100}%` }}
+                            />
+                          ) : null}
+                          {stats.absent > 0 ? (
+                            <View
+                              className='h-full bg-danger'
+                              style={{ width: `${(stats.absent / stats.total) * 100}%` }}
+                            />
+                          ) : null}
+                          {stats.excused > 0 ? (
+                            <View
+                              className='h-full bg-info'
+                              style={{ width: `${(stats.excused / stats.total) * 100}%` }}
+                            />
+                          ) : null}
+                        </View>
+                        <View className='mt-2 flex flex-row flex-wrap gap-x-3 gap-y-1'>
+                          <Text className='text-xs text-success'>
+                            {t('memberAttendance.progress.present', {
+                              n: percent(stats.present, stats.total),
+                            })}
+                          </Text>
+                          <Text className='text-xs text-danger'>
+                            {t('memberAttendance.progress.absent', {
+                              n: percent(stats.absent, stats.total),
+                            })}
+                          </Text>
+                          <Text className='text-xs text-info'>
+                            {t('memberAttendance.progress.excused', {
+                              n: percent(stats.excused, stats.total),
+                            })}
+                          </Text>
+                        </View>
+                      </>
+                    ) : (
+                      <Text className='mt-2 block text-xs text-text-muted'>
+                        {t('memberAttendance.progress.empty')}
+                      </Text>
+                    )}
+                  </View>
+
+                  <View className='mt-3'>
+                    <AttendanceCalendar
+                      year={calendarMonth.year}
+                      month={calendarMonth.month}
+                      byDate={byDate}
+                      selectedDate={selectedDate}
+                      onSelect={selectDate}
+                      onMonthChange={changeMonth}
+                      now={Date.now()}
+                    />
+                  </View>
+                </>
+              ) : null}
+
+              {/* 当天排练：点日历里有排练的日期后显示 */}
+              {loading ? (
+                <View className='mt-3 flex justify-center rounded-xl border border-border bg-card p-6'>
+                  <Spinner size='sm' />
+                </View>
+              ) : failed ? (
+                <View className='mt-3 rounded-xl border border-border bg-card p-4'>
+                  <Text className='text-sm text-danger'>{t('memberAttendance.loadFailed')}</Text>
+                  <View className='mt-2' onClick={() => void load()}>
+                    <Text className='text-xs text-primary'>{t('memberAttendance.retry')}</Text>
+                  </View>
+                </View>
+              ) : selectedDate ? (
+                <View id='member-attendance-day' className='mt-3'>
+                  {directMode ? (
+                    <Text className='mb-2 block text-xs text-text-muted'>
+                      {t('memberAttendance.directHint')}
+                    </Text>
+                  ) : null}
+                  <Text className='mb-2 block text-sm font-medium text-text'>
+                    {t('memberAttendance.day.title', {
+                      date: selectedDate,
+                      n: selectedRows.length,
+                    })}
+                  </Text>
+                  {selectedRows.length === 0 ? (
+                    <Text className='block rounded-xl border border-border bg-card p-4 text-sm text-text-muted'>
+                      {t('memberAttendance.day.empty')}
+                    </Text>
+                  ) : (
+                    selectedRows.map((row) => {
+                      const rehearsal = row.rehearsals
+                      const typeText = rehearsalTypeLabel(rehearsal?.type ?? null)
+                      const timeText = rehearsal?.start_time
+                        ? formatRehearsalRange(rehearsal.start_time, rehearsal.end_time ?? null)
+                        : t('sectionLeave.timeUnset')
+                      const p = pending.get(row.rehearsal_id)
+                      const isModifying = modifying.has(row.rehearsal_id)
+                      const selected = edits[row.rehearsal_id] ?? row.status ?? 'absent'
+                      const original = row.status ?? 'absent'
+                      const showEditor = !p || isModifying
+                      // 0.6.2：textarea 始终显示（即使还没改状态）；团长直改不需要理由
+                      const showReason = showEditor && !directMode
+                      return (
+                        <View
+                          key={row.rehearsal_id}
+                          className='mb-3 rounded-xl border border-border bg-card p-4'
+                        >
+                          <Text className='block text-base font-semibold text-primary'>
+                            {timeText}
+                          </Text>
+                          <View className='mt-1 flex flex-wrap items-center gap-1.5'>
+                            <Text className='text-xs text-text-muted'>{typeText}</Text>
+                            {rehearsal?.repertoire && (
+                              <Text className='text-xs text-text-muted'>
+                                · {rehearsal.repertoire}
+                              </Text>
+                            )}
+                            {p && (
+                              <StatusChip tone='warning'>
+                                {t('memberAttendance.pending')}
+                              </StatusChip>
+                            )}
+                          </View>
+                          <View className='mt-1 flex flex-wrap items-center gap-1.5'>
+                            <Text className='text-xs text-text-muted'>
+                              {t('memberAttendance.currentStatus')}
+                            </Text>
+                            <StatusChip tone={ATTENDANCE_TONE[original]}>
+                              {statusLabels[original]}
+                            </StatusChip>
+                          </View>
+
+                          {p && !isModifying ? (
+                            <>
+                              <View className='mt-2 flex flex-wrap items-center gap-1.5'>
+                                <Text className='text-xs text-text-muted'>
+                                  {t('memberAttendance.requestedStatus')}
+                                </Text>
+                                <StatusChip tone={ATTENDANCE_TONE[p.to_status]}>
+                                  {statusLabels[p.to_status]}
+                                </StatusChip>
+                              </View>
+                              {p.reason ? (
+                                <Text className='mt-1 block text-xs text-text-muted'>
+                                  {t('memberAttendance.reasonLabel')}
+                                  {p.reason}
+                                </Text>
+                              ) : null}
+                              <View className='mt-3 flex flex-row gap-2'>
+                                <View
+                                  className='flex-1 rounded-full border border-border bg-card px-3 py-2 text-center'
+                                  onClick={() => confirmCancel(p.id)}
+                                >
+                                  <Text className='text-xs text-danger'>
+                                    {t('memberAttendance.cancelRequest')}
+                                  </Text>
+                                </View>
+                                <View
+                                  className='flex-1 rounded-full border border-border bg-card px-3 py-2 text-center'
+                                  onClick={() => startModify(row.rehearsal_id, p)}
+                                >
+                                  <Text className='text-xs text-text'>
+                                    {t('memberAttendance.modifyRequest')}
+                                  </Text>
+                                </View>
+                              </View>
+                            </>
+                          ) : (
+                            <>
+                              <View className='mt-2 flex flex-wrap gap-1.5'>
+                                {(directMode
+                                  ? ATTENDANCE_ALL_STATUSES
+                                  : ATTENDANCE_EDIT_OPTIONS
+                                ).map((status) => {
+                                  const active = selected === status
+                                  return (
+                                    <View
+                                      key={status}
+                                      className={`rounded-full border-2 ${
+                                        active ? 'border-primary' : 'border-transparent'
+                                      }`}
+                                      onClick={() =>
+                                        setEdits((prev) => ({
+                                          ...prev,
+                                          [row.rehearsal_id]: status,
+                                        }))
+                                      }
+                                    >
+                                      <StatusChip tone={ATTENDANCE_TONE[status]}>
+                                        {statusLabels[status]}
+                                      </StatusChip>
+                                    </View>
+                                  )
+                                })}
+                              </View>
+
+                              {showReason ? (
+                                <View className='mt-2'>
+                                  <View className='w-full overflow-hidden rounded-xl border border-border bg-muted px-3 py-2'>
+                                    <Textarea
+                                      className='h-16 w-full bg-transparent text-sm text-text'
+                                      value={reasons[row.rehearsal_id] ?? ''}
+                                      onInput={(e) =>
+                                        setReasons((prev) => ({
+                                          ...prev,
+                                          [row.rehearsal_id]: e.detail.value,
+                                        }))
+                                      }
+                                      placeholder={t('memberAttendance.reasonPlaceholder')}
+                                      placeholderStyle={placeholderStyle}
+                                      maxlength={200}
+                                    />
+                                  </View>
+                                </View>
+                              ) : null}
+
+                              {p && isModifying ? (
+                                <View
+                                  className='mt-2 flex flex-row justify-end'
+                                  onClick={() => stopModify(row, p)}
+                                >
+                                  <Text className='text-xs text-text-muted'>
+                                    {t('memberAttendance.cancelEdit')}
+                                  </Text>
+                                </View>
+                              ) : null}
+                            </>
+                          )}
+                        </View>
+                      )
+                    })
+                  )}
+                </View>
+              ) : (
+                <Text className='mt-3 block rounded-xl border border-border bg-card p-4 text-sm text-text-muted'>
+                  {t('memberAttendance.day.pick')}
+                </Text>
               )}
-            </View>
-          ) : (
-            <Text className='mt-3 block rounded-xl border border-border bg-card p-4 text-sm text-text-muted'>
-              {t('memberAttendance.day.pick')}
-            </Text>
-          )}
             </>
           ) : null}
         </View>
@@ -869,7 +970,7 @@ export default function MemberAttendancePage() {
                 !submitting ? 'text-primary-foreground' : 'text-text-muted'
               }`}
             >
-              {submitting ? t('memberAttendance.submitting') : t('memberAttendance.submit')}
+              {submitting ? submittingLabel : submitLabel}
             </Text>
           </View>
         </View>

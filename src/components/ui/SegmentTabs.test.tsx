@@ -32,6 +32,20 @@ describe('SegmentTabs', () => {
     expect(screen.getByText('已驳回')).toBeTruthy()
   })
 
+  it('tab 右侧渲染带样式的未处理数徽章', () => {
+    render(
+      <SegmentTabs
+        tabs={[
+          { key: 'all', label: '全部', badge: 1 },
+          { key: 'leave', label: '请假' },
+        ]}
+        value='all'
+        onChange={vi.fn()}
+      />
+    )
+    expect(screen.getByText('1')).toBeTruthy()
+  })
+
   it('点击非激活 tab 回调对应 key', () => {
     const onChange = vi.fn()
     render(<SegmentTabs tabs={tabs} value='all' onChange={onChange} />)

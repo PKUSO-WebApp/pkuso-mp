@@ -64,6 +64,10 @@ function mockClient<T>(responses: T[]) {
         },
       }),
     }),
+    rpc: (...args: unknown[]) => {
+      calls.push(`rpc(${args.map((a) => JSON.stringify(a)).join(', ')})`)
+      return Promise.resolve(responses[i++])
+    },
     __calls: calls,
     functions: { invoke: vi.fn().mockResolvedValue({ data: { result: 'pass' }, error: null }) },
   }
@@ -157,17 +161,21 @@ describe('useSchedule', () => {
         error: null,
       }, // fetchAll schedules
       { data: [{ id: 'user-1', full_name: '张三' }], error: null }, // fetchAll profiles_roster
-      { data: null, error: null }, // schedules.delete
+      { data: { ok: true }, error: null }, // delete_schedule_booking RPC
       { data: [], error: null }, // re-fetchAll schedules
     ])
     const { result } = renderHook(() => useSchedule(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     const ok = await act(async () => {
-      return await result.current.remove(1)
+      return await result.current.remove(1, undefined, '场地调整')
     })
     expect(ok).toBe(true)
     await waitFor(() => expect(result.current.data).toEqual([]))
+    // 确认走的是带原因的 RPC，而不是直接 DELETE
+    expect((c as unknown as { __calls: string[] }).__calls).toContain(
+      'rpc("delete_schedule_booking", {"p_schedule_id":1,"p_reason":"场地调整"})'
+    )
   })
 
   it('fetch(date) 走缓存同步返回当天切片', async () => {
@@ -270,6 +278,7 @@ describe('useSchedule', () => {
             {
               id: 1,
               rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
+              author_id: 'user-1',
               start_time: '2024-01-01T14:30:00',
               end_time: '2024-01-01T15:30:00',
             },
@@ -286,6 +295,34 @@ describe('useSchedule', () => {
       })
 
       expect(conflictResult).toBe('该时间段已有其他预约')
+    })
+
+    it('历史孤儿影子预约（author_id 与 rehearsal_id 都为 null）不误报冲突', async () => {
+      const c = mockClient([
+        { data: [], error: null }, // 初始 fetchAll
+        {
+          data: [
+            {
+              id: 1,
+              rehearsal_id: null,
+              author_id: null,
+              title: '排练',
+              start_time: '2024-01-01T14:30:00',
+              end_time: '2024-01-01T15:30:00',
+            },
+          ],
+          error: null,
+        }, // checkConflict 的 fetchAll：外键 SET NULL 留下的孤儿影子
+        { data: [], error: null }, // rehearsals query
+      ])
+      const { result } = renderHook(() => useSchedule(c as never))
+      await waitFor(() => expect(result.current.loading).toBe(false))
+
+      const conflictResult = await act(async () => {
+        return await result.current.checkConflict('2024-01-01', '14:00', '2024-01-01', '15:00')
+      })
+
+      expect(conflictResult).toBeNull()
     })
 
     it('与已有排练时间冲突（RPC 检测）', async () => {
@@ -439,6 +476,7 @@ describe('useSchedule', () => {
             {
               id: 1,
               rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
+              author_id: 'user-1',
               start_time: '2024-01-01 14:30:00',
               end_time: '2024-01-01 15:30:00',
             },
@@ -465,12 +503,14 @@ describe('useSchedule', () => {
             {
               id: 1,
               rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
+              author_id: 'user-1',
               start_time: '${TEST_TODAY}T13:00:00',
               end_time: '${TEST_TODAY}T14:00:00',
             },
           ],
           error: null,
-        }, // fetchAll
+        }, // fetchAll（带 author_id → 会补查 profiles_roster）
+        { data: [], error: null }, // profiles_roster
         { data: [], error: null }, // rehearsals query
       ])
       const { result } = renderHook(() => useSchedule(c as never))
@@ -491,12 +531,14 @@ describe('useSchedule', () => {
             {
               id: 1,
               rehearsal_id: null, // 人工预约（rehearsal_id 为 null）
+              author_id: 'user-1',
               start_time: '${TEST_TODAY}T15:00:00',
               end_time: '${TEST_TODAY}T16:00:00',
             },
           ],
           error: null,
-        }, // fetchAll
+        }, // fetchAll（带 author_id → 会补查 profiles_roster）
+        { data: [], error: null }, // profiles_roster
         { data: [], error: null }, // rehearsals query
       ])
       const { result } = renderHook(() => useSchedule(c as never))
