@@ -388,6 +388,56 @@ export type Database = {
           },
         ]
       }
+      leadership_positions: {
+        Row: {
+          appointed_at: string
+          appointed_by: string | null
+          position: Database["public"]["Enums"]["leadershipPosition"]
+          user_id: string
+        }
+        Insert: {
+          appointed_at?: string
+          appointed_by?: string | null
+          position: Database["public"]["Enums"]["leadershipPosition"]
+          user_id: string
+        }
+        Update: {
+          appointed_at?: string
+          appointed_by?: string | null
+          position?: Database["public"]["Enums"]["leadershipPosition"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leadership_positions_appointed_by_fkey"
+            columns: ["appointed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leadership_positions_appointed_by_fkey"
+            columns: ["appointed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leadership_positions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leadership_positions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles_roster"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leave_requests: {
         Row: {
           attachment_url: string | null
@@ -1980,53 +2030,12 @@ export type Database = {
           is_principal: boolean | null
           is_section_leader: boolean | null
           join_date: string | null
+          leadership_position:
+            | Database["public"]["Enums"]["leadershipPosition"]
+            | null
           phone_number: string | null
           role: Database["public"]["Enums"]["profileRole"] | null
           status: Database["public"]["Enums"]["profileStatus"] | null
-        }
-        Insert: {
-          avatar_url?: string | null
-          birthday?: never
-          college?: never
-          created_at?: string | null
-          email?: never
-          full_name?: string | null
-          hide_birthday?: boolean | null
-          hide_college?: boolean | null
-          hide_email?: boolean | null
-          hide_join_date?: boolean | null
-          hide_phone?: boolean | null
-          id?: string | null
-          instrument?: string | null
-          is_in_orchestra?: boolean | null
-          is_principal?: boolean | null
-          is_section_leader?: boolean | null
-          join_date?: string | null
-          phone_number?: never
-          role?: Database["public"]["Enums"]["profileRole"] | null
-          status?: Database["public"]["Enums"]["profileStatus"] | null
-        }
-        Update: {
-          avatar_url?: string | null
-          birthday?: never
-          college?: never
-          created_at?: string | null
-          email?: never
-          full_name?: string | null
-          hide_birthday?: boolean | null
-          hide_college?: boolean | null
-          hide_email?: boolean | null
-          hide_join_date?: boolean | null
-          hide_phone?: boolean | null
-          id?: string | null
-          instrument?: string | null
-          is_in_orchestra?: boolean | null
-          is_principal?: boolean | null
-          is_section_leader?: boolean | null
-          join_date?: string | null
-          phone_number?: never
-          role?: Database["public"]["Enums"]["profileRole"] | null
-          status?: Database["public"]["Enums"]["profileStatus"] | null
         }
         Relationships: []
       }
@@ -2103,6 +2112,14 @@ export type Database = {
       }
     }
     Functions: {
+      admin_assign_leadership_position: {
+        Args: {
+          p_actor_id: string
+          p_position: Database["public"]["Enums"]["leadershipPosition"]
+          p_user_id: string
+        }
+        Returns: undefined
+      }
       admin_decide_attendance_change_request: {
         Args: {
           p_actor_id: string
@@ -2115,6 +2132,14 @@ export type Database = {
       }
       admin_grant_capability: {
         Args: { p_actor_id: string; p_capability: string; p_user_id: string }
+        Returns: undefined
+      }
+      admin_remove_leadership_position: {
+        Args: {
+          p_actor_id: string
+          p_position: Database["public"]["Enums"]["leadershipPosition"]
+          p_user_id: string
+        }
         Returns: undefined
       }
       admin_remove_president: {
@@ -2145,6 +2170,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      admin_remove_vice_president: {
+        Args: { p_actor_id: string; p_user_id: string }
+        Returns: undefined
+      }
       admin_revoke_capability: {
         Args: { p_actor_id: string; p_capability: string; p_user_id: string }
         Returns: undefined
@@ -2163,6 +2192,10 @@ export type Database = {
       }
       admin_set_section_leader: {
         Args: { p_actor_id: string; p_leader_id: string; p_section: string }
+        Returns: undefined
+      }
+      admin_set_vice_president: {
+        Args: { p_actor_id: string; p_user_id: string }
         Returns: undefined
       }
       archive_share_user_annotation: {
@@ -2265,6 +2298,10 @@ export type Database = {
         Args: { p_device_id: string; p_self_device_id: string }
         Returns: undefined
       }
+      delete_schedule_booking: {
+        Args: { p_reason?: string; p_schedule_id: number }
+        Returns: Json
+      }
       ensure_attendance_roster: {
         Args: { p_rehearsal_ids?: number[] }
         Returns: number
@@ -2353,6 +2390,7 @@ export type Database = {
       }
       log_client_errors: { Args: { rows: Json }; Returns: undefined }
       my_capabilities: { Args: never; Returns: string[] }
+      my_leadership_position: { Args: never; Returns: string }
       my_leadership_roles: {
         Args: never
         Returns: {
@@ -2405,6 +2443,11 @@ export type Database = {
       }
       president_decide_membership_request: {
         Args: { p_approve: boolean; p_user_id: string }
+        Returns: Json
+      }
+      president_delete_announcement: { Args: { p_id: string }; Returns: Json }
+      president_delete_rehearsal: {
+        Args: { p_rehearsal_id: number }
         Returns: Json
       }
       president_list_attendance_change_requests: {
@@ -2465,9 +2508,35 @@ export type Database = {
           user_id: string
         }[]
       }
+      president_pending_counts: {
+        Args: never
+        Returns: {
+          attendance_change_pending: number
+          leave_pending: number
+          membership_pending: number
+        }[]
+      }
+      president_publish_announcement: {
+        Args: {
+          p_content: string
+          p_end_time: string
+          p_replace_active?: boolean
+          p_title: string
+        }
+        Returns: Json
+      }
       president_require_capability: {
         Args: { p_capability: string }
         Returns: undefined
+      }
+      president_update_announcement: {
+        Args: {
+          p_content: string
+          p_end_time: string
+          p_id: string
+          p_title: string
+        }
+        Returns: Json
       }
       president_update_attendance: {
         Args: {
@@ -2475,6 +2544,10 @@ export type Database = {
           p_status: Database["public"]["Enums"]["attendanceStatus"]
           p_user_id: string
         }
+        Returns: Json
+      }
+      president_update_rehearsal: {
+        Args: { p_pieces?: Json; p_rehearsal: Json; p_rehearsal_id: number }
         Returns: Json
       }
       principal_instruments: {
@@ -2628,6 +2701,7 @@ export type Database = {
         | "rejected"
         | "canceled"
       attendanceStatus: "present" | "late" | "absent" | "excused" | "exempt"
+      leadershipPosition: "president" | "vice_president"
       leaveStatus:
         | "pending"
         | "approved"
@@ -2776,6 +2850,7 @@ export const Constants = {
         "canceled",
       ],
       attendanceStatus: ["present", "late", "absent", "excused", "exempt"],
+      leadershipPosition: ["president", "vice_president"],
       leaveStatus: ["pending", "approved", "rejected", "withdrawn", "canceled"],
       notificationCategory: [
         "attendance",
