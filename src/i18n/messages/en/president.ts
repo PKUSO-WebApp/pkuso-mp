@@ -2,6 +2,8 @@
 export const president = {
   section: {
     title: 'President workspace',
+    viceTitle: 'Vice President workspace',
+    leaderTitle: 'Leadership workspace',
     approval: 'Approvals',
     rehearsal: 'Manage rehearsals',
     announcement: 'Manage announcements',

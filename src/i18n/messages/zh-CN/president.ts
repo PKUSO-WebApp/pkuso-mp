@@ -2,6 +2,8 @@
 export const president = {
   section: {
     title: '团长工作台',
+    viceTitle: '副团长工作台',
+    leaderTitle: '团领导工作台',
     approval: '审批',
     rehearsal: '管理排练',
     announcement: '管理公告',
