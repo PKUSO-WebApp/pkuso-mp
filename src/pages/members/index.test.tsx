@@ -199,6 +199,24 @@ describe('团长排练考勤 tab', () => {
   })
 })
 
+describe('团级职位徽章', () => {
+  it('团长/副团长徽章显示出来；英文环境走英文词条', () => {
+    useProfilesMockState.data = [
+      { ...member, id: 'p5', full_name: '团长甲', leadership_position: 'president' },
+      { ...member, id: 'p6', full_name: '副团长乙', leadership_position: 'vice_president' },
+    ]
+    render(<Members />)
+    expect(screen.getByText('团长')).toBeTruthy()
+    expect(screen.getByText('副团长')).toBeTruthy()
+
+    cleanup()
+    setTestLocale('en')
+    render(<Members />)
+    expect(screen.getByText('President')).toBeTruthy()
+    expect(screen.getByText('Vice President')).toBeTruthy()
+  })
+})
+
 describe('花名册只列团员', () => {
   it('admin 与谱务账号都不出现；role 为空按 member 算，不从名单里静默漏人', () => {
     useProfilesMockState.data = rosterRows

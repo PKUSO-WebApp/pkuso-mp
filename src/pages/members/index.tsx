@@ -250,6 +250,14 @@ export default function Members() {
                                 <Text className='text-base font-normal text-text'>
                                   {u.full_name ?? '—'}
                                 </Text>
+                                {u.leadership_position === 'president' && (
+                                  <StatusChip tone='info'>{t('members.president')}</StatusChip>
+                                )}
+                                {u.leadership_position === 'vice_president' && (
+                                  <StatusChip tone='success'>
+                                    {t('members.vicePresident')}
+                                  </StatusChip>
+                                )}
                                 {u.is_section_leader && (
                                   <StatusChip tone='warning'>
                                     {t('members.sectionLeader')}
