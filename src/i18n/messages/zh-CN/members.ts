@@ -10,6 +10,8 @@ export const members = {
   searchPlaceholder: '搜索姓名，声部',
   emptyApproved: '暂无已通过成员',
   emptyMatch: '未找到匹配的成员',
+  president: '团长',
+  vicePresident: '副团长',
   sectionLeader: '声部长',
   principal: '首席',
   collegeLabel: '学院：',

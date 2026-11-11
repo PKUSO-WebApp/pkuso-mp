@@ -9,7 +9,10 @@ import type { Database } from './database.types'
 type PublicSchema = Database['public']
 
 // ---- 表行类型 ----
-export type ProfileRow = PublicSchema['Tables']['profiles']['Row']
+export type ProfileRow = PublicSchema['Tables']['profiles']['Row'] & {
+  /** profiles_roster 视图附加的团级职位；直查 profiles 表时不存在 */
+  leadership_position?: PublicSchema['Enums']['leadershipPosition'] | null
+}
 export type RehearsalRow = PublicSchema['Tables']['rehearsals']['Row']
 export type RehearsalRepertoireRow = PublicSchema['Tables']['rehearsal_repertoire']['Row']
 export type AttendanceRow = PublicSchema['Tables']['attendances']['Row']

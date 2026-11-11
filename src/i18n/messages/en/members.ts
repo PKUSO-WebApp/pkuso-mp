@@ -9,6 +9,8 @@ export const members = {
   searchPlaceholder: 'Search name, section',
   emptyApproved: 'No approved members yet',
   emptyMatch: 'No matching members found',
+  president: 'President',
+  vicePresident: 'Vice President',
   sectionLeader: 'Section Leader',
   principal: 'Principal',
   collegeLabel: 'College: ',
