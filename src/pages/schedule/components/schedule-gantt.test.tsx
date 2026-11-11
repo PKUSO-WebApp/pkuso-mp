@@ -19,10 +19,22 @@ vi.mock('@tarojs/components', () => {
     const { hoverClass, catchMove, ...rest } = props
     return React.createElement(tag, rest)
   }
-  return { View: create('div'), Text: create('span') }
+  return {
+    View: create('div'),
+    Text: create('span'),
+    // Taro 的 onInput 是 (event) => event.detail.value；DOM 里要转一层
+    Textarea: ({ value, onInput, placeholder }: any) =>
+      React.createElement('textarea', {
+        value,
+        placeholder,
+        onChange: (e: any) => onInput({ detail: { value: e.target.value } }),
+      }),
+  }
 })
 
 vi.mock('@tarojs/taro', () => ({ default: taroMock }))
+
+vi.mock('@/hooks/usePlaceholderStyle', () => ({ usePlaceholderStyle: () => ({}) }))
 
 vi.mock('@/hooks/useMyCapabilities', () => ({
   useMyCapabilities: () => ({
@@ -137,6 +149,32 @@ describe('ScheduleGantt 删除预约', () => {
     )
     fireEvent.click(screen.getByText('我的预约'))
     expect(screen.getByText('删除预约')).toBeTruthy()
+  })
+
+  it('团长删他人预约：填写原因后才调用 remove，并把原因传下去', async () => {
+    capsState.rehearsal = true
+    const remove = vi.fn(async () => true)
+    render(
+      <ScheduleGantt
+        schedules={[makeSchedule({ author_id: 'u2' })]}
+        selectedDate='2026-01-01'
+        user={{ id: 'u1' }}
+        remove={remove}
+        getAuthorName={mockGetAuthorName}
+        ensureAuthorName={mockEnsureAuthorName}
+      />
+    )
+    fireEvent.click(screen.getByText('我的预约'))
+    fireEvent.click(screen.getByText('删除预约'))
+
+    expect(screen.getByText(/系统通知/)).toBeTruthy()
+    const textarea = screen.getByPlaceholderText('删除原因（会发送给预约人）')
+    fireEvent.change(textarea, { target: { value: '场地冲突' } })
+
+    const confirmButtons = screen.getAllByText('删除预约')
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!)
+
+    await waitFor(() => expect(remove).toHaveBeenCalledWith(1, '2026-01-01', '场地冲突'))
   })
 
   it('影子预约（rehearsal_id 非空）：团长看到「去删除排练」，不显示直接删除', () => {

@@ -13,9 +13,9 @@ import { StatusChip } from '@/components/ui/StatusChip'
 import { TextField } from '@/components/ui/FormFields'
 import { supabase } from '@/lib/supabase'
 import {
-  ATTENDANCE_EDIT_OPTIONS,
+  ATTENDANCE_ALL_STATUSES,
   ATTENDANCE_TONE,
-  type AttendanceEditStatus,
+  type AttendanceAllStatus,
 } from '@/lib/attendance-calendar'
 import { filterByName } from '@/lib/name-search'
 import { matchInstrumentSection } from '@/lib/instrument-i18n'
@@ -25,8 +25,6 @@ import './index.scss'
 function currentStatus(row: RehearsalAttendanceRow): AttendanceStatus {
   return (row.status ?? 'absent') as AttendanceStatus
 }
-
-const isEditableStatus = (status: AttendanceStatus): boolean => status !== 'exempt'
 
 /**
  * 团长某场排练的出勤名单（整页，不再是 Modal）。
@@ -48,7 +46,7 @@ export default function PresidentRehearsalAttendancePage() {
   )
 
   const [query, setQuery] = useState('')
-  const [edits, setEdits] = useState<Record<string, AttendanceEditStatus>>({})
+  const [edits, setEdits] = useState<Record<string, AttendanceAllStatus>>({})
   const [saving, setSaving] = useState(false)
   const savingRef = useRef(false)
 
@@ -63,7 +61,8 @@ export default function PresidentRehearsalAttendancePage() {
     [t]
   )
 
-  const optionLabels = ATTENDANCE_EDIT_OPTIONS.map((option) => statusLabels[option])
+  // 团长直改：所有状态（含 exempt / 存量 late）
+  const optionLabels = ATTENDANCE_ALL_STATUSES.map((option) => statusLabels[option])
 
   const sectionMatch = useMemo(() => matchInstrumentSection(query), [query])
   const filteredRows = useMemo(() => {
@@ -88,7 +87,7 @@ export default function PresidentRehearsalAttendancePage() {
     [edits, rows]
   )
 
-  const setEdit = (row: RehearsalAttendanceRow, nextStatus: AttendanceEditStatus) => {
+  const setEdit = (row: RehearsalAttendanceRow, nextStatus: AttendanceAllStatus) => {
     const current = currentStatus(row)
     setEdits((prev) => {
       const next = { ...prev }
@@ -122,7 +121,7 @@ export default function PresidentRehearsalAttendancePage() {
     setSaving(true)
     let ok = 0
     const failedIds = new Set<string>()
-    const failedEdits: Record<string, AttendanceEditStatus> = {}
+    const failedEdits: Record<string, AttendanceAllStatus> = {}
     let firstCode = ''
     try {
       for (const row of changedRows) {
@@ -246,15 +245,10 @@ export default function PresidentRehearsalAttendancePage() {
               {filteredRows.map((row) => {
                 const current = currentStatus(row)
                 const edited = edits[row.user_id]
-                const editable = isEditableStatus(current)
-                // 默认停在当前状态，避免「打开 picker 直接确认」把 absent 误改成 present；
-                // late 不在可编辑集合里，才退回第一项（用户仍需主动选一个）。
-                const currentIndex = (ATTENDANCE_EDIT_OPTIONS as readonly string[]).indexOf(current)
+                // 默认停在当前状态，避免「打开 picker 直接确认」误改
                 const pickerValue = edited
-                  ? ATTENDANCE_EDIT_OPTIONS.indexOf(edited)
-                  : currentIndex >= 0
-                    ? currentIndex
-                    : 0
+                  ? ATTENDANCE_ALL_STATUSES.indexOf(edited)
+                  : ATTENDANCE_ALL_STATUSES.indexOf(current)
                 return (
                   <View
                     key={row.user_id}
@@ -268,14 +262,7 @@ export default function PresidentRehearsalAttendancePage() {
                         {row.profiles?.instrument || '—'}
                       </Text>
                     </View>
-                    {!editable ? (
-                      <View className='flex shrink-0 items-center gap-1'>
-                        <StatusChip tone='neutral'>{statusLabels[current]}</StatusChip>
-                        <Text className='text-[10px] text-text-subtle'>
-                          {t('president.attendance.exemptLocked')}
-                        </Text>
-                      </View>
-                    ) : edited ? (
+                    {edited ? (
                       <View className='flex shrink-0 items-center gap-2'>
                         <StatusChip tone={ATTENDANCE_TONE[edited]}>
                           {statusLabels[edited]}
@@ -297,7 +284,7 @@ export default function PresidentRehearsalAttendancePage() {
                           range={optionLabels}
                           value={pickerValue}
                           onChange={(event) => {
-                            const nextStatus = ATTENDANCE_EDIT_OPTIONS[Number(event.detail.value)]
+                            const nextStatus = ATTENDANCE_ALL_STATUSES[Number(event.detail.value)]
                             if (nextStatus) setEdit(row, nextStatus)
                           }}
                         >

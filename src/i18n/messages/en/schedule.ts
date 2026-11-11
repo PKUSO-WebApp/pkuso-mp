@@ -73,6 +73,10 @@ export const schedule = {
   openRehearsalDelete: 'Delete rehearsal',
   rehearsalShadowHint:
     'This is a rehearsal schedule; deleting the rehearsal also removes this booking.',
+  deleteReasonTitle: 'Delete booking and notify author',
+  deleteReasonPrompt:
+    'The author will receive a system notification. Enter the reason for deleting "{title}":',
+  deleteReasonPlaceholder: 'Reason (sent to the author)',
   deleting: 'Deleting…',
   deleteConfirm: 'Are you sure you want to delete the booking "{title}"?',
   detailTitle: 'Booking Details',

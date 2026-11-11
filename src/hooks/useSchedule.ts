@@ -256,15 +256,21 @@ function useSchedule(client: typeof defaultClient = defaultClient) {
   )
 
   const remove = useCallback(
-    async (id: number, _date?: string) => {
+    async (id: number, _date?: string, reason?: string) => {
       if (savingRef.current) return false
       savingRef.current = true
       setSaving(true)
       try {
-        const { error: dbError } = await client.from('schedules').delete().eq('id', id)
-        if (dbError) {
+        // 走 RPC 而不是直接 DELETE：非作者删除需要原因并通知作者，
+        // 影子预约也会被服务端拦下（is_rehearsal）。
+        const { data: rpcData, error: dbError } = await client.rpc('delete_schedule_booking', {
+          p_schedule_id: id,
+          p_reason: reason || undefined,
+        })
+        const result = rpcData as { ok?: boolean; code?: string } | null
+        if (dbError || !result?.ok) {
           if (mountedRef.current) {
-            console.error('[useSchedule] 写操作失败', dbError)
+            console.error('[useSchedule] 删除失败', dbError ?? result?.code)
             setError(APP_ERROR.saveFailed)
           }
           return false

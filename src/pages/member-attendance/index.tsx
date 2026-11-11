@@ -14,6 +14,7 @@ import { AttendanceCalendar } from '@/components/attendance/AttendanceCalendar'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { defaultSubPartNumbers, mergeSubPartOptions, resolveSubPartPolicy } from '@/lib/sub-parts'
 import {
+  ATTENDANCE_ALL_STATUSES,
   ATTENDANCE_EDIT_OPTIONS,
   ATTENDANCE_TONE,
   addMonths,
@@ -316,13 +317,14 @@ export default function MemberAttendancePage() {
     let latest: string | null = null
     const now = Date.now()
     for (const row of rows) {
-      // 默认落到最近一个**可修改**的日期；未来 / exempt 与「无排练」同处理
-      if (!isEditableAttendanceRow(row, now)) continue
+      // 声部长/首席：默认落到最近一个**可修改**的日期（未来 / exempt 跳过）；
+      // 团长直改：全部日期都可改，不筛。
+      if (!directMode && !isEditableAttendanceRow(row, now)) continue
       const key = localDateKey(row.rehearsals?.start_time ?? null)
       if (key && (!latest || key > latest)) latest = key
     }
     return latest
-  }, [rows])
+  }, [directMode, rows])
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = new Date()
@@ -344,13 +346,12 @@ export default function MemberAttendancePage() {
   const stats = useMemo(() => computeAttendanceStats(rows, Date.now()), [rows])
   const percent = (n: number, total: number): number =>
     total > 0 ? Math.round((n / total) * 100) : 0
-  const selectedRows = useMemo(
-    () =>
-      selectedDate
-        ? (byDate.get(selectedDate) ?? []).filter((row) => isEditableAttendanceRow(row, Date.now()))
-        : [],
-    [byDate, selectedDate]
-  )
+  const selectedRows = useMemo(() => {
+    if (!selectedDate) return []
+    const dayRows = byDate.get(selectedDate) ?? []
+    // 团长直改：exempt / 未来也能改；声部长/首席保持原可编辑判据
+    return directMode ? dayRows : dayRows.filter((row) => isEditableAttendanceRow(row, Date.now()))
+  }, [byDate, directMode, selectedDate])
   /** 提交只针对**当前展开的那一天**（产品 2026-11-10 定） */
   const selectedDayChangedRows = useMemo(
     () =>
@@ -881,7 +882,10 @@ export default function MemberAttendancePage() {
                           ) : (
                             <>
                               <View className='mt-2 flex flex-wrap gap-1.5'>
-                                {ATTENDANCE_EDIT_OPTIONS.map((status) => {
+                                {(directMode
+                                  ? ATTENDANCE_ALL_STATUSES
+                                  : ATTENDANCE_EDIT_OPTIONS
+                                ).map((status) => {
                                   const active = selected === status
                                   return (
                                     <View

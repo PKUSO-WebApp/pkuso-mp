@@ -64,6 +64,10 @@ function mockClient<T>(responses: T[]) {
         },
       }),
     }),
+    rpc: (...args: unknown[]) => {
+      calls.push(`rpc(${args.map((a) => JSON.stringify(a)).join(', ')})`)
+      return Promise.resolve(responses[i++])
+    },
     __calls: calls,
     functions: { invoke: vi.fn().mockResolvedValue({ data: { result: 'pass' }, error: null }) },
   }
@@ -157,17 +161,21 @@ describe('useSchedule', () => {
         error: null,
       }, // fetchAll schedules
       { data: [{ id: 'user-1', full_name: '张三' }], error: null }, // fetchAll profiles_roster
-      { data: null, error: null }, // schedules.delete
+      { data: { ok: true }, error: null }, // delete_schedule_booking RPC
       { data: [], error: null }, // re-fetchAll schedules
     ])
     const { result } = renderHook(() => useSchedule(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     const ok = await act(async () => {
-      return await result.current.remove(1)
+      return await result.current.remove(1, undefined, '场地调整')
     })
     expect(ok).toBe(true)
     await waitFor(() => expect(result.current.data).toEqual([]))
+    // 确认走的是带原因的 RPC，而不是直接 DELETE
+    expect((c as unknown as { __calls: string[] }).__calls).toContain(
+      'rpc("delete_schedule_booking", {"p_schedule_id":1,"p_reason":"场地调整"})'
+    )
   })
 
   it('fetch(date) 走缓存同步返回当天切片', async () => {
