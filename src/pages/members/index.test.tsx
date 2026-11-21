@@ -233,6 +233,18 @@ describe('点赞/送花计数', () => {
     expect(screen.getByText('👍 1.23k')).toBeTruthy()
     expect(screen.getByText('💐 2.00m')).toBeTruthy()
   })
+
+  it('为 0 的计数不显示；两项都为 0 时整块不渲染', () => {
+    useProfilesMockState.data = [
+      { ...member, id: 'p10', full_name: '零计数甲', likes_count: 0, flowers_count: 0 },
+      { ...member, id: 'p11', full_name: '零计数乙', likes_count: 5, flowers_count: 0 },
+    ]
+    render(<Members />)
+
+    expect(screen.queryByText('👍 0')).toBeNull()
+    expect(screen.queryByText('💐 0')).toBeNull()
+    expect(screen.getByText('👍 5')).toBeTruthy()
+  })
 })
 
 describe('花名册只列团员', () => {
