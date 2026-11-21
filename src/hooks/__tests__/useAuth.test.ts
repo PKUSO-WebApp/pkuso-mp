@@ -11,6 +11,7 @@ const { ctx } = vi.hoisted(() => {
     session: null,
     user: null,
     ready: false,
+    hasStoredSession: false,
     restoreFailed: false,
     forcedOffline: false,
     forcedOfflineKind: null,

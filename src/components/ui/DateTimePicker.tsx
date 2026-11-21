@@ -81,6 +81,7 @@ export function DateTimePicker({
   onTimeMultiChange,
 }: Props) {
   const displayTime = time || placeholder
+  const activeTimeRange = timeRange ?? [HOURS, MINUTES]
 
   return (
     <View className={className}>
@@ -121,10 +122,22 @@ export function DateTimePicker({
         ) : (
           <Picker
             mode='multiSelector'
-            range={timeRange ?? [HOURS, MINUTES]}
+            range={activeTimeRange}
             value={timeValue ?? timeToIndices(time)}
             disabled={disabled}
-            onChange={(e) => onTimeMultiChange?.(e.detail.value)}
+            onChange={(e) => {
+              // `onTimeMultiChange` 是可选 prop：只传了 `onTimeChange` 的调用方
+              // （团长排练/公告编辑页）原先落进 `?.()` 空转——picker 能弹出、选完没反应。
+              // 没给专用回调时按**实际 range** 折回 `onTimeChange`（range 可能是小时切片）。
+              if (onTimeMultiChange) {
+                onTimeMultiChange(e.detail.value)
+                return
+              }
+              const [hi, mi] = e.detail.value
+              const hour = activeTimeRange[0][hi] ?? HOURS[hi] ?? '09'
+              const minute = activeTimeRange[1][mi] ?? MINUTES[mi] ?? '00'
+              onTimeChange(`${hour}:${minute}`)
+            }}
             className='flex-[1] overflow-hidden rounded-xl border border-border bg-muted py-2 px-3'
           >
             <View className='flex items-center justify-between gap-1'>

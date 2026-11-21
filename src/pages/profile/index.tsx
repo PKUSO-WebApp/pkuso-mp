@@ -6,6 +6,8 @@ import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
 import { PresidentSection } from '@/components/profile/PresidentSection'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
+import { useSessionViewState } from '@/hooks/useSessionViewState'
+import { SessionRestoreNotice } from '@/components/session-restore-notice'
 import { useThemeClass } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { tabBarReserveCss } from '@/lib/ui-scale'
@@ -52,6 +54,7 @@ let codeSentAt = 0
 
 export default function Profile() {
   const { user } = useUser()
+  const sessionState = useSessionViewState()
   const { signOut } = useAuth()
   const darkClass = useThemeClass()
   // 底边栏预留是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
@@ -411,9 +414,36 @@ export default function Profile() {
     }
   }, [isPwdModalOpen, startCodeCountdown, stopCodeCountdown])
 
+  // 冷启动：本机有会话时先明确显示「正在确认」；确认完成后才能判断角色。
+  // （CustomTabBar 的初值也来自本地会话，所以回访用户可能在这一小段时间里到达本页）
+  if (sessionState === 'restoring' || sessionState === 'restore-failed') {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
+      >
+        <SessionRestoreNotice state={sessionState} />
+      </View>
+    )
+  }
+
+  // 确定没有会话（本地会话已失效等）：正常路径下 CustomTabBar 会先跳登录页，
+  // 这里兜住直接进入/恢复失败后回落的场景，不让页面按「已登录」渲染。
+  if (sessionState === 'guest') {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
+      >
+        <View className='flex flex-1 items-center justify-center px-4'>
+          <Text className='text-center text-sm text-text-muted'>{t('common.guestHint')}</Text>
+        </View>
+      </View>
+    )
+  }
+
   // 非团员账号（admin / score_manager 等专职账号）一律阻断：小程序只服务乐团成员。
   // 判据走共用的 isOrchestraMember —— 黑名单式每加一个角色都要回来改 6 处，漏改即静默放行。
-  // 注意：游客模式下 CustomTabBar 会直接跳转到 login 页，不会到达此处
   if (!isOrchestraMember(myProfile?.role)) {
     return <StaffBlockedPage role={myProfile?.role} />
   }

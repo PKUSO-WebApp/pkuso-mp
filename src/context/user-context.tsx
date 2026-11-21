@@ -18,6 +18,7 @@ import {
   type SessionKickKind,
 } from '@/lib/device-session'
 import { getOrCreateDeviceId } from '@/lib/device-id'
+import { hasStoredAuthSession } from '@/lib/auth-storage'
 import { isRetryableAuthError } from '@/lib/auth-errors'
 import { logDiag, setSessionStatusProvider, startSessionDiag } from '@/lib/session-diag'
 import { __resetRehearsalsCache } from '@/hooks/useRehearsals'
@@ -48,6 +49,9 @@ export type UserContextValue = {
   user: User | null
   // 初始会话恢复是否完成：未完成前由页面渲染占位，避免登录页闪烁
   ready: boolean
+  // 冷启动首帧同步读到的「本机存有登录会话」（启发式，只用于区分
+  // 「从未登录」与「正在确认登录状态」；真伪以 getSession/服务端为准）
+  hasStoredSession: boolean
   // 会话恢复是否失败（超时/异常）：为 true 时页面可提示「网络异常，请重试」
   restoreFailed: boolean
   // 本设备被拒绝登录（被设为不信任）：在线被踢下线、登录/冷启动被服务端拒绝，都是这一条
@@ -87,6 +91,8 @@ type KickReason = 'verify' | 'touch_rejected' | 'admin_check'
 export function UserProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [ready, setReady] = useState(false)
+  // 冷启动首帧的同步快照：只决定「恢复中显示什么」，不参与会话真伪判断
+  const [hasStoredSession] = useState(hasStoredAuthSession)
   const [restoreFailed, setRestoreFailed] = useState(false)
   // 控制强制下线弹窗显隐（弹窗本体挂在登录页上）
   const [forcedOffline, setForcedOffline] = useState(false)
@@ -404,6 +410,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       session,
       user,
       ready,
+      hasStoredSession,
       restoreFailed,
       forcedOffline,
       forcedOfflineKind,
@@ -416,6 +423,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       session,
       user,
       ready,
+      hasStoredSession,
       restoreFailed,
       forcedOffline,
       forcedOfflineKind,

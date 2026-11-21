@@ -4,7 +4,14 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
-import { getScheduleColorClass, parseTimeToHours, ScheduleGantt } from './schedule-gantt'
+import {
+  BLOCK_COMPACT_MIN_PX,
+  BLOCK_FULL_MIN_PX,
+  getScheduleBlockDensity,
+  getScheduleColorClass,
+  parseTimeToHours,
+  ScheduleGantt,
+} from './schedule-gantt'
 
 const { taroMock, capsState } = vi.hoisted(() => ({
   taroMock: {
@@ -87,6 +94,21 @@ describe('schedule-gantt 纯函数', () => {
   it('parseTimeToHours 空值与无效时间返回 0', () => {
     expect(parseTimeToHours(null)).toBe(0)
     expect(parseTimeToHours('无效时间')).toBe(0)
+  })
+
+  it('短预约块按可用高度降级：两行 → 一行 → 只剩色块', () => {
+    expect(getScheduleBlockDensity(BLOCK_FULL_MIN_PX)).toBe('full')
+    expect(getScheduleBlockDensity(BLOCK_FULL_MIN_PX - 1)).toBe('compact')
+    expect(getScheduleBlockDensity(BLOCK_COMPACT_MIN_PX)).toBe('compact')
+    expect(getScheduleBlockDensity(BLOCK_COMPACT_MIN_PX - 1)).toBe('hidden')
+  })
+
+  it('显示大小档位同比放大阈值（大字号下更早降级）', () => {
+    expect(getScheduleBlockDensity(BLOCK_FULL_MIN_PX * 1.5, 1.5)).toBe('full')
+    expect(getScheduleBlockDensity(BLOCK_FULL_MIN_PX * 1.5 - 1, 1.5)).toBe('compact')
+    // 同样的像素高度在标准档是 full，在 1.5x 档放不下两行
+    expect(getScheduleBlockDensity(BLOCK_FULL_MIN_PX * 1.4, 1)).toBe('full')
+    expect(getScheduleBlockDensity(BLOCK_FULL_MIN_PX * 1.4, 1.5)).toBe('compact')
   })
 })
 

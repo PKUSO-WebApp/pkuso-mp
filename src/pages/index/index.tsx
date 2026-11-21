@@ -5,6 +5,8 @@ import { useRehearsals } from '@/hooks/useRehearsals'
 import { useAnnouncements } from '@/hooks/useAnnouncements'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
+import { useSessionViewState } from '@/hooks/useSessionViewState'
+import { SessionRestoreNotice } from '@/components/session-restore-notice'
 import { useThemeClass } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { tabBarReserveCss } from '@/lib/ui-scale'
@@ -34,6 +36,7 @@ import './index.scss'
 
 export default function Index() {
   const { ready, user } = useUser()
+  const sessionState = useSessionViewState()
   // 冷启动时 user 可能还没恢复：此时不查（RLS 对匿名返回空集，会误显示「没有排练/公告」），
   // 等 ready && user 后 hook 的 enabled 翻真，自动补查。
   const canQuery = ready && !!user
@@ -59,8 +62,8 @@ export default function Index() {
   const { t } = useT()
   useNavTitle('home.navTitle')
 
-  // 游客模式：未登录时显示空态提示
-  const isGuest = !user
+  // 游客模式：确定没有会话（恢复中不算游客——见下面 restoring 分支）
+  const isGuest = sessionState === 'guest'
 
   // 冷启动时 useRehearsals / useAnnouncements 的挂载 effect 已经在**同一 tick** 拉过一轮，
   // 紧接着的首次 useDidShow 拉的是同一个端点、同一个会话——是纯重复。
@@ -81,8 +84,8 @@ export default function Index() {
     }
     dataSyncBump()
 
-    // 根据登录状态控制右上角转发菜单
-    if (isGuest) {
+    // 根据登录状态控制右上角转发菜单（确认中也不算已登录）
+    if (sessionState !== 'authenticated') {
       wx.hideShareMenu()
     } else {
       wx.showShareMenu({ menus: ['shareAppMessage'] })
@@ -236,11 +239,30 @@ export default function Index() {
     return t('schedule.share.historyTitle', { start: startStr, end: endStr })
   }, [rehearsalList, scheduleTab, t])
 
-  // 分享回调（未登录时不分享）
+  // 分享回调（未登录/确认中不分享）
   useShareAppMessage(() => {
-    if (isGuest) return { title: '' }
+    if (sessionState !== 'authenticated') return { title: '' }
     return { title: shareTitle }
   })
+
+  // 冷启动：本机有会话时先明确显示「正在确认」，不要闪「未登录」
+  if (sessionState === 'restoring' || sessionState === 'restore-failed') {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
+      >
+        <View className='mb-3'>
+          <SegmentTabs
+            tabs={scheduleTabs}
+            value={scheduleTab}
+            onChange={(k) => setScheduleTab(k)}
+          />
+        </View>
+        <SessionRestoreNotice state={sessionState} />
+      </View>
+    )
+  }
 
   // 游客模式：未登录时显示空态提示（必须在 admin 检查之前，避免 useMyProfile 在无 user 时误查全表）
   if (isGuest) {

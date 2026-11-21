@@ -92,6 +92,10 @@ export const common = {
     navTitle: '用户协议',
   },
   guestHint: '请在「我的」页面登录以查看',
+  sessionRestore: {
+    confirming: '正在确认登录状态…',
+    failed: '登录状态确认失败，请重试',
+  },
   hidden: '（被隐藏）',
   notFilled: '未填写',
   joinDate: {
