@@ -467,9 +467,7 @@ describe('useLeaveRequests', () => {
 
   it('uploadAttachment 上传到私有桶并返回 storage 路径（无公开 URL）', async () => {
     const c = mockClient([fetchOk, { error: null }])
-    requestMock.mockImplementation((opts: any) =>
-      opts.success({ statusCode: 200, data: '{}' })
-    )
+    requestMock.mockImplementation((opts: any) => opts.success({ statusCode: 200, data: '{}' }))
     const { result } = renderHook(() => useLeaveRequests(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
@@ -478,33 +476,25 @@ describe('useLeaveRequests', () => {
       result.current.uploadAttachment({ tempFilePath: 'wxfile://tmp/a.jpg', name: 'a.jpg' }, 'u1')
     )
     expect(r).toHaveProperty('url')
-    expect((r as { url: string }).url).toMatch(
-      /^u1\/[0-9a-f]{16}-[a-z0-9-]+-a\.jpg$/
-    )
+    expect((r as { url: string }).url).toMatch(/^u1\/[0-9a-f]{16}-[a-z0-9-]+-a\.jpg$/)
     expect(requestMock.mock.calls[0][0].url).toContain('/object/leave-attachments/u1/')
   })
 
   it('uploadAttachment 无 name 时从 tempFilePath 取文件名（保留扩展名）', async () => {
     const c = mockClient([fetchOk, { error: null }])
-    requestMock.mockImplementation((opts: any) =>
-      opts.success({ statusCode: 200, data: '{}' })
-    )
+    requestMock.mockImplementation((opts: any) => opts.success({ statusCode: 200, data: '{}' }))
     const { result } = renderHook(() => useLeaveRequests(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     const r = await act(() =>
       result.current.uploadAttachment({ tempFilePath: 'wxfile://tmp/photo.pdf' }, 'u1')
     )
-    expect((r as { url: string }).url).toMatch(
-      /^u1\/[0-9a-f]{16}-[a-z0-9-]+-photo\.pdf$/
-    )
+    expect((r as { url: string }).url).toMatch(/^u1\/[0-9a-f]{16}-[a-z0-9-]+-photo\.pdf$/)
   })
 
   it('uploadAttachment 消毒含中文/空格的文件名（Storage InvalidKey）', async () => {
     const c = mockClient([fetchOk, { error: null }])
-    requestMock.mockImplementation((opts: any) =>
-      opts.success({ statusCode: 200, data: '{}' })
-    )
+    requestMock.mockImplementation((opts: any) => opts.success({ statusCode: 200, data: '{}' }))
     const { result } = renderHook(() => useLeaveRequests(c as never))
     await waitFor(() => expect(result.current.loading).toBe(false))
 

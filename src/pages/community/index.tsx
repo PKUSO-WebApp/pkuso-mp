@@ -4,6 +4,8 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { usePosts } from '@/hooks/usePosts'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useUser } from '@/context/user-context'
+import { useSessionViewState } from '@/hooks/useSessionViewState'
+import { SessionRestoreNotice } from '@/components/session-restore-notice'
 import { useThemeClass } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { tabBarHeightPx, tabBarReserveCss } from '@/lib/ui-scale'
@@ -39,6 +41,7 @@ function hasSectionText(value: string | null | undefined): boolean {
  */
 export default function Community() {
   const { ready, user } = useUser()
+  const sessionState = useSessionViewState()
   // 冷启动未恢复会话前不查：posts 的 SELECT 只授 authenticated，
   // 匿名查询返回空集会把「还没登录」误显示成「社区没有帖子」。
   const canQuery = ready && !!user
@@ -59,8 +62,8 @@ export default function Community() {
     { key: 'gathering', label: t('community.type.gathering') },
   ]
 
-  // 游客模式：未登录时显示空态提示
-  const isGuest = !user
+  // 游客模式：确定没有会话（恢复中不算游客——见下面 restoring 分支）
+  const isGuest = sessionState === 'guest'
 
   // 切回社区 tab 时立即刷新公告（镜像 rehearsal 的 useDidShow 刷新；
   // 静默重取：已有数据时不翻 loading，避免切 tab 整页闪烁）；
@@ -87,6 +90,21 @@ export default function Community() {
     setView(next)
     // 进入对应分类 tab 即消除该处右上角红点
     dismissCommunityDot(next)
+  }
+
+  // 冷启动：本机有会话时先明确显示「正在确认」，不要闪「未登录」
+  if (sessionState === 'restoring' || sessionState === 'restore-failed') {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
+      >
+        <View className='mb-3'>
+          <SegmentTabs tabs={communityTabs} value={view} onChange={handleSwitchType} />
+        </View>
+        <SessionRestoreNotice state={sessionState} />
+      </View>
+    )
   }
 
   // 游客模式：未登录时显示空态提示（必须在 admin 检查之前）

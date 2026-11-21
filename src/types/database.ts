@@ -12,6 +12,9 @@ type PublicSchema = Database['public']
 export type ProfileRow = PublicSchema['Tables']['profiles']['Row'] & {
   /** profiles_roster 视图附加的团级职位；直查 profiles 表时不存在 */
   leadership_position?: PublicSchema['Enums']['leadershipPosition'] | null
+  /** profiles_roster 视图附加的互动计数（member_reactions 聚合） */
+  likes_count?: number | null
+  flowers_count?: number | null
 }
 export type RehearsalRow = PublicSchema['Tables']['rehearsals']['Row']
 export type RehearsalRepertoireRow = PublicSchema['Tables']['rehearsal_repertoire']['Row']

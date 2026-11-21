@@ -12,9 +12,7 @@
 
 export const SHARE_DOC_PREFIX = 'share:'
 
-export type AnnotationDocRef =
-  | { kind: 'file'; id: string }
-  | { kind: 'share'; id: string }
+export type AnnotationDocRef = { kind: 'file'; id: string } | { kind: 'share'; id: string }
 
 /** 共享副本的本地文档键（也是 personal 后端的 `fileId` 参数） */
 export const shareDocKey = (shareId: string): string => `${SHARE_DOC_PREFIX}${shareId}`

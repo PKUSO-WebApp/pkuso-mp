@@ -1,6 +1,7 @@
 export const leaveRequests = {
   navTitle: '我的请假',
   tabAll: '全部',
+  tabProcessed: '已处理',
   loadFailed: '加载失败，请稍后重试',
   empty: '暂无请假记录',
   timeUnset: '时间未设置',
@@ -12,7 +13,6 @@ export const leaveRequests = {
   labelType: '排练类型：',
   labelReason: '请假理由：',
   labelReviewReason: '审批理由：',
-  attendanceNoticesTitle: '考勤通知',
   status: {
     pending: '待审批',
     approved: '已通过',

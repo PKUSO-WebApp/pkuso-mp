@@ -50,9 +50,11 @@ async function loadInstrumentMeta(instrument: string): Promise<InstrumentMeta> {
     if (partsRes.error) throw new Error(partsRes.error.message)
 
     const groups = ((groupsRes.data ?? []) as { group_name: string }[]).map((g) => g.group_name)
-    const observedNumbers = ((partsRes.data ?? []) as unknown as {
-      files: { sub_parts: number[] | null }[] | null
-    }[])
+    const observedNumbers = (
+      (partsRes.data ?? []) as unknown as {
+        files: { sub_parts: number[] | null }[] | null
+      }[]
+    )
       .flatMap((p) => p.files ?? [])
       .flatMap((f) => f.sub_parts ?? [])
       .filter((n) => Number.isInteger(n) && n > 0)
@@ -65,7 +67,10 @@ async function loadInstrumentMeta(instrument: string): Promise<InstrumentMeta> {
   return promise
 }
 
-async function loadPreference(memberId: string, instrument: string): Promise<MemberPreferenceData | null> {
+async function loadPreference(
+  memberId: string,
+  instrument: string
+): Promise<MemberPreferenceData | null> {
   try {
     const [permRes, prefRes, meta] = await Promise.all([
       supabase.rpc('can_set_preference', { p_member: memberId }),

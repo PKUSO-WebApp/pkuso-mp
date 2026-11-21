@@ -377,8 +377,7 @@ export function useLeaveRequests(
       const rawName = file.name || file.tempFilePath.split('/').pop() || 'image'
       const safeName = rawName.replace(/[^A-Za-z0-9._-]/g, '-') || 'image'
       const key =
-        uploadKey ||
-        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+        uploadKey || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
       const path = `${userId}/${key}-${safeName}`
       try {
         const up = await uploadLocalFile(

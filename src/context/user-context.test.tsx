@@ -20,6 +20,7 @@ const { taroMock, store, didShowCbs } = vi.hoisted(() => {
   const localDidShowCbs: Array<() => void> = []
   const localTaroMock = {
     getStorageSync: vi.fn((k: string) => (k in localStore ? localStore[k] : '')),
+    getStorageInfoSync: vi.fn(() => ({ keys: Object.keys(localStore) })),
     setStorageSync: vi.fn((k: string, v: string) => {
       localStore[k] = v
     }),
@@ -106,6 +107,17 @@ describe('UserProvider', () => {
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(result.current.user).toBeNull()
     expect(result.current.session).toBeNull()
+  })
+
+  it('冷启动快照：本机存有会话键时 hasStoredSession 为 true（用于显示「确认中」）', () => {
+    store['sb-test-auth-token'] = '{}'
+    const { result } = renderWithProvider()
+    expect(result.current.hasStoredSession).toBe(true)
+  })
+
+  it('冷启动快照：本机没有会话键时为 false（直接显示游客态）', () => {
+    const { result } = renderWithProvider()
+    expect(result.current.hasStoredSession).toBe(false)
   })
 
   it('恢复失败后 retryRestore 成功：user 回填、restoreFailed 复位', async () => {

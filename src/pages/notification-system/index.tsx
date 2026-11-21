@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text } from '@tarojs/components'
-import { useDidHide } from '@tarojs/taro'
+import Taro, { useDidHide } from '@tarojs/taro'
 import { useNotifications } from '@/hooks/useNotifications'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { ListState } from '@/components/ui/ListState'
@@ -11,16 +11,16 @@ import { useThemeClass } from '@/context/theme-context'
 import type { NotificationCategory, NotificationRow } from '@/types/database'
 import './index.scss'
 
-type Tab = 'unread' | 'read'
+type Tab = 'unread' | 'all'
 
 /**
- * 系统通知页（「我的-通知-系统」进入）：
- * 合并展示「系统通知」与「活动通知」两类（活动通知并入系统通知显示），
- * 服务端 read_at 作为已读唯一来源（与考勤/活动一致，非本地存储）。
- * 顶部「未读 / 已读」分段切换，默认进入「未读」。
+ * 全部通知页（「我的-通知」进入）：
+ * 合并展示系统、活动、考勤与请假三类（声部请假是声部长/首席工作台，仍在独立页面）。
+ * 服务端 read_at 作为已读唯一来源（非本地存储）。
+ * 顶部「未读 / 全部」分段切换，默认进入「未读」。
  * 快照式曝光即已读：进入页面立即把本次拉取到的未读全部标为已读（红点即时清零），
  * 但本会话内以「打开时的未读快照」决定归属——刚被标读的那些仍留在未读 tab，
- * 下次进入才归入已读。初始标记失败的行由离开时的兜底提交重试。
+ * 切到「全部」时与已读项一起显示。初始标记失败的行由离开时的兜底提交重试。
  */
 export default function NotificationSystemPage() {
   const { fetchByCategory, markCategoryRead } = useNotifications()
@@ -82,25 +82,28 @@ export default function NotificationSystemPage() {
     setLoading(true)
     setFailed(false)
     const seq = ++seqRef.current
-    return Promise.all([fetchByCategory('system'), fetchByCategory('activity')]).then(
-      ([sys, act]) => {
-        if (seq !== seqRef.current) return
-        setLoading(false)
-        // 两类任一成功即展示该类；仅当两类都失败才标记整体失败
-        setFailed(sys.error !== null && act.error !== null)
-        const sysRows = sys.error ? [] : sys.rows
-        const actRows = act.error ? [] : act.rows
-        // 合并两类并按创建时间倒序
-        const merged = [...sysRows, ...actRows].sort((a, b) =>
-          a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0
-        )
-        setMessages(merged)
-        const unreadIds = merged.filter((m) => m.read_at === null).map((m) => m.id)
-        setSnapshotIds(new Set(unreadIds))
-        // 重试时 handledRef 里那批「已提交过」的 id 会被 markReadFor 自己跳过，不会重复标读
-        if (unreadIds.length > 0) void markReadFor(merged)
-      }
-    )
+    return Promise.all([
+      fetchByCategory('system'),
+      fetchByCategory('activity'),
+      fetchByCategory('attendance'),
+    ]).then(([sys, act, att]) => {
+      if (seq !== seqRef.current) return
+      setLoading(false)
+      // 三类任一成功即展示该类；仅当三类都失败才标记整体失败
+      setFailed(sys.error !== null && act.error !== null && att.error !== null)
+      const sysRows = sys.error ? [] : sys.rows
+      const actRows = act.error ? [] : act.rows
+      const attRows = att.error ? [] : att.rows
+      // 合并三类并按创建时间倒序
+      const merged = [...sysRows, ...actRows, ...attRows].sort((a, b) =>
+        a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0
+      )
+      setMessages(merged)
+      const unreadIds = merged.filter((m) => m.read_at === null).map((m) => m.id)
+      setSnapshotIds(new Set(unreadIds))
+      // 重试时 handledRef 里那批「已提交过」的 id 会被 markReadFor 自己跳过，不会重复标读
+      if (unreadIds.length > 0) void markReadFor(merged)
+    })
   }, [fetchByCategory, markReadFor])
 
   useEffect(() => {
@@ -133,13 +136,10 @@ export default function NotificationSystemPage() {
           ? t('notification.systemTabs.unreadCount', { n: unreadCount })
           : t('notification.systemTabs.unread'),
     },
-    { key: 'read' as Tab, label: t('notification.systemTabs.read') },
+    { key: 'all' as Tab, label: t('notification.systemTabs.all') },
   ]
   const visible = useMemo(
-    () =>
-      tab === 'unread'
-        ? messages.filter((m) => snapshotIds.has(m.id))
-        : messages.filter((m) => !snapshotIds.has(m.id)),
+    () => (tab === 'unread' ? messages.filter((m) => snapshotIds.has(m.id)) : messages),
     [messages, snapshotIds, tab]
   )
 
@@ -164,14 +164,28 @@ export default function NotificationSystemPage() {
             //（见 lib/notification-text.ts）
             const time = formatDateTimeInChina(msg.created_at)
             const text = noticeText(msg, time, t)
+            // 考勤类通知可能带排练 id（请假页原先把这类通知做成可点）；搬家后保留跳转
+            const meta = msg.meta as { rehearsal_id?: unknown } | null
+            const rehearsalId = typeof meta?.rehearsal_id === 'number' ? meta.rehearsal_id : null
             return (
               <View
                 key={msg.id}
                 className='relative mb-2 rounded-xl border border-border bg-card p-3'
+                onClick={
+                  rehearsalId
+                    ? () =>
+                        void Taro.navigateTo({
+                          url: `/pages/rehearsal-detail/index?id=${rehearsalId}`,
+                        })
+                    : undefined
+                }
               >
                 <View className='flex items-start justify-between gap-2 pr-16'>
                   <Text className='min-w-0 flex-1 text-sm font-medium text-text'>{text.title}</Text>
-                  <Text className='flex-shrink-0 text-xs text-text-muted'>{time}</Text>
+                  <View className='flex flex-shrink-0 items-center gap-1'>
+                    <Text className='text-xs text-text-muted'>{time}</Text>
+                    {rehearsalId ? <Text className='text-sm text-text-muted'>›</Text> : null}
+                  </View>
                 </View>
                 <Text className='mt-1 block whitespace-pre-line text-xs leading-relaxed text-text-muted'>
                   {text.content}

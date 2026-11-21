@@ -36,15 +36,30 @@ const activityRows = [
   },
 ]
 
+const attendanceRows = [
+  {
+    id: '4',
+    category: 'attendance' as const,
+    title: '考勤通知',
+    content: '考勤状态已更新',
+    created_at: '2026-01-04T10:00:00',
+    read_at: null,
+  },
+]
+
 const { taroMock, fetchMock, markCategoryMock, notifyMock, hideHolder } = vi.hoisted(() => ({
   taroMock: { showToast: vi.fn() },
   // 显式标注返回类型：否则被推断成 error: null，后面模拟失败态就赋不进 'loadFailed'
-  fetchMock: vi.fn(
-    (category?: string): Promise<{ rows: any[]; error: string | null }> =>
-      Promise.resolve({
-        rows: category === 'activity' ? (activityRows as any[]) : (rows as any[]),
-        error: null,
-      })
+  fetchMock: vi.fn((category?: string): Promise<{ rows: any[]; error: string | null }> =>
+    Promise.resolve({
+      rows:
+        category === 'activity'
+          ? (activityRows as any[])
+          : category === 'attendance'
+            ? (attendanceRows as any[])
+            : (rows as any[]),
+      error: null,
+    })
   ),
   markCategoryMock: vi.fn(() => Promise.resolve(true)),
   notifyMock: vi.fn(),
@@ -92,14 +107,30 @@ describe('系统通知页', () => {
   beforeEach(() => {
     resetTestLocale()
     fetchMock.mockImplementation((category?: string) =>
-      Promise.resolve({ rows: category === 'activity' ? activityRows : rows, error: null })
+      Promise.resolve({
+        rows:
+          category === 'activity'
+            ? activityRows
+            : category === 'attendance'
+              ? attendanceRows
+              : rows,
+        error: null,
+      })
     )
   })
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
     fetchMock.mockImplementation((category?: string) =>
-      Promise.resolve({ rows: category === 'activity' ? activityRows : rows, error: null })
+      Promise.resolve({
+        rows:
+          category === 'activity'
+            ? activityRows
+            : category === 'attendance'
+              ? attendanceRows
+              : rows,
+        error: null,
+      })
     )
   })
 
@@ -108,7 +139,8 @@ describe('系统通知页', () => {
     render(<NotificationSystemPage />)
     expect(await screen.findByText('维护通知')).toBeTruthy()
     expect(screen.getByText(/Unread \(\d+\)/)).toBeTruthy()
-    fireEvent.click(screen.getByText('Read'))
+    fireEvent.click(screen.getByText('All'))
+    expect(screen.getByText('维护通知')).toBeTruthy()
     expect(screen.getByText('已读通知')).toBeTruthy()
 
     cleanup()
@@ -118,50 +150,58 @@ describe('系统通知页', () => {
     expect(screen.getByText('Retry')).toBeTruthy()
   })
 
-  it('进入页面即把未读标为已读，未读 tab 按快照仍显示', async () => {
+  it('进入页面即把三类未读标为已读，未读 tab 按快照仍显示', async () => {
     render(<NotificationSystemPage />)
     await waitFor(() => expect(markCategoryMock).toHaveBeenCalledWith('system', ['1']))
+    await waitFor(() => expect(markCategoryMock).toHaveBeenCalledWith('activity', ['3']))
+    await waitFor(() => expect(markCategoryMock).toHaveBeenCalledWith('attendance', ['4']))
     // 快照：刚被标读的「维护通知」本会话内仍在未读 tab；原已读项不出现在此
     expect(await screen.findByText('维护通知')).toBeTruthy()
     expect(screen.queryByText('已读通知')).toBeNull()
   })
 
-  it('切换到已读 tab 只显示已读项', async () => {
+  it('切换到全部 tab：未读快照与已读项一起显示', async () => {
     render(<NotificationSystemPage />)
     await screen.findByText('维护通知')
-    fireEvent.click(screen.getByText('已读'))
+    fireEvent.click(screen.getByText('全部'))
+    expect(screen.getByText('维护通知')).toBeTruthy()
     expect(screen.getByText('已读通知')).toBeTruthy()
-    expect(screen.queryByText('维护通知')).toBeNull()
   })
 
   it('离开时兜底提交不重复标记（成功过的 id 已在 handled 中）', async () => {
     render(<NotificationSystemPage />)
-    await waitFor(() => expect(markCategoryMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(markCategoryMock).toHaveBeenCalledTimes(3))
     await act(async () => {
       hideHolder.cb()
     })
-    expect(markCategoryMock).toHaveBeenCalledTimes(2)
+    expect(markCategoryMock).toHaveBeenCalledTimes(3)
   })
 
-  it('两类都失败时给重试入口；重试会重新取数并恢复内容', async () => {
-    fetchMock.mockImplementation(() =>
-      Promise.resolve({ rows: [], error: 'loadFailed' as const })
-    )
+  it('三类都失败时给重试入口；重试会重新取数并恢复内容', async () => {
+    fetchMock.mockImplementation(() => Promise.resolve({ rows: [], error: 'loadFailed' as const }))
     const callsAfterFirstLoad = fetchMock.mock.calls.length
     render(<NotificationSystemPage />)
     // 失败文案与重试按钮都得出现——光有文案没有入口就是「只能退出重进」
     expect(await screen.findByText('加载失败，请稍后重试')).toBeTruthy()
     const retry = screen.getByText('重试')
-    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstLoad + 2) // system + activity
+    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstLoad + 3) // system + activity + attendance
 
     // 放行网络后再点：断言的是「真的又发了一次请求」，不只是按钮被点过
     fetchMock.mockImplementation((category?: string) =>
-      Promise.resolve({ rows: category === 'activity' ? activityRows : rows, error: null })
+      Promise.resolve({
+        rows:
+          category === 'activity'
+            ? activityRows
+            : category === 'attendance'
+              ? attendanceRows
+              : rows,
+        error: null,
+      })
     )
     fireEvent.click(retry)
 
     expect(await screen.findByText('维护通知')).toBeTruthy()
-    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstLoad + 4)
+    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstLoad + 6)
     // 内容回来后失败态（含按钮）必须撤掉，否则用户会以为还得再点
     expect(screen.queryByText('加载失败，请稍后重试')).toBeNull()
     expect(screen.queryByText('重试')).toBeNull()

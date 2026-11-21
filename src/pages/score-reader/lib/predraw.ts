@@ -138,11 +138,7 @@ export type BadLayerUntil = Partial<Record<Layer, number>>
  * 一旦某块画布进入画不出东西的状态，继续往它上面画只会再得到一张白帧。
  * 冷却到期后自动恢复可用；全都在冷却期时调用方会退回全部（总得挑一块画）。
  */
-export function usableLayers(
-  all: readonly Layer[],
-  badUntil: BadLayerUntil,
-  now: number
-): Layer[] {
+export function usableLayers(all: readonly Layer[], badUntil: BadLayerUntil, now: number): Layer[] {
   return all.filter((l) => (badUntil[l] ?? 0) <= now)
 }
 

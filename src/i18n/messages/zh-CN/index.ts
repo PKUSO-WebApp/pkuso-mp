@@ -28,6 +28,7 @@ import { scoreReader } from './score-reader'
 import { memberAttendance } from './member-attendance'
 import { sectionLeave } from './section-leave'
 import { president } from './president'
+import { reactions } from './reactions'
 
 // 按页聚合的中文字典（基准语言）。en 必须与之同型（缺/多 key 都会编译报错）。
 // 新增页面文案：在对应页文件加 key，并在本处聚合即可。
@@ -62,6 +63,7 @@ export const zhCN = {
   memberAttendance,
   sectionLeave,
   president,
+  reactions,
 }
 
 export type ZHCNMessages = typeof zhCN

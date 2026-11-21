@@ -5,7 +5,8 @@ import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { tabBarReserveCss } from '@/lib/ui-scale'
-import { useUser } from '@/context/user-context'
+import { useSessionViewState } from '@/hooks/useSessionViewState'
+import { SessionRestoreNotice } from '@/components/session-restore-notice'
 import { useMyProfile } from '@/hooks/useMyProfile'
 import { useSheetMusic, type SheetMusicWithParts } from '@/hooks/useSheetMusic'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
@@ -23,7 +24,7 @@ export default function Score() {
   const darkClass = useThemeClass()
   // 底边栏预留是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
   const uiScale = useUiScaleFactor()
-  const { user } = useUser()
+  const sessionState = useSessionViewState()
   const { profile: myProfile, loading: myProfileLoading } = useMyProfile()
   const [tab, setTab] = useState<TabKey>('mine')
   const { items, loading, error, fetch } = useSheetMusic()
@@ -45,8 +46,21 @@ export default function Score() {
     [tab, items, mySection]
   )
 
+  // 冷启动：本机有会话时先明确显示「正在确认」，不要闪「未登录」
+  if (sessionState === 'restoring' || sessionState === 'restore-failed') {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
+      >
+        <SegmentTabs tabs={tabs} value={tab} onChange={(k) => setTab(k)} />
+        <SessionRestoreNotice state={sessionState} />
+      </View>
+    )
+  }
+
   // 游客模式：未登录不展示谱务文件系统（与社区页一致）
-  const isGuest = !user
+  const isGuest = sessionState === 'guest'
   if (isGuest) {
     return (
       <View

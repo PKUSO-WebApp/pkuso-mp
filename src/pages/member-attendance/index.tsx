@@ -10,6 +10,7 @@ import { StatusChip } from '@/components/ui/StatusChip'
 import { PageLoading } from '@/components/ui/PageLoading'
 import { Spinner } from '@/components/ui/Spinner'
 import { ProfileInfoView } from '@/components/profile/ProfileInfoView'
+import { ReactionButtons } from '@/components/profile/ReactionButtons'
 import { AttendanceCalendar } from '@/components/attendance/AttendanceCalendar'
 import { formatRehearsalRange } from '@/lib/date-utils'
 import { defaultSubPartNumbers, mergeSubPartOptions, resolveSubPartPolicy } from '@/lib/sub-parts'
@@ -644,7 +645,20 @@ export default function MemberAttendancePage() {
       <ScrollView scrollY scrollIntoView={scrollAnchor} className='flex-1 min-h-0'>
         <View className='px-4 pt-3 pb-6'>
           {/* 个人信息：复用「我的 → 个人信息」布局（0.6.2） */}
-          {member ? <ProfileInfoView profile={member} viewerId={user?.id ?? null} /> : null}
+          {member ? (
+            <ProfileInfoView
+              profile={member}
+              viewerId={user?.id ?? null}
+              avatarFooter={
+                <ReactionButtons
+                  targetUserId={member.id}
+                  initialLikes={member.likes_count ?? 0}
+                  initialFlowers={member.flowers_count ?? 0}
+                  disabled={!user}
+                />
+              }
+            />
+          ) : null}
 
           {/* 没有考勤管理权：只展示个人信息（详情页对所有成员开放） */}
           {attendanceAccessPending ? (

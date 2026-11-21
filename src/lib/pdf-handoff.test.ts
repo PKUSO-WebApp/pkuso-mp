@@ -6,7 +6,9 @@ function fakeApis(failOn?: HandoffKind) {
   const calls: Array<{ api: string; o: Record<string, unknown> }> = []
   const cbStyle =
     (api: string, kind: HandoffKind) =>
-    (o: Record<string, unknown> & { success?: () => void; fail?: (e: { errMsg: string }) => void }) => {
+    (
+      o: Record<string, unknown> & { success?: () => void; fail?: (e: { errMsg: string }) => void }
+    ) => {
       calls.push({ api, o })
       if (failOn === kind) o.fail?.({ errMsg: `${api}:fail 用户取消` })
       else o.success?.()
@@ -28,7 +30,10 @@ function fakeApis(failOn?: HandoffKind) {
   return { deps, calls }
 }
 
-const OPTS = { path: '/usr/pkuso-score/f1/肖五_第一小提琴_小提琴1.pdf', name: '肖五_第一小提琴_小提琴1.pdf' }
+const OPTS = {
+  path: '/usr/pkuso-score/f1/肖五_第一小提琴_小提琴1.pdf',
+  name: '肖五_第一小提琴_小提琴1.pdf',
+}
 
 describe('handoffKindsFor', () => {
   it('手机端三个出口，且不含「保存到电脑」（那个 API 手机上没有）', () => {

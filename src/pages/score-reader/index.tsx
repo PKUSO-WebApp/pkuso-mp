@@ -1864,15 +1864,7 @@ export default function ScoreReader() {
       // 换帧落地，趁空闲把「下一页」备进备用块（见 schedulePredraw）
       schedulePredrawRef.current()
     },
-    [
-      containerW,
-      fileId,
-      handleFrameInk,
-      pageCount,
-      pageFileKey,
-      probeCanvasSize,
-      queryCanvasNode,
-    ]
+    [containerW, fileId, handleFrameInk, pageCount, pageFileKey, probeCanvasSize, queryCanvasNode]
   )
 
   /**
@@ -4326,10 +4318,9 @@ export default function ScoreReader() {
         })
         if (!modal.confirm) return
       }
-      const { data, error } = await (supabase.rpc as any)(
-        'create_shared_annotation_share',
-        { p_source_file_id: fileId }
-      )
+      const { data, error } = await (supabase.rpc as any)('create_shared_annotation_share', {
+        p_source_file_id: fileId,
+      })
       if (error) {
         const msg = String(error.message ?? '')
         if (msg.includes('no_annotations')) {
@@ -4343,9 +4334,11 @@ export default function ScoreReader() {
         }
         return
       }
-      const row = (Array.isArray(data) ? data[0] : data) as
-        | { share_id?: string; display_name?: string; created?: boolean }
-        | null
+      const row = (Array.isArray(data) ? data[0] : data) as {
+        share_id?: string
+        display_name?: string
+        created?: boolean
+      } | null
       void Taro.showToast({
         title: t(row?.created ? 'scoreReader.share.created' : 'scoreReader.share.updated'),
         icon: 'success',
@@ -4847,10 +4840,7 @@ export default function ScoreReader() {
         {/* 0.6.1 共享副本（其他人的个人层）：打开时拉下来的共享层与个人层真分叉。
             不可关闭（与共享冲突同款），教程期间也不弹。 */}
         {shareCopyPersonalMode && sharePullConflicts.length > 0 && !tutorialOn ? (
-          <SharedConflictSheet
-            conflicts={sharePullConflicts}
-            onPick={setSharePullConflictPage}
-          />
+          <SharedConflictSheet conflicts={sharePullConflicts} onPick={setSharePullConflictPage} />
         ) : null}
         {shareCopyPersonalMode && activeSharePullConflict ? (
           <View className='fixed left-0 right-0 top-0 bottom-0' style={{ zIndex: Z_SHEET + 1 }}>
@@ -4873,18 +4863,12 @@ export default function ScoreReader() {
               racedText={t('scoreReader.conflict.raced')}
               failedText={t('scoreReader.conflict.failed')}
               loadData={async () => {
-                const c = sharePullConflicts.find(
-                  (x) => x.page === activeSharePullConflict.page
-                )
+                const c = sharePullConflicts.find((x) => x.page === activeSharePullConflict.page)
                 if (!c) throw new Error(t('scoreReader.conflict.failed'))
                 return { local: c.local, remote: c.remote, remoteVersion: c.remoteVersion }
               }}
               submit={(side, data) =>
-                submitSharePullConflict(
-                  activeSharePullConflict.page,
-                  side,
-                  data.remoteVersion
-                )
+                submitSharePullConflict(activeSharePullConflict.page, side, data.remoteVersion)
               }
               onSuccess={() => setSharePullConflictPage(null)}
               onCancel={() => setSharePullConflictPage(null)}

@@ -13,7 +13,8 @@ const e = (page: number, replacedAt: string, version = `v${page}`): HistoryEntry
 })
 
 /** 便于读断言：把批次压成 [[页…], [页…]] 与 [时刻…] */
-const pages = (bs: ReturnType<typeof groupHistoryBatches>) => bs.map((b) => b.entries.map((x) => x.page))
+const pages = (bs: ReturnType<typeof groupHistoryBatches>) =>
+  bs.map((b) => b.entries.map((x) => x.page))
 
 describe('groupHistoryBatches：把「按页存」的归档聚成「一次覆盖」', () => {
   it('同一秒内的多条 ⇒ 一批（一次同步归档了好几页）', () => {
@@ -35,10 +36,7 @@ describe('groupHistoryBatches：把「按页存」的归档聚成「一次覆盖
 
   it('恰好等于阈值 ⇒ 仍算同一批（判据是 ≤）', () => {
     const t0 = Date.parse('2026-10-16T04:00:00.000Z')
-    const rows = [
-      e(1, new Date(t0).toISOString()),
-      e(2, new Date(t0 + BATCH_GAP_MS).toISOString()),
-    ]
+    const rows = [e(1, new Date(t0).toISOString()), e(2, new Date(t0 + BATCH_GAP_MS).toISOString())]
     expect(pages(groupHistoryBatches(rows))).toEqual([[2, 1]])
   })
 

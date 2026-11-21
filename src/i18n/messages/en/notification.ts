@@ -3,8 +3,8 @@ export const notification = {
   activityNavTitle: 'Activity Notifications',
   activityTabs: { all: 'All', ensemble: 'Ensemble', gathering: 'Activity' },
   systemTitle: 'System Notifications',
-  systemNavTitle: 'System Notifications',
-  systemTabs: { unread: 'Unread', read: 'Read', unreadCount: 'Unread ({n})' },
+  systemNavTitle: 'All Notifications',
+  systemTabs: { unread: 'Unread', all: 'All', unreadCount: 'Unread ({n})' },
   kind: {
     deviceLogin: {
       title: 'New device sign-in',

@@ -240,37 +240,39 @@ export async function downloadInChunks(
   // 每片至少该推进 1 字节，否则一定是异常（服务端反复回空片）
   const maxRounds = Math.ceil(opts.totalBytes / chunk) + 4
   try {
-  for (let round = 0; round < maxRounds; round += 1) {
-    // ⚠️ 每轮都**重新读磁盘上的实际长度**（不是内存里累加的）：任何一片的写入被吞掉、
-    // 或上一次运行留下半份文件，都能从这里自愈
-    const have = await deps.fs.size(opts.dest)
-    if (have >= opts.totalBytes) return finish(opts, deps, preferred)
-    const end = Math.min(have + chunk, opts.totalBytes) - 1
-    const got = await fetchRangeWithRetry(legs, `bytes=${have}-${end}`, deps, preferred, trials)
-    const res = got.res
-    preferred = got.url // 这一片是谁给的 ⇒ 下一片先试它（见 fetchRangeWithRetry）
-    if (res.statusCode === 200) {
-      // 服务端**忽略了 Range**、把整份都装在这一个临时文件里：直接复制过去。
-      // （走 copyFile 而不是 readFile —— 30MB 读进 JS 内存对小程序的 isolate 是实打实的风险）
-      // 先删目标：这里是**覆盖**语义，而 copyFile 在目标已存在时的行为各实现不一
-      await deps.fs.remove(opts.dest)
-      await deps.fs.copy(res.tempFilePath, opts.dest)
-      return finish(opts, deps, preferred)
+    for (let round = 0; round < maxRounds; round += 1) {
+      // ⚠️ 每轮都**重新读磁盘上的实际长度**（不是内存里累加的）：任何一片的写入被吞掉、
+      // 或上一次运行留下半份文件，都能从这里自愈
+      const have = await deps.fs.size(opts.dest)
+      if (have >= opts.totalBytes) return finish(opts, deps, preferred)
+      const end = Math.min(have + chunk, opts.totalBytes) - 1
+      const got = await fetchRangeWithRetry(legs, `bytes=${have}-${end}`, deps, preferred, trials)
+      const res = got.res
+      preferred = got.url // 这一片是谁给的 ⇒ 下一片先试它（见 fetchRangeWithRetry）
+      if (res.statusCode === 200) {
+        // 服务端**忽略了 Range**、把整份都装在这一个临时文件里：直接复制过去。
+        // （走 copyFile 而不是 readFile —— 30MB 读进 JS 内存对小程序的 isolate 是实打实的风险）
+        // 先删目标：这里是**覆盖**语义，而 copyFile 在目标已存在时的行为各实现不一
+        await deps.fs.remove(opts.dest)
+        await deps.fs.copy(res.tempFilePath, opts.dest)
+        return finish(opts, deps, preferred)
+      }
+      const buf = await deps.fs.read(res.tempFilePath)
+      if (buf.byteLength === 0) {
+        // 服务端对一段**非空区间**回了 206 却是空的 ⇒ 文件在这里就结束了：
+        // 要么库里记的总长比真实文件大，要么对象被截断。两种情况都拼不出 `totalBytes`，
+        // 而且再循环下去也不会推进（死循环），所以**连半成品一起清掉**再报错。
+        // （注意与「网络层失败」区分：那种要**留着**半成品好续传，见上面的循环注释。）
+        if (have > 0) await deps.fs.remove(opts.dest)
+        throw new Error(
+          `文件在 ${have}/${opts.totalBytes} 处提前结束（记录的总长不对，或文件被截断）`
+        )
+      }
+      if (have === 0) await deps.fs.write(opts.dest, buf)
+      else await deps.fs.append(opts.dest, buf)
     }
-    const buf = await deps.fs.read(res.tempFilePath)
-    if (buf.byteLength === 0) {
-      // 服务端对一段**非空区间**回了 206 却是空的 ⇒ 文件在这里就结束了：
-      // 要么库里记的总长比真实文件大，要么对象被截断。两种情况都拼不出 `totalBytes`，
-      // 而且再循环下去也不会推进（死循环），所以**连半成品一起清掉**再报错。
-      // （注意与「网络层失败」区分：那种要**留着**半成品好续传，见上面的循环注释。）
-      if (have > 0) await deps.fs.remove(opts.dest)
-      throw new Error(`文件在 ${have}/${opts.totalBytes} 处提前结束（记录的总长不对，或文件被截断）`)
-    }
-    if (have === 0) await deps.fs.write(opts.dest, buf)
-    else await deps.fs.append(opts.dest, buf)
-  }
-  await deps.fs.remove(opts.dest)
-  throw new Error('分片轮数异常（文件长度没有推进）')
+    await deps.fs.remove(opts.dest)
+    throw new Error('分片轮数异常（文件长度没有推进）')
   } finally {
     logLegs(trials) // 成与不成都要打：判读超时全靠它
   }

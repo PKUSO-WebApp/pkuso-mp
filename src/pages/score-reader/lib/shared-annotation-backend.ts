@@ -165,12 +165,7 @@ export function createSharedAnnotationBackend(
             dirty.delete(page)
             continue
           }
-          const { data, error } = await pushPage(
-            fileId,
-            page,
-            strokes,
-            versions[page] ?? ''
-          )
+          const { data, error } = await pushPage(fileId, page, strokes, versions[page] ?? '')
           if (error) {
             failed = true
             break
@@ -368,12 +363,7 @@ export function createSharedAnnotationBackend(
 
     async restorePage(page, strokes) {
       if (readOnly) return { ok: false }
-      const { data, error } = await pushPage(
-        currentFileId,
-        page,
-        strokes,
-        versions[page] ?? ''
-      )
+      const { data, error } = await pushPage(currentFileId, page, strokes, versions[page] ?? '')
       const row = (data as RpcRow[] | null)?.[0]
       if (error || !row) {
         setState('error')
@@ -430,12 +420,7 @@ export function createSharedAnnotationBackend(
 
       const next =
         choice === 'merge' ? mergeStrokes(conflict.local, conflict.remote) : conflict.local
-      const { data, error } = await pushPage(
-        currentFileId,
-        page,
-        next,
-        conflict.remoteVersion
-      )
+      const { data, error } = await pushPage(currentFileId, page, next, conflict.remoteVersion)
       const row = (data as RpcRow[] | null)?.[0]
       if (error || !row) {
         setState('error')

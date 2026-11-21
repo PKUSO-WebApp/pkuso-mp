@@ -618,9 +618,7 @@ export default function ProfileInfoPage() {
               {t('profileInfo.birthdayLabel')}
             </Text>
             <View className='flex-1 rounded-xl border border-border bg-muted px-3 py-2'>
-              <Text className='block text-sm text-text'>
-                {myProfile.birthday ?? notFilled}
-              </Text>
+              <Text className='block text-sm text-text'>{myProfile.birthday ?? notFilled}</Text>
             </View>
           </View>
         )}

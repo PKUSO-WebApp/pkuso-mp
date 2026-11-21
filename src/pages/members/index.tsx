@@ -6,6 +6,8 @@ import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { tAppError } from '@/lib/appError'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
+import { useSessionViewState } from '@/hooks/useSessionViewState'
+import { SessionRestoreNotice } from '@/components/session-restore-notice'
 import { useThemeClass } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { tabBarReserveCss } from '@/lib/ui-scale'
@@ -27,6 +29,7 @@ import { translateJoinDate } from '@/lib/join-date-i18n'
 import type { ProfileRow } from '@/types/database'
 import { StorageImage } from '@/components/ui/StorageImage'
 import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
+import { ReactionCounts } from '@/components/profile/ReactionCounts'
 import './index.scss'
 
 export default function Members() {
@@ -34,6 +37,7 @@ export default function Members() {
   useNavTitle('members.navTitle')
   const placeholderStyle = usePlaceholderStyle()
   const { user: currentUser } = useUser()
+  const sessionState = useSessionViewState()
   const { profile: myProfile } = useMyProfile()
   const { hasCapability } = useMyCapabilities()
   // 团长：attendance / attendance_export 任一能力都会把「我的声部」换成「排练考勤」
@@ -52,8 +56,8 @@ export default function Members() {
   // 底边栏预留与列表底部占位都是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
   const uiScale = useUiScaleFactor()
 
-  // 游客模式：未登录时显示空态提示
-  const isGuest = !currentUser
+  // 游客模式：确定没有会话（恢复中不算游客——见下面 restoring 分支）
+  const isGuest = sessionState === 'guest'
 
   // 声部长/首席：全部 / 我的声部 两个视图
   const [tab, setTab] = useState<'all' | 'mine'>('all')
@@ -133,6 +137,18 @@ export default function Members() {
   )
 
   const grouped = useMemo(() => groupProfilesByInstrument(filteredRows), [filteredRows])
+
+  // 冷启动：本机有会话时先明确显示「正在确认」，不要闪「未登录」
+  if (sessionState === 'restoring' || sessionState === 'restore-failed') {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
+      >
+        <SessionRestoreNotice state={sessionState} />
+      </View>
+    )
+  }
 
   // 游客模式：未登录时显示空态提示（必须在 admin 检查之前）
   if (isGuest) {
@@ -246,26 +262,32 @@ export default function Members() {
                               )}
                             </View>
                             <View className='min-w-0 flex-1'>
-                              <View className='flex flex-wrap items-center gap-1.5'>
-                                <Text className='text-base font-normal text-text'>
-                                  {u.full_name ?? '—'}
-                                </Text>
-                                {u.leadership_position === 'president' && (
-                                  <StatusChip tone='info'>{t('members.president')}</StatusChip>
-                                )}
-                                {u.leadership_position === 'vice_president' && (
-                                  <StatusChip tone='success'>
-                                    {t('members.vicePresident')}
-                                  </StatusChip>
-                                )}
-                                {u.is_section_leader && (
-                                  <StatusChip tone='warning'>
-                                    {t('members.sectionLeader')}
-                                  </StatusChip>
-                                )}
-                                {u.is_principal && (
-                                  <StatusChip tone='success'>{t('members.principal')}</StatusChip>
-                                )}
+                              <View className='flex items-start justify-between gap-2'>
+                                <View className='flex min-w-0 flex-wrap items-center gap-1.5'>
+                                  <Text className='text-base font-normal text-text'>
+                                    {u.full_name ?? '—'}
+                                  </Text>
+                                  {u.leadership_position === 'president' && (
+                                    <StatusChip tone='info'>{t('members.president')}</StatusChip>
+                                  )}
+                                  {u.leadership_position === 'vice_president' && (
+                                    <StatusChip tone='success'>
+                                      {t('members.vicePresident')}
+                                    </StatusChip>
+                                  )}
+                                  {u.is_section_leader && (
+                                    <StatusChip tone='warning'>
+                                      {t('members.sectionLeader')}
+                                    </StatusChip>
+                                  )}
+                                  {u.is_principal && (
+                                    <StatusChip tone='success'>{t('members.principal')}</StatusChip>
+                                  )}
+                                </View>
+                                <ReactionCounts
+                                  likes={u.likes_count ?? 0}
+                                  flowers={u.flowers_count ?? 0}
+                                />
                               </View>
                               {u.college?.trim() && !(u.hide_college && !isSelf) && (
                                 <Text className='mt-1 block text-xs text-text-muted'>

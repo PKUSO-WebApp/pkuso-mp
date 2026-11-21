@@ -92,7 +92,9 @@ describe('ErrorView 的复制', () => {
   })
 
   it('两次都失败 ⇒ 上报两条 errMsg（现场要能分辨「不是长度问题」）', async () => {
-    setClipboardData.mockRejectedValue({ errMsg: 'setClipboardData:fail api scope is not declared' })
+    setClipboardData.mockRejectedValue({
+      errMsg: 'setClipboardData:fail api scope is not declared',
+    })
     render(<ErrorView message='崩了' stack={LONG_STACK} />)
     fireEvent.click(screen.getByRole('button', { name: '复制错误信息' }))
     await vi.waitFor(() => expect(reportClientError).toHaveBeenCalled())

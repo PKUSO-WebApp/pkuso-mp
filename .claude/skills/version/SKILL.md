@@ -10,15 +10,15 @@ description: 在 pkuso-mp 里动 package.json 的 version（bump / dev / rc / re
 
 ## 命令（唯一定义在 `scripts/version.js`）
 
-| 命令 | 效果 |
-| --- | --- |
-| `node scripts/version.js` | **只打印**当前版本 + 用法（不带参数什么都不会改） |
-| `... dev` ｜ `pnpm version:dev` | `0.5.4` → `0.5.4-dev.1`（已有 dev 后缀则递增） |
-| `... rc` ｜ `pnpm version:rc` | → `0.5.4-rc.1` |
-| `... release` ｜ `pnpm version:release` | 去掉预发布后缀 |
-| `... bump` **或** `... patch` ｜ `pnpm version:bump` | 补丁升级 `0.5.4` → `0.5.5` |
-| `... minor` ｜ `pnpm version:minor` | → `0.6.0` |
-| `... major` ｜ `pnpm version:major` | → `1.0.0` |
+| 命令                                                 | 效果                                              |
+| ---------------------------------------------------- | ------------------------------------------------- |
+| `node scripts/version.js`                            | **只打印**当前版本 + 用法（不带参数什么都不会改） |
+| `... dev` ｜ `pnpm version:dev`                      | `0.5.4` → `0.5.4-dev.1`（已有 dev 后缀则递增）    |
+| `... rc` ｜ `pnpm version:rc`                        | → `0.5.4-rc.1`                                    |
+| `... release` ｜ `pnpm version:release`              | 去掉预发布后缀                                    |
+| `... bump` **或** `... patch` ｜ `pnpm version:bump` | 补丁升级 `0.5.4` → `0.5.5`                        |
+| `... minor` ｜ `pnpm version:minor`                  | → `0.6.0`                                         |
+| `... major` ｜ `pnpm version:major`                  | → `1.0.0`                                         |
 
 ⚠️ 脚本里是 `case 'bump': case 'patch':` —— **两个词都接受**；而用法文本只列了 `patch`、
 文件头注释只写 `bump`。**两个都对**，别以为哪个写错了。

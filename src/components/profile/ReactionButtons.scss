@@ -1,0 +1,25 @@
+/* 点赞/送花时从按钮上方飘起的小图标。位置由 inline style 的 left 随机决定。 */
+.reaction-float {
+  position: absolute;
+  bottom: 100%;
+  font-size: 40rpx;
+  line-height: 1;
+  pointer-events: none;
+  animation: reaction-float 900ms ease-out forwards;
+}
+
+@keyframes reaction-float {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.7);
+  }
+
+  15% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-96rpx) scale(1.15);
+  }
+}

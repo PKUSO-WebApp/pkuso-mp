@@ -37,7 +37,32 @@ describe('roster-utils', () => {
   })
 
   describe('sortGroupMembers', () => {
-    it('声部长排在最前，其余按姓名排序', () => {
+    it('角色优先级：团长 > 副团长 > 首席 > 声部长 > 普通成员', () => {
+      // 姓名故意按相反顺序取（周/陈/王/李/阿），证明角色优先级压过拼音序
+      const president = makeUser({
+        id: '1',
+        full_name: '周团',
+        leadership_position: 'president',
+      })
+      const vice = makeUser({
+        id: '2',
+        full_name: '陈副',
+        leadership_position: 'vice_president',
+      })
+      const principal = makeUser({ id: '3', full_name: '王首', is_principal: true })
+      const leader = makeUser({ id: '4', full_name: '李声', is_section_leader: true })
+      const normal = makeUser({ id: '5', full_name: '阿普' })
+      const result = sortGroupMembers([normal, leader, principal, vice, president])
+      expect(result.map((u) => u.id)).toEqual(['1', '2', '3', '4', '5'])
+    })
+
+    it('同一角色内仍按姓名拼音排序', () => {
+      const zhou = makeUser({ id: '1', full_name: '周首', is_principal: true })
+      const chen = makeUser({ id: '2', full_name: '陈首', is_principal: true })
+      expect(sortGroupMembers([zhou, chen]).map((u) => u.id)).toEqual(['2', '1'])
+    })
+
+    it('声部长排在最前（无更高角色时），其余按姓名排序', () => {
       const leader = makeUser({ id: '1', full_name: '李声长', is_section_leader: true })
       const normalA = makeUser({ id: '2', full_name: '阿三' })
       const normalB = makeUser({ id: '3', full_name: '王五' })
