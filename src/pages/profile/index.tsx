@@ -25,7 +25,6 @@ import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
 import { isValidEmail } from '@/lib/validation'
 import { getAppVersionLabel } from '@/lib/version'
-import type { NotificationCategory } from '@/types/database'
 import { dataSyncBump } from '@/lib/dataSync'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import { useCountdown } from '@/hooks/useCountdown'
@@ -64,10 +63,6 @@ export default function Profile() {
   useNavTitle('profile.title')
 
   // 通知栏目：信箱按钮 → 通知分类映射（Issue #188 语义）
-  const notificationItems: { label: string; category: NotificationCategory }[] = [
-    { label: t('profile.notifications.attendance'), category: 'attendance' },
-    { label: t('profile.notifications.system'), category: 'system' },
-  ]
   // 邮箱与密码弹窗 tab 文案
   const accountTabLabel = (v: AccountTab) =>
     v === 'password' ? t('profile.account.tabPassword') : t('profile.account.tabEmail')
@@ -140,6 +135,9 @@ export default function Profile() {
   // 「我的」tab 红点：由 App 根 NotificationBadgeSync 统一维护未读数，本页进入时按当前
   // 未读数重设红点（冷启动停在登录页导致首次 show 失败，这里在切到本 tab 时补设）。
   const { unreadCounts, refresh: refreshNotifications } = useNotifications()
+  // 「全部通知」信箱 = 系统 + 活动 + 考勤与请假（声部请假仍单独计入，
+  // 它是声部长/首席工作台的通知，不并入普通通知页）
+  const unifiedUnread = unreadCounts.attendance + unreadCounts.activity + unreadCounts.system
 
   useEffect(() => {
     void refreshNotifications()
@@ -495,31 +493,29 @@ export default function Profile() {
               {t('profile.sections.notifications')}
             </Text>
             <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
-              {notificationItems.map(({ label, category }) => {
-                const count = unreadCounts[category]
-                return (
-                  <View
-                    key={category}
-                    className={`px-4 py-3 ${
-                      category !== 'system' || hasManagedScope ? 'border-b border-border' : ''
-                    }`}
-                    onClick={() => {
-                      // 「考勤与请假」改用全屏请假详情页（结构化卡片 + 状态筛选），
-                      // 活动 / 系统通知改用独立信箱页，均不再弹通用通知 Modal
-                      if (category === 'attendance') {
-                        void Taro.navigateTo({ url: '/pages/leave-requests/index' })
-                      } else {
-                        void Taro.navigateTo({ url: '/pages/notification-system/index' })
-                      }
-                    }}
-                  >
-                    <View className='flex items-center'>
-                      <Text className='text-sm font-medium text-text'>{label}</Text>
-                      {unreadBadge(count)}
-                    </View>
-                  </View>
-                )
-              })}
+              {/* 考勤与请假：业务页入口；它的通知已并入「全部通知」，这里不再挂未读徽章 */}
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => void Taro.navigateTo({ url: '/pages/leave-requests/index' })}
+              >
+                <View className='flex items-center'>
+                  <Text className='text-sm font-medium text-text'>
+                    {t('profile.notifications.attendance')}
+                  </Text>
+                </View>
+              </View>
+              {/* 全部通知：系统 + 活动 + 考勤与请假，唯一通知收口 */}
+              <View
+                className={`px-4 py-3 ${hasManagedScope ? 'border-b border-border' : ''}`}
+                onClick={() => void Taro.navigateTo({ url: '/pages/notification-system/index' })}
+              >
+                <View className='flex items-center'>
+                  <Text className='text-sm font-medium text-text'>
+                    {t('profile.notifications.all')}
+                  </Text>
+                  {unreadBadge(unifiedUnread)}
+                </View>
+              </View>
               {/* 声部请假：声部长/首席查看本声部成员的请假记录（可按排练筛选、含取消） */}
               {hasManagedScope && (
                 <View

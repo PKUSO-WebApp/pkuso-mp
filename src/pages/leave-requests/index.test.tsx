@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
 import LeaveRequestsPage from './index'
 
@@ -19,22 +19,22 @@ const leaveRow = {
   },
 }
 
-const attendanceNotice = {
-  id: 'n1',
-  user_id: 'u1',
-  category: 'attendance' as const,
-  title: '考勤状态已更新',
-  content: '《德五》排练的考勤状态已更新为「出席」',
-  read_at: null,
-  created_at: '2026-03-01T10:00:00',
-  kind: null,
-  meta: null,
+const approvedRow = {
+  ...leaveRow,
+  id: 'r2',
+  status: 'approved' as const,
+  reason: '已通过的理由',
+}
+const rejectedRow = {
+  ...leaveRow,
+  id: 'r3',
+  status: 'rejected' as const,
+  reason: '已驳回的理由',
+  reject_reason: '材料不全',
 }
 
-const { orderMock, fetchByCategoryMock, markCategoryReadMock } = vi.hoisted(() => ({
+const { orderMock } = vi.hoisted(() => ({
   orderMock: vi.fn(),
-  fetchByCategoryMock: vi.fn(() => Promise.resolve({ rows: [], error: null })),
-  markCategoryReadMock: vi.fn(() => Promise.resolve(true)),
 }))
 
 vi.mock('@tarojs/components', () => {
@@ -51,17 +51,9 @@ vi.mock('@tarojs/taro', () => ({
 vi.mock('@/lib/supabase', () => ({
   supabase: { from: () => ({ select: () => ({ order: orderMock }) }) },
 }))
-vi.mock('@/hooks/useNotifications', () => ({
-  useNotifications: () => ({
-    fetchByCategory: fetchByCategoryMock,
-    markCategoryRead: markCategoryReadMock,
-  }),
-}))
-vi.mock('@/components/notification-badge-sync', () => ({ notifyNotificationsUpdated: vi.fn() }))
 vi.mock('@/context/theme-context', () => ({ useThemeClass: () => '' }))
 vi.mock('@/lib/date-utils', () => ({
   formatRehearsalRange: () => '2026-03-01 19:00',
-  formatDateTimeInChina: () => '2026-03-01 18:00',
 }))
 vi.mock('@/components/ui/StatusChip', () => ({
   StatusChip: ({ children }: any) => React.createElement('span', null, children),
@@ -88,10 +80,6 @@ describe('请假记录页失败态', () => {
   beforeEach(() => {
     resetTestLocale()
     orderMock.mockReset()
-    fetchByCategoryMock.mockReset()
-    fetchByCategoryMock.mockResolvedValue({ rows: [], error: null })
-    markCategoryReadMock.mockReset()
-    markCategoryReadMock.mockResolvedValue(true)
   })
   afterEach(() => {
     cleanup()
@@ -128,13 +116,27 @@ describe('请假记录页失败态', () => {
     expect(screen.queryByText('重试')).toBeNull()
   })
 
-  it('考勤通知要显示内容再标已读——不能只清红点', async () => {
-    orderMock.mockResolvedValue({ data: [], error: null })
-    fetchByCategoryMock.mockResolvedValue({ rows: [attendanceNotice], error: null } as never)
+  it('已处理 tab 合并已通过与已驳回；待审批单独', async () => {
+    orderMock.mockResolvedValue({
+      data: [leaveRow, approvedRow, rejectedRow],
+      error: null,
+    })
     render(<LeaveRequestsPage />)
+    expect(await screen.findByText('感冒发烧')).toBeTruthy()
 
-    expect(await screen.findByText('考勤状态已更新')).toBeTruthy()
-    expect(screen.getByText('《德五》排练的考勤状态已更新为「出席」')).toBeTruthy()
-    await waitFor(() => expect(markCategoryReadMock).toHaveBeenCalledWith('attendance', ['n1']))
+    fireEvent.click(screen.getByRole('button', { name: '待审批' }))
+    expect(screen.getByText('感冒发烧')).toBeTruthy()
+    expect(screen.queryByText('已通过的理由')).toBeNull()
+    expect(screen.queryByText('已驳回的理由')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '已处理' }))
+    expect(screen.getByText('已通过的理由')).toBeTruthy()
+    expect(screen.getByText('已驳回的理由')).toBeTruthy()
+    expect(screen.queryByText('感冒发烧')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '全部' }))
+    expect(screen.getByText('感冒发烧')).toBeTruthy()
+    expect(screen.getByText('已通过的理由')).toBeTruthy()
+    expect(screen.getByText('已驳回的理由')).toBeTruthy()
   })
 })
