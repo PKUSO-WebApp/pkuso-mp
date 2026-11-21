@@ -20,10 +20,13 @@ export function ProfileInfoView({
   profile,
   viewerId,
   className = '',
+  avatarFooter,
 }: {
   profile: ProfileRow
   viewerId?: string | null
   className?: string
+  /** 头像下方的附加内容（成员详情页用它放点赞/送花按钮） */
+  avatarFooter?: ReactNode
 }) {
   const { t } = useT()
   const isSelf = profile.id === viewerId
@@ -45,6 +48,7 @@ export function ProfileInfoView({
             <DefaultAvatar />
           )}
         </View>
+        {avatarFooter ? <View className='mt-3 w-full'>{avatarFooter}</View> : null}
       </View>
 
       <View>

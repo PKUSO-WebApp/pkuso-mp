@@ -29,6 +29,7 @@ import { translateJoinDate } from '@/lib/join-date-i18n'
 import type { ProfileRow } from '@/types/database'
 import { StorageImage } from '@/components/ui/StorageImage'
 import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
+import { ReactionCounts } from '@/components/profile/ReactionCounts'
 import './index.scss'
 
 export default function Members() {
@@ -261,26 +262,32 @@ export default function Members() {
                               )}
                             </View>
                             <View className='min-w-0 flex-1'>
-                              <View className='flex flex-wrap items-center gap-1.5'>
-                                <Text className='text-base font-normal text-text'>
-                                  {u.full_name ?? '—'}
-                                </Text>
-                                {u.leadership_position === 'president' && (
-                                  <StatusChip tone='info'>{t('members.president')}</StatusChip>
-                                )}
-                                {u.leadership_position === 'vice_president' && (
-                                  <StatusChip tone='success'>
-                                    {t('members.vicePresident')}
-                                  </StatusChip>
-                                )}
-                                {u.is_section_leader && (
-                                  <StatusChip tone='warning'>
-                                    {t('members.sectionLeader')}
-                                  </StatusChip>
-                                )}
-                                {u.is_principal && (
-                                  <StatusChip tone='success'>{t('members.principal')}</StatusChip>
-                                )}
+                              <View className='flex items-start justify-between gap-2'>
+                                <View className='flex min-w-0 flex-wrap items-center gap-1.5'>
+                                  <Text className='text-base font-normal text-text'>
+                                    {u.full_name ?? '—'}
+                                  </Text>
+                                  {u.leadership_position === 'president' && (
+                                    <StatusChip tone='info'>{t('members.president')}</StatusChip>
+                                  )}
+                                  {u.leadership_position === 'vice_president' && (
+                                    <StatusChip tone='success'>
+                                      {t('members.vicePresident')}
+                                    </StatusChip>
+                                  )}
+                                  {u.is_section_leader && (
+                                    <StatusChip tone='warning'>
+                                      {t('members.sectionLeader')}
+                                    </StatusChip>
+                                  )}
+                                  {u.is_principal && (
+                                    <StatusChip tone='success'>{t('members.principal')}</StatusChip>
+                                  )}
+                                </View>
+                                <ReactionCounts
+                                  likes={u.likes_count ?? 0}
+                                  flowers={u.flowers_count ?? 0}
+                                />
                               </View>
                               {u.college?.trim() && !(u.hide_college && !isSelf) && (
                                 <Text className='mt-1 block text-xs text-text-muted'>

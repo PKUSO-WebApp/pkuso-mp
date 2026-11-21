@@ -217,6 +217,24 @@ describe('团级职位徽章', () => {
   })
 })
 
+describe('点赞/送花计数', () => {
+  it('成员卡片右上角显示格式化后的点赞数与送花数', () => {
+    useProfilesMockState.data = [
+      {
+        ...member,
+        id: 'p9',
+        full_name: '计数甲',
+        likes_count: 1234,
+        flowers_count: 2_000_000,
+      },
+    ]
+    render(<Members />)
+
+    expect(screen.getByText('👍 1.23k')).toBeTruthy()
+    expect(screen.getByText('💐 2.00m')).toBeTruthy()
+  })
+})
+
 describe('花名册只列团员', () => {
   it('admin 与谱务账号都不出现；role 为空按 member 算，不从名单里静默漏人', () => {
     useProfilesMockState.data = rosterRows
