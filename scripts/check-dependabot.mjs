@@ -91,7 +91,7 @@ if (prs.length === 0) {
 
 // ---- 主工作区里的 env 文件（被 gitignore，但构建需要）----
 const envFiles = ['.env.development', '.env.production', '.env.test'].filter((f) =>
-  existsSync(join(ROOT, f)),
+  existsSync(join(ROOT, f))
 )
 if (envFiles.length === 0) {
   console.log('⚠️  主工作区没有 .env.development / .env.production —— 构建很可能假失败。')
@@ -153,7 +153,7 @@ console.log('\n================ 汇总 ================')
 for (const r of results) {
   console.log(
     `${r.ok ? '✅' : '❌'}  #${r.pr.number}  ${r.pr.title.slice(0, 56)}` +
-      (r.ok ? '' : `\n      ↳ ${r.reason}`),
+      (r.ok ? '' : `\n      ↳ ${r.reason}`)
   )
 }
 const bad = results.filter((r) => !r.ok)
@@ -162,7 +162,7 @@ if (bad.length) {
   console.log(
     '\n❌ 的那些**不要合**。如果某个包是**有意留在低版本**的（Taro 生态常见），\n' +
       '   应该在 .github/dependabot.yml 里给它加 ignore 并写明理由 ——\n' +
-      '   否则它每周都会再提一次，每次都要靠人记得拒绝。',
+      '   否则它每周都会再提一次，每次都要靠人记得拒绝。'
   )
 }
 if (KEEP && created.length) console.log(`\n(--keep) worktree 保留在：\n${created.join('\n')}`)

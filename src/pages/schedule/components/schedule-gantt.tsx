@@ -6,6 +6,7 @@ import { parseLocalISO, formatTime } from '@/lib/date-utils'
 import { useT } from '@/i18n'
 import { useMyCapabilities } from '@/hooks/useMyCapabilities'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
+import { useUiScaleFactor } from '@/hooks/useUiScale'
 import type { ScheduleRow } from '@/types/database'
 
 type Props = {
@@ -48,6 +49,24 @@ export function parseTimeToHours(timeStr: string | null): number {
   return date.getHours() + date.getMinutes() / 60
 }
 
+/**
+ * 预约块内容密度：块高不够时两行文字会互相挤掉（短预约尤其明显）。
+ *
+ * 阈值是「`text-xs` 两行 + `py-1`」的实测高度（标准档 ≈ 40px）与「单行文字」≈ 18px；
+ * 档位系数（0.85–1.5x）会同比放大字号，所以阈值也要跟着乘。
+ * `hidden` 时只保留色块——15 分钟级的预约在 24h×480px 下只有 5px 高，物理上放不下字。
+ */
+export type ScheduleBlockDensity = 'full' | 'compact' | 'hidden'
+
+export const BLOCK_FULL_MIN_PX = 40
+export const BLOCK_COMPACT_MIN_PX = 18
+
+export function getScheduleBlockDensity(blockHeightPx: number, scale = 1): ScheduleBlockDensity {
+  if (blockHeightPx >= BLOCK_FULL_MIN_PX * scale) return 'full'
+  if (blockHeightPx >= BLOCK_COMPACT_MIN_PX * scale) return 'compact'
+  return 'hidden'
+}
+
 /** 只读甘特图：24 小时时间轴 + 预约块。
  *  点击预约块打开详情弹窗；预约人姓名从 useSchedule 缓存同步读取，
  *  缓存未命中时异步获取并填充。 */
@@ -62,6 +81,7 @@ export function ScheduleGantt({
 }: Props) {
   const { t } = useT()
   const placeholderStyle = usePlaceholderStyle()
+  const uiScale = useUiScaleFactor()
   const { hasCapability } = useMyCapabilities()
   const canManageRehearsals = hasCapability('rehearsal')
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleRow | null>(null)
@@ -271,25 +291,39 @@ export function ScheduleGantt({
                 : 'bg-schedule-other'
               const titleCls = isSelfBlock ? 'text-schedule-text' : 'text-primary'
               const subCls = isSelfBlock ? 'text-schedule-text-muted' : 'text-primary'
+              const title = schedule.title || t('schedule.unnamed')
+              const timeLabel =
+                schedule.displayTimeRange ??
+                `${formatTime(schedule.start_time)} – ${formatTime(schedule.end_time)}`
+              // 块的像素高度决定能放几行字：短预约不能硬塞两行（会被 flex 压扁/溢出到
+              // 相邻块上），≤18px 的单行、≤40px 的合成一行，再短就只留色块。
+              const density = getScheduleBlockDensity((schedule.height / 100) * height, uiScale)
               return (
                 <View
                   key={schedule.id}
-                  className={`absolute left-2 right-2 rounded-lg border border-text ${colorClass}`}
+                  className={`absolute left-2 right-2 overflow-hidden rounded-lg border border-text ${colorClass}`}
                   style={{
                     top: `${schedule.top}%`,
                     height: `${schedule.height}%`,
                   }}
                   onClick={() => void handleScheduleClick(schedule)}
                 >
-                  <View className='flex h-full flex-col justify-center px-2 py-1'>
-                    <Text className={`block truncate text-xs font-medium ${titleCls}`}>
-                      {schedule.title || t('schedule.unnamed')}
-                    </Text>
-                    <Text className={`block text-xs ${subCls}`}>
-                      {schedule.displayTimeRange ??
-                        `${formatTime(schedule.start_time)} – ${formatTime(schedule.end_time)}`}
-                    </Text>
-                  </View>
+                  {density === 'full' && (
+                    <View className='flex h-full flex-col justify-center px-2 py-1'>
+                      <Text className={`block truncate text-xs font-medium ${titleCls}`}>
+                        {title}
+                      </Text>
+                      <Text className={`block truncate text-xs ${subCls}`}>{timeLabel}</Text>
+                    </View>
+                  )}
+                  {density === 'compact' && (
+                    <View className='flex h-full items-center gap-1 px-2'>
+                      <Text className={`min-w-0 flex-1 truncate text-xs font-medium ${titleCls}`}>
+                        {title}
+                      </Text>
+                      <Text className={`shrink-0 text-xs ${subCls}`}>{timeLabel}</Text>
+                    </View>
+                  )}
                 </View>
               )
             })}

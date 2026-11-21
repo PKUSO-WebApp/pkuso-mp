@@ -141,7 +141,8 @@ export function usePdfHandoff(owner: string) {
    */
   const seqRef = useRef(0)
 
-  const ready = !!meta && readyId === reqKeyOf(meta.fileId, withAnno, meta.composeKind, meta.shareId)
+  const ready =
+    !!meta && readyId === reqKeyOf(meta.fileId, withAnno, meta.composeKind, meta.shareId)
 
   // `platform` 一并进上报：面板里出现哪几项完全由它决定（PC 才多「保存到电脑」），
   // 而「为什么这台设备上少一项 / 多一项」这类问题只能靠它判读——`getDeviceInfo().platform`
@@ -438,9 +439,7 @@ export function usePdfHandoff(owner: string) {
               : platform === 'windows' || platform === 'mac'
                 ? t('common.saveTo.copyHintPc')
                 : t('common.saveTo.copyHintGeneric')
-        const content = withAnno
-          ? `${base}\n${t('common.saveTo.copyHintExpiry')}`
-          : base
+        const content = withAnno ? `${base}\n${t('common.saveTo.copyHintExpiry')}` : base
         return Taro.showModal({
           title: t('common.saveTo.copyDoneTitle'),
           content,

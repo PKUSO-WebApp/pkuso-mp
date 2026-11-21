@@ -3,8 +3,8 @@ export const notification = {
   activityNavTitle: '活动通知',
   activityTabs: { all: '全部', ensemble: '重奏', gathering: '团建' },
   systemTitle: '系统通知',
-  systemNavTitle: '系统通知',
-  systemTabs: { unread: '未读', read: '已读', unreadCount: '未读({n})' },
+  systemNavTitle: '全部通知',
+  systemTabs: { unread: '未读', all: '全部', unreadCount: '未读({n})' },
   /**
    * 服务端通知的文案，按 `notifications.kind` 认（渲染在 `lib/notification-text.ts`）。
    *

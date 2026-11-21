@@ -70,7 +70,7 @@ if (isCI) {
 
 process.stdout.write(
   '\n\u001b[33m⚠️  刚才那次 build:weapp 读的是 .env.production —— 现在的 dist/ 连的是【生产库】。\u001b[0m\n' +
-    '   在开发者工具里点开它＝直接看生产数据。下面补一次开发环境构建。\n',
+    '   在开发者工具里点开它＝直接看生产数据。下面补一次开发环境构建。\n'
 )
 
 run('dev:weapp', 'build（开发环境，供验收）')
@@ -128,5 +128,5 @@ process.stdout.write(
   `\n\u001b[32m✓ 可以验收了\u001b[0m\n` +
     `   ${dbHint}\n` +
     '   在微信开发者工具里：设置 → 通用 → 清空缓存 / 重开项目。\n' +
-    '   若只想重出这一份 dev 版：pnpm dev:weapp\n',
+    '   若只想重出这一份 dev 版：pnpm dev:weapp\n'
 )

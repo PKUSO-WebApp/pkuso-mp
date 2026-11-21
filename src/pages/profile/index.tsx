@@ -6,6 +6,8 @@ import { DefaultAvatar } from '@/components/ui/DefaultAvatar'
 import { PresidentSection } from '@/components/profile/PresidentSection'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
+import { useSessionViewState } from '@/hooks/useSessionViewState'
+import { SessionRestoreNotice } from '@/components/session-restore-notice'
 import { useThemeClass } from '@/context/theme-context'
 import { useUiScaleFactor } from '@/hooks/useUiScale'
 import { tabBarReserveCss } from '@/lib/ui-scale'
@@ -23,7 +25,6 @@ import { Modal } from '@/components/ui/Modal'
 import { Toggle } from '@/components/ui/Toggle'
 import { isValidEmail } from '@/lib/validation'
 import { getAppVersionLabel } from '@/lib/version'
-import type { NotificationCategory } from '@/types/database'
 import { dataSyncBump } from '@/lib/dataSync'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
 import { useCountdown } from '@/hooks/useCountdown'
@@ -52,6 +53,7 @@ let codeSentAt = 0
 
 export default function Profile() {
   const { user } = useUser()
+  const sessionState = useSessionViewState()
   const { signOut } = useAuth()
   const darkClass = useThemeClass()
   // 底边栏预留是内联 px（不吃 Tailwind token）⇒ 档位系数要自己乘
@@ -61,10 +63,6 @@ export default function Profile() {
   useNavTitle('profile.title')
 
   // 通知栏目：信箱按钮 → 通知分类映射（Issue #188 语义）
-  const notificationItems: { label: string; category: NotificationCategory }[] = [
-    { label: t('profile.notifications.attendance'), category: 'attendance' },
-    { label: t('profile.notifications.system'), category: 'system' },
-  ]
   // 邮箱与密码弹窗 tab 文案
   const accountTabLabel = (v: AccountTab) =>
     v === 'password' ? t('profile.account.tabPassword') : t('profile.account.tabEmail')
@@ -137,6 +135,9 @@ export default function Profile() {
   // 「我的」tab 红点：由 App 根 NotificationBadgeSync 统一维护未读数，本页进入时按当前
   // 未读数重设红点（冷启动停在登录页导致首次 show 失败，这里在切到本 tab 时补设）。
   const { unreadCounts, refresh: refreshNotifications } = useNotifications()
+  // 「全部通知」信箱 = 系统 + 活动 + 考勤与请假（声部请假仍单独计入，
+  // 它是声部长/首席工作台的通知，不并入普通通知页）
+  const unifiedUnread = unreadCounts.attendance + unreadCounts.activity + unreadCounts.system
 
   useEffect(() => {
     void refreshNotifications()
@@ -411,9 +412,36 @@ export default function Profile() {
     }
   }, [isPwdModalOpen, startCodeCountdown, stopCodeCountdown])
 
+  // 冷启动：本机有会话时先明确显示「正在确认」；确认完成后才能判断角色。
+  // （CustomTabBar 的初值也来自本地会话，所以回访用户可能在这一小段时间里到达本页）
+  if (sessionState === 'restoring' || sessionState === 'restore-failed') {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
+      >
+        <SessionRestoreNotice state={sessionState} />
+      </View>
+    )
+  }
+
+  // 确定没有会话（本地会话已失效等）：正常路径下 CustomTabBar 会先跳登录页，
+  // 这里兜住直接进入/恢复失败后回落的场景，不让页面按「已登录」渲染。
+  if (sessionState === 'guest') {
+    return (
+      <View
+        className={`${darkClass} flex h-full min-h-0 flex-col bg-page-bg`}
+        style={{ paddingBottom: tabBarReserveCss(uiScale) }}
+      >
+        <View className='flex flex-1 items-center justify-center px-4'>
+          <Text className='text-center text-sm text-text-muted'>{t('common.guestHint')}</Text>
+        </View>
+      </View>
+    )
+  }
+
   // 非团员账号（admin / score_manager 等专职账号）一律阻断：小程序只服务乐团成员。
   // 判据走共用的 isOrchestraMember —— 黑名单式每加一个角色都要回来改 6 处，漏改即静默放行。
-  // 注意：游客模式下 CustomTabBar 会直接跳转到 login 页，不会到达此处
   if (!isOrchestraMember(myProfile?.role)) {
     return <StaffBlockedPage role={myProfile?.role} />
   }
@@ -465,31 +493,29 @@ export default function Profile() {
               {t('profile.sections.notifications')}
             </Text>
             <View className='mt-2 overflow-hidden rounded-2xl border border-border bg-card'>
-              {notificationItems.map(({ label, category }) => {
-                const count = unreadCounts[category]
-                return (
-                  <View
-                    key={category}
-                    className={`px-4 py-3 ${
-                      category !== 'system' || hasManagedScope ? 'border-b border-border' : ''
-                    }`}
-                    onClick={() => {
-                      // 「考勤与请假」改用全屏请假详情页（结构化卡片 + 状态筛选），
-                      // 活动 / 系统通知改用独立信箱页，均不再弹通用通知 Modal
-                      if (category === 'attendance') {
-                        void Taro.navigateTo({ url: '/pages/leave-requests/index' })
-                      } else {
-                        void Taro.navigateTo({ url: '/pages/notification-system/index' })
-                      }
-                    }}
-                  >
-                    <View className='flex items-center'>
-                      <Text className='text-sm font-medium text-text'>{label}</Text>
-                      {unreadBadge(count)}
-                    </View>
-                  </View>
-                )
-              })}
+              {/* 考勤与请假：业务页入口；它的通知已并入「全部通知」，这里不再挂未读徽章 */}
+              <View
+                className='border-b border-border px-4 py-3'
+                onClick={() => void Taro.navigateTo({ url: '/pages/leave-requests/index' })}
+              >
+                <View className='flex items-center'>
+                  <Text className='text-sm font-medium text-text'>
+                    {t('profile.notifications.attendance')}
+                  </Text>
+                </View>
+              </View>
+              {/* 全部通知：系统 + 活动 + 考勤与请假，唯一通知收口 */}
+              <View
+                className={`px-4 py-3 ${hasManagedScope ? 'border-b border-border' : ''}`}
+                onClick={() => void Taro.navigateTo({ url: '/pages/notification-system/index' })}
+              >
+                <View className='flex items-center'>
+                  <Text className='text-sm font-medium text-text'>
+                    {t('profile.notifications.all')}
+                  </Text>
+                  {unreadBadge(unifiedUnread)}
+                </View>
+              </View>
               {/* 声部请假：声部长/首席查看本声部成员的请假记录（可按排练筛选、含取消） */}
               {hasManagedScope && (
                 <View

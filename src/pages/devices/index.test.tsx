@@ -292,7 +292,8 @@ describe('DevicesPage', () => {
     mocks.rpc.mockImplementation(async (fn: string) => {
       if (fn === 'list_my_devices') return { data: ALL_DEVICES, error: null }
       // get_my_session_v2：本机这一行 trusted = false 且无墓碑 ⇒ 被设为不信任
-      if (fn === 'get_my_session_v2') return { data: [{ trusted: false, deleted_at: null }], error: null }
+      if (fn === 'get_my_session_v2')
+        return { data: [{ trusted: false, deleted_at: null }], error: null }
       return { data: null, error: null }
     })
     render(<DevicesPage />)
@@ -320,7 +321,8 @@ describe('DevicesPage', () => {
     mocks.rpc.mockImplementation(async (fn: string) => {
       if (fn === 'list_my_devices') return { data: ALL_DEVICES, error: null }
       // 自查那一刻本机还受信
-      if (fn === 'get_my_session_v2') return { data: [{ trusted: true, deleted_at: null }], error: null }
+      if (fn === 'get_my_session_v2')
+        return { data: [{ trusted: true, deleted_at: null }], error: null }
       if (fn === 'set_device_trust') return { data: null, error: { message: 'caller_not_trusted' } }
       return { data: null, error: null }
     })

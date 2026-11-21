@@ -82,6 +82,10 @@ export const common = {
     navTitle: 'User Agreement',
   },
   guestHint: 'Please log in on the "Me" page to view',
+  sessionRestore: {
+    confirming: 'Confirming your login…',
+    failed: 'Could not confirm your login. Please retry.',
+  },
   hidden: '(Hidden)',
   notFilled: 'Not filled',
   joinDate: {

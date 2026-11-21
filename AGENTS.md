@@ -111,11 +111,11 @@ grep -rl "$(grep -m1 TARO_APP_SUPABASE_URL .env.development | cut -d= -f2)" dist
 git cat-file -e origin/main:<路径>     # 报错 = main 上没有 = 属于「尚未发布的功能」
 ```
 
-| 判断结果                | base       | 之后合到哪                                            |
-| ----------------------- | ---------- | ----------------------------------------------------- |
-| 有路径在 `main` 上不存在 | **`dev`**  | `dev`（这就是开发线改动）                             |
-| 全部路径 `main` 上都有   | **`dev`**  | 先合 `dev` 拿真机验收 → 再把**同一个提交** cherry-pick 成 `main` 上的第二份（发版） |
-| 拿不准                  | **`dev`**  | 按开发线处理——代价小；反过来的代价是把未发布功能带上正式线 |
+| 判断结果                 | base      | 之后合到哪                                                                          |
+| ------------------------ | --------- | ----------------------------------------------------------------------------------- |
+| 有路径在 `main` 上不存在 | **`dev`** | `dev`（这就是开发线改动）                                                           |
+| 全部路径 `main` 上都有   | **`dev`** | 先合 `dev` 拿真机验收 → 再把**同一个提交** cherry-pick 成 `main` 上的第二份（发版） |
+| 拿不准                   | **`dev`** | 按开发线处理——代价小；反过来的代价是把未发布功能带上正式线                          |
 
 > ⚠️ 第二行落地时：**两条线各一份提交是靠 cherry-pick 做的，不是跨线开 PR。** `main` 上有 `dev` 没有的提交（release、反向 cherry-pick），所以**不能拿着基于 `main` 的分支去开 `dev` 的 PR**——那会把它们全带进 `dev`，而且必冲突（2026-10-14 实测：diff 膨胀到 52 个文件 + CONFLICTING）。分支**从各自那条线拉**：第一份 `git checkout -b <名字> origin/dev`；第二份从 `origin/main` 拉后 cherry-pick 同一个提交。
 
@@ -328,11 +328,11 @@ pnpm upload 0.4.27 "测试上传"   # 指定版本号与描述
   关于 `pb-safe`：它是**有效**的纯安全区工具类（`src/app.css` 的 `@utility pb-safe`），但只覆盖安全区，**不足以替代 tabBar 的 50px 预留**，也不得用在 tab 页根容器上；`pb-8` / `pb-[50px]` 同理（后者还会被转 rpx）。
   **现役 tab 清单不要照抄本文档**——它在**三处**各有一份，改一处必须同时改另两处（`main` 与 `dev` 的 tab 集合也可能不同）：
 
-  | 位置 | 作用 |
-  | --- | --- |
-  | `src/app.config.ts` 的 `tabBar.list` | 框架用：决定哪些页面是 tab 页 |
-  | `src/components/CustomTabBar.tsx` 的 `LIST` | 自绘底边栏：图标三色 + i18n key |
-  | `src/lib/tabBarConfig.ts` 的 `TAB_PAGE_PATHS` | 把当前路由换算成选中索引 |
+  | 位置                                          | 作用                            |
+  | --------------------------------------------- | ------------------------------- |
+  | `src/app.config.ts` 的 `tabBar.list`          | 框架用：决定哪些页面是 tab 页   |
+  | `src/components/CustomTabBar.tsx` 的 `LIST`   | 自绘底边栏：图标三色 + i18n key |
+  | `src/lib/tabBarConfig.ts` 的 `TAB_PAGE_PATHS` | 把当前路由换算成选中索引        |
 
   三份**互指**（每份的注释都说「与另一份保持同步」），没有哪一份是权威。核对命令：
 
@@ -407,12 +407,12 @@ grep -rn "chooseMedia\|chooseAvatar\|getLocation" src --include=*.tsx --include=
 ⚠️ **下表是一次核对的快照，不是权威**（2026-09-30 复核时发现其中三行已经过期 —— 详见「这一版修掉了什么」）。
 权威只有你自己跑上面那条 `grep` 得到的调用点，逐页去读。
 
-| 页面               | API          | 现状                                                                                                                                                            |
-| ------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rehearsal-detail` | getLocation  | ✅ `usePageRestore<string>('id')`                                                                                                                               |
-| `post-edit`        | chooseMedia  | ✅ `usePageRestore<string>('id')` + `useEditDraft`。**未保存内容会恢复**：`:108` 有 `if (editDraft.hasDraft()) return` 挡在「用服务端旧值回填表单」前面（此前这里写的是「不恢复未保存内容」，已过期） |
-| `post-create`      | chooseMedia  | ✅ `useEditDraft` + `useDidShow`（标准范例）；`router.params.type` 未单独缓存，目前靠草稿掩盖                                                                   |
-| `profile-info`     | chooseAvatar | ✅ `useEditDraft` + `useDidShow`                                                                                                                                |
+| 页面               | API          | 现状                                                                                                                                                                                                                 |
+| ------------------ | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rehearsal-detail` | getLocation  | ✅ `usePageRestore<string>('id')`                                                                                                                                                                                    |
+| `post-edit`        | chooseMedia  | ✅ `usePageRestore<string>('id')` + `useEditDraft`。**未保存内容会恢复**：`:108` 有 `if (editDraft.hasDraft()) return` 挡在「用服务端旧值回填表单」前面（此前这里写的是「不恢复未保存内容」，已过期）                |
+| `post-create`      | chooseMedia  | ✅ `useEditDraft` + `useDidShow`（标准范例）；`router.params.type` 未单独缓存，目前靠草稿掩盖                                                                                                                        |
+| `profile-info`     | chooseAvatar | ✅ `useEditDraft` + `useDidShow`                                                                                                                                                                                     |
 | `leave-request`    | chooseMedia  | ✅ `usePageRestore`（三个参数）+ `useEditDraft` + `useDidShow`，`reason`/附件都是带草稿初值的 `useState`。**选图不会丢内容**（此前这里标的是「只缓存路由参数、选图内容全丢、未修」—— 那是 `b3ce592` 修掉之前的状况） |
 
 其余仍在裸读 `router.params` 的页面（`error` / `login` / `post-detail` / `register`）当前都不调用那三个 API，属潜在雷；`dev` 上另有谱务相关页面（`score-*`，`main` 还没有）。**核验请按上面的命令跑一遍，以你所在分支的实际情况为准。**

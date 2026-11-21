@@ -77,12 +77,14 @@ async function fetchSharePages(shareId: string): Promise<RemotePage[]> {
     .select('page, strokes, version, updated_at')
     .eq('share_id', shareId)
   if (error) throw new Error(error.message)
-  return ((data ?? []) as Array<{
-    page: number
-    strokes: unknown
-    version: string | null
-    updated_at: string | null
-  }>).map((row) => ({
+  return (
+    (data ?? []) as Array<{
+      page: number
+      strokes: unknown
+      version: string | null
+      updated_at: string | null
+    }>
+  ).map((row) => ({
     page: row.page,
     strokes: (Array.isArray(row.strokes) ? row.strokes : []) as unknown as AnnoStroke[],
     version: typeof row.version === 'string' && row.version ? row.version : null,

@@ -32,27 +32,27 @@
  * 这也是为什么这个脚本**不退出非零**：它不是门，是一张地图。判读在人（或 agent）手里。
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync } from 'node:child_process'
 
-const [, , baseArg, topicArg] = process.argv;
-const base = baseArg ?? "origin/main";
-const topic = topicArg ?? "origin/dev";
+const [, , baseArg, topicArg] = process.argv
+const base = baseArg ?? 'origin/main'
+const topic = topicArg ?? 'origin/dev'
 
 function git(args) {
   try {
-    return execFileSync("git", args, { encoding: "utf8", stdio: "pipe" });
+    return execFileSync('git', args, { encoding: 'utf8', stdio: 'pipe' })
   } catch (e) {
-    console.error(`✗ git ${args.join(" ")} 失败：${(e.stderr ?? "").trim() || e.message}`);
-    process.exit(2);
+    console.error(`✗ git ${args.join(' ')} 失败：${(e.stderr ?? '').trim() || e.message}`)
+    process.exit(2)
   }
 }
 
 function refExists(ref) {
   try {
-    execFileSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], { stdio: "pipe" });
-    return true;
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { stdio: 'pipe' })
+    return true
   } catch {
-    return false;
+    return false
   }
 }
 
@@ -61,64 +61,57 @@ function refExists(ref) {
 for (const ref of [base, topic]) {
   if (!refExists(ref)) {
     console.error(
-      `✗ 解析不到 ${ref}。先 \`git fetch origin\`（浅克隆请先 \`git fetch --unshallow\`）。`,
-    );
-    process.exit(2);
+      `✗ 解析不到 ${ref}。先 \`git fetch origin\`（浅克隆请先 \`git fetch --unshallow\`）。`
+    )
+    process.exit(2)
   }
 }
 
-const list = (ref) =>
-  git(["ls-tree", "-r", "--name-only", ref])
-    .split("\n")
-    .filter(Boolean);
+const list = (ref) => git(['ls-tree', '-r', '--name-only', ref]).split('\n').filter(Boolean)
 
-const baseFiles = new Set(list(base));
-const topicFiles = list(topic);
-const changed = new Set(
-  git(["diff", "--name-only", base, topic])
-    .split("\n")
-    .filter(Boolean),
-);
+const baseFiles = new Set(list(base))
+const topicFiles = list(topic)
+const changed = new Set(git(['diff', '--name-only', base, topic]).split('\n').filter(Boolean))
 
-const onlyInTopic = topicFiles.filter((p) => !baseFiles.has(p)).sort();
-const bothDiverged = topicFiles.filter((p) => baseFiles.has(p) && changed.has(p)).sort();
+const onlyInTopic = topicFiles.filter((p) => !baseFiles.has(p)).sort()
+const bothDiverged = topicFiles.filter((p) => baseFiles.has(p) && changed.has(p)).sort()
 
 /** 按顶层目录归并，长清单也看得清 */
 function group(paths) {
-  const byDir = new Map();
+  const byDir = new Map()
   for (const p of paths) {
-    const dir = p.includes("/") ? p.slice(0, p.indexOf("/")) : "(仓库根)";
-    if (!byDir.has(dir)) byDir.set(dir, []);
-    byDir.get(dir).push(p);
+    const dir = p.includes('/') ? p.slice(0, p.indexOf('/')) : '(仓库根)'
+    if (!byDir.has(dir)) byDir.set(dir, [])
+    byDir.get(dir).push(p)
   }
-  return byDir;
+  return byDir
 }
 
 function printSection(title, note, paths) {
-  console.log(`\n## ${title}（${paths.length} 个）`);
-  console.log(note);
+  console.log(`\n## ${title}（${paths.length} 个）`)
+  console.log(note)
   for (const [dir, ps] of [...group(paths)].sort()) {
-    console.log(`\n  ${dir}/  (${ps.length})`);
-    for (const p of ps) console.log(`    ${p}`);
+    console.log(`\n  ${dir}/  (${ps.length})`)
+    for (const p of ps) console.log(`    ${p}`)
   }
 }
 
-console.log(`比较 ${base} ← ${topic}`);
+console.log(`比较 ${base} ← ${topic}`)
 
 printSection(
-  "只在 topic 线上存在",
-  "  ⇒ 这些就是「尚未发布的功能」。稳定化改动**不得触碰**，否则 cherry-pick 到 base 必冲突。",
-  onlyInTopic,
-);
+  '只在 topic 线上存在',
+  '  ⇒ 这些就是「尚未发布的功能」。稳定化改动**不得触碰**，否则 cherry-pick 到 base 必冲突。',
+  onlyInTopic
+)
 
 printSection(
-  "两条线上都有、但内容不同",
-  "  ⇒ ⚠️ **旧判据看不见这一类**。它们过得了「base 上存在吗」，但已经在 topic 线上带着\n     未发布功能的接线；碰了照样冲突，或整份拷过去时静默带上未发布功能。",
-  bothDiverged,
-);
+  '两条线上都有、但内容不同',
+  '  ⇒ ⚠️ **旧判据看不见这一类**。它们过得了「base 上存在吗」，但已经在 topic 线上带着\n     未发布功能的接线；碰了照样冲突，或整份拷过去时静默带上未发布功能。',
+  bothDiverged
+)
 
 console.log(
-  "\n判读：稳定化改动的 base 取哪条线，看**它要改的每个路径落在哪一段**——\n" +
-    "  落在第一段 ⇒ base 取 topic 线；两段都不落 ⇒ base 取 base 线（先合 topic 线拿真机验收，\n" +
-    "  再 cherry-pick 到 base 线）。第二段要特别小心：它们看起来「两边都有」，但内容不一样。",
-);
+  '\n判读：稳定化改动的 base 取哪条线，看**它要改的每个路径落在哪一段**——\n' +
+    '  落在第一段 ⇒ base 取 topic 线；两段都不落 ⇒ base 取 base 线（先合 topic 线拿真机验收，\n' +
+    '  再 cherry-pick 到 base 线）。第二段要特别小心：它们看起来「两边都有」，但内容不一样。'
+)

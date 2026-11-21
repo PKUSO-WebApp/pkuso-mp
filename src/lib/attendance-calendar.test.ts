@@ -13,10 +13,7 @@ import {
 
 const NOW = new Date('2026-10-15T12:00:00').getTime()
 
-const row = (
-  status: AttendanceRowLike['status'],
-  start: string | null
-): AttendanceRowLike => ({
+const row = (status: AttendanceRowLike['status'], start: string | null): AttendanceRowLike => ({
   status,
   rehearsals: { start_time: start },
 })
@@ -83,25 +80,13 @@ describe('dayTone：日历阴影', () => {
     ).toBe('danger')
 
     expect(
-      dayTone(
-        [
-          row('present', '2026-10-10T19:00:00'),
-          row('excused', '2026-10-10T10:00:00'),
-        ],
-        NOW
-      )
+      dayTone([row('present', '2026-10-10T19:00:00'), row('excused', '2026-10-10T10:00:00')], NOW)
     ).toBe('info')
   })
 
   it('未来场的缺席不污染当天（只看已过去的场次）', () => {
     expect(
-      dayTone(
-        [
-          row('present', '2026-10-10T19:00:00'),
-          row('absent', '2026-10-20T19:00:00'),
-        ],
-        NOW
-      )
+      dayTone([row('present', '2026-10-10T19:00:00'), row('absent', '2026-10-20T19:00:00')], NOW)
     ).toBe('success')
   })
 })

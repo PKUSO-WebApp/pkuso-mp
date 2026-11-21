@@ -25,6 +25,7 @@ export const profile = {
     attendance: 'Attendance & Leave',
     activity: 'Activity',
     system: 'System',
+    all: 'All Notifications',
     sectionLeave: 'Section Leave',
   },
   card: {

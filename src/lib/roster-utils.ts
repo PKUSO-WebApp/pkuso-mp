@@ -22,8 +22,19 @@ export type RosterGroup = {
 }
 
 /**
- * 组内排序：声部长（is_section_leader）排最前（多个声部长之间同样按姓名拼音），
- * 其余按**姓名拼音**排序。
+ * 组内角色优先级：团长 → 副团长 → 首席 → 声部长 → 普通成员。
+ * 一人同时拥有多个身份时取最高的那个（例如「团长 + 声部长」按团长算）。
+ */
+export function roleRank(user: ProfileRow): number {
+  if (user.leadership_position === 'president') return 0
+  if (user.leadership_position === 'vice_president') return 1
+  if (user.is_principal) return 2
+  if (user.is_section_leader) return 3
+  return 4
+}
+
+/**
+ * 组内排序：先按角色优先级（见 `roleRank`），同一优先级内按**姓名拼音**排序。
  *
  * 拼音键走共用的 `pinyinSortKey`（见 ./pinyin-sort），**不是** `localeCompare(x, 'zh-CN')`
  * ——后者依赖运行时的 ICU 排序数据，真机上实测不出拼音序（2026-10-11 用户报「看着像按
@@ -31,9 +42,8 @@ export type RosterGroup = {
  */
 export function sortGroupMembers(users: ProfileRow[]): ProfileRow[] {
   return [...users].sort((a, b) => {
-    const aLeader = a.is_section_leader ? 0 : 1
-    const bLeader = b.is_section_leader ? 0 : 1
-    if (aLeader !== bLeader) return aLeader - bLeader
+    const rankDiff = roleRank(a) - roleRank(b)
+    if (rankDiff !== 0) return rankDiff
     const an = String(a.full_name ?? '')
     const bn = String(b.full_name ?? '')
     const ka = pinyinSortKey(an)
@@ -45,7 +55,7 @@ export function sortGroupMembers(users: ProfileRow[]): ProfileRow[] {
 
 /**
  * 按声部顺序分组：INSTRUMENT_ORDER 顺序在前，「其他」最后。
- * 组内成员先经 sortGroupMembers 排序（声部长优先）。
+ * 组内成员先经 sortGroupMembers 排序（团队职位/首席/声部长优先）。
  */
 export function groupProfilesByInstrument(rows: ProfileRow[]): RosterGroup[] {
   const map = new Map<string, ProfileRow[]>()

@@ -74,7 +74,9 @@ function fakeFs(initial: string[] = []) {
     readdir({ dirPath, success, fail }) {
       calls.push(`readdir:${dirPath}`)
       const prefix = `${dirPath}/`
-      const out = [...files.keys()].filter((f) => f.startsWith(prefix)).map((f) => f.slice(prefix.length))
+      const out = [...files.keys()]
+        .filter((f) => f.startsWith(prefix))
+        .map((f) => f.slice(prefix.length))
       if (out.length > 0 || dirs.has(dirPath)) success({ files: out })
       else fail?.()
     },
@@ -414,7 +416,9 @@ describe('ensureSavedPdf', () => {
     const urls1: string[] = []
     first.download.mockImplementation(async (url: string) => {
       urls1.push(String(url))
-      return String(url).includes('proxy.example') ? { statusCode: 500, tempFilePath: '' } : chunkOk(first)
+      return String(url).includes('proxy.example')
+        ? { statusCode: 500, tempFilePath: '' }
+        : chunkOk(first)
     })
     await ensureSavedPdf(opts({ expectedBytes: 4 }), first.deps)
     expect(urls1[0]).toContain('proxy.example') // 反代优先
@@ -478,7 +482,11 @@ describe('ensureSavedPdf', () => {
       access: ({ fail }) => fail(),
       readdir: ({ fail }) => fail?.(),
     }
-    const res = await ensureSavedPdf(opts(), { root: '/usr', fs: raceFs, download: vi.fn(async () => ({ statusCode: 200, tempFilePath: '/tmp/x.pdf' })) })
+    const res = await ensureSavedPdf(opts(), {
+      root: '/usr',
+      fs: raceFs,
+      download: vi.fn(async () => ({ statusCode: 200, tempFilePath: '/tmp/x.pdf' })),
+    })
     expect(res.reused).toBe(false)
     expect(base.files.has(path)).toBe(true)
     expect(base.calls.some((c) => c.startsWith('unlink:'))).toBe(true)
@@ -607,7 +615,11 @@ describe('分片下载那条路（给了 expectedBytes）', () => {
       return { statusCode: 206, tempFilePath: '/tmp/chunk' }
     })
     await ensureSavedPdf(opts({ expectedBytes: 4 }), t.deps)
-    expect(t.download).toHaveBeenCalledWith(expect.any(String), { Range: 'bytes=0-3' }, expect.any(Number))
+    expect(t.download).toHaveBeenCalledWith(
+      expect.any(String),
+      { Range: 'bytes=0-3' },
+      expect.any(Number)
+    )
 
     const t2 = deps()
     t2.download.mockResolvedValue({ statusCode: 200, tempFilePath: '/tmp/x.pdf' })

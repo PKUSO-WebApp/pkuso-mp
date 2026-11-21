@@ -20,10 +20,13 @@ export function ProfileInfoView({
   profile,
   viewerId,
   className = '',
+  avatarFooter,
 }: {
   profile: ProfileRow
   viewerId?: string | null
   className?: string
+  /** 头像下方的附加内容（成员详情页用它放点赞/送花按钮） */
+  avatarFooter?: ReactNode
 }) {
   const { t } = useT()
   const isSelf = profile.id === viewerId
@@ -45,6 +48,7 @@ export function ProfileInfoView({
             <DefaultAvatar />
           )}
         </View>
+        {avatarFooter ? <View className='mt-3 w-full'>{avatarFooter}</View> : null}
       </View>
 
       <View>
@@ -82,9 +86,7 @@ export function ProfileInfoView({
 
         {showPhone && (
           <InfoRow label={t('profileInfo.contactLabel')}>
-            <Text className='block text-sm text-text'>
-              {profile.phone_number ?? notFilled}
-            </Text>
+            <Text className='block text-sm text-text'>{profile.phone_number ?? notFilled}</Text>
           </InfoRow>
         )}
 
@@ -96,9 +98,7 @@ export function ProfileInfoView({
 
         {showBirthday && (
           <InfoRow label={t('profileInfo.birthdayLabel')}>
-            <Text className='block text-sm text-text'>
-              {profile.birthday ?? notFilled}
-            </Text>
+            <Text className='block text-sm text-text'>{profile.birthday ?? notFilled}</Text>
           </InfoRow>
         )}
       </View>
@@ -106,13 +106,7 @@ export function ProfileInfoView({
   )
 }
 
-function InfoRow({
-  label,
-  children,
-}: {
-  label: string
-  children: ReactNode
-}) {
+function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <View className='flex items-center gap-3 border-b border-border py-3'>
       <Text className='w-20 shrink-0 text-sm text-primary'>{label}</Text>

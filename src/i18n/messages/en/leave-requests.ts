@@ -1,6 +1,7 @@
 export const leaveRequests = {
   navTitle: 'My Leave Requests',
   tabAll: 'All',
+  tabProcessed: 'Processed',
   loadFailed: 'Failed to load, please retry',
   empty: 'No leave requests yet',
   timeUnset: 'Time not set',
@@ -12,7 +13,6 @@ export const leaveRequests = {
   labelType: 'Rehearsal type: ',
   labelReason: 'Reason: ',
   labelReviewReason: 'Review note: ',
-  attendanceNoticesTitle: 'Attendance notices',
   status: {
     pending: 'Pending',
     approved: 'Approved',
