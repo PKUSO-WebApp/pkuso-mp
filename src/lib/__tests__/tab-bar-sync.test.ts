@@ -101,8 +101,8 @@ describe('三份 tab 清单必须一致', () => {
     // 栈还没就绪时才用 router
     expect(selectedTabIndex(resolveTabRoute(undefined, '/pages/schedule/index'))).toBe(2)
     // 当前页不是 tab 页时不要拿旧 router 去点亮某个 tab
-    expect(
-      selectedTabIndex(resolveTabRoute('pages/post-detail/index', '/pages/score/index'))
-    ).toBe(-1)
+    expect(selectedTabIndex(resolveTabRoute('pages/post-detail/index', '/pages/score/index'))).toBe(
+      -1
+    )
   })
 })

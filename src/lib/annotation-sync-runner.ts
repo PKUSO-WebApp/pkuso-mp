@@ -137,10 +137,7 @@ async function fetchRemotePages(fileId: string): Promise<RemotePage[]> {
           .from('sheet_music_share_user_annotations')
           .select('page, strokes, version, updated_at')
           .eq('share_id', ref.id)
-      : supabase
-          .from(TABLE)
-          .select('page, strokes, version, updated_at')
-          .eq('file_id', ref.id)
+      : supabase.from(TABLE).select('page, strokes, version, updated_at').eq('file_id', ref.id)
   const { data, error } = await query
   if (error) throw new Error(error.message)
   return (data ?? []).map((row) => ({
@@ -165,11 +162,7 @@ async function fetchRemotePage(
           .select('strokes, version')
           .eq('share_id', ref.id)
           .eq('page', page)
-      : supabase
-          .from(TABLE)
-          .select('strokes, version')
-          .eq('file_id', ref.id)
-          .eq('page', page)
+      : supabase.from(TABLE).select('strokes, version').eq('file_id', ref.id).eq('page', page)
   const { data, error } = await query.maybeSingle()
   if (error) throw new Error(error.message)
   return {

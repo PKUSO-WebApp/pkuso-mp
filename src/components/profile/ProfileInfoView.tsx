@@ -82,9 +82,7 @@ export function ProfileInfoView({
 
         {showPhone && (
           <InfoRow label={t('profileInfo.contactLabel')}>
-            <Text className='block text-sm text-text'>
-              {profile.phone_number ?? notFilled}
-            </Text>
+            <Text className='block text-sm text-text'>{profile.phone_number ?? notFilled}</Text>
           </InfoRow>
         )}
 
@@ -96,9 +94,7 @@ export function ProfileInfoView({
 
         {showBirthday && (
           <InfoRow label={t('profileInfo.birthdayLabel')}>
-            <Text className='block text-sm text-text'>
-              {profile.birthday ?? notFilled}
-            </Text>
+            <Text className='block text-sm text-text'>{profile.birthday ?? notFilled}</Text>
           </InfoRow>
         )}
       </View>
@@ -106,13 +102,7 @@ export function ProfileInfoView({
   )
 }
 
-function InfoRow({
-  label,
-  children,
-}: {
-  label: string
-  children: ReactNode
-}) {
+function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <View className='flex items-center gap-3 border-b border-border py-3'>
       <Text className='w-20 shrink-0 text-sm text-primary'>{label}</Text>

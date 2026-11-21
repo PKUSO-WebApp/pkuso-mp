@@ -228,9 +228,7 @@ describe('多腿的取舍', () => {
         },
         t.deps
       )
-      const line = spy.mock.calls
-        .map((c) => String(c[0]))
-        .find((l) => l.includes('下载腿'))
+      const line = spy.mock.calls.map((c) => String(c[0])).find((l) => l.includes('下载腿'))
       expect(line).toBeTruthy()
       expect(line).toContain('proxy ✗')
       expect(line).toContain('direct ✓ 206')
@@ -280,7 +278,10 @@ describe('downloadInChunks', () => {
   it('多片按序拼装，内容与远端**逐字节一致**', async () => {
     const total = CHUNK_BYTES * 2 + 1000
     const t = harness(total)
-    await downloadInChunks({ legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: total }, t.deps)
+    await downloadInChunks(
+      { legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: total },
+      t.deps
+    )
     expect(t.calls).toEqual([
       `u1|bytes=0-${CHUNK_BYTES - 1}`,
       `u1|bytes=${CHUNK_BYTES}-${CHUNK_BYTES * 2 - 1}`,
@@ -294,7 +295,10 @@ describe('downloadInChunks', () => {
     const total = CHUNK_BYTES + 500
     const t = harness(total)
     t.files.set(DEST, t.remote.slice(0, 1500))
-    await downloadInChunks({ legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: total }, t.deps)
+    await downloadInChunks(
+      { legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: total },
+      t.deps
+    )
     expect(t.calls[0]).toBe(`u1|bytes=1500-${total - 1}`)
     expect(digest(t.files.get(DEST))).toBe(digest(t.remote))
   })
@@ -303,7 +307,17 @@ describe('downloadInChunks', () => {
     const total = 1000
     const t = harness(total)
     t.failNext(1)
-    await downloadInChunks({ legs: [{ url: 'proxy', timeoutMs: 1 }, { url: 'direct', timeoutMs: 1 }], dest: DEST, totalBytes: total }, t.deps)
+    await downloadInChunks(
+      {
+        legs: [
+          { url: 'proxy', timeoutMs: 1 },
+          { url: 'direct', timeoutMs: 1 },
+        ],
+        dest: DEST,
+        totalBytes: total,
+      },
+      t.deps
+    )
     expect(t.calls).toEqual(['proxy|bytes=0-999', 'direct|bytes=0-999'])
     expect(digest(t.files.get(DEST))).toBe(digest(t.remote))
   })
@@ -311,7 +325,10 @@ describe('downloadInChunks', () => {
   it('服务端忽略 Range（200）：整份复制过去，且只求一次', async () => {
     const total = CHUNK_BYTES * 3
     const t = harness(total, { ignoreRange: true })
-    await downloadInChunks({ legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: total }, t.deps)
+    await downloadInChunks(
+      { legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: total },
+      t.deps
+    )
     expect(t.calls).toHaveLength(1)
     expect(digest(t.files.get(DEST))).toBe(digest(t.remote))
   })
@@ -324,7 +341,10 @@ describe('downloadInChunks', () => {
       return { statusCode: 206, tempFilePath: 'empty' }
     }
     await expect(
-      downloadInChunks({ legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: 1000 }, t.deps)
+      downloadInChunks(
+        { legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: 1000 },
+        t.deps
+      )
     ).rejects.toThrow('提前结束')
     expect(t.calls).toHaveLength(1)
   })
@@ -337,7 +357,10 @@ describe('downloadInChunks', () => {
     const t = harness(1000)
     t.truncate(900)
     await expect(
-      downloadInChunks({ legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: 1000 }, t.deps)
+      downloadInChunks(
+        { legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: 1000 },
+        t.deps
+      )
     ).rejects.toThrow('提前结束')
     expect(t.files.has(DEST)).toBe(false)
   })
@@ -353,7 +376,10 @@ describe('downloadInChunks', () => {
       return real(url, range, timeoutMs)
     }
     await expect(
-      downloadInChunks({ legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: CHUNK_BYTES * 2 }, t.deps)
+      downloadInChunks(
+        { legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: CHUNK_BYTES * 2 },
+        t.deps
+      )
     ).rejects.toThrow('ERR_CONNECTION_RESET')
     expect(t.files.get(DEST)?.byteLength).toBe(CHUNK_BYTES)
   })
@@ -378,7 +404,10 @@ describe('downloadInChunks', () => {
     const t = harness(1000)
     t.setStatus(404)
     await expect(
-      downloadInChunks({ legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: 1000 }, t.deps)
+      downloadInChunks(
+        { legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: 1000 },
+        t.deps
+      )
     ).rejects.toThrow('HTTP 404')
     expect(t.calls).toHaveLength(1)
   })
@@ -393,7 +422,10 @@ describe('downloadInChunks', () => {
       t.files.set('ok', t.remote.slice())
       return { statusCode: 206, tempFilePath: 'ok' }
     }
-    await downloadInChunks({ legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: 1000 }, t.deps)
+    await downloadInChunks(
+      { legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: 1000 },
+      t.deps
+    )
     expect(t.calls).toHaveLength(3)
     expect(digest(t.files.get(DEST))).toBe(digest(t.remote))
   })
@@ -411,7 +443,10 @@ describe('downloadInChunks', () => {
 
   it('小文件一片就完事', async () => {
     const t = harness(300)
-    await downloadInChunks({ legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: 300 }, t.deps)
+    await downloadInChunks(
+      { legs: [{ url: 'u1', timeoutMs: 1 }], dest: DEST, totalBytes: 300 },
+      t.deps
+    )
     expect(t.calls).toEqual(['u1|bytes=0-299'])
   })
 })

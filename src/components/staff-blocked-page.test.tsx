@@ -32,7 +32,9 @@ describe('StaffBlockedPage', () => {
     setTestLocale('en')
     render(<StaffBlockedPage role='admin' />)
     expect(
-      screen.getByText('Admin console is not available in the mini program. Please use the web app.')
+      screen.getByText(
+        'Admin console is not available in the mini program. Please use the web app.'
+      )
     ).toBeTruthy()
     expect(screen.queryByText('不提供小程序管理端，请使用网页端')).toBeNull()
   })

@@ -135,8 +135,6 @@ describe('请假记录页失败态', () => {
 
     expect(await screen.findByText('考勤状态已更新')).toBeTruthy()
     expect(screen.getByText('《德五》排练的考勤状态已更新为「出席」')).toBeTruthy()
-    await waitFor(() =>
-      expect(markCategoryReadMock).toHaveBeenCalledWith('attendance', ['n1'])
-    )
+    await waitFor(() => expect(markCategoryReadMock).toHaveBeenCalledWith('attendance', ['n1']))
   })
 })

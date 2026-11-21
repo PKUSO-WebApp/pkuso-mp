@@ -197,7 +197,10 @@ describe('取图策略的判定（判一次、本会话记住）', () => {
   it('两条路都失败 ⇒ 不下结论（可能只是网络），下一次仍然先试图片层', async () => {
     const [proxy] = freshUrls()
     await fail(
-      loadPageImage(fakeNode([{ errMsg: 'boom' }]), [proxy], { key: proxy, downloadFile: downloadNever })
+      loadPageImage(fakeNode([{ errMsg: 'boom' }]), [proxy], {
+        key: proxy,
+        downloadFile: downloadNever,
+      })
     )
     expect(isImageLayerBroken()).toBe(false)
 

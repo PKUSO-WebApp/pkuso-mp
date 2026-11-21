@@ -29,7 +29,9 @@ describe('touchEndAction（抬手这一刻该走哪条路）', () => {
   })
 
   it('一次抬起多根手指时也认得出画的那根', () => {
-    expect(call({ touchesLeft: 1, changedIds: [5, 3, 8], drawing: true, penId: 3 })).toBe('stroke-only')
+    expect(call({ touchesLeft: 1, changedIds: [5, 3, 8], drawing: true, penId: 3 })).toBe(
+      'stroke-only'
+    )
   })
 
   it('多指起手（双指缩放）时不会被误认成收笔', () => {

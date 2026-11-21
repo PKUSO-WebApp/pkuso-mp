@@ -86,7 +86,11 @@ export type FsLike = {
     success?: () => void
     fail?: (e: { errMsg?: string }) => void
   }): void
-  readdir(o: { dirPath: string; success: (res: { files: string[] }) => void; fail?: () => void }): void
+  readdir(o: {
+    dirPath: string
+    success: (res: { files: string[] }) => void
+    fail?: () => void
+  }): void
   // —— 以下只被分片下载用（见 lib/ranged-download.ts）——
   stat(o: {
     path: string
@@ -126,7 +130,11 @@ function rangedFsOf(fs: FsLike): RangedFs {
     size: (path) =>
       new Promise((resolve) => {
         try {
-          fs.stat({ path, success: (res) => resolve(res?.stats?.size ?? 0), fail: () => resolve(0) })
+          fs.stat({
+            path,
+            success: (res) => resolve(res?.stats?.size ?? 0),
+            fail: () => resolve(0),
+          })
         } catch {
           resolve(0)
         }
@@ -141,15 +149,30 @@ function rangedFsOf(fs: FsLike): RangedFs {
       }),
     write: (path, data) =>
       new Promise((resolve, reject) => {
-        fs.writeFile({ filePath: path, data, success: () => resolve(), fail: (e) => reject(fail('writeFile')(e)) })
+        fs.writeFile({
+          filePath: path,
+          data,
+          success: () => resolve(),
+          fail: (e) => reject(fail('writeFile')(e)),
+        })
       }),
     append: (path, data) =>
       new Promise((resolve, reject) => {
-        fs.appendFile({ filePath: path, data, success: () => resolve(), fail: (e) => reject(fail('appendFile')(e)) })
+        fs.appendFile({
+          filePath: path,
+          data,
+          success: () => resolve(),
+          fail: (e) => reject(fail('appendFile')(e)),
+        })
       }),
     copy: (src, dest) =>
       new Promise((resolve, reject) => {
-        fs.copyFile({ srcPath: src, destPath: dest, success: () => resolve(), fail: (e) => reject(fail('copyFile')(e)) })
+        fs.copyFile({
+          srcPath: src,
+          destPath: dest,
+          success: () => resolve(),
+          fail: (e) => reject(fail('copyFile')(e)),
+        })
       }),
     remove: (path) =>
       new Promise((resolve) => {

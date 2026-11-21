@@ -42,12 +42,12 @@ describe('shared-scores', () => {
   })
 
   it('sharedFileIds：过滤总谱并去掉空 id', () => {
-    expect(
-      [...sharedFileIds([
+    expect([
+      ...sharedFileIds([
         row({ file_id: 'a' }),
         row({ file_id: 'b', section: '总谱' }),
         row({ file_id: null }),
-      ])]
-    ).toEqual(['a'])
+      ]),
+    ]).toEqual(['a'])
   })
 })

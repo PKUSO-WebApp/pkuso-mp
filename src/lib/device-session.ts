@@ -160,10 +160,7 @@ export async function listMyDevices(
  * 纯函数：本机已在最前（或压根不在列表里）时**返回同一个引用** —— 别为一次无变化的排序
  * 制造新数组，那会让下游的 memo 白跑一遍。
  */
-export function selfFirst<T extends { deviceId: string }>(
-  devices: T[],
-  selfDeviceId: string
-): T[] {
+export function selfFirst<T extends { deviceId: string }>(devices: T[], selfDeviceId: string): T[] {
   const self = devices.find((d) => d.deviceId === selfDeviceId)
   if (!self || devices[0] === self) return devices
   return [self, ...devices.filter((d) => d !== self)]
@@ -206,7 +203,10 @@ export async function setDeviceTrust(
   }
 }
 
-export type DeleteDeviceResult = { ok: boolean; reason?: 'cannot_delete_self' | 'caller_not_trusted' }
+export type DeleteDeviceResult = {
+  ok: boolean
+  reason?: 'cannot_delete_self' | 'caller_not_trusted'
+}
 
 /**
  * 删除设备：这台设备立刻下线、从设备列表里消失，**下一次它登录时被当作新设备**

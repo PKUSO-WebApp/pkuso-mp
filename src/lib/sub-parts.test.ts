@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  defaultSubPartNumbers,
-  mergeSubPartOptions,
-  resolveSubPartPolicy,
-} from './sub-parts'
+import { defaultSubPartNumbers, mergeSubPartOptions, resolveSubPartPolicy } from './sub-parts'
 
 describe('resolveSubPartPolicy', () => {
   it('木管/铜管 = 有默认范围', () => {
