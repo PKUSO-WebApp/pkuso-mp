@@ -30,7 +30,7 @@ import { useT, useNavTitle } from '@/i18n'
 import { useThemeClass } from '@/context/theme-context'
 import { useUser } from '@/context/user-context'
 import { usePlaceholderStyle } from '@/hooks/usePlaceholderStyle'
-import { DATA_SYNC_INTERVAL_MS } from '@/lib/dataSync'
+import { DATA_SYNC_INTERVAL_MS, subscribeSync } from '@/lib/dataSync'
 import './index.scss'
 
 type RehearsalMini = {
@@ -436,11 +436,22 @@ export default function MemberAttendancePage() {
       firstShowRef.current = false
       return
     }
+    // 成员资料也强制刷新一次：单用户缓存没有 TTL，不 forced 就会一直显示上次的值
+    if (userId) void fetchProfile({ silent: true, force: true })
     if (canManage !== true) return
     if (submittingRef.current || changedRowsRef.current > 0 || modifyingRef.current > 0) return
     void load({ silent: true })
   })
   useDidHide(() => setPageActive(false))
+
+  // 心跳：member_reactions 版本变化后强制重取本条 profile（绕过单用户缓存），
+  // 别人点赞/送花后本页计数也能在 30s 内刷新。只在页面可见时做。
+  useEffect(() => {
+    if (!pageActive || !userId) return
+    return subscribeSync('reactions', () => {
+      void fetchProfile({ silent: true, force: true })
+    })
+  }, [pageActive, userId, fetchProfile])
 
   // 页面可见时每 30s 静默刷新：管理员直改考勤、或审批通过后，声部长停在本页也能看到
   // pending 消失、状态更新；有未提交修改时跳过。

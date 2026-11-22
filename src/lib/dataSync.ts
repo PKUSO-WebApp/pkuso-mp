@@ -2,7 +2,13 @@ import { supabase } from '@/lib/supabase'
 import { logDiag } from '@/lib/session-diag'
 
 export type SyncEntity =
-  'rehearsals' | 'announcements' | 'notifications' | 'leave' | 'post' | 'schedules'
+  | 'rehearsals'
+  | 'announcements'
+  | 'notifications'
+  | 'leave'
+  | 'post'
+  | 'schedules'
+  | 'reactions'
 
 type Listener = () => void
 const listeners: Record<SyncEntity, Set<Listener>> = {
@@ -12,6 +18,7 @@ const listeners: Record<SyncEntity, Set<Listener>> = {
   leave: new Set(),
   post: new Set(),
   schedules: new Set(),
+  reactions: new Set(),
 }
 
 export function subscribeSync(entity: SyncEntity, handler: Listener): () => void {
@@ -37,6 +44,7 @@ type Versions = {
   leave: string | null
   post: string | null
   schedules: string | null
+  reactions: string | null
 }
 
 type DataVersionsRow = {
@@ -46,6 +54,7 @@ type DataVersionsRow = {
   post: string | null
   notifications_unread: number | null
   schedules: string | null
+  reactions: string | null
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null
@@ -61,7 +70,7 @@ function schedule() {
   timer = setTimeout(tick, BASE_INTERVAL + jitter)
 }
 
-// 合并 5 个查询为 1 个 RPC 调用，将 HTTP 请求数从 5 降到 1
+// 把多个版本检查合并为 1 个 RPC 调用，避免每个实体各发一次请求
 async function tick() {
   if (!running) return
   try {
@@ -78,11 +87,13 @@ async function tick() {
       leave: row?.leave ?? null,
       post: row?.post ?? null,
       schedules: row?.schedules ?? null,
+      reactions: row?.reactions ?? null,
     }
     if (versions) {
       if (next.rehearsals !== versions.rehearsals) emitSync('rehearsals')
       if (next.announcements !== versions.announcements) emitSync('announcements')
       if (next.leave !== versions.leave) emitSync('leave')
+      if (next.reactions !== versions.reactions) emitSync('reactions')
       // [FALLBACK] 社区页面因无法通过微信服务类目审核，暂时关闭帖子轮询。
       // 恢复时取消下方注释，并同步恢复 CustomTabBar.tsx 中社区 tab 入口。
       // if (next.post !== versions.post) emitSync('post')

@@ -114,7 +114,7 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
   }, [isSingleUserQuery, userId])
 
   const fetch = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; force?: boolean }) => {
       if (!mountedRef.current) return
       const seq = ++fetchSeqRef.current
 
@@ -126,8 +126,9 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
         return
       }
 
-      // 单用户查询：优先返回缓存，避免重复请求
-      if (isSingleUserQuery && userId) {
+      // 单用户查询：优先返回缓存，避免重复请求。
+      // force=true（心跳/手动刷新）跳过缓存，强制走一次网络并回写缓存。
+      if (isSingleUserQuery && userId && !opts?.force) {
         const cached = singleUserCache.get(userId)
         if (cached) {
           if (!opts?.silent) setLoading(false)
@@ -135,7 +136,9 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
           setError(null)
           return
         }
-        // 标记正在加载
+      }
+      // 缓存冷（或强制刷新且本地还没有这份数据）时标记正在加载
+      if (isSingleUserQuery && userId && !singleUserCache.get(userId)) {
         singleUserCacheLoading.set(userId, true)
         notifySingleUserCacheChange(userId)
       }
@@ -161,12 +164,15 @@ export function useProfiles(filter?: ProfileFilter, client: typeof defaultClient
       setLoading(false)
       if (dbError) {
         console.error('[useProfiles] 花名册加载失败', dbError)
-        setError(APP_ERROR.loadFailed)
-        setData([])
         if (isSingleUserQuery && userId) {
           singleUserCacheLoading.delete(userId)
           notifySingleUserCacheChange(userId)
         }
+        // 静默刷新（心跳）失败不打扰用户：保留已有数据，不翻错误态。
+        // 非静默调用保持原行为（清空列表 + 错误态）。
+        if (opts?.silent) return
+        setError(APP_ERROR.loadFailed)
+        setData([])
         return
       }
 
