@@ -2,8 +2,9 @@
 
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { resetTestLocale, setTestLocale } from '@/test-utils/i18n-mock'
+import { emitSync } from '@/lib/dataSync'
 import Members from './index'
 
 const member = {
@@ -15,7 +16,14 @@ const member = {
   is_in_orchestra: true,
 }
 
-const { useProfilesMockState, fetchMock, myProfileState, capabilityState } = vi.hoisted(() => ({
+const {
+  useProfilesMockState,
+  fetchMock,
+  myProfileState,
+  capabilityState,
+  didShowRef,
+  didHideRef,
+} = vi.hoisted(() => ({
   useProfilesMockState: {
     data: [] as unknown[],
     loading: false,
@@ -26,6 +34,9 @@ const { useProfilesMockState, fetchMock, myProfileState, capabilityState } = vi.
   myProfileState: { role: 'member' as string | null },
   /** 团长能力：逐用例可改 */
   capabilityState: { attendance: false, attendanceExport: false },
+  /** 页面通过 useDidShow / useDidHide 判可见性：存下回调供心跳用例触发 */
+  didShowRef: { current: null as null | (() => void) },
+  didHideRef: { current: null as null | (() => void) },
 }))
 
 vi.mock('@tarojs/components', () => {
@@ -43,8 +54,14 @@ vi.mock('@tarojs/components', () => {
 vi.mock('@/assets/icons/user-round.png', () => ({ default: 'user-round.png' }))
 vi.mock('@tarojs/taro', () => ({
   default: { stopPullDownRefresh: vi.fn() },
-  // 首页那次/切回 tab 那次都用它触发 fetch——此处置空，让 fetch 的调用次数只由「重试」决定
-  useDidShow: vi.fn(),
+  // 首页那次/切回 tab 那次都靠它触发 fetch——这里只存回调不自动调用，
+  // 让 fetch 的调用次数只由「重试」与心跳用例决定
+  useDidShow: (cb: () => void) => {
+    didShowRef.current = cb
+  },
+  useDidHide: (cb: () => void) => {
+    didHideRef.current = cb
+  },
   usePullDownRefresh: vi.fn(),
 }))
 vi.mock('@/hooks/useProfiles', () => ({
@@ -133,6 +150,8 @@ beforeEach(() => {
   capabilityState.attendance = false
   capabilityState.attendanceExport = false
   fetchMock.mockReset()
+  didShowRef.current = null
+  didHideRef.current = null
 })
 afterEach(() => {
   cleanup()
@@ -177,6 +196,25 @@ describe('花名册页失败态与空态', () => {
     fireEvent.change(container.querySelector('input')!, { target: { value: 'zzz' } })
     expect(screen.getByText('未找到匹配的成员')).toBeTruthy()
     expect(screen.queryByText('暂无已通过成员')).toBeNull()
+  })
+})
+
+describe('点赞/送花心跳', () => {
+  it('reactions 版本变化：页面可见时静默重取，隐藏时跳过', () => {
+    useProfilesMockState.data = [member]
+    render(<Members />)
+
+    act(() => emitSync('reactions'))
+    expect(fetchMock).toHaveBeenLastCalledWith({ silent: true })
+
+    fetchMock.mockClear()
+    act(() => didHideRef.current?.())
+    act(() => emitSync('reactions'))
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    // 回到页面时 useDidShow 自己会重取一次
+    act(() => didShowRef.current?.())
+    expect(fetchMock).toHaveBeenCalled()
   })
 })
 

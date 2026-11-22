@@ -157,6 +157,38 @@ describe('useMemberReactions', () => {
     expect(rpcMock.mock.calls[1]?.[1]).toMatchObject({ p_likes: 1 })
   })
 
+  it('外部刷新晚到的旧值不会把已确认的计数压回去', async () => {
+    rpcMock.mockResolvedValue({ data: { ok: true, likes: 13, flowers: 20 }, error: null })
+    const { result, rerender } = renderHook(
+      (props: { likes: number }) =>
+        useMemberReactions({
+          targetUserId: 'u1',
+          initialLikes: props.likes,
+          initialFlowers: 20,
+        }),
+      { initialProps: { likes: 10 } }
+    )
+
+    act(() => {
+      result.current.bump('likes')
+      result.current.bump('likes')
+      result.current.bump('likes')
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(REACTION_FLUSH_DELAY_MS)
+      await Promise.resolve()
+    })
+    expect(result.current.likes).toBe(13)
+
+    // 心跳强制刷新晚到：返回的是点之前的旧值 12（比 10 新、比 13 旧）
+    rerender({ likes: 12 })
+    expect(result.current.likes).toBe(13)
+
+    // 真正更新的服务端值仍然采纳
+    rerender({ likes: 14 })
+    expect(result.current.likes).toBe(14)
+  })
+
   it('卸载时立即补发，不等 1.5s 定时器', () => {
     rpcMock.mockResolvedValue({ data: { ok: true, likes: 11, flowers: 20 }, error: null })
     const { result, unmount } = renderReactions()
