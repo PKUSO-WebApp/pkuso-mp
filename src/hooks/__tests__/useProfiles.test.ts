@@ -2,7 +2,7 @@
 
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useProfiles } from '../useProfiles'
+import { singleUserCache, useProfiles } from '../useProfiles'
 
 // 模块加载即校验环境变量，直接 mock 掉 supabase 模块（测试显式传 client，默认值不被使用）
 vi.mock('@/lib/supabase', () => ({
@@ -84,6 +84,31 @@ describe('useProfiles', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.data).toEqual([])
     expect(result.current.error).toBeNull()
+  })
+
+  it('单用户查询：缓存命中不发请求；force 绕过缓存重新拉取并回写', async () => {
+    singleUserCache.delete('u1')
+    const c = mockClient([
+      { data: [{ id: 'u1', full_name: '甲', likes_count: 1 }], error: null },
+      { data: [{ id: 'u1', full_name: '甲', likes_count: 5 }], error: null },
+    ])
+    const { result } = renderHook(() => useProfiles({ userId: 'u1' }, c as never))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.data[0].likes_count).toBe(1)
+
+    // 缓存命中：返回缓存，不发请求（responses 只有两份，再发请求会拿到 undefined 而报错）
+    await act(async () => {
+      await result.current.fetch()
+    })
+    expect(result.current.data[0].likes_count).toBe(1)
+
+    // force：绕过缓存重新拉取
+    await act(async () => {
+      await result.current.fetch({ silent: true, force: true })
+    })
+    expect(result.current.data[0].likes_count).toBe(5)
+    expect(singleUserCache.get('u1')?.[0].likes_count).toBe(5)
+    singleUserCache.delete('u1')
   })
 
   it('insert 创建 profile', async () => {

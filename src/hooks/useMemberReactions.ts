@@ -193,12 +193,14 @@ export function useMemberReactions({
     [scheduleFlush]
   )
 
-  // 服务端在别处刷新了计数（例如成员详情重新拉取）：没有本地欠账时以服务端为准
+  // 服务端在别处刷新了计数（心跳 / 成员详情重新拉取）：没有本地欠账时采纳服务端值。
+  // 计数只增不减；一次慢的旧查询可能与刚入账的本地 RPC 交错（旧值比 confirmed 小），
+  // 取较大值避免把刚点出来的数字压回去。
   useEffect(() => {
     if (pendingRef.current.likes + pendingRef.current.flowers > 0 || inFlightRef.current) return
     const next = {
-      likes: Math.max(0, initialLikes ?? 0),
-      flowers: Math.max(0, initialFlowers ?? 0),
+      likes: Math.max(confirmedRef.current.likes, Math.max(0, initialLikes ?? 0)),
+      flowers: Math.max(confirmedRef.current.flowers, Math.max(0, initialFlowers ?? 0)),
     }
     confirmedRef.current = next
     setConfirmed(next)
