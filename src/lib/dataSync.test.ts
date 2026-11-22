@@ -8,12 +8,16 @@ const { rpcData, supabaseMock } = vi.hoisted(() => {
     leave: string | null
     post: string | null
     notifications_unread: number | null
+    schedules: string | null
+    reactions: string | null
   } = {
     rehearsals: '2026-01-01T00:00:00',
     announcements: '2026-01-01T00:00:00',
     leave: '2026-01-01T00:00:00',
     post: '2026-01-01T00:00:00',
     notifications_unread: 0,
+    schedules: '2026-01-01T00:00:00',
+    reactions: null,
   }
   const mock = {
     rpc: vi.fn(() => Promise.resolve({ data, error: null })),
@@ -64,6 +68,19 @@ describe('dataSync 心跳（P3-3）', () => {
     await vi.advanceTimersByTimeAsync(45000) // 基线，lastKnownUnread=0，不广播
     expect(cb).not.toHaveBeenCalled()
     rpcData.notifications_unread = 3
+    await vi.advanceTimersByTimeAsync(45000)
+    expect(cb).toHaveBeenCalledTimes(1)
+  })
+
+  it('心跳：member_reactions 版本变化广播 reactions', async () => {
+    vi.useFakeTimers()
+    rpcData.reactions = '2026-01-01T00:00:00'
+    const cb = vi.fn()
+    subscribeSync('reactions', cb)
+    dataSyncStart()
+    await vi.advanceTimersByTimeAsync(45000) // 基线，不广播
+    expect(cb).not.toHaveBeenCalled()
+    rpcData.reactions = '2026-02-02T00:00:00'
     await vi.advanceTimersByTimeAsync(45000)
     expect(cb).toHaveBeenCalledTimes(1)
   })

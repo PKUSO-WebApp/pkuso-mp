@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView } from '@tarojs/components'
 import { TextField } from '@/components/ui/FormFields'
 import { supabase } from '@/lib/supabase'
+import { subscribeSync } from '@/lib/dataSync'
 import { SegmentTabs } from '@/components/ui/SegmentTabs'
 import { tAppError } from '@/lib/appError'
-import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
+import Taro, { useDidHide, useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { useUser } from '@/context/user-context'
 import { useSessionViewState } from '@/hooks/useSessionViewState'
 import { SessionRestoreNotice } from '@/components/session-restore-notice'
@@ -85,12 +86,29 @@ export default function Members() {
     !!myProfile?.is_principal ||
     managedSections.length > 0
 
+  // 页面可见性：心跳刷新只在可见时做（tab 页常驻内存，不可见时重取是白跑）
+  const pageActiveRef = useRef(true)
+
   // 切回本 tab 时重新拉取花名册（Taro tab 页常驻内存不卸载，仅靠挂载时一次
   // 拉取会导致「改完资料回来仍是旧数据」；回到本页静默刷新，旧数据仍展示不闪加载）
   useDidShow(() => {
+    pageActiveRef.current = true
     void fetch()
     void loadManagedSections()
   })
+  useDidHide(() => {
+    pageActiveRef.current = false
+  })
+
+  // 心跳：member_reactions 版本变化（别人点赞/送花）后静默重取花名册。
+  // 不可见时跳过——useDidShow 回来时会自己补一次。
+  useEffect(
+    () =>
+      subscribeSync('reactions', () => {
+        if (pageActiveRef.current) void fetch({ silent: true })
+      }),
+    [fetch]
+  )
 
   // 下拉刷新：重取花名册与受管声部
   usePullDownRefresh(() => {
